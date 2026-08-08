@@ -64,7 +64,7 @@ impl AiService {
         let key = self.vault.get(&profile.api_key_ref)?.unwrap_or_default();
         let response = self
             .client
-            .get(endpoint(&profile.base_url, "models"))
+            .get(endpoint(&profile.base_url, "models")?)
             .bearer_auth(key)
             .send()
             .await
@@ -166,7 +166,7 @@ impl AiService {
         let started = std::time::Instant::now();
         let mut response = self
             .client
-            .post(endpoint(&profile.base_url, "chat/completions"))
+            .post(endpoint(&profile.base_url, "chat/completions")?)
             .bearer_auth(key)
             .json(&request)
             .send()
@@ -330,8 +330,19 @@ impl SseDecoder {
     }
 }
 
-fn endpoint(base_url: &str, path: &str) -> String {
-    format!("{}/{}", base_url.trim_end_matches('/'), path)
+fn endpoint(base_url: &str, path: &str) -> Result<reqwest::Url, AppError> {
+    let mut url = reqwest::Url::parse(base_url)
+        .map_err(|error| AppError::InvalidInput(format!("invalid AI base URL: {error}")))?;
+    let configured_path = url.path().trim_end_matches('/');
+    let api_root = if configured_path.is_empty() {
+        "/v1"
+    } else {
+        configured_path
+    };
+    url.set_path(&format!("{api_root}/{}", path.trim_start_matches('/')));
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url)
 }
 
 fn summarize(body: &str) -> String {
@@ -356,12 +367,17 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_and_error_summary_are_bounded() {
+    fn endpoint_and_error_summary_are_bounded() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(
-            endpoint("http://localhost:11434/v1/", "models"),
+            endpoint("http://localhost:11434/v1/", "models")?.as_str(),
             "http://localhost:11434/v1/models"
+        );
+        assert_eq!(
+            endpoint("http://localhost:11434", "chat/completions")?.as_str(),
+            "http://localhost:11434/v1/chat/completions"
         );
         assert_eq!(summarize("line one\nline two"), "line one line two");
         assert_eq!(summarize(&"x".repeat(600)).len(), 512);
+        Ok(())
     }
 }

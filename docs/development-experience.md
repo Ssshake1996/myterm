@@ -56,6 +56,8 @@ The first release includes an original `myterm` application icon generated for t
 - AI code-block fill writes the command exactly as text and never appends carriage return.
 - Terminal output remains binary from the native channel to `Terminal.write`.
 - AI logs contain only profile ID, model, duration, and coarse usage metadata.
+- On Windows, secrets use native Credential Manager generic credentials with local-machine persistence; every write is verified by an immediate readback.
+- Plain HTTP AI endpoints expose credentials and prompts in transit. They are supported for compatibility only when the operator accepts that risk; HTTPS should be the default.
 
 ## 5. Environment and Repository Migration
 
@@ -90,6 +92,9 @@ This pattern is reusable when a specification is sourced from one repository but
 | Release command | Tauri CLI could not find `cargo` although direct Cargo commands worked | Cargo's bin directory was absent from the child process `PATH` | Add both Cargo and NASM directories to the Visual Studio Developer PowerShell environment | Release compilation starts normally |
 | NSIS bootstrap | First installer attempt timed out downloading `nsis_tauri_utils.dll` | A transient GitHub download exceeded Tauri's global timeout | Download the exact official asset with retries, verify Tauri's pinned SHA-1, and place it in the documented NSIS cache path | Subsequent NSIS packaging succeeds |
 | Empty memory | The full myterm/WebView2 process group exceeded the 80 MB target | WebView2's multiprocess baseline dominates the native shell | Lazy-load xterm and SFTP; record both main-process and aggregate private working set instead of hiding the gap | 45-second aggregate is 93.01 MB; target remains open |
+| GitHub push | Empty target rejected packs with missing parent objects | The specification checkout was both partial and shallow; changing `origin` left promised objects and merge parents unavailable | Re-add the source repository read-only, fetch without a blob filter, then `--unshallow` and run `git fsck` | Normal push creates target `main`; no force push used |
+| Windows credential vault | The keyring API reported a successful write, but immediate readback returned no entry | The upstream Windows backend uses enterprise persistence, which silently failed on this host | Use native `CredWriteW`, `CredReadW`, and `CredDeleteW` with local-machine persistence, zero the temporary byte buffer, and verify every write | Ignored real-vault round-trip test passes; AI credential remains available after the test process exits |
+| AI base URL compatibility | Model discovery worked, but streaming chat returned 0 characters and a false success | A host-only base URL sent `POST /chat/completions` to the gateway's HTML application; its OpenAI API is under `/v1` | Parse the configured URL and insert `/v1` only when it has no path; preserve explicit `/v1` and custom path prefixes | App service reports 7 models and receives the 12-character `MYTERM_AI_OK` stream marker |
 
 ## 7. Verification Ledger
 
@@ -105,20 +110,22 @@ Update this table with the exact outcome rather than an optimistic status.
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
 | Rust lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | Pass; `russh 0.54.5` emits a dependency future-incompatibility notice |
 | Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` | Pass, 17 tests run: 16 passed and 1 interactive keyring test ignored |
+| Windows credential round trip | `cargo test --manifest-path src-tauri/Cargo.toml keyring_round_trip -- --ignored --nocapture` | Pass; native vault write, read, and cleanup all succeed |
+| AI live integration | Production `AiService::test_connection` and streaming `AiService::chat` with the configured profile | Pass; 7 models found, chat completed with `stop`, 12 characters received, expected marker present |
+| AI secret audit | Inspect `%APPDATA%/myterm/config.json` and Windows Credential Manager | Pass; JSON contains only `api_key_ref`, no key prefix; referenced credential target is present |
 | Desktop visual QA | Playwright, Chromium at 1440x900 | Pass; nonblank xterm canvas and zero application console errors |
 | Narrow viewport QA | Playwright, Chromium at 390x844 | Pass; terminal and mutually exclusive AI/session overlays inspected |
 | Windows release build | `npm run build:release` | Pass; native EXE, NSIS installer, and portable ZIP produced |
 | Distribution audit | `npm run check:dist` | Pass; installer 5.87 MB, portable ZIP 5.99 MB, required files present |
 | Native startup smoke | Start release EXE with `--portable`, then close main window | Pass; process tree exits without leftovers |
 | Empty memory | 45-second private working-set sample | Main process 6.69 MB; full 7-process WebView2 group 93.01 MB, so aggregate `< 80 MB` target is not met |
-| GitHub publication | Push `main` to `Ssshake1996/myterm` | Pending release verification |
+| GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
 The browser screenshots and console logs are generated under ignored `output/playwright/` paths. They are verification artifacts rather than shipped product files.
 
 External acceptance not performed on this workstation must remain explicit:
 
 - SSH and SFTP integration against the specification's Docker OpenSSH matrix, because Docker is unavailable here.
-- Live OpenAI-compatible model validation, because no user API credential or endpoint was introduced into the build environment.
 - Final U1-U10 installation and memory measurement on a clean Windows virtual machine.
 
 ## 8. Future Skill Shape
