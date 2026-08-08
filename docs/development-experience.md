@@ -48,6 +48,12 @@ The interface uses a restrained charcoal work surface with green state, gold act
 
 The first release includes an original `myterm` application icon generated for this project. Its mark combines terminal panes into a compact M-shaped symbol, with muted green structure and a gold command cursor on charcoal. The full source image is retained at `src-tauri/icons/app-icon-source.png`; Tauri-generated Windows, macOS, iOS, Android, and web favicon variants live beside it. The same mark appears inside the app header so the packaged executable and running product share one identity.
 
+### Scalable quick-command dock
+
+The initial 43 px horizontal command bar worked for a handful of actions but did not scale to operational libraries with dozens of commands. The replacement follows the organization principles documented by the [Xshell Quick Command Manager](https://www.netsarang.com/en/xshell/) and [MobaXterm sidebar](https://mobaxterm.mobatek.net/documentation.html) without copying either product: a resizable bottom dock keeps the terminal primary, command sets form a compact vertical navigator, and the selected set uses a searchable multi-column list with visible command previews and execution modes.
+
+Desktop height defaults to 224 px and can be adjusted from 168 to 420 px with pointer or keyboard input. At narrow widths the expanded dock becomes a bounded bottom overlay so it does not permanently compress the terminal. The collapsed state remains a 34 px status strip with command counts and a labeled, high-contrast expand control instead of an ambiguous 14 px glyph.
+
 ## 4. Security Invariants
 
 - Passwords, private-key passphrases, and AI keys are accepted by forms but never read back into them.
@@ -95,6 +101,7 @@ This pattern is reusable when a specification is sourced from one repository but
 | GitHub push | Empty target rejected packs with missing parent objects | The specification checkout was both partial and shallow; changing `origin` left promised objects and merge parents unavailable | Re-add the source repository read-only, fetch without a blob filter, then `--unshallow` and run `git fsck` | Normal push creates target `main`; no force push used |
 | Windows credential vault | The keyring API reported a successful write, but immediate readback returned no entry | The upstream Windows backend uses enterprise persistence, which silently failed on this host | Use native `CredWriteW`, `CredReadW`, and `CredDeleteW` with local-machine persistence, zero the temporary byte buffer, and verify every write | Ignored real-vault round-trip test passes; AI credential remains available after the test process exits |
 | AI base URL compatibility | Model discovery worked, but streaming chat returned 0 characters and a false success | A host-only base URL sent `POST /chat/completions` to the gateway's HTML application; its OpenAI API is under `/v1` | Parse the configured URL and insert `/v1` only when it has no path; preserve explicit `/v1` and custom path prefixes | App service reports 7 models and receives the 12-character `MYTERM_AI_OK` stream marker |
+| Quick-command scale | Deployment and troubleshooting commands were confined to a one-line horizontal scroller; the 14 px collapsed marker was easy to miss | The original component modeled commands as toolbar buttons instead of a managed operational library | Replace it with a resizable dock, vertical command-set navigation, group search, multi-column scrolling rows, visible edit controls, and labeled Lucide collapse states | 32-command component test passes; 36-command Playwright QA passes at desktop and narrow viewports |
 
 ## 7. Verification Ledger
 
@@ -104,8 +111,8 @@ Update this table with the exact outcome rather than an optimistic status.
 |---|---|---|
 | TypeScript | `npm run typecheck` | Pass |
 | Frontend lint | `npm run lint` | Pass, 30 files |
-| Frontend tests | `npm test` | Pass, 10 tests across 8 files |
-| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB |
+| Frontend tests | `npm test` | Pass, 13 tests across 8 files |
+| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; main entry 54.11 kB |
 | Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Pass |
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
 | Rust lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | Pass; `russh 0.54.5` emits a dependency future-incompatibility notice |
@@ -113,8 +120,8 @@ Update this table with the exact outcome rather than an optimistic status.
 | Windows credential round trip | `cargo test --manifest-path src-tauri/Cargo.toml keyring_round_trip -- --ignored --nocapture` | Pass; native vault write, read, and cleanup all succeed |
 | AI live integration | Production `AiService::test_connection` and streaming `AiService::chat` with the configured profile | Pass; 7 models found, chat completed with `stop`, 12 characters received, expected marker present |
 | AI secret audit | Inspect `%APPDATA%/myterm/config.json` and Windows Credential Manager | Pass; JSON contains only `api_key_ref`, no key prefix; referenced credential target is present |
-| Desktop visual QA | Playwright, Chromium at 1440x900 | Pass; nonblank xterm canvas and zero application console errors |
-| Narrow viewport QA | Playwright, Chromium at 390x844 | Pass; terminal and mutually exclusive AI/session overlays inspected |
+| Desktop visual QA | Playwright, Chromium at 1440x900 | Pass; nonblank xterm canvas, 36-command dock and collapsed state inspected, zero console errors or warnings |
+| Narrow viewport QA | Playwright, Chromium at 390x844 | Pass; command dock becomes a bounded bottom overlay with no overlap or clipped controls |
 | Windows release build | `npm run build:release` | Pass; native EXE, NSIS installer, and portable ZIP produced |
 | Distribution audit | `npm run check:dist` | Pass; installer 5.87 MB, portable ZIP 5.98 MB, required files present |
 | Native startup smoke | Start release EXE with `--portable`, then close main window | Pass; process tree exits without leftovers |

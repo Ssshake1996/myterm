@@ -1,4 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ChevronUp,
+  CornerDownLeft,
+  ListTree,
+  Pencil,
+  Plus,
+  Search,
+} from "lucide-react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import {
   type QuickCommand,
   quickCommandDelete,
@@ -8,35 +19,52 @@ import {
 } from "../../ipc";
 import { getActivePane, useLayoutStore } from "../../store/layout";
 import { useUiStore } from "../../store/ui";
-import { Icon } from "../shell/Icon";
 import { Modal } from "../shell/Modal";
+
+const MIN_PANEL_HEIGHT = 168;
+const DEFAULT_PANEL_HEIGHT = 224;
+const MAX_PANEL_HEIGHT = 420;
 
 export function QuickBar() {
   const activePane = useLayoutStore(getActivePane);
   const notify = useUiStore((state) => state.notify);
   const [commands, setCommands] = useState<QuickCommand[]>([]);
   const [group, setGroup] = useState("");
+  const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState(false);
+  const [height, setHeight] = useState(DEFAULT_PANEL_HEIGHT);
   const [editing, setEditing] = useState<QuickCommand | null | undefined>(undefined);
 
-  const load = () => {
+  const load = useCallback(() => {
     void quickCommandList()
       .then((items) => {
         setCommands(items);
-        setGroup((current) => current || items[0]?.group || "常用");
+        const availableGroups = new Set(items.map((item) => item.group));
+        setGroup((current) =>
+          current && availableGroups.has(current) ? current : items[0]?.group || "常用",
+        );
       })
       .catch((error) =>
         notify(error instanceof Error ? error.message : "快捷命令读取失败", "error"),
       );
-  };
+  }, [notify]);
 
-  useEffect(load, [notify]);
+  useEffect(load, [load]);
 
   const groups = useMemo(() => [...new Set(commands.map((command) => command.group))], [commands]);
-  const visibleCommands = useMemo(
-    () => commands.filter((command) => command.group === group).sort((a, b) => a.sort - b.sort),
-    [commands, group],
-  );
+  const visibleCommands = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    return commands
+      .filter(
+        (command) =>
+          command.group === group &&
+          (!normalizedQuery ||
+            command.label.toLocaleLowerCase().includes(normalizedQuery) ||
+            command.command.toLocaleLowerCase().includes(normalizedQuery)),
+      )
+      .sort((a, b) => a.sort - b.sort);
+  }, [commands, group, query]);
+  const groupCommandCount = commands.filter((command) => command.group === group).length;
 
   const send = async (command: QuickCommand) => {
     if (!activePane?.sessionId) return;
@@ -62,74 +90,181 @@ export function QuickBar() {
     load();
   };
 
-  if (collapsed) {
-    return (
-      <div className="quickbar-collapsed">
-        <button
-          aria-label="展开快捷命令"
-          onClick={() => setCollapsed(false)}
-          title="展开快捷命令"
-          type="button"
-        >
-          <span>COMMANDS</span>
-          <Icon name="chevron" />
-        </button>
-      </div>
+  const clampHeight = (value: number) =>
+    Math.min(
+      Math.min(MAX_PANEL_HEIGHT, window.innerHeight * 0.55),
+      Math.max(MIN_PANEL_HEIGHT, value),
     );
-  }
+
+  const beginResize = (event: React.PointerEvent<HTMLHRElement>) => {
+    const startY = event.clientY;
+    const startHeight = height;
+    const move = (moveEvent: PointerEvent) => {
+      setHeight(clampHeight(startHeight + startY - moveEvent.clientY));
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
 
   return (
     <>
-      <section className="quickbar">
-        <div className="quick-groups" role="tablist">
-          {groups.map((value) => (
-            <button
-              aria-selected={value === group}
-              className={value === group ? "is-active" : ""}
-              key={value}
-              onClick={() => setGroup(value)}
-              role="tab"
-              type="button"
-            >
-              {value}
-            </button>
-          ))}
-        </div>
-        <div className="quick-commands">
-          {visibleCommands.map((command) => (
-            <button
-              className="quick-command"
-              disabled={!activePane?.sessionId || activePane.state !== "connected"}
-              key={command.id}
-              onClick={() => void send(command)}
-              onContextMenu={(event) => {
+      <section
+        aria-label="快捷命令"
+        className={`quick-command-panel${collapsed ? " is-collapsed" : ""}`}
+        style={{ "--quick-panel-height": `${height}px` } as CSSProperties}
+      >
+        {!collapsed ? (
+          <hr
+            aria-label="调整快捷命令面板高度"
+            aria-orientation="horizontal"
+            aria-valuemax={MAX_PANEL_HEIGHT}
+            aria-valuemin={MIN_PANEL_HEIGHT}
+            aria-valuenow={Math.round(height)}
+            className="quick-panel-resizer"
+            onKeyDown={(event) => {
+              if (event.key === "ArrowUp") {
                 event.preventDefault();
-                setEditing(command);
-              }}
-              title={`${command.command}${command.send_newline ? " · 自动执行" : " · 仅回填"}`}
-              type="button"
-            >
-              <span>{command.label}</span>
-              {!command.send_newline ? <small>↵</small> : null}
-            </button>
-          ))}
-        </div>
-        <button
-          aria-label="新增快捷命令"
-          className="icon-button bordered"
-          onClick={() => setEditing(null)}
-          type="button"
-        >
-          <Icon name="plus" />
-        </button>
-        <button
-          aria-label="折叠快捷命令"
-          className="icon-button"
-          onClick={() => setCollapsed(true)}
-          type="button"
-        >
-          <Icon name="chevron" />
-        </button>
+                setHeight((value) => clampHeight(value + 12));
+              }
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setHeight((value) => clampHeight(value - 12));
+              }
+            }}
+            onPointerDown={beginResize}
+            tabIndex={0}
+          />
+        ) : null}
+        <header className="quick-panel-header">
+          <div className="quick-panel-identity">
+            <span className="quick-panel-mark">
+              <ListTree aria-hidden="true" size={15} strokeWidth={1.8} />
+            </span>
+            <span className="quick-panel-copy">
+              <strong>快捷命令</strong>
+              <small>
+                {groups.length} 个命令集 · {commands.length} 条
+              </small>
+            </span>
+          </div>
+          {!collapsed ? (
+            <div className="quick-panel-tools">
+              <label className="quick-command-search">
+                <Search aria-hidden="true" size={14} strokeWidth={1.8} />
+                <input
+                  aria-label="搜索当前命令集"
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="搜索命令"
+                  type="search"
+                  value={query}
+                />
+              </label>
+              <button
+                aria-label="新建快捷命令"
+                className="quick-panel-create"
+                onClick={() => setEditing(null)}
+                title="新建快捷命令"
+                type="button"
+              >
+                <Plus aria-hidden="true" size={15} strokeWidth={2} />
+                <span>新建</span>
+              </button>
+            </div>
+          ) : null}
+          <button
+            aria-expanded={!collapsed}
+            className="quick-panel-toggle"
+            onClick={() => setCollapsed((value) => !value)}
+            title={collapsed ? "展开快捷命令" : "收起快捷命令"}
+            type="button"
+          >
+            {collapsed ? (
+              <ChevronUp aria-hidden="true" size={16} strokeWidth={2.2} />
+            ) : (
+              <ChevronDown aria-hidden="true" size={16} strokeWidth={2.2} />
+            )}
+            <span>{collapsed ? "展开" : "收起"}</span>
+          </button>
+        </header>
+        {!collapsed ? (
+          <div className="quick-panel-body">
+            <nav aria-label="命令集" className="quick-command-groups">
+              {groups.map((value) => (
+                <button
+                  aria-current={value === group ? "page" : undefined}
+                  className={value === group ? "is-active" : ""}
+                  key={value}
+                  onClick={() => setGroup(value)}
+                  type="button"
+                >
+                  <span>{value}</span>
+                  <small>{commands.filter((command) => command.group === value).length}</small>
+                </button>
+              ))}
+            </nav>
+            <section aria-label={`${group}命令`} className="quick-command-library">
+              <header className="quick-command-library-header">
+                <strong>{group}</strong>
+                <span>
+                  {visibleCommands.length === groupCommandCount
+                    ? `${groupCommandCount} 条`
+                    : `${visibleCommands.length} / ${groupCommandCount} 条`}
+                </span>
+              </header>
+              <ul className="quick-command-list">
+                {visibleCommands.map((command) => (
+                  <li
+                    className="quick-command-row"
+                    key={command.id}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      setEditing(command);
+                    }}
+                  >
+                    <button
+                      className="quick-command-main"
+                      disabled={!activePane?.sessionId || activePane.state !== "connected"}
+                      onClick={() => void send(command)}
+                      title={command.command}
+                      type="button"
+                    >
+                      <strong>{command.label}</strong>
+                      <code>{command.command}</code>
+                    </button>
+                    <span
+                      className={`quick-command-mode${command.send_newline ? "" : " is-fill"}`}
+                      title={command.send_newline ? "发送后自动回车" : "仅填入终端，不自动回车"}
+                    >
+                      {command.send_newline ? (
+                        <CornerDownLeft aria-hidden="true" size={12} strokeWidth={1.8} />
+                      ) : null}
+                      {command.send_newline ? "执行" : "回填"}
+                    </span>
+                    <button
+                      aria-label={`编辑 ${command.label}`}
+                      className="quick-command-edit"
+                      onClick={() => setEditing(command)}
+                      title="编辑命令"
+                      type="button"
+                    >
+                      <Pencil aria-hidden="true" size={13} strokeWidth={1.8} />
+                    </button>
+                  </li>
+                ))}
+                {visibleCommands.length === 0 ? (
+                  <li className="quick-command-empty">
+                    <Search aria-hidden="true" size={16} strokeWidth={1.6} />
+                    <span>没有匹配的命令</span>
+                  </li>
+                ) : null}
+              </ul>
+            </section>
+          </div>
+        ) : null}
       </section>
       {editing !== undefined ? (
         <QuickCommandModal
@@ -246,14 +381,14 @@ function QuickCommandModal({
               onClick={() => void onMove(command, -1)}
               type="button"
             >
-              ← 左移
+              <ArrowUp aria-hidden="true" size={14} /> 上移
             </button>
             <button
               className="button button-ghost"
               onClick={() => void onMove(command, 1)}
               type="button"
             >
-              右移 →
+              <ArrowDown aria-hidden="true" size={14} /> 下移
             </button>
           </div>
         ) : null}
