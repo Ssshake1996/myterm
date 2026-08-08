@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MyTerm — 界面原型</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- 标题栏 + 标签页 -->
+  <header class="titlebar">
+    <div class="brand">▣ MyTerm</div>
+    <div class="tabs" id="tabs"></div>
+    <button class="tab-add" id="tabAdd" title="新建会话">+</button>
+    <div class="win-btns"><span>─</span><span>□</span><span class="close">✕</span></div>
+  </header>
+
+  <div class="main">
+
+    <!-- 活动栏 -->
+    <nav class="activitybar">
+      <button class="act active" title="会话">🖥</button>
+      <button class="act" id="actFiles" title="文件传输">📁</button>
+      <button class="act" id="actAi" title="AI 助手">✦</button>
+      <button class="act" id="actSettings" title="设置">⚙</button>
+    </nav>
+
+    <!-- 会话管理树 -->
+    <aside class="sidebar">
+      <div class="side-head">
+        <span>会话管理</span>
+        <button class="mini" title="新建配置">＋</button>
+      </div>
+      <input class="search" placeholder="搜索主机…" id="treeSearch">
+      <div class="tree" id="tree"></div>
+      <div class="side-foot">
+        <button class="local-term" id="btnLocal">▸ 本地终端 (PowerShell)</button>
+      </div>
+    </aside>
+
+    <!-- 中央区 -->
+    <section class="center">
+      <div class="view-switch">
+        <span class="conn-info" id="connInfo">root@prod-web-01 · 192.168.1.10</span>
+        <div class="segment">
+          <button class="seg active" id="segTerm">终端</button>
+          <button class="seg" id="segFiles">文件</button>
+        </div>
+      </div>
+
+      <!-- 终端视图 -->
+      <div class="terminal" id="terminalView">
+        <div class="term-scroll" id="termScroll"></div>
+        <div class="term-inputline">
+          <span class="prompt" id="promptText">root@prod-web-01:~#</span>
+          <span class="typed" id="typedText"></span><span class="caret">▊</span>
+        </div>
+      </div>
+
+      <!-- 文件(SFTP)视图 -->
+      <div class="files hidden" id="filesView">
+        <div class="panes">
+          <div class="pane">
+            <div class="pane-head">本地: <span class="path">D:\deploy</span></div>
+            <table>
+              <thead><tr><th>名称</th><th>大小</th><th>修改时间</th></tr></thead>
+              <tbody>
+                <tr><td>📁 dist/</td><td>—</td><td>07-30 18:22</td></tr>
+                <tr class="sel"><td>📄 app.jar</td><td>48.2 MB</td><td>07-31 09:14</td></tr>
+                <tr><td>📄 config.yaml</td><td>2 KB</td><td>07-29 11:03</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pane-mid">
+            <button title="上传" id="btnUpload">→</button>
+            <button title="下载">←</button>
+          </div>
+          <div class="pane">
+            <div class="pane-head">远程: <span class="path">/opt/app</span> <em class="reuse">· 复用当前 SSH 连接</em></div>
+            <table>
+              <thead><tr><th>名称</th><th>大小</th><th>权限</th></tr></thead>
+              <tbody>
+                <tr><td>📁 logs/</td><td>—</td><td>drwxr-x---</td></tr>
+                <tr><td>📄 app.jar</td><td>47.9 MB</td><td>-rw-r--r--</td></tr>
+                <tr><td>📄 nginx.conf</td><td>4 KB</td><td>-rw-r--r--</td></tr>
+                <tr><td>📄 backup.tar.gz</td><td>1.2 GB</td><td>-rw-------</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="queue">
+          <div class="queue-head">传输队列</div>
+          <div class="task" id="uploadTask">
+            <span class="tname">↑ app.jar</span>
+            <div class="bar"><div class="fill" id="uploadFill" style="width:0%"></div></div>
+            <span class="tinfo" id="uploadInfo">等待中</span>
+            <button class="mini">✕</button>
+          </div>
+          <div class="task dim">
+            <span class="tname">↓ backup.tar.gz</span>
+            <div class="bar"><div class="fill" style="width:0%"></div></div>
+            <span class="tinfo">排队中</span>
+            <button class="mini">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 快捷命令栏 -->
+      <div class="quickbar" id="quickbar">
+        <div class="qgroups" id="qGroups"></div>
+        <div class="qcmds" id="qCmds"></div>
+        <button class="mini qadd" id="qAdd" title="新增快捷命令">＋</button>
+        <button class="mini" id="qCollapse" title="折叠">▾</button>
+      </div>
+    </section>
+
+    <!-- AI 面板 -->
+    <aside class="aipanel" id="aiPanel">
+      <div class="ai-head">
+        <span class="ai-title">✦ AI 助手</span>
+        <select class="ai-profile" id="aiProfileSel">
+          <option>DeepSeek · deepseek-chat</option>
+          <option>Ollama 本地 · qwen2.5</option>
+          <option>公司网关 · gpt-4o-mini</option>
+        </select>
+        <button class="mini" id="btnAiSettings" title="AI 设置">⚙</button>
+      </div>
+      <div class="ai-msgs" id="aiMsgs">
+        <div class="msg sys">已就绪。提问会自动附带活动终端最近 80 行输出(可关)。<br>快捷键 <kbd>Ctrl+Shift+A</kbd> 抓屏提问。</div>
+      </div>
+      <div class="ai-inputarea">
+        <label class="ctx-toggle"><input type="checkbox" id="ctxToggle" checked> 附带终端上下文(80 行)</label>
+        <div class="ai-inputrow">
+          <textarea id="aiInput" rows="2" placeholder="问点什么,或让我生成命令…"></textarea>
+          <button class="send" id="aiSend">发送</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 状态栏 -->
+  <footer class="statusbar">
+    <span id="stConn">● 已连接 · 12ms</span>
+    <span>UTF-8</span>
+    <span>SFTP 就绪</span>
+    <span class="grow"></span>
+    <span id="stAi">✦ AI: deepseek-chat</span>
+    <span>v0.1.0-proto</span>
+  </footer>
+</div>
+
+<!-- AI 设置弹窗 -->
+<div class="modal-mask hidden" id="aiModal">
+  <div class="modal">
+    <div class="modal-head">AI 设置 <button class="mini" id="aiModalClose">✕</button></div>
+    <div class="modal-body">
+      <div class="field">
+        <label>服务商预设</label>
+        <div class="presets">
+          <button class="preset" data-url="https://api.openai.com/v1" data-model="gpt-4o-mini">OpenAI</button>
+          <button class="preset active" data-url="https://api.deepseek.com/v1" data-model="deepseek-chat">DeepSeek</button>
+          <button class="preset" data-url="http://localhost:11434/v1" data-model="qwen2.5">Ollama 本地</button>
+          <button class="preset" data-url="https://ai-gw.internal/v1" data-model="gpt-4o-mini">自定义网关</button>
+        </div>
+      </div>
+      <div class="field"><label>Base URL</label><input id="fBaseUrl" value="https://api.deepseek.com/v1"></div>
+      <div class="field">
+        <label>API Key</label><input type="password" value="sk-000000000000">
+        <small>密钥加密存储于系统凭据管理器,不写入配置文件</small>
+      </div>
+      <div class="field"><label>模型</label><input id="fModel" value="deepseek-chat"></div>
+      <div class="field"><label>System Prompt</label><textarea rows="2">你是资深 Linux 运维助手,基于终端输出回答,修复命令用代码块给出。</textarea></div>
+      <div class="field"><label>上下文行数</label><input type="number" value="80" style="width:90px"></div>
+      <div class="field test-row">
+        <button class="btn" id="btnTest">测试连接</button>
+        <span class="test-ok hidden" id="testOk">✓ 连接成功 · 34 个模型可用</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="aiModalCancel">取消</button>
+      <button class="btn primary" id="aiModalSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 快捷命令编辑弹窗 -->
+<div class="modal-mask hidden" id="qModal">
+  <div class="modal small">
+    <div class="modal-head">新增快捷命令 <button class="mini" id="qModalClose">✕</button></div>
+    <div class="modal-body">
+      <div class="field"><label>显示名</label><input id="qLabel" placeholder="如:磁盘占用"></div>
+      <div class="field"><label>分组</label><input id="qGroup" value="常用"></div>
+      <div class="field"><label>命令</label><textarea id="qCommand" rows="2" placeholder="df -h"></textarea></div>
+      <div class="field"><label class="ctx-toggle"><input type="checkbox" id="qNewline" checked> 自动回车(立即执行)</label></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="qModalCancel">取消</button>
+      <button class="btn primary" id="qModalSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
