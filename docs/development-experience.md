@@ -86,6 +86,9 @@ This pattern is reusable when a specification is sourced from one repository but
 | Browser visual QA | Terminal stayed blank and console showed a Tauri `Channel` constructor error | Components constructed native Channel objects before the browser demo adapter could branch | Add `createChannel`, returning a native channel only in Tauri and a structural channel in browser mode | Terminal output renders; browser console has zero errors |
 | Narrow viewport QA | Sidebar and AI panel left only a sliver of terminal visible | Both desktop overlays initialized open below 900 px | Initialize narrow mode collapsed, make overlays mutually exclusive, and use a two-row quick-command bar | 390x844 terminal, AI, and session views are usable |
 | SSH trust persistence | Known-host replacement deleted the old file before rename | Windows rename cannot overwrite an existing destination | Reuse the configuration service's `ReplaceFileW` atomic replacement | Overwrite/readback unit test passes |
+| Release command | Tauri CLI could not find `cargo` although direct Cargo commands worked | Cargo's bin directory was absent from the child process `PATH` | Add both Cargo and NASM directories to the Visual Studio Developer PowerShell environment | Release compilation starts normally |
+| NSIS bootstrap | First installer attempt timed out downloading `nsis_tauri_utils.dll` | A transient GitHub download exceeded Tauri's global timeout | Download the exact official asset with retries, verify Tauri's pinned SHA-1, and place it in the documented NSIS cache path | Subsequent NSIS packaging succeeds |
+| Empty memory | The full myterm/WebView2 process group exceeded the 80 MB target | WebView2's multiprocess baseline dominates the native shell | Lazy-load xterm and SFTP; record both main-process and aggregate private working set instead of hiding the gap | 45-second aggregate is 93.01 MB; target remains open |
 
 ## 7. Verification Ledger
 
@@ -103,8 +106,10 @@ Update this table with the exact outcome rather than an optimistic status.
 | Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` | Pass, 17 tests run: 16 passed and 1 interactive keyring test ignored |
 | Desktop visual QA | Playwright, Chromium at 1440x900 | Pass; nonblank xterm canvas and zero application console errors |
 | Narrow viewport QA | Playwright, Chromium at 390x844 | Pass; terminal and mutually exclusive AI/session overlays inspected |
-| Windows release build | `npm run build:release` | Pending final committed source |
-| Distribution audit | `npm run check:dist` | Pending release artifacts |
+| Windows release build | `npm run build:release` | Pass; native EXE, NSIS installer, and portable ZIP produced |
+| Distribution audit | `npm run check:dist` | Pass; installer 5.87 MB, portable ZIP 5.99 MB, required files present |
+| Native startup smoke | Start release EXE with `--portable`, then close main window | Pass; process tree exits without leftovers |
+| Empty memory | 45-second private working-set sample | Main process 6.69 MB; full 7-process WebView2 group 93.01 MB, so aggregate `< 80 MB` target is not met |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pending release verification |
 
 The browser screenshots and console logs are generated under ignored `output/playwright/` paths. They are verification artifacts rather than shipped product files.
