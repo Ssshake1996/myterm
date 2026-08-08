@@ -150,6 +150,7 @@ This pattern is reusable when a specification is sourced from one repository but
 | Configuration cancel semantics | Testing a new MCP server originally required saving the whole settings object first | Backend test commands accepted only persisted IDs | Let Skill discovery accept draft directories and MCP testing accept a draft server object | Component tests prove unsaved drafts can be scanned/tested |
 | Agent observability | Streaming text could not show whether the model was deciding, waiting, or executing | The old panel modeled only user and assistant messages | Introduce typed Agent events and a tool-centric execution timeline | Desktop and 760 px visual QA show approval, result, completion, and no horizontal overflow |
 | Native build shell | Direct Cargo runs rebuilt `aws-lc-sys` without NASM and MSVC environment variables | Codex shell sessions do not inherit the Visual Studio developer environment | Load `Microsoft.VisualStudio.DevShell`, select x64, and prepend Cargo/NASM paths for native checks and release builds | Rust tests, Clippy, example linking, and release build complete |
+| Session state race | A fully authenticated terminal kept showing `connecting` | Native `connected` events were emitted before the frontend received and bound the new session ID | Return the complete `SessionInfo` from `session_connect`, atomically bind its final state to the pane, and track pre-ID failures by pane ID | Unit tests cover connected binding and pre-ID failure; installed SSH UI shows `connected` after authentication |
 
 ## 7. Verification Ledger
 
@@ -159,7 +160,7 @@ Update this table with the exact outcome rather than an optimistic status.
 |---|---|---|
 | TypeScript | `npm run typecheck` | Pass |
 | Frontend lint | `npm run lint` | Pass, 33 files |
-| Frontend tests | `npm test` | Pass, 19 tests across 10 files |
+| Frontend tests | `npm test` | Pass, 20 tests across 10 files |
 | Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; main entry 74.79 kB |
 | Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Pass |
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |

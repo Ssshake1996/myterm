@@ -21,15 +21,42 @@ describe("layout store", () => {
     useLayoutStore.getState().openProfile(profile);
     const firstPane = getActivePane(useLayoutStore.getState());
     expect(firstPane).not.toBeNull();
-    useLayoutStore.getState().bindSession(firstPane?.id ?? "", "session-left");
+    useLayoutStore.getState().bindSession(firstPane?.id ?? "", {
+      session_id: "session-left",
+      profile_id: profile.id,
+      state: "connected",
+      error: null,
+    });
 
     useLayoutStore.getState().splitActive();
     const tab = useLayoutStore.getState().tabs[0];
     expect(tab?.panes).toHaveLength(2);
     const rightPane = tab?.panes[1];
-    useLayoutStore.getState().bindSession(rightPane?.id ?? "", "session-right");
+    useLayoutStore.getState().bindSession(rightPane?.id ?? "", {
+      session_id: "session-right",
+      profile_id: profile.id,
+      state: "connected",
+      error: null,
+    });
 
     const sessions = useLayoutStore.getState().tabs[0]?.panes.map((pane) => pane.sessionId);
     expect(sessions).toEqual(["session-left", "session-right"]);
+    expect(
+      useLayoutStore.getState().tabs[0]?.panes.every((pane) => pane.state === "connected"),
+    ).toBe(true);
+  });
+
+  it("marks a pane failed when connecting ends before a session id is assigned", () => {
+    useLayoutStore.setState({ tabs: [], activeTabId: null });
+    useLayoutStore.getState().openProfile(profile);
+    const pane = getActivePane(useLayoutStore.getState());
+
+    useLayoutStore.getState().failConnection(pane?.id ?? "", "authentication failed");
+
+    expect(getActivePane(useLayoutStore.getState())).toMatchObject({
+      sessionId: null,
+      state: "failed",
+      error: "authentication failed",
+    });
   });
 });

@@ -83,7 +83,7 @@ pub async fn session_connect(
     cols: u16,
     rows: u16,
     on_data: Channel<Response>,
-) -> Result<String, IpcError> {
+) -> Result<SessionInfo, IpcError> {
     let profile = state
         .config
         .profile_list()?

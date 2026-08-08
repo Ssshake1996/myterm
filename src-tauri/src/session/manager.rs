@@ -67,7 +67,7 @@ impl SessionManager {
         cols: u16,
         rows: u16,
         output: Arc<dyn OutputSink>,
-    ) -> Result<SessionId, AppError> {
+    ) -> Result<SessionInfo, AppError> {
         let session_id = uuid::Uuid::new_v4().to_string();
         let connecting = SessionInfo {
             session_id: session_id.clone(),
@@ -138,7 +138,7 @@ impl SessionManager {
                 let _ = manager.mark_disconnected(&exited_id, None);
             }
         });
-        Ok(session_id)
+        Ok(connected)
     }
 
     pub async fn disconnect(&self, session_id: &str) -> Result<(), AppError> {

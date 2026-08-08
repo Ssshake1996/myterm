@@ -28,7 +28,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
   const searchRef = useRef<SearchAddon | null>(null);
   const sessionRef = useRef<string | null>(pane.sessionId);
   const bindSession = useLayoutStore((state) => state.bindSession);
-  const updateSession = useLayoutStore((state) => state.updateSession);
+  const failConnection = useLayoutStore((state) => state.failConnection);
   const notify = useUiStore((state) => state.notify);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
@@ -40,15 +40,15 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
     const channel = createChannel<ArrayBuffer>();
     channel.onmessage = (buffer) => terminal.write(new Uint8Array(buffer));
     try {
-      const sessionId = await sessionConnect(profile.id, terminal.cols, terminal.rows, channel);
-      sessionRef.current = sessionId;
-      bindSession(pane.id, sessionId);
+      const session = await sessionConnect(profile.id, terminal.cols, terminal.rows, channel);
+      sessionRef.current = session.session_id;
+      bindSession(pane.id, session);
     } catch (error) {
       const message = error instanceof Error ? error.message : "会话连接失败";
       notify(message, "error");
-      if (sessionRef.current) updateSession(sessionRef.current, "failed", message);
+      failConnection(pane.id, message);
     }
-  }, [bindSession, notify, pane.id, profile.id, updateSession]);
+  }, [bindSession, failConnection, notify, pane.id, profile.id]);
 
   useEffect(() => {
     const host = hostRef.current;

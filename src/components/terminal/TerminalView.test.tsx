@@ -91,7 +91,12 @@ describe("TerminalView", () => {
       configurable: true,
       value: TestResizeObserver,
     });
-    ipcMocks.sessionConnect.mockResolvedValue("session-terminal");
+    ipcMocks.sessionConnect.mockResolvedValue({
+      session_id: "session-terminal",
+      profile_id: profile.id,
+      state: "connected",
+      error: null,
+    });
     ipcMocks.terminalResize.mockResolvedValue(undefined);
     useLayoutStore.setState({ tabs: [], activeTabId: null });
   });

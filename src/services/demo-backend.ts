@@ -188,13 +188,12 @@ class DemoBackend {
     this.sessions.set(sessionId, connecting);
     this.sinks.set(sessionId, sink);
     this.emitSession(connecting);
-    window.setTimeout(() => {
-      const connected = { ...connecting, state: "connected" as const };
-      this.sessions.set(sessionId, connected);
-      this.emitSession(connected);
-      sink.onmessage(new TextEncoder().encode(terminalGreeting).buffer);
-    }, 260);
-    return sessionId;
+    await new Promise((resolve) => window.setTimeout(resolve, 260));
+    const connected = { ...connecting, state: "connected" as const };
+    this.sessions.set(sessionId, connected);
+    this.emitSession(connected);
+    sink.onmessage(new TextEncoder().encode(terminalGreeting).buffer);
+    return connected;
   }
 
   async sessionDisconnect(sessionId: string) {

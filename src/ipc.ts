@@ -184,9 +184,9 @@ export async function sessionConnect(
   cols: number,
   rows: number,
   onData: MessageChannel<ArrayBuffer>,
-): Promise<string> {
+): Promise<SessionInfo> {
   if (!isDesktopRuntime) return demoBackend.sessionConnect(profileId, cols, rows, onData);
-  return invoke<string>("session_connect", { profileId, cols, rows, onData });
+  return invoke<SessionInfo>("session_connect", { profileId, cols, rows, onData });
 }
 
 export async function sessionDisconnect(sessionId: string): Promise<void> {

@@ -170,9 +170,10 @@ fn save_profile() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn verify_profile() -> Result<(), Box<dyn std::error::Error>> {
     let (config, vault, sessions, profile) = live_services()?;
-    let session_id = sessions
+    let session = sessions
         .connect(profile, 120, 36, Arc::new(DiscardOutput))
         .await?;
+    let session_id = session.session_id;
     sessions
         .write(
             &session_id,
@@ -225,9 +226,10 @@ async fn verify_agent_with_config(
     ));
     let agent =
         myterm_lib::agent::service::AgentService::new(config, vault, sessions.clone(), sftp)?;
-    let session_id = sessions
+    let session = sessions
         .connect(profile, 120, 36, Arc::new(DiscardOutput))
         .await?;
+    let session_id = session.session_id;
     sessions
         .write(
             &session_id,

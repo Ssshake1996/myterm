@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SessionProfile, SessionState } from "../ipc";
+import type { SessionInfo, SessionProfile, SessionState } from "../ipc";
 
 export interface PaneModel {
   id: string;
@@ -27,7 +27,8 @@ interface LayoutState {
   reorderTab: (sourceId: string, targetId: string) => void;
   splitActive: () => void;
   selectPane: (tabId: string, paneId: string) => void;
-  bindSession: (paneId: string, sessionId: string) => void;
+  bindSession: (paneId: string, session: SessionInfo) => void;
+  failConnection: (paneId: string, error: string) => void;
   updateSession: (sessionId: string, state: SessionState, error: string | null) => void;
   setSplitRatio: (tabId: string, ratio: number) => void;
 }
@@ -109,12 +110,28 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       activeTabId: tabId,
       tabs: state.tabs.map((tab) => (tab.id === tabId ? { ...tab, activePaneId: paneId } : tab)),
     })),
-  bindSession: (paneId, sessionId) =>
+  bindSession: (paneId, session) =>
     set((state) => ({
       tabs: state.tabs.map((tab) => ({
         ...tab,
         panes: tab.panes.map((pane) =>
-          pane.id === paneId ? { ...pane, sessionId, state: "connecting" } : pane,
+          pane.id === paneId
+            ? {
+                ...pane,
+                sessionId: session.session_id,
+                state: session.state,
+                error: session.error,
+              }
+            : pane,
+        ),
+      })),
+    })),
+  failConnection: (paneId, error) =>
+    set((state) => ({
+      tabs: state.tabs.map((tab) => ({
+        ...tab,
+        panes: tab.panes.map((pane) =>
+          pane.id === paneId ? { ...pane, state: "failed", error } : pane,
         ),
       })),
     })),
