@@ -116,7 +116,7 @@ Update this table with the exact outcome rather than an optimistic status.
 | Desktop visual QA | Playwright, Chromium at 1440x900 | Pass; nonblank xterm canvas and zero application console errors |
 | Narrow viewport QA | Playwright, Chromium at 390x844 | Pass; terminal and mutually exclusive AI/session overlays inspected |
 | Windows release build | `npm run build:release` | Pass; native EXE, NSIS installer, and portable ZIP produced |
-| Distribution audit | `npm run check:dist` | Pass; installer 5.87 MB, portable ZIP 5.99 MB, required files present |
+| Distribution audit | `npm run check:dist` | Pass; installer 5.87 MB, portable ZIP 5.98 MB, required files present |
 | Native startup smoke | Start release EXE with `--portable`, then close main window | Pass; process tree exits without leftovers |
 | Empty memory | 45-second private working-set sample | Main process 6.69 MB; full 7-process WebView2 group 93.01 MB, so aggregate `< 80 MB` target is not met |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
