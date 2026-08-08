@@ -161,7 +161,7 @@ Update this table with the exact outcome rather than an optimistic status.
 | TypeScript | `npm run typecheck` | Pass |
 | Frontend lint | `npm run lint` | Pass, 33 files |
 | Frontend tests | `npm test` | Pass, 20 tests across 10 files |
-| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; main entry 74.79 kB |
+| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; main entry 74.96 kB |
 | Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Pass |
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
 | Rust lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | Pass; `russh 0.54.5` emits a dependency future-incompatibility notice |
@@ -176,7 +176,7 @@ Update this table with the exact outcome rather than an optimistic status.
 | Desktop visual QA | In-app Chromium at 1280x800 | Pass; nonblank xterm canvas, Agent settings, approval trace, result, and completion states inspected |
 | Narrow viewport QA | In-app Chromium at 760x800 | Pass; Agent becomes a 360 px overlay, document has no horizontal overflow, and controls remain visible |
 | Windows release build | `npm run build:release` | Pass for 0.1.2; native EXE, NSIS installer, and portable ZIP produced |
-| Distribution audit | `npm run check:dist` | Pass; 0.1.2 installer 6.54 MB, portable ZIP 6.99 MB, required files present |
+| Distribution audit | `npm run check:dist` | Pass; 0.1.2 installer 6.54 MB, portable ZIP 6.98 MB, required files present |
 | Native startup smoke | Start the installed 0.1.2 EXE and capture its rendered main window | Pass; app opens with the saved server, Agent panel, and 0.1.2 version marker visible |
 | Installed application | Install the NSIS package silently, then inspect registry and shortcuts | Pass; installed at `%LOCALAPPDATA%/myterm`, version 0.1.2, desktop and Start Menu targets resolve to the installed EXE |
 | Installed saved-server click | Click `yuxiaservers` once in the installed 0.1.2 application | Pass; the persisted profile and Windows-vault credential opened an SSH session at `root@yuxiaservers:~#` without another password prompt |
