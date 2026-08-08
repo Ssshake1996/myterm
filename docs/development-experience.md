@@ -15,6 +15,17 @@ The first release implements milestones M0 through M7 from `myterm-spec/03-build
 
 The P2 plugin host and SDK are explicitly excluded. Keeping that boundary prevents a speculative extension system from delaying the terminal and AI workflows that define the product.
 
+Version 0.1.2 replaces the single-turn assistant surface with a bounded Agent loop and completes saved-server lifecycle behavior:
+
+- Model decision, tool call, result, and continuation repeat until a final answer or the configured step limit.
+- Built-in tools cover terminal context, terminal input, active-session metadata, and local or remote directory listing.
+- Confirmation mode is the default; full access is an explicit persisted choice.
+- Local `SKILL.md` discovery and selected-skill prompt injection are bounded by directory, depth, count, and byte limits.
+- stdio MCP servers can be configured, tested, enumerated, and called through the same permission gate.
+- Server add, edit, delete, credential cleanup, reload, and click-to-connect use one profile domain service.
+
+The 0.1.2 boundary explicitly excludes multi-Agent execution, long-term memory, complex task orchestration, cloud Skill distribution, and non-stdio MCP transports.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.
@@ -39,6 +50,24 @@ The desktop application depends on Rust, WebView2, SSH targets, and optional AI 
 ### Shared session layout state
 
 Tabs, panes, active focus, session IDs, and connection state live in one Zustand store. Terminal, SFTP, quick commands, and AI all consume the active pane from that store, which prevents commands from being sent to stale or visually inactive sessions.
+
+### Transactional saved-server lifecycle
+
+Profile validation and credential lifecycle belong to `session/profile.rs`, not to React or the IPC command body. A save normalizes identity and connection fields, chooses canonical credential references, writes the credential before the JSON profile, and restores the previous credential if the atomic config write fails. Authentication changes and profile deletion remove obsolete credentials. A blank password during edit means “retain the existing secret,” never “replace it with empty text.”
+
+The UI has one explicit connection gesture: a single click opens the profile. Save and Save & Connect are separate modal actions, and deletion always requires confirmation. This prevents the earlier single-click plus double-click handler combination from opening duplicate tabs.
+
+### Bounded Agent service
+
+The Agent is a separate Rust service rather than an expanded chat component. It uses OpenAI-compatible Chat Completions function calling, keeps the complete assistant `tool_calls` message in conversation history, appends each tool result by call ID, and asks the model again. Only one run is active at a time, each run is capped at 1-12 model steps, tool output is truncated to 12,000 characters, and cancellation interrupts model waits and pending approvals.
+
+The frontend renders an execution trace rather than chat bubbles: task, model status, tool name, arguments, approval state, result/error, and final answer. This makes autonomous behavior inspectable and keeps permission decisions adjacent to the action they authorize.
+
+### Skill and MCP extension boundaries
+
+Skill discovery recursively scans configured roots to depth three, ignores symlinks, accepts only `SKILL.md`, canonicalizes IDs, and loads only selected files that were discovered under those roots. Individual and aggregate byte limits prevent unbounded prompt growth. Skill text is explicitly subordinate to application tool and permission rules.
+
+MCP v1 uses the official Rust SDK client with `TokioChildProcess`. Servers are configured as a command plus an argument array, so quoting is not reparsed by an ad hoc shell parser. Configuration tests operate on the unsaved draft; cancelling the modal therefore has no hidden persistence side effect. Enabled servers are connected when a run prepares its tool catalog, model-facing tool names are namespaced and sanitized, and actual calls pass through the same approval loop as built-in tools.
 
 ### Operational visual direction
 
@@ -71,6 +100,11 @@ Tauri's normal interactive NSIS path offers to uninstall an older version, but a
 - On Windows, secrets use native Credential Manager generic credentials with local-machine persistence; every write is verified by an immediate readback.
 - Plain HTTP AI endpoints expose credentials and prompts in transit. They are supported for compatibility only when the operator accepts that risk; HTTPS should be the default.
 - Upgrade cleanup is recursive only after the registered myterm product path exactly matches `$INSTDIR`. User configuration and credentials live outside that directory.
+- Agent confirmation mode is the default. Full access is visible, persisted, and disabled from changes while a run is active.
+- Model output cannot call arbitrary process functions; only four registered built-ins and tools enumerated from enabled MCP servers are accepted.
+- Local Skill files are canonicalized from configured roots, symlinks are ignored, and file/count/total-size limits are enforced before prompt injection.
+- MCP commands are user-authored local configuration. Arguments are stored structurally and the application does not invoke them through a shell.
+- Live integration checks read secrets only from the OS credential store or a transient process environment variable and never print secret values.
 
 ## 5. Environment and Repository Migration
 
@@ -110,6 +144,12 @@ This pattern is reusable when a specification is sourced from one repository but
 | AI base URL compatibility | Model discovery worked, but streaming chat returned 0 characters and a false success | A host-only base URL sent `POST /chat/completions` to the gateway's HTML application; its OpenAI API is under `/v1` | Parse the configured URL and insert `/v1` only when it has no path; preserve explicit `/v1` and custom path prefixes | App service reports 7 models and receives the 12-character `MYTERM_AI_OK` stream marker |
 | Quick-command scale | Deployment and troubleshooting commands were confined to a one-line horizontal scroller; the 14 px collapsed marker was easy to miss | The original component modeled commands as toolbar buttons instead of a managed operational library | Replace it with a resizable dock, vertical command-set navigation, group search, multi-column scrolling rows, visible edit controls, and labeled Lucide collapse states | 32-command component test passes; 36-command Playwright QA passes at desktop and narrow viewports |
 | Silent NSIS upgrade | A silent `0.1.0` to `0.1.1` install updated the version but left an old-install-only marker in place | Tauri's interactive maintenance page can drive uninstallation, while silent mode copies over the existing directory | Add a guarded `NSIS_HOOK_PREINSTALL` that invokes the old uninstaller in update mode and cleans the verified install directory before copying | Repeated `0.1.0` to `0.1.1` silent upgrade removes the marker, leaves one uninstall entry, and preserves configuration and credentials |
+| Saved-session duplication | A profile row had both click and double-click connection handlers | The second click of a double-click also triggered the single-click path | Make single click the only connection gesture and give edit/delete dedicated visible controls | Component test asserts exactly one connect call per click |
+| Credential edit semantics | Editing an SSH profile with a blank password could not distinguish retain from erase | Credential saving was split between the modal and separate vault IPC calls | Move profile and credential changes into one Rust domain operation with rollback and obsolete-reference cleanup | Add/edit/reload/delete tests pass with both memory and Windows vaults |
+| MCP SDK build | Current `rmcp` would not compile under the previous package MSRV | `rmcp 3.1.2` requires Rust 1.88 | Raise the package MSRV to 1.88 and compile all targets in the documented Visual Studio/NASM environment | `cargo clippy --all-targets -- -D warnings` passes |
+| Configuration cancel semantics | Testing a new MCP server originally required saving the whole settings object first | Backend test commands accepted only persisted IDs | Let Skill discovery accept draft directories and MCP testing accept a draft server object | Component tests prove unsaved drafts can be scanned/tested |
+| Agent observability | Streaming text could not show whether the model was deciding, waiting, or executing | The old panel modeled only user and assistant messages | Introduce typed Agent events and a tool-centric execution timeline | Desktop and 760 px visual QA show approval, result, completion, and no horizontal overflow |
+| Native build shell | Direct Cargo runs rebuilt `aws-lc-sys` without NASM and MSVC environment variables | Codex shell sessions do not inherit the Visual Studio developer environment | Load `Microsoft.VisualStudio.DevShell`, select x64, and prepend Cargo/NASM paths for native checks and release builds | Rust tests, Clippy, example linking, and release build complete |
 
 ## 7. Verification Ledger
 
@@ -118,18 +158,22 @@ Update this table with the exact outcome rather than an optimistic status.
 | Check | Command | Result |
 |---|---|---|
 | TypeScript | `npm run typecheck` | Pass |
-| Frontend lint | `npm run lint` | Pass, 30 files |
-| Frontend tests | `npm test` | Pass, 13 tests across 8 files |
-| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; main entry 54.11 kB |
+| Frontend lint | `npm run lint` | Pass, 33 files |
+| Frontend tests | `npm test` | Pass, 19 tests across 10 files |
+| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; main entry 74.79 kB |
 | Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Pass |
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
 | Rust lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | Pass; `russh 0.54.5` emits a dependency future-incompatibility notice |
-| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` | Pass, 17 tests run: 16 passed and 1 interactive keyring test ignored |
+| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` | Pass, 22 tests run: 21 passed and 1 interactive keyring test ignored |
 | Windows credential round trip | `cargo test --manifest-path src-tauri/Cargo.toml keyring_round_trip -- --ignored --nocapture` | Pass; native vault write, read, and cleanup all succeed |
 | AI live integration | Production `AiService::test_connection` and streaming `AiService::chat` with the configured profile | Pass; 7 models found, chat completed with `stop`, 12 characters received, expected marker present |
+| Saved-server CRUD | `live_check save-profile` and `live_check verify-crud` with the Windows credential vault | Pass; create, edit without re-entering secret, reload, delete, and credential cleanup verified |
+| Saved-server auto-login | `live_check verify-profile` after a fresh config reload | Pass; native SSH backend loaded the saved credential and authenticated as `root` |
+| Agent live integration | `live_check verify-agent` with the configured OpenAI-compatible profile and saved SSH session | Pass; model called `session_info`, `terminal_context`, `terminal_send`, and remote `list_directory`, then returned `stop` |
+| MCP live integration | `live_check verify-mcp` with the official stdio Everything server | Pass; initialization handshake completed and 13 tools were enumerated |
 | AI secret audit | Inspect `%APPDATA%/myterm/config.json` and Windows Credential Manager | Pass; JSON contains only `api_key_ref`, no key prefix; referenced credential target is present |
-| Desktop visual QA | Playwright, Chromium at 1440x900 | Pass; nonblank xterm canvas, 36-command dock and collapsed state inspected, zero console errors or warnings |
-| Narrow viewport QA | Playwright, Chromium at 390x844 | Pass; command dock becomes a bounded bottom overlay with no overlap or clipped controls |
+| Desktop visual QA | In-app Chromium at 1280x800 | Pass; nonblank xterm canvas, Agent settings, approval trace, result, and completion states inspected |
+| Narrow viewport QA | In-app Chromium at 760x800 | Pass; Agent becomes a 360 px overlay, document has no horizontal overflow, and controls remain visible |
 | Windows release build | `npm run build:release` | Pass for 0.1.1; native EXE, NSIS installer, and portable ZIP produced |
 | Distribution audit | `npm run check:dist` | Pass; 0.1.1 installer 5.88 MB, portable ZIP 5.98 MB, required files present |
 | Native startup smoke | Start release EXE with `--portable`, then close main window | Pass; process tree exits without leftovers |

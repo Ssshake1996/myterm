@@ -83,6 +83,64 @@ export interface AiChatResult {
   attachedContext?: string;
 }
 
+export type AgentPermissionMode = "full_access" | "confirm";
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  command: string;
+  args: string[];
+  cwd: string | null;
+  enabled: boolean;
+}
+
+export interface AgentSettings {
+  permission_mode: AgentPermissionMode;
+  max_steps: number;
+  skill_directories: string[];
+  enabled_skills: string[];
+  mcp_servers: McpServerConfig[];
+}
+
+export interface SkillInfo {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+}
+
+export interface McpToolInfo {
+  serverId: string;
+  serverName: string;
+  name: string;
+  description: string;
+}
+
+export interface AgentEvent {
+  eventType:
+    | "status"
+    | "tool_requested"
+    | "approval_required"
+    | "tool_result"
+    | "mcp_error"
+    | "assistant"
+    | "complete";
+  runId: string;
+  step?: number;
+  callId?: string;
+  toolName?: string;
+  message?: string;
+  content?: string;
+  arguments?: unknown;
+  isError?: boolean;
+}
+
+export interface AgentRunResult {
+  runId: string;
+  finishReason: "stop" | "aborted" | "limit";
+  steps: number;
+}
+
 export interface LocalEntry {
   name: string;
   path: string;
@@ -112,7 +170,7 @@ export function createChannel<T>(): MessageChannel<T> {
 export async function getAppInfo(): Promise<AppInfo> {
   if (!isDesktopRuntime) {
     return {
-      version: "0.1.1",
+      version: "0.1.2",
       commitHash: "browser-demo",
       startupProfile: null,
       portable: false,
@@ -156,9 +214,12 @@ export async function profileList(): Promise<SessionProfile[]> {
   return invoke<SessionProfile[]>("profile_list");
 }
 
-export async function profileSave(profile: SessionProfile): Promise<void> {
-  if (!isDesktopRuntime) return demoBackend.profileSave(profile);
-  return invoke("profile_save", { profile });
+export async function profileSave(
+  profile: SessionProfile,
+  secret?: string,
+): Promise<SessionProfile> {
+  if (!isDesktopRuntime) return demoBackend.profileSave(profile, secret);
+  return invoke<SessionProfile>("profile_save", { profile, secret });
 }
 
 export async function profileDelete(profileId: string): Promise<void> {
@@ -283,6 +344,48 @@ export async function aiChat(
 export async function aiAbort(): Promise<void> {
   if (!isDesktopRuntime) return demoBackend.aiAbort();
   return invoke("ai_abort");
+}
+
+export async function agentSettingsGet(): Promise<AgentSettings> {
+  if (!isDesktopRuntime) return demoBackend.agentSettingsGet();
+  return invoke<AgentSettings>("agent_settings_get");
+}
+
+export async function agentSettingsSave(settings: AgentSettings): Promise<AgentSettings> {
+  if (!isDesktopRuntime) return demoBackend.agentSettingsSave(settings);
+  return invoke<AgentSettings>("agent_settings_save", { settings });
+}
+
+export async function agentSkillList(skillDirectories?: string[]): Promise<SkillInfo[]> {
+  if (!isDesktopRuntime) return demoBackend.agentSkillList(skillDirectories);
+  return invoke<SkillInfo[]>("agent_skill_list", { skillDirectories });
+}
+
+export async function agentMcpTest(server: McpServerConfig): Promise<McpToolInfo[]> {
+  if (!isDesktopRuntime) return demoBackend.agentMcpTest(server);
+  return invoke<McpToolInfo[]>("agent_mcp_test", { server });
+}
+
+export async function agentRun(
+  profileId: string,
+  prompt: string,
+  sessionId: string | null,
+  onEvent: MessageChannel<AgentEvent>,
+): Promise<AgentRunResult> {
+  if (!isDesktopRuntime) {
+    return demoBackend.agentRun(profileId, prompt, sessionId, onEvent);
+  }
+  return invoke<AgentRunResult>("agent_run", { profileId, prompt, sessionId, onEvent });
+}
+
+export async function agentApprove(callId: string, approved: boolean): Promise<void> {
+  if (!isDesktopRuntime) return demoBackend.agentApprove(callId, approved);
+  return invoke("agent_approve", { callId, approved });
+}
+
+export async function agentAbort(): Promise<void> {
+  if (!isDesktopRuntime) return demoBackend.agentAbort();
+  return invoke("agent_abort");
 }
 
 export async function onSessionState(handler: (payload: SessionInfo) => void): Promise<UnlistenFn> {

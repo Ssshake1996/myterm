@@ -1,26 +1,93 @@
+import {
+  AlertTriangle,
+  Bot,
+  CheckCircle2,
+  CircleDot,
+  LoaderCircle,
+  Settings2,
+  ShieldCheck,
+  SlidersHorizontal,
+  Wrench,
+  XCircle,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
-  type AiMessage,
+  type AgentEvent,
+  type AgentSettings as AgentSettingsValue,
   type AiProfile,
-  aiAbort,
-  aiChat,
+  agentAbort,
+  agentApprove,
+  agentRun,
+  agentSettingsGet,
+  agentSettingsSave,
   aiProfileList,
   createChannel,
 } from "../../ipc";
 import { getActivePane, useLayoutStore } from "../../store/layout";
 import { useUiStore } from "../../store/ui";
 import { Icon } from "../shell/Icon";
+import { AgentSettings } from "./AgentSettings";
 import { AiSettings } from "./AiSettings";
 import { MarkdownContent } from "./MarkdownContent";
 
-interface UiMessage extends AiMessage {
-  id: string;
-  context?: string;
-}
+const DEFAULT_AGENT_SETTINGS: AgentSettingsValue = {
+  permission_mode: "confirm",
+  max_steps: 8,
+  skill_directories: [],
+  enabled_skills: [],
+  mcp_servers: [],
+};
+
+type ToolStatus = "requested" | "approval" | "running" | "success" | "error";
+
+type TraceEntry =
+  | { id: string; kind: "task"; content: string; session?: string }
+  | { id: string; kind: "status"; content: string; step?: number; error?: boolean }
+  | { id: string; kind: "assistant"; content: string; step?: number }
+  | {
+      id: string;
+      kind: "tool";
+      callId: string;
+      toolName: string;
+      arguments?: unknown;
+      result?: string;
+      step?: number;
+      status: ToolStatus;
+    };
 
 interface AiPanelProps {
   collapsed: boolean;
   onCollapsedChange: (value: boolean) => void;
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  terminal_context: "读取终端上下文",
+  terminal_send: "向活动终端发送命令",
+  session_info: "读取会话信息",
+  list_directory: "查看文件目录",
+};
+
+function toolLabel(name: string) {
+  return TOOL_LABELS[name] ?? name;
+}
+
+function formatArguments(value: unknown) {
+  if (!value || (typeof value === "object" && !Object.keys(value).length)) return "无参数";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function updateTool(
+  entries: TraceEntry[],
+  callId: string,
+  patch: Partial<Extract<TraceEntry, { kind: "tool" }>>,
+) {
+  return entries.map((entry) =>
+    entry.kind === "tool" && entry.callId === callId ? { ...entry, ...patch } : entry,
+  );
 }
 
 export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
@@ -28,22 +95,27 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   const notify = useUiStore((state) => state.notify);
   const [profiles, setProfiles] = useState<AiProfile[]>([]);
   const [profileId, setProfileId] = useState("");
-  const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [agentSettings, setAgentSettings] = useState(DEFAULT_AGENT_SETTINGS);
+  const [entries, setEntries] = useState<TraceEntry[]>([]);
   const [input, setInput] = useState("");
   const [attach, setAttach] = useState(true);
-  const [streaming, setStreaming] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [width, setWidth] = useState(348);
+  const [running, setRunning] = useState(false);
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
+  const [width, setWidth] = useState(372);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    void aiProfileList()
-      .then((items) => {
+    void Promise.all([aiProfileList(), agentSettingsGet()])
+      .then(([items, settings]) => {
         setProfiles(items);
         setProfileId((current) => current || items[0]?.id || "");
+        setAgentSettings(settings);
       })
-      .catch(() => notify("AI 配置读取失败", "error"));
+      .catch((error) =>
+        notify(error instanceof Error ? error.message : "Agent 配置读取失败", "error"),
+      );
   }, [notify]);
 
   useEffect(() => {
@@ -51,7 +123,6 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
       if (!event.ctrlKey || !event.shiftKey || event.code !== "KeyA") return;
       event.preventDefault();
       onCollapsedChange(false);
-      setAttach(true);
       window.setTimeout(() => inputRef.current?.focus(), 0);
     };
     window.addEventListener("keydown", handler);
@@ -60,68 +131,160 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
 
   const currentProfile = profiles.find((profile) => profile.id === profileId) ?? null;
 
+  const scrollToBottom = () => {
+    window.requestAnimationFrame(() =>
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }),
+    );
+  };
+
+  const onAgentEvent = (event: AgentEvent) => {
+    setEntries((current) => {
+      if (event.eventType === "tool_requested" && event.callId && event.toolName) {
+        if (current.some((entry) => entry.kind === "tool" && entry.callId === event.callId)) {
+          return current;
+        }
+        return [
+          ...current,
+          {
+            id: event.callId,
+            kind: "tool",
+            callId: event.callId,
+            toolName: event.toolName,
+            arguments: event.arguments,
+            step: event.step,
+            status: "requested",
+          },
+        ];
+      }
+      if (event.eventType === "approval_required" && event.callId) {
+        return updateTool(current, event.callId, { status: "approval" });
+      }
+      if (event.eventType === "tool_result" && event.callId) {
+        return updateTool(current, event.callId, {
+          result: event.content ?? "",
+          status: event.isError ? "error" : "success",
+        });
+      }
+      if (event.eventType === "assistant") {
+        return [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            kind: "assistant",
+            content: event.content ?? "",
+            step: event.step,
+          },
+        ];
+      }
+      if (event.eventType === "mcp_error") {
+        return [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            kind: "status",
+            content: event.message ?? "MCP 连接失败",
+            step: event.step,
+            error: true,
+          },
+        ];
+      }
+      if (event.eventType === "status") {
+        return [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            kind: "status",
+            content: event.message ?? "Agent 运行中",
+            step: event.step,
+          },
+        ];
+      }
+      if (event.eventType === "complete") {
+        const label =
+          event.message === "limit"
+            ? "已达到最大循环步数"
+            : event.message === "aborted"
+              ? "任务已停止"
+              : "任务完成";
+        return [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            kind: "status",
+            content: label,
+            step: event.step,
+            error: event.message === "limit",
+          },
+        ];
+      }
+      return current;
+    });
+    scrollToBottom();
+  };
+
   const send = async () => {
-    const question = input.trim();
-    if (!question || !profileId) {
-      if (!profileId) setSettingsOpen(true);
+    const task = input.trim();
+    if (!task || !profileId || running) {
+      if (!profileId) setAiSettingsOpen(true);
       return;
     }
-    if (streaming) await aiAbort();
-    const userId = crypto.randomUUID();
-    const assistantId = crypto.randomUUID();
-    const user: UiMessage = {
-      id: userId,
-      role: "user",
-      content: question,
-      context:
-        attach && activePane?.sessionId
-          ? `活动会话 ${activePane.title} · 最近 ${currentProfile?.context_lines ?? 80} 行终端输出`
-          : undefined,
-    };
-    const history: AiMessage[] = [...messages, user]
-      .slice(-20)
-      .map(({ role, content }) => ({ role, content }));
-    setMessages((current) => [
+    setEntries((current) => [
       ...current,
-      user,
-      { id: assistantId, role: "assistant", content: "" },
+      {
+        id: crypto.randomUUID(),
+        kind: "task",
+        content: task,
+        session: attach && activePane?.sessionId ? activePane.title : undefined,
+      },
     ]);
     setInput("");
-    setStreaming(true);
-    const channel = createChannel<string>();
-    channel.onmessage = (delta) => {
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === assistantId ? { ...message, content: message.content + delta } : message,
-        ),
-      );
-      window.requestAnimationFrame(() =>
-        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }),
-      );
-    };
+    setRunning(true);
+    const channel = createChannel<AgentEvent>();
+    channel.onmessage = onAgentEvent;
     try {
-      const result = await aiChat(
+      const result = await agentRun(
         profileId,
-        history,
+        task,
         attach ? (activePane?.sessionId ?? null) : null,
         channel,
       );
-      if (result.attachedContext) {
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === userId ? { ...message, context: result.attachedContext } : message,
-          ),
-        );
-      }
+      if (result.finishReason === "limit") notify("Agent 已达到最大循环步数", "error");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "AI 请求失败";
-      setMessages((current) =>
-        current.map((item) =>
-          item.id === assistantId ? { ...item, content: `请求失败：${message}` } : item,
-        ),
-      );
+      const message = error instanceof Error ? error.message : "Agent 运行失败";
+      setEntries((current) => [
+        ...current,
+        { id: crypto.randomUUID(), kind: "status", content: message, error: true },
+      ]);
+      notify(message, "error");
     } finally {
-      setStreaming(false);
+      setRunning(false);
+      scrollToBottom();
+    }
+  };
+
+  const approve = async (callId: string, approved: boolean) => {
+    setEntries((current) => updateTool(current, callId, { status: "running" }));
+    try {
+      await agentApprove(callId, approved);
+    } catch (error) {
+      setEntries((current) =>
+        updateTool(current, callId, {
+          result: error instanceof Error ? error.message : "审批请求已失效",
+          status: "error",
+        }),
+      );
+    }
+  };
+
+  const changePermission = async (permissionMode: AgentSettingsValue["permission_mode"]) => {
+    const previous = agentSettings;
+    const next = { ...agentSettings, permission_mode: permissionMode };
+    setAgentSettings(next);
+    try {
+      setAgentSettings(await agentSettingsSave(next));
+    } catch (error) {
+      setAgentSettings(previous);
+      notify(error instanceof Error ? error.message : "权限模式保存失败", "error");
     }
   };
 
@@ -129,7 +292,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     const startX = event.clientX;
     const startWidth = width;
     const move = (moveEvent: PointerEvent) => {
-      setWidth(Math.min(520, Math.max(300, startWidth + startX - moveEvent.clientX)));
+      setWidth(Math.min(560, Math.max(320, startWidth + startX - moveEvent.clientX)));
     };
     const stop = () => {
       window.removeEventListener("pointermove", move);
@@ -143,12 +306,12 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     return (
       <aside className="ai-rail">
         <button
-          aria-label="展开 AI 助手"
+          aria-label="展开 Agent"
           onClick={() => onCollapsedChange(false)}
-          title="AI 助手"
+          title="Agent"
           type="button"
         >
-          <Icon name="spark" />
+          <Bot size={17} />
         </button>
       </aside>
     );
@@ -157,15 +320,15 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   return (
     <aside className="ai-panel" style={{ width }}>
       <hr
-        aria-label="调整 AI 面板宽度"
+        aria-label="调整 Agent 面板宽度"
         aria-orientation="vertical"
-        aria-valuemax={520}
-        aria-valuemin={300}
+        aria-valuemax={560}
+        aria-valuemin={320}
         aria-valuenow={width}
         className="ai-resizer"
         onKeyDown={(event) => {
-          if (event.key === "ArrowLeft") setWidth((value) => Math.min(520, value + 12));
-          if (event.key === "ArrowRight") setWidth((value) => Math.max(300, value - 12));
+          if (event.key === "ArrowLeft") setWidth((value) => Math.min(560, value + 12));
+          if (event.key === "ArrowRight") setWidth((value) => Math.max(320, value - 12));
         }}
         onPointerDown={beginResize}
         tabIndex={0}
@@ -173,26 +336,37 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
       <header className="ai-header">
         <div className="ai-heading">
           <span className="ai-mark">
-            <Icon name="spark" />
+            <Bot size={15} />
           </span>
           <div>
-            <strong>AI 助手</strong>
-            <small>{activePane?.title ?? "等待会话"}</small>
+            <strong>myterm Agent</strong>
+            <small>{activePane?.title ?? "未绑定活动会话"}</small>
           </div>
         </div>
         <div className="ai-header-actions">
           <button
-            aria-label="AI 设置"
+            aria-label="AI 服务设置"
             className="icon-button"
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => setAiSettingsOpen(true)}
+            title="AI 服务设置"
             type="button"
           >
-            <Icon name="settings" />
+            <Settings2 size={15} />
           </button>
           <button
-            aria-label="折叠 AI 面板"
+            aria-label="Agent 设置"
+            className="icon-button"
+            onClick={() => setAgentSettingsOpen(true)}
+            title="Agent 设置"
+            type="button"
+          >
+            <SlidersHorizontal size={15} />
+          </button>
+          <button
+            aria-label="折叠 Agent 面板"
             className="icon-button"
             onClick={() => onCollapsedChange(true)}
+            title="折叠"
             type="button"
           >
             <Icon name="close" />
@@ -200,9 +374,10 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         </div>
       </header>
       <div className="ai-profile-row">
-        <span className="profile-status" />
+        <span className={running ? "profile-status is-running" : "profile-status"} />
         <select
           aria-label="AI 配置"
+          disabled={running}
           onChange={(event) => setProfileId(event.target.value)}
           value={profileId}
         >
@@ -212,55 +387,157 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             </option>
           ))}
         </select>
-        <span className="privacy-mark">LOCAL KEY</span>
+        <fieldset aria-label="权限模式" className="permission-switch">
+          <button
+            className={agentSettings.permission_mode === "confirm" ? "is-active" : ""}
+            disabled={running}
+            onClick={() => void changePermission("confirm")}
+            title="每次工具调用前确认"
+            type="button"
+          >
+            确认
+          </button>
+          <button
+            className={agentSettings.permission_mode === "full_access" ? "is-active" : ""}
+            disabled={running}
+            onClick={() => void changePermission("full_access")}
+            title="自动执行工具"
+            type="button"
+          >
+            授权
+          </button>
+        </fieldset>
       </div>
-      <div className="ai-messages" ref={scrollRef}>
-        {!messages.length ? (
-          <div className="ai-empty">
+
+      <div className="agent-trace" ref={scrollRef}>
+        {!entries.length ? (
+          <div className="ai-empty agent-empty">
             <span>
-              <Icon name="spark" />
+              <Bot size={17} />
             </span>
-            <h3>终端上下文已就绪</h3>
-            <p>选择活动会话后即可分析输出或生成命令。</p>
+            <h3>把排查任务交给 Agent</h3>
+            <p>Agent 会显示模型决策、工具参数、执行结果和最终答复。</p>
+            <div className="agent-capabilities">
+              <span>
+                <Wrench size={11} /> 终端与文件工具
+              </span>
+              <span>
+                <ShieldCheck size={11} />{" "}
+                {agentSettings.permission_mode === "confirm" ? "逐次确认" : "完全授权"}
+              </span>
+            </div>
             <div className="prompt-suggestions">
+              <button onClick={() => setInput("检查当前服务器的磁盘和内存使用情况")} type="button">
+                检查服务器资源
+              </button>
               <button
-                onClick={() => setInput("解释当前终端中的错误，并给出修复命令")}
+                onClick={() => setInput("读取当前终端，分析最近一次命令的错误")}
                 type="button"
               >
-                解释当前错误
-              </button>
-              <button onClick={() => setInput("生成一个安全的磁盘占用排查命令")} type="button">
-                排查磁盘占用
+                分析终端错误
               </button>
             </div>
           </div>
         ) : null}
-        {messages.map((message) => (
-          <article className={`ai-message message-${message.role}`} key={message.id}>
-            <header>{message.role === "user" ? "你" : "MYTERM AI"}</header>
-            {message.context ? (
-              <details className="context-preview" open={message.role === "user"}>
-                <summary>终端上下文</summary>
-                <pre>{message.context}</pre>
-              </details>
-            ) : null}
-            {message.role === "assistant" ? (
-              message.content ? (
-                <MarkdownContent content={message.content} />
-              ) : (
-                <span className="typing-dots">
-                  <i />
-                  <i />
-                  <i />
+        {entries.map((entry) => {
+          if (entry.kind === "task") {
+            return (
+              <article className="trace-task" key={entry.id}>
+                <header>
+                  <span>任务</span>
+                  {entry.session ? (
+                    <small>会话 · {entry.session}</small>
+                  ) : (
+                    <small>无会话上下文</small>
+                  )}
+                </header>
+                <p>{entry.content}</p>
+              </article>
+            );
+          }
+          if (entry.kind === "status") {
+            return (
+              <div
+                className={entry.error ? "trace-status is-error" : "trace-status"}
+                key={entry.id}
+              >
+                {entry.error ? <AlertTriangle size={12} /> : <CircleDot size={12} />}
+                <span>{entry.content}</span>
+                {entry.step ? <small>STEP {entry.step}</small> : null}
+              </div>
+            );
+          }
+          if (entry.kind === "assistant") {
+            return (
+              <article className="trace-answer" key={entry.id}>
+                <header>
+                  <Bot size={13} /> 最终答复
+                  {entry.step ? <small>STEP {entry.step}</small> : null}
+                </header>
+                <MarkdownContent content={entry.content} />
+              </article>
+            );
+          }
+          return (
+            <article className={`trace-tool status-${entry.status}`} key={entry.id}>
+              <header>
+                <span className="trace-tool-icon">
+                  {entry.status === "success" ? <CheckCircle2 size={13} /> : null}
+                  {entry.status === "error" ? <XCircle size={13} /> : null}
+                  {entry.status === "requested" || entry.status === "approval" ? (
+                    <Wrench size={13} />
+                  ) : null}
+                  {entry.status === "running" ? <LoaderCircle className="spin" size={13} /> : null}
                 </span>
-              )
-            ) : (
-              <p>{message.content}</p>
-            )}
-          </article>
-        ))}
+                <span>
+                  <strong>{toolLabel(entry.toolName)}</strong>
+                  <code>{entry.toolName}</code>
+                </span>
+                {entry.step ? <small>STEP {entry.step}</small> : null}
+              </header>
+              <details open={entry.status === "approval"}>
+                <summary>参数摘要</summary>
+                <pre>{formatArguments(entry.arguments)}</pre>
+              </details>
+              {entry.status === "approval" ? (
+                <div className="tool-approval">
+                  <span>是否允许执行此工具？</span>
+                  <div>
+                    <button
+                      className="button button-ghost"
+                      onClick={() => void approve(entry.callId, false)}
+                      type="button"
+                    >
+                      拒绝
+                    </button>
+                    <button
+                      className="button button-primary"
+                      onClick={() => void approve(entry.callId, true)}
+                      type="button"
+                    >
+                      允许执行
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {entry.result !== undefined ? (
+                <details className="tool-result" open={entry.status === "error"}>
+                  <summary>{entry.status === "error" ? "错误" : "执行结果"}</summary>
+                  <pre>{entry.result}</pre>
+                </details>
+              ) : null}
+            </article>
+          );
+        })}
+        {running &&
+        !entries.some((entry) => entry.kind === "tool" && entry.status === "approval") ? (
+          <div className="trace-running">
+            <LoaderCircle className="spin" size={13} /> Agent 正在运行
+          </div>
+        ) : null}
       </div>
-      <div className="ai-composer">
+
+      <div className="ai-composer agent-composer">
         <label className="context-toggle">
           <input
             checked={attach}
@@ -270,12 +547,13 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
           <span className="toggle-track">
             <span />
           </span>
-          <span>附带终端上下文</span>
-          <small>{currentProfile?.context_lines ?? 80} 行</small>
+          <span>允许使用活动会话工具</span>
+          <small>{activePane?.sessionId ? "READY" : "NO SESSION"}</small>
         </label>
         <div className="composer-box">
           <textarea
-            aria-label="询问 AI"
+            aria-label="输入 Agent 任务"
+            disabled={running}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -283,24 +561,24 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
                 void send();
               }
             }}
-            placeholder="解释输出、生成命令或排查故障"
+            placeholder="描述目标，Agent 会决定并调用工具"
             ref={inputRef}
             rows={3}
             value={input}
           />
           <button
-            aria-label={streaming ? "停止生成" : "发送"}
-            className={streaming ? "composer-send is-stop" : "composer-send"}
-            onClick={() => (streaming ? void aiAbort() : void send())}
+            aria-label={running ? "停止 Agent" : "运行 Agent"}
+            className={running ? "composer-send is-stop" : "composer-send"}
+            onClick={() => (running ? void agentAbort() : void send())}
             type="button"
           >
-            <Icon name={streaming ? "stop" : "send"} />
+            <Icon name={running ? "stop" : "send"} />
           </button>
         </div>
       </div>
-      {settingsOpen ? (
+      {aiSettingsOpen ? (
         <AiSettings
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => setAiSettingsOpen(false)}
           onSaved={(profile) => {
             setProfiles((current) => {
               const exists = current.some((candidate) => candidate.id === profile.id);
@@ -311,6 +589,13 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             setProfileId(profile.id);
           }}
           profile={currentProfile}
+        />
+      ) : null}
+      {agentSettingsOpen ? (
+        <AgentSettings
+          onClose={() => setAgentSettingsOpen(false)}
+          onSaved={setAgentSettings}
+          settings={agentSettings}
         />
       ) : null}
     </aside>

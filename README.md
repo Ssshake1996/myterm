@@ -1,6 +1,8 @@
 # myterm
 
-myterm is a lightweight desktop SSH terminal built with Tauri 2, Rust, React, and xterm.js. It combines SSH sessions, local terminals, SFTP transfers, quick commands, and an OpenAI-compatible assistant in one focused operations console.
+myterm is a lightweight desktop SSH terminal built with Tauri 2, Rust, React, and xterm.js. It combines persistent SSH sessions, local terminals, SFTP transfers, quick commands, and an OpenAI-compatible operations Agent in one focused console.
+
+The Agent follows a bounded model/tool loop, can read or write the active terminal, inspect session information, list local or remote directories, load local `SKILL.md` files, and call configured stdio MCP servers. Operators can require approval for every tool call or explicitly enable full access.
 
 ## Project Layout
 
@@ -28,9 +30,20 @@ npm run tauri dev
 
 The browser build uses an in-memory demo adapter at the IPC boundary. The packaged Tauri application uses the Rust services and OS credential vault.
 
+For optional live verification, pass credentials only through process environment variables; the example never embeds or prints them:
+
+```powershell
+cd src-tauri
+cargo run --example live_check -- verify-profile
+cargo run --example live_check -- verify-agent
+cargo run --example live_check -- verify-mcp
+```
+
 ## Security
 
 Passwords, private-key passphrases, and AI API keys must only be stored through the operating-system credential manager. Never place credentials in configuration files, logs, tests, screenshots, or issue reports.
+
+Full Agent access is an explicit operator choice. Confirmation mode is the default and pauses before every built-in or MCP tool call.
 
 ## Release
 

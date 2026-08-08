@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { localShellList, profileSave, type SessionProfile, vaultSet } from "../../ipc";
+import { localShellList, profileSave, type SessionProfile } from "../../ipc";
 import { useUiStore } from "../../store/ui";
 import { Modal } from "../shell/Modal";
 
 interface ProfileModalProps {
   profile: SessionProfile | null;
   onClose: () => void;
-  onSaved: (profile: SessionProfile) => void;
+  onSaved: (profile: SessionProfile, connect: boolean) => void;
 }
 
 export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
@@ -32,7 +32,7 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
     profile?.target.kind === "local" ? profile.target.shell : "powershell.exe",
   );
   const [shells, setShells] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
+  const [savingAction, setSavingAction] = useState<"save" | "connect" | null>(null);
 
   useEffect(() => {
     void localShellList()
@@ -43,13 +43,27 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
       .catch(() => setShells([]));
   }, [shell]);
 
-  const save = async () => {
+  const save = async (connect: boolean) => {
     if (!name.trim()) {
       notify("请输入会话名称", "error");
       return;
     }
     if (targetKind === "ssh" && (!host.trim() || !username.trim())) {
       notify("请填写主机和用户名", "error");
+      return;
+    }
+    if (targetKind === "ssh" && (!Number.isInteger(port) || port < 1 || port > 65535)) {
+      notify("端口必须在 1 到 65535 之间", "error");
+      return;
+    }
+    if (targetKind === "ssh" && authKind === "private_key" && !keyPath.trim()) {
+      notify("请填写私钥路径", "error");
+      return;
+    }
+    const retainsPassword =
+      profile?.target.kind === "ssh" && profile.target.auth.kind === "password";
+    if (targetKind === "ssh" && authKind === "password" && !secret && !retainsPassword) {
+      notify("首次保存密码认证会话时必须填写密码", "error");
       return;
     }
     const id = profile?.id ?? crypto.randomUUID();
@@ -77,17 +91,16 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
                     },
             },
     };
-    setSaving(true);
+    setSavingAction(connect ? "connect" : "save");
     try {
-      if (secret) await vaultSet(authKind === "password" ? passwordRef : passphraseRef, secret);
-      await profileSave(next);
-      onSaved(next);
+      const saved = await profileSave(next, secret || undefined);
+      onSaved(saved, connect);
       notify("会话配置已保存", "success");
       onClose();
     } catch (error) {
       notify(error instanceof Error ? error.message : "保存失败", "error");
     } finally {
-      setSaving(false);
+      setSavingAction(null);
     }
   };
 
@@ -99,19 +112,33 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
             取消
           </button>
           <button
-            className="button button-primary"
-            disabled={saving}
-            onClick={() => void save()}
+            className="button"
+            disabled={savingAction !== null}
+            onClick={() => void save(false)}
             type="button"
           >
-            {saving ? "保存中" : "保存"}
+            {savingAction === "save" ? "保存中" : "保存"}
+          </button>
+          <button
+            className="button button-primary"
+            disabled={savingAction !== null}
+            onClick={() => void save(true)}
+            type="button"
+          >
+            {savingAction === "connect"
+              ? "连接中"
+              : targetKind === "ssh"
+                ? "保存并连接"
+                : "保存并打开"}
           </button>
         </>
       }
       onClose={onClose}
+      size="large"
       title={profile ? "编辑会话" : "新建会话"}
     >
       <div className="form-grid">
+        <div className="form-section-title field-span">基本信息</div>
         <label className="field">
           <span>名称</span>
           <input onChange={(event) => setName(event.target.value)} value={name} />
@@ -150,6 +177,7 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
           </label>
         ) : (
           <>
+            <div className="form-section-title field-span">连接</div>
             <label className="field field-wide">
               <span>主机</span>
               <input
@@ -172,8 +200,9 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
               <span>用户名</span>
               <input onChange={(event) => setUsername(event.target.value)} value={username} />
             </label>
+            <div className="form-section-title field-span">认证</div>
             <div className="field field-span">
-              <span>认证</span>
+              <span>方式</span>
               <div className="segmented">
                 <button
                   className={authKind === "password" ? "is-active" : ""}
@@ -204,12 +233,14 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
             <label className="field field-span">
               <span>{authKind === "password" ? "密码" : "Passphrase"}</span>
               <input
+                aria-label={authKind === "password" ? "密码" : "Passphrase"}
                 autoComplete="new-password"
                 onChange={(event) => setSecret(event.target.value)}
                 placeholder={profile ? "已保存，留空保持不变" : "安全存入系统凭据管理器"}
                 type="password"
                 value={secret}
               />
+              <small>凭据仅保存在 Windows 凭据管理器中；编辑时留空会保留原值。</small>
             </label>
           </>
         )}

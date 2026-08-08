@@ -1,9 +1,13 @@
 import type {
+  AgentEvent,
+  AgentRunResult,
+  AgentSettings,
   AiChatResult,
   AiMessage,
   AiProfile,
   AiTestResult,
   LocalEntry,
+  McpToolInfo,
   MessageChannel,
   QuickCommand,
   RemoteEntry,
@@ -11,6 +15,14 @@ import type {
   SessionProfile,
   TransferProgress,
 } from "../ipc";
+
+const DEFAULT_AGENT_SETTINGS: AgentSettings = {
+  permission_mode: "confirm",
+  max_steps: 8,
+  skill_directories: [],
+  enabled_skills: [],
+  mcp_servers: [],
+};
 
 const DEFAULT_PROFILES: SessionProfile[] = [
   {
@@ -150,12 +162,15 @@ class DemoBackend {
   private profiles = readStored("myterm.demo.profiles", DEFAULT_PROFILES);
   private commands = readStored("myterm.demo.commands", DEFAULT_COMMANDS);
   private aiProfiles = readStored("myterm.demo.ai-profiles", DEFAULT_AI_PROFILES);
+  private agentSettings = readStored("myterm.demo.agent-settings", DEFAULT_AGENT_SETTINGS);
   private sessions = new Map<string, SessionInfo>();
   private sinks = new Map<string, MessageChannel<ArrayBuffer>>();
   private sessionHandlers = new Set<(payload: SessionInfo) => void>();
   private transferHandlers = new Set<(payload: TransferProgress) => void>();
   private transferTimers = new Map<string, number>();
   private aborted = false;
+  private agentAborted = false;
+  private approvals = new Map<string, (approved: boolean) => void>();
 
   async sessionConnect(
     profileId: string,
@@ -211,11 +226,12 @@ class DemoBackend {
     return structuredClone(this.profiles);
   }
 
-  async profileSave(profile: SessionProfile) {
+  async profileSave(profile: SessionProfile, _secret?: string) {
     const index = this.profiles.findIndex((candidate) => candidate.id === profile.id);
     if (index >= 0) this.profiles[index] = profile;
     else this.profiles.push(profile);
     writeStored("myterm.demo.profiles", this.profiles);
+    return structuredClone(profile);
   }
 
   async profileDelete(profileId: string) {
@@ -370,6 +386,122 @@ class DemoBackend {
 
   async aiAbort() {
     this.aborted = true;
+  }
+
+  async agentSettingsGet() {
+    return structuredClone(this.agentSettings);
+  }
+
+  async agentSettingsSave(settings: AgentSettings) {
+    this.agentSettings = structuredClone(settings);
+    writeStored("myterm.demo.agent-settings", this.agentSettings);
+    return structuredClone(this.agentSettings);
+  }
+
+  async agentSkillList(skillDirectories = this.agentSettings.skill_directories) {
+    return skillDirectories.length
+      ? [
+          {
+            id: `${skillDirectories[0]}\\incident-response\\SKILL.md`,
+            name: "incident-response",
+            description: "按标准流程收集服务状态、日志和资源占用。",
+            path: `${skillDirectories[0]}\\incident-response\\SKILL.md`,
+          },
+        ]
+      : [];
+  }
+
+  async agentMcpTest(server: AgentSettings["mcp_servers"][number]): Promise<McpToolInfo[]> {
+    await new Promise((resolve) => window.setTimeout(resolve, 320));
+    return [
+      {
+        serverId: server.id,
+        serverName: server.name,
+        name: `mcp__${server.name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}__list`,
+        description: "列出服务器提供的资源。",
+      },
+    ];
+  }
+
+  async agentRun(
+    _profileId: string,
+    prompt: string,
+    sessionId: string | null,
+    sink: MessageChannel<AgentEvent>,
+  ): Promise<AgentRunResult> {
+    this.agentAborted = false;
+    const runId = crypto.randomUUID();
+    const callId = crypto.randomUUID();
+    sink.onmessage({ eventType: "status", runId, message: "正在准备工具和上下文" });
+    await new Promise((resolve) => window.setTimeout(resolve, 180));
+    sink.onmessage({ eventType: "status", runId, step: 1, message: "模型决策 · 1/8" });
+    sink.onmessage({
+      eventType: "tool_requested",
+      runId,
+      step: 1,
+      callId,
+      toolName: "session_info",
+      arguments: {},
+    });
+    if (this.agentSettings.permission_mode === "confirm") {
+      sink.onmessage({
+        eventType: "approval_required",
+        runId,
+        step: 1,
+        callId,
+        toolName: "session_info",
+        arguments: {},
+      });
+      const approved = await new Promise<boolean>((resolve) => this.approvals.set(callId, resolve));
+      if (!approved || this.agentAborted) {
+        sink.onmessage({
+          eventType: "tool_result",
+          runId,
+          step: 1,
+          callId,
+          toolName: "session_info",
+          content: this.agentAborted ? "任务已停止" : "用户拒绝了本次工具调用",
+          isError: true,
+        });
+        sink.onmessage({
+          eventType: "complete",
+          runId,
+          step: 1,
+          message: this.agentAborted ? "aborted" : "stop",
+        });
+        return { runId, finishReason: this.agentAborted ? "aborted" : "stop", steps: 1 };
+      }
+    }
+    const activeSession = sessionId ? this.sessions.get(sessionId) : undefined;
+    sink.onmessage({
+      eventType: "tool_result",
+      runId,
+      step: 1,
+      callId,
+      toolName: "session_info",
+      content: JSON.stringify({ session: activeSession ?? null, profile: "prod-web-01" }, null, 2),
+      isError: false,
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 220));
+    const answer = prompt.includes("磁盘")
+      ? "已读取活动会话。根分区使用率较高，建议先运行 `du` 定位占用目录，再决定清理范围。"
+      : "已读取活动会话信息，当前连接可用，可以继续执行终端排查。";
+    sink.onmessage({ eventType: "assistant", runId, step: 2, content: answer });
+    sink.onmessage({ eventType: "complete", runId, step: 2, message: "stop" });
+    return { runId, finishReason: "stop", steps: 2 };
+  }
+
+  async agentApprove(callId: string, approved: boolean) {
+    const resolve = this.approvals.get(callId);
+    if (!resolve) throw new Error("审批请求已失效");
+    this.approvals.delete(callId);
+    resolve(approved);
+  }
+
+  async agentAbort() {
+    this.agentAborted = true;
+    for (const resolve of this.approvals.values()) resolve(false);
+    this.approvals.clear();
   }
 
   async onSessionState(handler: (payload: SessionInfo) => void) {

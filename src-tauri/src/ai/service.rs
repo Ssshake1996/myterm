@@ -330,7 +330,7 @@ impl SseDecoder {
     }
 }
 
-fn endpoint(base_url: &str, path: &str) -> Result<reqwest::Url, AppError> {
+pub(crate) fn endpoint(base_url: &str, path: &str) -> Result<reqwest::Url, AppError> {
     let mut url = reqwest::Url::parse(base_url)
         .map_err(|error| AppError::InvalidInput(format!("invalid AI base URL: {error}")))?;
     let configured_path = url.path().trim_end_matches('/');
@@ -345,7 +345,7 @@ fn endpoint(base_url: &str, path: &str) -> Result<reqwest::Url, AppError> {
     Ok(url)
 }
 
-fn summarize(body: &str) -> String {
+pub(crate) fn summarize(body: &str) -> String {
     let clean = body.replace(['\r', '\n'], " ");
     clean.chars().take(512).collect()
 }

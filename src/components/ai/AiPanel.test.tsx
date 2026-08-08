@@ -5,14 +5,18 @@ import { useLayoutStore } from "../../store/layout";
 import { AiPanel } from "./AiPanel";
 
 const ipcMocks = vi.hoisted(() => ({
+  agentAbort: vi.fn(),
+  agentApprove: vi.fn(),
+  agentRun: vi.fn(),
+  agentSettingsGet: vi.fn(),
+  agentSettingsSave: vi.fn(),
   aiProfileList: vi.fn(),
-  aiChat: vi.fn(),
-  aiAbort: vi.fn(),
 }));
 
-vi.mock("../../ipc", () => {
-  return { ...ipcMocks, createChannel: () => ({ onmessage: () => undefined }) };
-});
+vi.mock("../../ipc", () => ({
+  ...ipcMocks,
+  createChannel: () => ({ onmessage: () => undefined }),
+}));
 
 const aiProfile = {
   id: "ai-1",
@@ -24,10 +28,21 @@ const aiProfile = {
   context_lines: 80,
 };
 
-describe("AiPanel", () => {
+const settings = {
+  permission_mode: "full_access" as const,
+  max_steps: 8,
+  skill_directories: [],
+  enabled_skills: [],
+  mcp_servers: [],
+};
+
+describe("AiPanel Agent trace", () => {
   beforeEach(() => {
     ipcMocks.aiProfileList.mockResolvedValue([aiProfile]);
-    ipcMocks.aiAbort.mockResolvedValue(undefined);
+    ipcMocks.agentSettingsGet.mockResolvedValue(settings);
+    ipcMocks.agentSettingsSave.mockImplementation(async (value) => value);
+    ipcMocks.agentAbort.mockResolvedValue(undefined);
+    ipcMocks.agentApprove.mockResolvedValue(undefined);
     useLayoutStore.setState({
       activeTabId: "tab",
       tabs: [
@@ -56,38 +71,105 @@ describe("AiPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("streams deltas and attaches only the active terminal context", async () => {
-    ipcMocks.aiChat.mockImplementation(
+  it("renders model decisions, tool arguments, results and the final answer", async () => {
+    ipcMocks.agentRun.mockImplementation(
       async (
         _profileId: string,
-        _messages: unknown[],
+        _prompt: string,
         _sessionId: string,
-        channel: { onmessage: ((delta: string) => void) | null },
+        channel: { onmessage: (event: Record<string, unknown>) => void },
       ) => {
-        channel.onmessage?.("Diagnosis ");
-        channel.onmessage?.("ready");
-        return {
-          finishReason: "stop",
-          attachedContext: "[Terminal output]\nservice failed",
-        };
+        channel.onmessage({
+          eventType: "status",
+          runId: "run",
+          step: 1,
+          message: "模型决策 · 1/8",
+        });
+        channel.onmessage({
+          eventType: "tool_requested",
+          runId: "run",
+          step: 1,
+          callId: "call-1",
+          toolName: "session_info",
+          arguments: {},
+        });
+        channel.onmessage({
+          eventType: "tool_result",
+          runId: "run",
+          step: 1,
+          callId: "call-1",
+          toolName: "session_info",
+          content: '{"host":"prod-web"}',
+          isError: false,
+        });
+        channel.onmessage({
+          eventType: "assistant",
+          runId: "run",
+          step: 2,
+          content: "连接正常，可以继续排查。",
+        });
+        channel.onmessage({ eventType: "complete", runId: "run", step: 2, message: "stop" });
+        return { runId: "run", finishReason: "stop", steps: 2 };
       },
     );
     const user = userEvent.setup();
     render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
 
     await screen.findByRole("option", { name: "Ops AI · ops-model" });
-    await user.type(screen.getByRole("textbox", { name: "询问 AI" }), "分析故障");
-    await user.click(screen.getByRole("button", { name: "发送" }));
+    await user.type(screen.getByRole("textbox", { name: "输入 Agent 任务" }), "检查连接");
+    await user.click(screen.getByRole("button", { name: "运行 Agent" }));
 
     await waitFor(() =>
-      expect(ipcMocks.aiChat).toHaveBeenCalledWith(
+      expect(ipcMocks.agentRun).toHaveBeenCalledWith(
         "ai-1",
-        [{ role: "user", content: "分析故障" }],
+        "检查连接",
         "session-active",
         expect.anything(),
       ),
     );
-    expect(await screen.findByText("Diagnosis ready")).toBeInTheDocument();
-    expect(await screen.findByText(/service failed/u)).toBeInTheDocument();
+    expect(await screen.findByText("读取会话信息")).toBeInTheDocument();
+    expect(screen.getByText('{"host":"prod-web"}')).toBeInTheDocument();
+    expect(screen.getByText("连接正常，可以继续排查。")).toBeInTheDocument();
+    expect(screen.getByText("任务完成")).toBeInTheDocument();
+  });
+
+  it("pauses for tool approval in confirmation mode", async () => {
+    ipcMocks.agentSettingsGet.mockResolvedValue({ ...settings, permission_mode: "confirm" });
+    ipcMocks.agentRun.mockImplementation(
+      async (
+        _profileId: string,
+        _prompt: string,
+        _sessionId: string,
+        channel: { onmessage: (event: Record<string, unknown>) => void },
+      ) => {
+        channel.onmessage({
+          eventType: "tool_requested",
+          runId: "run",
+          step: 1,
+          callId: "approval-1",
+          toolName: "terminal_send",
+          arguments: { command: "df -h" },
+        });
+        channel.onmessage({
+          eventType: "approval_required",
+          runId: "run",
+          step: 1,
+          callId: "approval-1",
+          toolName: "terminal_send",
+          arguments: { command: "df -h" },
+        });
+        return new Promise(() => undefined);
+      },
+    );
+    const user = userEvent.setup();
+    render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
+
+    await screen.findByRole("option", { name: "Ops AI · ops-model" });
+    await user.type(screen.getByRole("textbox", { name: "输入 Agent 任务" }), "检查磁盘");
+    await user.click(screen.getByRole("button", { name: "运行 Agent" }));
+    await user.click(await screen.findByRole("button", { name: "允许执行" }));
+
+    expect(ipcMocks.agentApprove).toHaveBeenCalledWith("approval-1", true);
+    expect(screen.getByText(/df -h/u)).toBeInTheDocument();
   });
 });

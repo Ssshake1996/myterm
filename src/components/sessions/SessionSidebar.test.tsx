@@ -1,13 +1,13 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SessionProfile } from "../../ipc";
+import { profileDelete, type SessionProfile } from "../../ipc";
 import { SessionSidebar } from "./SessionSidebar";
 
 vi.mock("../../ipc", () => ({
   localShellList: vi.fn().mockResolvedValue(["powershell.exe"]),
   profileDelete: vi.fn().mockResolvedValue(undefined),
-  profileSave: vi.fn().mockResolvedValue(undefined),
+  profileSave: vi.fn(async (profile: SessionProfile) => profile),
   vaultSet: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -60,5 +60,31 @@ describe("SessionSidebar", () => {
     await user.type(screen.getByRole("textbox", { name: "搜索会话" }), "db");
     expect(screen.getByText("db-primary")).toBeInTheDocument();
     expect(screen.queryByText("web-primary")).not.toBeInTheDocument();
+  });
+
+  it("connects once on click and confirms deletion", async () => {
+    const user = userEvent.setup();
+    const onConnect = vi.fn();
+    const onProfilesChange = vi.fn();
+    render(
+      <SessionSidebar
+        editorOpen={false}
+        onConnect={onConnect}
+        onEditorOpenChange={vi.fn()}
+        onProfilesChange={onProfilesChange}
+        profiles={profiles}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "连接 db-primary" }));
+    expect(onConnect).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "删除 db-primary" }));
+    expect(profileDelete).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "删除会话" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "删除会话" }));
+
+    expect(profileDelete).toHaveBeenCalledWith("db");
+    expect(onProfilesChange).toHaveBeenCalledWith([profiles[1]]);
   });
 });

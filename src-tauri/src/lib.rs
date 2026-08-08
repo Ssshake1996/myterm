@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod ai;
 pub mod config;
 pub mod ipc;
@@ -7,6 +8,7 @@ pub mod types;
 
 use std::sync::Arc;
 
+use agent::service::AgentService;
 use ai::service::AiService;
 use config::{ConfigService, CredentialVault, KeyringVault};
 use serde::Serialize;
@@ -80,6 +82,7 @@ pub struct AppState {
     pub sessions: Arc<SessionManager>,
     pub sftp: Arc<SftpService>,
     pub ai: Arc<AiService>,
+    pub agent: Arc<AgentService>,
     pub startup_profile: Option<String>,
     pub portable: bool,
 }
@@ -148,12 +151,19 @@ pub fn run() {
             credential_vault.clone(),
             sessions.clone(),
         )?);
+        let agent = Arc::new(AgentService::new(
+            config.clone(),
+            credential_vault.clone(),
+            sessions.clone(),
+            sftp.clone(),
+        )?);
         app.manage(AppState {
             config: config.clone(),
             vault: credential_vault.clone(),
             sessions,
             sftp,
             ai,
+            agent,
             startup_profile: startup_profile.clone(),
             portable,
         });
@@ -189,6 +199,13 @@ pub fn run() {
             ipc::ai_test_connection,
             ipc::ai_chat,
             ipc::ai_abort,
+            ipc::agent_settings_get,
+            ipc::agent_settings_save,
+            ipc::agent_skill_list,
+            ipc::agent_mcp_test,
+            ipc::agent_run,
+            ipc::agent_approve,
+            ipc::agent_abort,
             ipc::local_shell_list,
         ])
         .run(tauri::generate_context!())

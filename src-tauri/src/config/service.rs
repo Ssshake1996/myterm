@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    types::{AiProfile, QuickCommand, SessionProfile},
+    types::{AgentSettings, AiProfile, QuickCommand, SessionProfile},
     AppError,
 };
 
@@ -24,6 +24,8 @@ pub struct AppConfig {
     pub quick_commands: Vec<QuickCommand>,
     pub ai_profiles: Vec<AiProfile>,
     pub settings: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub agent: AgentSettings,
 }
 
 impl Default for AppConfig {
@@ -52,6 +54,7 @@ impl Default for AppConfig {
             quick_commands: commands,
             ai_profiles: Vec::new(),
             settings: BTreeMap::new(),
+            agent: AgentSettings::default(),
         }
     }
 }
@@ -124,6 +127,22 @@ impl ConfigService {
             }
         })?;
         Ok(deleted)
+    }
+
+    pub fn agent_settings(&self) -> Result<AgentSettings, AppError> {
+        Ok(self.read()?.agent.clone())
+    }
+
+    pub fn agent_settings_save(&self, mut settings: AgentSettings) -> Result<(), AppError> {
+        settings.max_steps = settings.max_steps.clamp(1, 12);
+        settings
+            .skill_directories
+            .retain(|directory| !directory.trim().is_empty());
+        settings.skill_directories.sort();
+        settings.skill_directories.dedup();
+        settings.enabled_skills.sort();
+        settings.enabled_skills.dedup();
+        self.update(|config| config.agent = settings)
     }
 
     pub fn setting_get(&self, key: &str) -> Result<Option<Value>, AppError> {

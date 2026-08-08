@@ -7,12 +7,13 @@ use tauri::{
 };
 
 use crate::{
+    agent::{mcp, service::AgentEventSink, skills},
     ai::service::{AiChatResult, AiTestResult, DeltaSink},
-    session::{local::detect_shells, manager::OutputSink},
+    session::{local::detect_shells, manager::OutputSink, profile},
     sftp::service::local_entries,
     types::{
-        AiMessage, AiProfile, AuthMethod, QuickCommand, RemoteEntry, SessionInfo, SessionProfile,
-        TransferId,
+        AgentEvent, AgentRunResult, AgentSettings, AiMessage, AiProfile, McpServerConfig,
+        McpToolInfo, QuickCommand, RemoteEntry, SessionInfo, SessionProfile, SkillInfo, TransferId,
     },
     AppError, AppState, IpcError,
 };
@@ -34,6 +35,16 @@ impl DeltaSink for AiChannel {
         self.0
             .send(delta.to_owned())
             .map_err(|error| AppError::Ai(format!("AI channel closed: {error}")))
+    }
+}
+
+struct AgentChannel(Channel<AgentEvent>);
+
+impl AgentEventSink for AgentChannel {
+    fn send(&self, event: AgentEvent) -> Result<(), AppError> {
+        self.0
+            .send(event)
+            .map_err(|error| AppError::Ai(format!("agent event channel closed: {error}")))
     }
 }
 
@@ -136,27 +147,17 @@ pub fn profile_list(state: State<'_, AppState>) -> Result<Vec<SessionProfile>, I
 }
 
 #[tauri::command]
-pub fn profile_save(state: State<'_, AppState>, profile: SessionProfile) -> Result<(), IpcError> {
-    state.config.profile_save(profile).map_err(Into::into)
+pub fn profile_save(
+    state: State<'_, AppState>,
+    profile: SessionProfile,
+    secret: Option<String>,
+) -> Result<SessionProfile, IpcError> {
+    profile::save(&state.config, state.vault.as_ref(), profile, secret).map_err(Into::into)
 }
 
 #[tauri::command]
 pub fn profile_delete(state: State<'_, AppState>, profile_id: String) -> Result<(), IpcError> {
-    let deleted = state.config.profile_delete(&profile_id)?;
-    if let Some(profile) = deleted {
-        match profile.target {
-            crate::types::SessionTarget::Ssh { auth, .. } => match auth {
-                AuthMethod::Password { vault_ref } => state.vault.delete(&vault_ref)?,
-                AuthMethod::PrivateKey { passphrase_ref, .. } => {
-                    if let Some(reference) = passphrase_ref {
-                        state.vault.delete(&reference)?;
-                    }
-                }
-            },
-            crate::types::SessionTarget::Local { .. } => {}
-        }
-    }
-    Ok(())
+    profile::delete(&state.config, state.vault.as_ref(), &profile_id).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -351,13 +352,111 @@ pub async fn ai_abort(state: State<'_, AppState>) -> Result<(), IpcError> {
 }
 
 #[tauri::command]
+pub fn agent_settings_get(state: State<'_, AppState>) -> Result<AgentSettings, IpcError> {
+    state.config.agent_settings().map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn agent_settings_save(
+    state: State<'_, AppState>,
+    settings: AgentSettings,
+) -> Result<AgentSettings, IpcError> {
+    state.config.agent_settings_save(settings)?;
+    state.config.agent_settings().map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn agent_skill_list(
+    state: State<'_, AppState>,
+    skill_directories: Option<Vec<String>>,
+) -> Result<Vec<SkillInfo>, IpcError> {
+    let directories = match skill_directories {
+        Some(directories) => directories,
+        None => state.config.agent_settings()?.skill_directories,
+    };
+    skills::discover(&directories).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn agent_mcp_test(server: McpServerConfig) -> Result<Vec<McpToolInfo>, IpcError> {
+    mcp::list_tool_info(&server).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn agent_run(
+    state: State<'_, AppState>,
+    profile_id: String,
+    prompt: String,
+    session_id: Option<String>,
+    on_event: Channel<AgentEvent>,
+) -> Result<AgentRunResult, IpcError> {
+    state
+        .agent
+        .run(
+            &profile_id,
+            prompt,
+            session_id,
+            Arc::new(AgentChannel(on_event)),
+        )
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn agent_approve(
+    state: State<'_, AppState>,
+    call_id: String,
+    approved: bool,
+) -> Result<(), IpcError> {
+    state
+        .agent
+        .approve(&call_id, approved)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn agent_abort(state: State<'_, AppState>) -> Result<(), IpcError> {
+    state.agent.abort().await;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn local_shell_list() -> Vec<String> {
     detect_shells()
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::AppInfo;
+    use crate::{
+        config::{ConfigService, CredentialVault, MemoryVault},
+        session::profile,
+        types::{AuthMethod, SessionProfile, SessionTarget},
+        AppError,
+    };
+
+    fn test_root() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("myterm-profile-ipc-{}", uuid::Uuid::new_v4()))
+    }
+
+    fn password_profile(id: &str, name: &str, host: &str) -> SessionProfile {
+        SessionProfile {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            group: "测试/服务器".to_owned(),
+            target: SessionTarget::Ssh {
+                host: host.to_owned(),
+                port: 22,
+                username: "root".to_owned(),
+                auth: AuthMethod::Password {
+                    vault_ref: "untrusted-frontend-reference".to_owned(),
+                },
+            },
+        }
+    }
 
     #[test]
     fn build_information_is_injected() {
@@ -369,5 +468,88 @@ mod tests {
         };
         assert!(!info.version.is_empty());
         assert!(!info.commit_hash.is_empty());
+    }
+
+    #[test]
+    fn profile_save_requires_a_password_and_persists_edits(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let root = test_root();
+        let path = root.join("config.json");
+        let config = ConfigService::open(path.clone())?;
+        let vault = MemoryVault::default();
+        let profile = password_profile("server-one", "初始名称", "192.168.3.94");
+
+        assert!(matches!(
+            profile::save(&config, &vault, profile.clone(), None),
+            Err(AppError::InvalidInput(_))
+        ));
+        let saved = profile::save(&config, &vault, profile, Some("test-password".to_owned()))?;
+        let reference = match &saved.target {
+            SessionTarget::Ssh {
+                auth: AuthMethod::Password { vault_ref },
+                ..
+            } => vault_ref,
+            _ => unreachable!(),
+        };
+        assert_eq!(reference, "profile.server-one.password");
+        assert_eq!(vault.get(reference)?.as_deref(), Some("test-password"));
+
+        let edited = password_profile("server-one", "修改后名称", "192.168.3.95");
+        profile::save(&config, &vault, edited, None)?;
+        let reloaded = ConfigService::open(path)?;
+        let profiles = reloaded.profile_list()?;
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].name, "修改后名称");
+        assert!(matches!(
+            &profiles[0].target,
+            SessionTarget::Ssh { host, .. } if host == "192.168.3.95"
+        ));
+        assert_eq!(vault.get(reference)?.as_deref(), Some("test-password"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn profile_auth_changes_and_deletion_remove_credentials(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let root = test_root();
+        let config = ConfigService::open(root.join("config.json"))?;
+        let vault = MemoryVault::default();
+        let saved = profile::save(
+            &config,
+            &vault,
+            password_profile("server-two", "服务器", "192.168.3.94"),
+            Some("test-password".to_owned()),
+        )?;
+        let password_ref = match &saved.target {
+            SessionTarget::Ssh {
+                auth: AuthMethod::Password { vault_ref },
+                ..
+            } => vault_ref.clone(),
+            _ => unreachable!(),
+        };
+
+        let local = SessionProfile {
+            target: SessionTarget::Local {
+                shell: "powershell.exe".to_owned(),
+            },
+            ..saved
+        };
+        profile::save(&config, &vault, local, None)?;
+        assert!(vault.get(&password_ref)?.is_none());
+
+        profile::save(
+            &config,
+            &vault,
+            password_profile("server-two", "服务器", "192.168.3.94"),
+            Some("replacement-password".to_owned()),
+        )?;
+        profile::delete(&config, &vault, "server-two")?;
+        assert!(config.profile_list()?.is_empty());
+        assert!(vault.get(&password_ref)?.is_none());
+
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 }

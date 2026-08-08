@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 // ── Session profiles ─────────────────────────────────────
 
@@ -113,6 +114,101 @@ pub struct AiProfile {
     pub model: String,
     pub system_prompt: String,
     pub context_lines: u32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentPermissionMode {
+    FullAccess,
+    #[default]
+    Confirm,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    pub id: String,
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    pub cwd: Option<String>,
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+}
+
+fn enabled_by_default() -> bool {
+    true
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct AgentSettings {
+    pub permission_mode: AgentPermissionMode,
+    pub max_steps: u8,
+    #[serde(default)]
+    pub skill_directories: Vec<String>,
+    #[serde(default)]
+    pub enabled_skills: Vec<String>,
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerConfig>,
+}
+
+impl Default for AgentSettings {
+    fn default() -> Self {
+        Self {
+            permission_mode: AgentPermissionMode::Confirm,
+            max_steps: 8,
+            skill_directories: Vec::new(),
+            enabled_skills: Vec::new(),
+            mcp_servers: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInfo {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub path: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpToolInfo {
+    pub server_id: String,
+    pub server_name: String,
+    pub name: String,
+    pub description: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEvent {
+    pub event_type: String,
+    pub run_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_error: Option<bool>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRunResult {
+    pub run_id: String,
+    pub finish_reason: String,
+    pub steps: u8,
 }
 
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]

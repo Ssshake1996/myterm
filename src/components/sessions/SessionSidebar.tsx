@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { profileDelete, type SessionProfile } from "../../ipc";
 import { useUiStore } from "../../store/ui";
 import { Icon } from "../shell/Icon";
+import { Modal } from "../shell/Modal";
 import { ProfileModal } from "./ProfileModal";
 
 interface SessionSidebarProps {
@@ -51,17 +52,20 @@ function ProfileRow({
   onDelete: () => void;
 }) {
   const detail =
-    profile.target.kind === "ssh" ? profile.target.host : profile.target.shell.replace(".exe", "");
+    profile.target.kind === "ssh"
+      ? `${profile.target.username}@${profile.target.host}:${profile.target.port}`
+      : profile.target.shell.replace(".exe", "");
   return (
     <div className="profile-row">
       <button
         className="profile-main"
+        aria-label={`连接 ${profile.name}`}
         onClick={onConnect}
         onContextMenu={(event) => {
           event.preventDefault();
           onEdit();
         }}
-        onDoubleClick={onConnect}
+        title={`连接 ${profile.name}`}
         type="button"
       >
         <span className={`profile-glyph ${profile.target.kind}`}>
@@ -77,6 +81,7 @@ function ProfileRow({
           aria-label={`编辑 ${profile.name}`}
           className="icon-button"
           onClick={onEdit}
+          title="编辑会话"
           type="button"
         >
           <Icon name="edit" />
@@ -85,6 +90,7 @@ function ProfileRow({
           aria-label={`删除 ${profile.name}`}
           className="icon-button danger"
           onClick={onDelete}
+          title="删除会话"
           type="button"
         >
           <Icon name="trash" />
@@ -157,12 +163,16 @@ export function SessionSidebar({
   const notify = useUiStore((state) => state.notify);
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<SessionProfile | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<SessionProfile | null>(null);
   const filtered = useMemo(() => {
     const value = query.trim().toLocaleLowerCase();
     if (!value) return profiles;
     return profiles.filter((profile) => {
       const host = profile.target.kind === "ssh" ? profile.target.host : profile.target.shell;
-      return `${profile.name} ${host}`.toLocaleLowerCase().includes(value);
+      const username = profile.target.kind === "ssh" ? profile.target.username : "";
+      return `${profile.name} ${profile.group} ${username} ${host}`
+        .toLocaleLowerCase()
+        .includes(value);
     });
   }, [profiles, query]);
   const groups = useMemo(() => buildTree(filtered), [filtered]);
@@ -185,15 +195,18 @@ export function SessionSidebar({
       <div className="sidebar-heading">
         <div>
           <span className="eyebrow">WORKSPACES</span>
-          <h2>会话</h2>
+          <h2>
+            会话 <small>{profiles.length}</small>
+          </h2>
         </div>
         <button
           aria-label="新建会话配置"
-          className="icon-button bordered"
+          className="button sidebar-new-button"
           onClick={() => onEditorOpenChange(true)}
           type="button"
         >
           <Icon name="plus" />
+          新建
         </button>
       </div>
       <label className="searchbox">
@@ -218,7 +231,7 @@ export function SessionSidebar({
               key={node.path}
               node={node}
               onConnect={onConnect}
-              onDelete={(profile) => void remove(profile)}
+              onDelete={setPendingDelete}
               onEdit={setEditing}
             />
           ))
@@ -249,15 +262,45 @@ export function SessionSidebar({
             setEditing(null);
             onEditorOpenChange(false);
           }}
-          onSaved={(profile) => {
+          onSaved={(profile, connect) => {
             const index = profiles.findIndex((candidate) => candidate.id === profile.id);
             const next = [...profiles];
             if (index >= 0) next[index] = profile;
             else next.push(profile);
             onProfilesChange(next);
+            if (connect) onConnect(profile);
           }}
           profile={editing}
         />
+      ) : null}
+      {pendingDelete ? (
+        <Modal
+          footer={
+            <>
+              <button className="button" onClick={() => setPendingDelete(null)} type="button">
+                取消
+              </button>
+              <button
+                className="button button-danger"
+                onClick={() => {
+                  const profile = pendingDelete;
+                  setPendingDelete(null);
+                  void remove(profile);
+                }}
+                type="button"
+              >
+                删除会话
+              </button>
+            </>
+          }
+          onClose={() => setPendingDelete(null)}
+          size="small"
+          title="删除会话"
+        >
+          <p className="confirm-copy">
+            确认删除“{pendingDelete.name}”？对应的系统凭据也会一并清除。
+          </p>
+        </Modal>
       ) : null}
     </aside>
   );
