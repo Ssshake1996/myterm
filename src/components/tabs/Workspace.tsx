@@ -1,10 +1,15 @@
-import { Fragment, useEffect } from "react";
+import { Fragment, lazy, Suspense, useEffect } from "react";
 import type { SessionProfile } from "../../ipc";
 import { useLayoutStore } from "../../store/layout";
 import { useUiStore } from "../../store/ui";
-import { SftpView } from "../sftp/SftpView";
 import { Icon } from "../shell/Icon";
-import { TerminalView } from "../terminal/TerminalView";
+
+const SftpView = lazy(() =>
+  import("../sftp/SftpView").then((module) => ({ default: module.SftpView })),
+);
+const TerminalView = lazy(() =>
+  import("../terminal/TerminalView").then((module) => ({ default: module.TerminalView })),
+);
 
 interface WorkspaceProps {
   profiles: SessionProfile[];
@@ -102,7 +107,9 @@ function WorkspaceTab({
         </div>
       </header>
       {view === "files" && activePane?.sessionId && activeProfile?.target.kind === "ssh" ? (
-        <SftpView sessionId={activePane.sessionId} />
+        <Suspense fallback={<div className="workspace-loading">正在加载文件视图</div>}>
+          <SftpView sessionId={activePane.sessionId} />
+        </Suspense>
       ) : (
         <div
           className={`terminal-split panes-${tab.panes.length}`}
@@ -145,7 +152,9 @@ function WorkspaceTab({
                       {pane.title}
                     </div>
                   ) : null}
-                  <TerminalView pane={pane} profile={profile} />
+                  <Suspense fallback={<div className="workspace-loading">正在加载终端</div>}>
+                    <TerminalView pane={pane} profile={profile} />
+                  </Suspense>
                 </div>
               </Fragment>
             );

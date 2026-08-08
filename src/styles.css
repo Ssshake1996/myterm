@@ -923,6 +923,17 @@ button:disabled {
   font-size: 11px;
 }
 
+.workspace-loading {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  background: var(--terminal);
+  font-size: 10px;
+}
+
 .quickbar {
   height: 43px;
   flex: 0 0 43px;
