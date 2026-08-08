@@ -1,0 +1,30 @@
+# Frontend
+node_modules/
+dist/
+coverage/
+dist-release/
+*.tsbuildinfo
+
+# Rust and Tauri
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# Runtime data and credentials
+data/
+*.log
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Test and editor output
+test-results/
+playwright-report/
+output/
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

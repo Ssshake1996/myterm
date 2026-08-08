@@ -20,7 +20,7 @@ P2 的插件体系(插件宿主、权限模型、SDK)单独定义在 [04-plugin-
 | Lint/格式化 | `clippy` + `rustfmt` / Biome | — |
 | 依赖原则 | 除上述外**不引入任何依赖**,需要新依赖必须先在本文档登记 | 控制 AI 乱装包 |
 
-已登记的其他依赖:`serde` / `serde_json` / `tokio` / `thiserror` / `tracing` / `tracing-appender` / `dirs` / `uuid`(Rust);`zustand` / `clsx`(前端)。
+已登记的其他依赖:`serde` / `serde_json` / `tokio` / `thiserror` / `tracing` / `tracing-appender` / `tracing-subscriber` / `dirs` / `uuid`(Rust);`zustand` / `clsx`(前端)。
 
 ## 目录结构
 
@@ -221,6 +221,7 @@ profileDelete(profileId: string): Promise<void>
 vaultSet(ref: string, secret: string): Promise<void>    // 密码/passphrase 写入 OS 凭据库
 vaultDelete(ref: string): Promise<void>
 localShellList(): Promise<string[]>                     // 检测本机可用 shell(powershell/cmd/wsl)
+appInfo(): Promise<{ version: string; commitHash: string; startupProfile: string | null; portable: boolean }>
 
 // ── 快捷命令 ──
 quickCommandList(): Promise<QuickCommand[]>
