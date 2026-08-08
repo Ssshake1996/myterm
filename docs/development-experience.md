@@ -54,6 +54,12 @@ The initial 43 px horizontal command bar worked for a handful of actions but did
 
 Desktop height defaults to 224 px and can be adjusted from 168 to 420 px with pointer or keyboard input. At narrow widths the expanded dock becomes a bounded bottom overlay so it does not permanently compress the terminal. The collapsed state remains a 34 px status strip with command counts and a labeled, high-contrast expand control instead of an ambiguous 14 px glyph.
 
+### Windows installation and upgrade lifecycle
+
+Version 0.1.1 is installed per user at `%LOCALAPPDATA%/myterm`, with desktop and Start Menu shortcuts targeting the installed executable. The bundle identifier and product name remain stable across versions so Windows keeps one uninstall registration.
+
+Tauri's normal interactive NSIS path offers to uninstall an older version, but a silent installer only overwrites known files. myterm therefore uses the officially supported [NSIS pre-install hook](https://v2.tauri.app/distribute/windows-installer/#extending-the-installer). The hook accepts an install directory only when the existing myterm product registry path matches it exactly, runs the old uninstaller with `/S /UPDATE`, checks its exit code, removes residual files from that known application directory, and recreates the directory before copying the new release. `/UPDATE` preserves shortcuts and prevents app-data deletion. Downgrades are disabled in all newly generated installers.
+
 ## 4. Security Invariants
 
 - Passwords, private-key passphrases, and AI keys are accepted by forms but never read back into them.
@@ -64,6 +70,7 @@ Desktop height defaults to 224 px and can be adjusted from 168 to 420 px with po
 - AI logs contain only profile ID, model, duration, and coarse usage metadata.
 - On Windows, secrets use native Credential Manager generic credentials with local-machine persistence; every write is verified by an immediate readback.
 - Plain HTTP AI endpoints expose credentials and prompts in transit. They are supported for compatibility only when the operator accepts that risk; HTTPS should be the default.
+- Upgrade cleanup is recursive only after the registered myterm product path exactly matches `$INSTDIR`. User configuration and credentials live outside that directory.
 
 ## 5. Environment and Repository Migration
 
@@ -102,6 +109,7 @@ This pattern is reusable when a specification is sourced from one repository but
 | Windows credential vault | The keyring API reported a successful write, but immediate readback returned no entry | The upstream Windows backend uses enterprise persistence, which silently failed on this host | Use native `CredWriteW`, `CredReadW`, and `CredDeleteW` with local-machine persistence, zero the temporary byte buffer, and verify every write | Ignored real-vault round-trip test passes; AI credential remains available after the test process exits |
 | AI base URL compatibility | Model discovery worked, but streaming chat returned 0 characters and a false success | A host-only base URL sent `POST /chat/completions` to the gateway's HTML application; its OpenAI API is under `/v1` | Parse the configured URL and insert `/v1` only when it has no path; preserve explicit `/v1` and custom path prefixes | App service reports 7 models and receives the 12-character `MYTERM_AI_OK` stream marker |
 | Quick-command scale | Deployment and troubleshooting commands were confined to a one-line horizontal scroller; the 14 px collapsed marker was easy to miss | The original component modeled commands as toolbar buttons instead of a managed operational library | Replace it with a resizable dock, vertical command-set navigation, group search, multi-column scrolling rows, visible edit controls, and labeled Lucide collapse states | 32-command component test passes; 36-command Playwright QA passes at desktop and narrow viewports |
+| Silent NSIS upgrade | A silent `0.1.0` to `0.1.1` install updated the version but left an old-install-only marker in place | Tauri's interactive maintenance page can drive uninstallation, while silent mode copies over the existing directory | Add a guarded `NSIS_HOOK_PREINSTALL` that invokes the old uninstaller in update mode and cleans the verified install directory before copying | Repeated `0.1.0` to `0.1.1` silent upgrade removes the marker, leaves one uninstall entry, and preserves configuration and credentials |
 
 ## 7. Verification Ledger
 
@@ -122,9 +130,12 @@ Update this table with the exact outcome rather than an optimistic status.
 | AI secret audit | Inspect `%APPDATA%/myterm/config.json` and Windows Credential Manager | Pass; JSON contains only `api_key_ref`, no key prefix; referenced credential target is present |
 | Desktop visual QA | Playwright, Chromium at 1440x900 | Pass; nonblank xterm canvas, 36-command dock and collapsed state inspected, zero console errors or warnings |
 | Narrow viewport QA | Playwright, Chromium at 390x844 | Pass; command dock becomes a bounded bottom overlay with no overlap or clipped controls |
-| Windows release build | `npm run build:release` | Pass; native EXE, NSIS installer, and portable ZIP produced |
-| Distribution audit | `npm run check:dist` | Pass; installer 5.88 MB, portable ZIP 5.98 MB, required files present |
+| Windows release build | `npm run build:release` | Pass for 0.1.1; native EXE, NSIS installer, and portable ZIP produced |
+| Distribution audit | `npm run check:dist` | Pass; 0.1.1 installer 5.88 MB, portable ZIP 5.98 MB, required files present |
 | Native startup smoke | Start release EXE with `--portable`, then close main window | Pass; process tree exits without leftovers |
+| Installed application | Install NSIS package silently, then inspect registry and shortcuts | Pass; installed at `%LOCALAPPDATA%/myterm`, version 0.1.1, desktop and Start Menu targets resolve to installed EXE |
+| Upgrade replacement | Install 0.1.0, add an old-directory marker, then silently install 0.1.1 | Pass; marker removed, one uninstall entry remains, installed EXE reports 0.1.1 |
+| Upgrade data retention | Compare `%APPDATA%/myterm/config.json` SHA-256 and credential target before/after upgrade | Pass; configuration hash unchanged and AI credential remains present |
 | Empty memory | 45-second private working-set sample | Main process 6.69 MB; full 7-process WebView2 group 93.01 MB, so aggregate `< 80 MB` target is not met |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
