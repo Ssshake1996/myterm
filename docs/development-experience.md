@@ -85,7 +85,7 @@ Desktop height defaults to 224 px and can be adjusted from 168 to 420 px with po
 
 ### Windows installation and upgrade lifecycle
 
-Version 0.1.1 is installed per user at `%LOCALAPPDATA%/myterm`, with desktop and Start Menu shortcuts targeting the installed executable. The bundle identifier and product name remain stable across versions so Windows keeps one uninstall registration.
+Version 0.1.2 is installed per user at `%LOCALAPPDATA%/myterm`, with desktop and Start Menu shortcuts targeting the installed executable. The bundle identifier and product name remain stable across versions so Windows keeps one uninstall registration.
 
 Tauri's normal interactive NSIS path offers to uninstall an older version, but a silent installer only overwrites known files. myterm therefore uses the officially supported [NSIS pre-install hook](https://v2.tauri.app/distribute/windows-installer/#extending-the-installer). The hook accepts an install directory only when the existing myterm product registry path matches it exactly, runs the old uninstaller with `/S /UPDATE`, checks its exit code, removes residual files from that known application directory, and recreates the directory before copying the new release. `/UPDATE` preserves shortcuts and prevents app-data deletion. Downgrades are disabled in all newly generated installers.
 
@@ -174,12 +174,13 @@ Update this table with the exact outcome rather than an optimistic status.
 | AI secret audit | Inspect `%APPDATA%/myterm/config.json` and Windows Credential Manager | Pass; JSON contains only `api_key_ref`, no key prefix; referenced credential target is present |
 | Desktop visual QA | In-app Chromium at 1280x800 | Pass; nonblank xterm canvas, Agent settings, approval trace, result, and completion states inspected |
 | Narrow viewport QA | In-app Chromium at 760x800 | Pass; Agent becomes a 360 px overlay, document has no horizontal overflow, and controls remain visible |
-| Windows release build | `npm run build:release` | Pass for 0.1.1; native EXE, NSIS installer, and portable ZIP produced |
-| Distribution audit | `npm run check:dist` | Pass; 0.1.1 installer 5.88 MB, portable ZIP 5.98 MB, required files present |
-| Native startup smoke | Start release EXE with `--portable`, then close main window | Pass; process tree exits without leftovers |
-| Installed application | Install NSIS package silently, then inspect registry and shortcuts | Pass; installed at `%LOCALAPPDATA%/myterm`, version 0.1.1, desktop and Start Menu targets resolve to installed EXE |
-| Upgrade replacement | Install 0.1.0, add an old-directory marker, then silently install 0.1.1 | Pass; marker removed, one uninstall entry remains, installed EXE reports 0.1.1 |
-| Upgrade data retention | Compare `%APPDATA%/myterm/config.json` SHA-256 and credential target before/after upgrade | Pass; configuration hash unchanged and AI credential remains present |
+| Windows release build | `npm run build:release` | Pass for 0.1.2; native EXE, NSIS installer, and portable ZIP produced |
+| Distribution audit | `npm run check:dist` | Pass; 0.1.2 installer 6.54 MB, portable ZIP 6.99 MB, required files present |
+| Native startup smoke | Start the installed 0.1.2 EXE and capture its rendered main window | Pass; app opens with the saved server, Agent panel, and 0.1.2 version marker visible |
+| Installed application | Install the NSIS package silently, then inspect registry and shortcuts | Pass; installed at `%LOCALAPPDATA%/myterm`, version 0.1.2, desktop and Start Menu targets resolve to the installed EXE |
+| Installed saved-server click | Click `yuxiaservers` once in the installed 0.1.2 application | Pass; the persisted profile and Windows-vault credential opened an SSH session at `root@yuxiaservers:~#` without another password prompt |
+| Upgrade replacement | Install 0.1.2 over 0.1.1 after placing an old-install-only marker | Pass; marker removed, one uninstall entry remains, installed EXE reports 0.1.2 |
+| Upgrade data retention | Compare `%APPDATA%/myterm/config.json` SHA-256 and credential targets before/after upgrade | Pass; configuration hash is unchanged and the saved server and AI credentials remain present |
 | Empty memory | 45-second private working-set sample | Main process 6.69 MB; full 7-process WebView2 group 93.01 MB, so aggregate `< 80 MB` target is not met |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
