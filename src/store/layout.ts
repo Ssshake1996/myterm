@@ -26,6 +26,7 @@ interface LayoutState {
   selectTab: (tabId: string) => void;
   reorderTab: (sourceId: string, targetId: string) => void;
   splitActive: () => void;
+  closePane: (tabId: string, paneId: string) => void;
   selectPane: (tabId: string, paneId: string) => void;
   bindSession: (paneId: string, session: SessionInfo) => void;
   failConnection: (paneId: string, error: string) => void;
@@ -105,6 +106,20 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       });
       return { tabs };
     }),
+  closePane: (tabId, paneId) =>
+    set((state) => ({
+      tabs: state.tabs.map((tab) => {
+        if (tab.id !== tabId || tab.panes.length <= 1) return tab;
+        const panes = tab.panes.filter((pane) => pane.id !== paneId);
+        return {
+          ...tab,
+          panes,
+          activePaneId:
+            tab.activePaneId === paneId ? (panes[0]?.id ?? tab.activePaneId) : tab.activePaneId,
+          splitRatio: 50,
+        };
+      }),
+    })),
   selectPane: (tabId, paneId) =>
     set((state) => ({
       activeTabId: tabId,

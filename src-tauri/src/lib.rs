@@ -185,6 +185,8 @@ pub fn run() {
             ipc::quick_command_list,
             ipc::quick_command_save,
             ipc::quick_command_delete,
+            ipc::app_theme_get,
+            ipc::app_theme_save,
             ipc::sftp_read_dir,
             ipc::sftp_mkdir,
             ipc::sftp_rename,

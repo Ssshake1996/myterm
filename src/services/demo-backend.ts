@@ -6,6 +6,7 @@ import type {
   AiMessage,
   AiProfile,
   AiTestResult,
+  AppTheme,
   LocalEntry,
   McpToolInfo,
   MessageChannel,
@@ -163,6 +164,7 @@ class DemoBackend {
   private commands = readStored("myterm.demo.commands", DEFAULT_COMMANDS);
   private aiProfiles = readStored("myterm.demo.ai-profiles", DEFAULT_AI_PROFILES);
   private agentSettings = readStored("myterm.demo.agent-settings", DEFAULT_AGENT_SETTINGS);
+  private theme = readStored<AppTheme>("myterm.demo.theme", "dark");
   private sessions = new Map<string, SessionInfo>();
   private sinks = new Map<string, MessageChannel<ArrayBuffer>>();
   private sessionHandlers = new Set<(payload: SessionInfo) => void>();
@@ -171,6 +173,16 @@ class DemoBackend {
   private aborted = false;
   private agentAborted = false;
   private approvals = new Map<string, (approved: boolean) => void>();
+
+  async appThemeGet() {
+    return this.theme;
+  }
+
+  async appThemeSave(theme: AppTheme) {
+    this.theme = theme;
+    writeStored("myterm.demo.theme", theme);
+    return theme;
+  }
 
   async sessionConnect(
     profileId: string,
@@ -211,7 +223,8 @@ class DemoBackend {
   async terminalWrite(sessionId: string, data: string) {
     const sink = this.sinks.get(sessionId);
     if (!sink) return;
-    sink.onmessage(new TextEncoder().encode(data).buffer);
+    const echoedInput = data.replace(/\r(?!\n)/g, "\r\n");
+    sink.onmessage(new TextEncoder().encode(echoedInput).buffer);
     const command = data.replace(/[\r\n]+$/g, "");
     const reply = commandReplies[command];
     if (reply && data.includes("\r")) {

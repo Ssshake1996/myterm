@@ -1,3 +1,4 @@
+import { Leaf, Moon, Sun } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { AiPanel } from "./components/ai/AiPanel";
 import { QuickBar } from "./components/quickbar/QuickBar";
@@ -9,6 +10,9 @@ import { TabBar } from "./components/tabs/TabBar";
 import { Workspace } from "./components/tabs/Workspace";
 import {
   type AppInfo,
+  type AppTheme,
+  appThemeGet,
+  appThemeSave,
   getAppInfo,
   isDesktopRuntime,
   onSessionState,
@@ -23,9 +27,9 @@ export function App() {
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 900);
   const [aiCollapsed, setAiCollapsed] = useState(() => window.innerWidth <= 900);
-  const [aboutOpen, setAboutOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo>({
-    version: "0.1.2",
+    version: "0.1.3",
     commitHash: "unknown",
     startupProfile: null,
     portable: false,
@@ -35,13 +39,16 @@ export function App() {
   const updateSession = useLayoutStore((state) => state.updateSession);
   const activePane = useLayoutStore(getActivePane);
   const notify = useUiStore((state) => state.notify);
+  const theme = useUiStore((state) => state.theme);
+  const setTheme = useUiStore((state) => state.setTheme);
   const setWorkspaceView = useUiStore((state) => state.setWorkspaceView);
 
   useEffect(() => {
-    void Promise.all([profileList(), getAppInfo()])
-      .then(([items, info]) => {
+    void Promise.all([profileList(), getAppInfo(), appThemeGet()])
+      .then(([items, info, savedTheme]) => {
         setProfiles(items);
         setAppInfo(info);
+        setTheme(savedTheme);
         const startup = info.startupProfile
           ? items.find((profile) => profile.name === info.startupProfile)
           : !isDesktopRuntime
@@ -57,7 +64,18 @@ export function App() {
       .catch((error) =>
         notify(error instanceof Error ? error.message : "会话配置读取失败", "error"),
       );
-  }, [notify, openProfile]);
+  }, [notify, openProfile, setTheme]);
+
+  const selectTheme = async (nextTheme: AppTheme) => {
+    const previousTheme = theme;
+    setTheme(nextTheme);
+    try {
+      await appThemeSave(nextTheme);
+    } catch (error) {
+      setTheme(previousTheme);
+      notify(error instanceof Error ? error.message : "主题保存失败", "error");
+    }
+  };
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -145,9 +163,9 @@ export function App() {
           </button>
           <div className="activity-spacer" />
           <button
-            aria-label="关于 myterm"
-            onClick={() => setAboutOpen(true)}
-            title="关于 myterm"
+            aria-label="设置"
+            onClick={() => setSettingsOpen(true)}
+            title="设置"
             type="button"
           >
             <Icon name="settings" />
@@ -197,8 +215,32 @@ export function App() {
         </span>
         <span title={`core ${appInfo.commitHash}`}>v{appInfo.version}</span>
       </footer>
-      {aboutOpen ? (
-        <Modal onClose={() => setAboutOpen(false)} size="small" title="关于 myterm">
+      {settingsOpen ? (
+        <Modal onClose={() => setSettingsOpen(false)} size="small" title="设置">
+          <section className="appearance-settings">
+            <h3>主题</h3>
+            <fieldset aria-label="主题" className="theme-options">
+              {(
+                [
+                  ["light", "白色", <Sun aria-hidden="true" key="light" size={17} />],
+                  ["eye_care", "护眼色", <Leaf aria-hidden="true" key="eye" size={17} />],
+                  ["dark", "深色", <Moon aria-hidden="true" key="dark" size={17} />],
+                ] as const
+              ).map(([value, label, icon]) => (
+                <button
+                  aria-pressed={theme === value}
+                  className={theme === value ? "is-active" : ""}
+                  key={value}
+                  onClick={() => void selectTheme(value)}
+                  type="button"
+                >
+                  <span className={`theme-swatch theme-swatch-${value}`}>{icon}</span>
+                  <span>{label}</span>
+                </button>
+              ))}
+            </fieldset>
+          </section>
+          <h3 className="settings-section-title">关于</h3>
           <dl className="about-details">
             <div>
               <dt>版本</dt>

@@ -12,7 +12,7 @@ use crate::{
     session::{local::detect_shells, manager::OutputSink, profile},
     sftp::service::local_entries,
     types::{
-        AgentEvent, AgentRunResult, AgentSettings, AiMessage, AiProfile, McpServerConfig,
+        AgentEvent, AgentRunResult, AgentSettings, AiMessage, AiProfile, AppTheme, McpServerConfig,
         McpToolInfo, QuickCommand, RemoteEntry, SessionInfo, SessionProfile, SkillInfo, TransferId,
     },
     AppError, AppState, IpcError,
@@ -187,6 +187,17 @@ pub fn quick_command_save(state: State<'_, AppState>, cmd: QuickCommand) -> Resu
 #[tauri::command]
 pub fn quick_command_delete(state: State<'_, AppState>, id: String) -> Result<(), IpcError> {
     state.config.quick_command_delete(&id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn app_theme_get(state: State<'_, AppState>) -> Result<AppTheme, IpcError> {
+    state.config.app_theme().map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn app_theme_save(state: State<'_, AppState>, theme: AppTheme) -> Result<AppTheme, IpcError> {
+    state.config.app_theme_save(theme)?;
+    state.config.app_theme().map_err(Into::into)
 }
 
 #[tauri::command]

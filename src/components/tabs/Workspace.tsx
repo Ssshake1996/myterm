@@ -1,5 +1,6 @@
+import { X } from "lucide-react";
 import { Fragment, lazy, Suspense, useEffect } from "react";
-import type { SessionProfile } from "../../ipc";
+import { type SessionProfile, sessionDisconnect } from "../../ipc";
 import { useLayoutStore } from "../../store/layout";
 import { useUiStore } from "../../store/ui";
 import { Icon } from "../shell/Icon";
@@ -27,9 +28,11 @@ function WorkspaceTab({
   const tab = useLayoutStore((state) => state.tabs.find((candidate) => candidate.id === tabId));
   const selectPane = useLayoutStore((state) => state.selectPane);
   const splitActive = useLayoutStore((state) => state.splitActive);
+  const closePane = useLayoutStore((state) => state.closePane);
   const setSplitRatio = useLayoutStore((state) => state.setSplitRatio);
   const view = useUiStore((state) => state.workspaceView);
   const setView = useUiStore((state) => state.setWorkspaceView);
+  const notify = useUiStore((state) => state.notify);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -65,6 +68,17 @@ function WorkspaceTab({
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop);
+  };
+
+  const closeSplitPane = async (paneId: string, sessionId: string | null) => {
+    if (sessionId) {
+      try {
+        await sessionDisconnect(sessionId);
+      } catch (error) {
+        notify(error instanceof Error ? error.message : "分屏会话断开失败", "error");
+      }
+    }
+    closePane(tab.id, paneId);
   };
 
   return (
@@ -149,7 +163,16 @@ function WorkspaceTab({
                   {tab.panes.length > 1 ? (
                     <div className="pane-caption">
                       <span className={`state-dot state-${pane.state}`} />
-                      {pane.title}
+                      <span className="pane-caption-title">{pane.title}</span>
+                      <button
+                        aria-label={`关闭${index === 0 ? "左侧" : "右侧"}分屏`}
+                        className="pane-close"
+                        onClick={() => void closeSplitPane(pane.id, pane.sessionId)}
+                        title="关闭分屏"
+                        type="button"
+                      >
+                        <X aria-hidden="true" size={14} strokeWidth={1.9} />
+                      </button>
                     </div>
                   ) : null}
                   <Suspense fallback={<div className="workspace-loading">正在加载终端</div>}>

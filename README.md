@@ -1,6 +1,6 @@
 # myterm
 
-myterm is a lightweight desktop SSH terminal built with Tauri 2, Rust, React, and xterm.js. It combines persistent SSH sessions, local terminals, SFTP transfers, quick commands, and an OpenAI-compatible operations Agent in one focused console.
+myterm is a lightweight desktop SSH terminal built with Tauri 2, Rust, React, and xterm.js. It combines persistent SSH sessions, closeable split panes, local terminals, SFTP transfers, compact multiline quick commands, three persistent themes, and an OpenAI-compatible operations Agent in one focused console.
 
 The Agent follows a bounded model/tool loop, can read or write the active terminal, inspect session information, list local or remote directories, load local `SKILL.md` files, and call configured stdio MCP servers. Operators can require approval for every tool call or explicitly enable full access.
 

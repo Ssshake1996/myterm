@@ -75,6 +75,49 @@ describe("QuickBar", () => {
     );
   });
 
+  it("executes a multiline command with terminal returns and hides command bodies", async () => {
+    ipcMocks.quickCommandList.mockResolvedValue([
+      ...commands,
+      {
+        id: "multi",
+        label: "部署核对",
+        group: "常用",
+        command: "cd /srv/app\npwd\nsystemctl status app",
+        send_newline: true,
+        sort: 2,
+      },
+    ]);
+    const user = userEvent.setup();
+    render(<QuickBar />);
+
+    await user.click(await screen.findByRole("button", { name: "部署核对" }));
+
+    expect(ipcMocks.terminalWrite).toHaveBeenCalledWith(
+      "session-active",
+      "cd /srv/app\rpwd\rsystemctl status app\r",
+    );
+    expect(screen.queryByText("df -h")).not.toBeInTheDocument();
+    expect(screen.queryByText("systemctl status app")).not.toBeInTheDocument();
+  });
+
+  it("preserves multiline command whitespace when saving", async () => {
+    const user = userEvent.setup();
+    render(<QuickBar />);
+    await user.click(await screen.findByRole("button", { name: "新建快捷命令" }));
+    await user.type(screen.getByLabelText("显示名"), "多行脚本");
+    fireEvent.change(screen.getByLabelText("命令"), {
+      target: { value: "printf 'one'\n  printf 'two'\n" },
+    });
+
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(ipcMocks.quickCommandSave).toHaveBeenCalledWith(
+        expect.objectContaining({ command: "printf 'one'\n  printf 'two'\n" }),
+      ),
+    );
+  });
+
   it("disables command buttons without an active session", async () => {
     useLayoutStore.setState({ tabs: [], activeTabId: null });
     render(<QuickBar />);

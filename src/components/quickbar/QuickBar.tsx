@@ -8,6 +8,7 @@ import {
   Pencil,
   Plus,
   Search,
+  TextCursorInput,
 } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -24,6 +25,11 @@ import { Modal } from "../shell/Modal";
 const MIN_PANEL_HEIGHT = 168;
 const DEFAULT_PANEL_HEIGHT = 224;
 const MAX_PANEL_HEIGHT = 420;
+
+function commandInput(command: QuickCommand) {
+  const lines = command.command.replace(/\r\n?/g, "\n").replace(/\n/g, "\r");
+  return command.send_newline && !lines.endsWith("\r") ? `${lines}\r` : lines;
+}
 
 export function QuickBar() {
   const activePane = useLayoutStore(getActivePane);
@@ -69,10 +75,7 @@ export function QuickBar() {
   const send = async (command: QuickCommand) => {
     if (!activePane?.sessionId) return;
     try {
-      await terminalWrite(
-        activePane.sessionId,
-        command.command + (command.send_newline ? "\r" : ""),
-      );
+      await terminalWrite(activePane.sessionId, commandInput(command));
     } catch (error) {
       notify(error instanceof Error ? error.message : "命令发送失败", "error");
     }
@@ -229,20 +232,20 @@ export function QuickBar() {
                       className="quick-command-main"
                       disabled={!activePane?.sessionId || activePane.state !== "connected"}
                       onClick={() => void send(command)}
-                      title={command.command}
+                      title={`${command.send_newline ? "执行" : "回填"} ${command.label}`}
                       type="button"
                     >
                       <strong>{command.label}</strong>
-                      <code>{command.command}</code>
                     </button>
                     <span
                       className={`quick-command-mode${command.send_newline ? "" : " is-fill"}`}
                       title={command.send_newline ? "发送后自动回车" : "仅填入终端，不自动回车"}
                     >
                       {command.send_newline ? (
-                        <CornerDownLeft aria-hidden="true" size={12} strokeWidth={1.8} />
-                      ) : null}
-                      {command.send_newline ? "执行" : "回填"}
+                        <CornerDownLeft aria-hidden="true" size={13} strokeWidth={1.8} />
+                      ) : (
+                        <TextCursorInput aria-hidden="true" size={13} strokeWidth={1.8} />
+                      )}
                     </span>
                     <button
                       aria-label={`编辑 ${command.label}`}
@@ -314,7 +317,7 @@ function QuickCommandModal({
       id: command?.id ?? crypto.randomUUID(),
       label: label.trim(),
       group: group.trim() || "常用",
-      command: value.trim(),
+      command: value.replace(/\r\n?/g, "\n"),
       send_newline: newline,
       sort: command?.sort ?? Date.now(),
     });
@@ -357,7 +360,12 @@ function QuickCommandModal({
         </label>
         <label className="field">
           <span>命令</span>
-          <textarea onChange={(event) => setValue(event.target.value)} rows={3} value={value} />
+          <textarea
+            onChange={(event) => setValue(event.target.value)}
+            rows={6}
+            spellCheck={false}
+            value={value}
+          />
         </label>
         <label className="toggle-field">
           <input

@@ -55,6 +55,8 @@ export interface QuickCommand {
   sort: number;
 }
 
+export type AppTheme = "light" | "eye_care" | "dark";
+
 export interface AiProfile {
   id: string;
   name: string;
@@ -170,13 +172,23 @@ export function createChannel<T>(): MessageChannel<T> {
 export async function getAppInfo(): Promise<AppInfo> {
   if (!isDesktopRuntime) {
     return {
-      version: "0.1.2",
+      version: "0.1.3",
       commitHash: "browser-demo",
       startupProfile: null,
       portable: false,
     };
   }
   return invoke<AppInfo>("app_info");
+}
+
+export async function appThemeGet(): Promise<AppTheme> {
+  if (!isDesktopRuntime) return demoBackend.appThemeGet();
+  return invoke<AppTheme>("app_theme_get");
+}
+
+export async function appThemeSave(theme: AppTheme): Promise<AppTheme> {
+  if (!isDesktopRuntime) return demoBackend.appThemeSave(theme);
+  return invoke<AppTheme>("app_theme_save", { theme });
 }
 
 export async function sessionConnect(

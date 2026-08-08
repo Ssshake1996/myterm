@@ -91,6 +91,17 @@ pub struct TransferProgress {
     pub error: Option<String>,
 }
 
+// ── Appearance ───────────────────────────────────────────
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AppTheme {
+    Light,
+    EyeCare,
+    #[default]
+    Dark,
+}
+
 // ── Quick commands ───────────────────────────────────────
 
 #[derive(Clone, Serialize, Deserialize)]

@@ -1,17 +1,20 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SessionProfile } from "../../ipc";
+import type { SessionInfo, SessionProfile } from "../../ipc";
 import type { PaneModel } from "../../store/layout";
 import { useLayoutStore } from "../../store/layout";
+import { useUiStore } from "../../store/ui";
 import { TerminalView } from "./TerminalView";
 
 const terminalMocks = vi.hoisted(() => ({
   write: vi.fn(),
   fit: vi.fn(),
+  options: { theme: {} as Record<string, string> },
 }));
 
 const ipcMocks = vi.hoisted(() => ({
   sessionConnect: vi.fn(),
+  sessionDisconnect: vi.fn(),
   terminalResize: vi.fn(),
   terminalWrite: vi.fn(),
 }));
@@ -23,6 +26,7 @@ vi.mock("@xterm/xterm", () => ({
     hasSelection = () => false;
     getSelection = () => "";
     paste = vi.fn();
+    options = terminalMocks.options;
     loadAddon = vi.fn();
     open = vi.fn();
     write = terminalMocks.write;
@@ -98,7 +102,20 @@ describe("TerminalView", () => {
       error: null,
     });
     ipcMocks.terminalResize.mockResolvedValue(undefined);
-    useLayoutStore.setState({ tabs: [], activeTabId: null });
+    ipcMocks.sessionDisconnect.mockResolvedValue(undefined);
+    useUiStore.getState().setTheme("dark");
+    useLayoutStore.setState({
+      activeTabId: "tab-terminal",
+      tabs: [
+        {
+          id: "tab-terminal",
+          title: profile.name,
+          panes: [pane],
+          activePaneId: pane.id,
+          splitRatio: 50,
+        },
+      ],
+    });
   });
 
   afterEach(() => {
@@ -137,5 +154,39 @@ describe("TerminalView", () => {
     fireEvent.click(screen.getByRole("button", { name: /会话已断开/ }));
     await waitFor(() => expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(2));
     expect(ipcMocks.sessionConnect.mock.calls[1]?.[0]).toBe(profile.id);
+  });
+
+  it("updates terminal colors without reconnecting", async () => {
+    render(<TerminalView pane={pane} profile={profile} />);
+    await waitFor(() => expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1));
+
+    act(() => useUiStore.getState().setTheme("eye_care"));
+
+    await waitFor(() => expect(terminalMocks.options.theme.background).toBe("#f2f6eb"));
+    expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("reclaims a session that finishes connecting after its pane was closed", async () => {
+    let resolveConnection: ((session: SessionInfo) => void) | undefined;
+    ipcMocks.sessionConnect.mockImplementationOnce(
+      () =>
+        new Promise<SessionInfo>((resolve) => {
+          resolveConnection = resolve;
+        }),
+    );
+    render(<TerminalView pane={pane} profile={profile} />);
+    await waitFor(() => expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1));
+
+    act(() => useLayoutStore.setState({ tabs: [], activeTabId: null }));
+    await act(async () => {
+      resolveConnection?.({
+        session_id: "orphan-session",
+        profile_id: profile.id,
+        state: "connected",
+        error: null,
+      });
+    });
+
+    await waitFor(() => expect(ipcMocks.sessionDisconnect).toHaveBeenCalledWith("orphan-session"));
   });
 });

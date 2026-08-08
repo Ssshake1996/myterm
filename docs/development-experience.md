@@ -26,6 +26,13 @@ Version 0.1.2 replaces the single-turn assistant surface with a bounded Agent lo
 
 The 0.1.2 boundary explicitly excludes multi-Agent execution, long-term memory, complex task orchestration, cloud Skill distribution, and non-stdio MCP transports.
 
+Version 0.1.3 tightens the daily terminal workflow without expanding the Agent boundary:
+
+- White, eye-care, and dark themes share semantic color tokens, persist in the existing atomic configuration, and update the xterm canvas without reconnecting.
+- Quick-command rows show only the operator-authored name, execution mode, and edit action; command bodies remain searchable but appear only in the editor.
+- Multiline commands preserve stored whitespace, normalize file-style line endings, and translate each internal line break to a terminal return when sent.
+- Each side of a split terminal has an explicit close action. Closing a pane disconnects its session, restores the remaining pane, and reclaims a connection that finishes after its pane was removed.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.
@@ -51,6 +58,8 @@ The desktop application depends on Rust, WebView2, SSH targets, and optional AI 
 
 Tabs, panes, active focus, session IDs, and connection state live in one Zustand store. Terminal, SFTP, quick commands, and AI all consume the active pane from that store, which prevents commands from being sent to stale or visually inactive sessions.
 
+A split pane has only two lifecycle states: present or closed. There is no hidden pane state. The close action first disconnects a bound session and then removes the pane. If an asynchronous connection completes after the pane disappeared, `TerminalView` detects the missing pane and disconnects the newly returned session instead of binding an orphan.
+
 ### Transactional saved-server lifecycle
 
 Profile validation and credential lifecycle belong to `session/profile.rs`, not to React or the IPC command body. A save normalizes identity and connection fields, chooses canonical credential references, writes the credential before the JSON profile, and restores the previous credential if the atomic config write fails. Authentication changes and profile deletion remove obsolete credentials. A blank password during edit means “retain the existing secret,” never “replace it with empty text.”
@@ -71,7 +80,7 @@ MCP v1 uses the official Rust SDK client with `TokioChildProcess`. Servers are c
 
 ### Operational visual direction
 
-The interface uses a restrained charcoal work surface with green state, gold action, red failure, and cyan informational accents. Typography uses compact Windows-native technical faces. The design favors scanning and repeated operations over marketing-style cards or decorative surfaces.
+The interface offers dark charcoal, neutral white, and low-glare green eye-care surfaces while retaining green state, gold action, red failure, and cyan informational accents. All application surfaces use semantic color tokens instead of component-level dark overrides. xterm keeps a separate ANSI palette per theme and changes it through the terminal options object, so a theme switch does not recreate or reconnect a session. Typography uses compact Windows-native technical faces. The design favors scanning and repeated operations over marketing-style cards or decorative surfaces.
 
 ### Product identity asset
 
@@ -79,9 +88,11 @@ The first release includes an original `myterm` application icon generated for t
 
 ### Scalable quick-command dock
 
-The initial 43 px horizontal command bar worked for a handful of actions but did not scale to operational libraries with dozens of commands. The replacement follows the organization principles documented by the [Xshell Quick Command Manager](https://www.netsarang.com/en/xshell/) and [MobaXterm sidebar](https://mobaxterm.mobatek.net/documentation.html) without copying either product: a resizable bottom dock keeps the terminal primary, command sets form a compact vertical navigator, and the selected set uses a searchable multi-column list with visible command previews and execution modes.
+The initial 43 px horizontal command bar worked for a handful of actions but did not scale to operational libraries with dozens of commands. The replacement follows the organization principles documented by the [Xshell Quick Command Manager](https://www.netsarang.com/en/xshell/) and [MobaXterm sidebar](https://mobaxterm.mobatek.net/documentation.html) without copying either product: a resizable bottom dock keeps the terminal primary, command sets form a compact vertical navigator, and the selected set uses a searchable multi-column list with name-only 30 px command rows, execution-mode icons, and edit actions.
 
 Desktop height defaults to 224 px and can be adjusted from 168 to 420 px with pointer or keyboard input. At narrow widths the expanded dock becomes a bounded bottom overlay so it does not permanently compress the terminal. The collapsed state remains a 34 px status strip with command counts and a labeled, high-contrast expand control instead of an ambiguous 14 px glyph.
+
+Quick-command storage uses normalized LF line endings because it is configuration data. Sending is a separate concern: LF and CRLF are converted to terminal CR characters, and `send_newline` controls whether the final line receives a trailing CR. This supports both “execute every line” and “execute prior lines but leave the final line editable” without parsing shell syntax.
 
 ### Windows installation and upgrade lifecycle
 
@@ -151,6 +162,9 @@ This pattern is reusable when a specification is sourced from one repository but
 | Agent observability | Streaming text could not show whether the model was deciding, waiting, or executing | The old panel modeled only user and assistant messages | Introduce typed Agent events and a tool-centric execution timeline | Desktop and 760 px visual QA show approval, result, completion, and no horizontal overflow |
 | Native build shell | Direct Cargo runs rebuilt `aws-lc-sys` without NASM and MSVC environment variables | Codex shell sessions do not inherit the Visual Studio developer environment | Load `Microsoft.VisualStudio.DevShell`, select x64, and prepend Cargo/NASM paths for native checks and release builds | Rust tests, Clippy, example linking, and release build complete |
 | Session state race | A fully authenticated terminal kept showing `connecting` | Native `connected` events were emitted before the frontend received and bound the new session ID | Return the complete `SessionInfo` from `session_connect`, atomically bind its final state to the pane, and track pre-ID failures by pane ID | Unit tests cover connected binding and pre-ID failure; installed SSH UI shows `connected` after authentication |
+| Theme surface drift | A token-only theme switch would have left dozens of component-local dark backgrounds unchanged | The first visual pass encoded charcoal shades directly in individual selectors | Replace component-local surface colors with semantic tokens and define complete white, eye-care, and dark palettes; update xterm through its runtime theme option | All three themes render without dark surface leftovers; eye-care selection survives reload without reconnecting |
+| Multiline demo echo | Browser QA displayed two multiline commands over each other | The demo adapter wrote terminal CR input directly to the xterm output channel, where CR moves the cursor without adding a display line | Keep native input as CR but translate standalone CR to CRLF only in the browser demo echo | Browser QA displays each submitted command on its own line; the native send contract remains unchanged |
+| Split-pane cleanup | Split terminals had no per-pane close action, and a connection completing after UI removal could become orphaned | Layout state supported split creation and resize but not pane lifecycle; connection completion assumed the pane still existed | Add close controls to both captions, disconnect before removal, and reclaim a session when its pane no longer exists at connect completion | Store, workspace, and pending-connect tests pass; browser QA closes the right pane and restores one terminal |
 
 ## 7. Verification Ledger
 
@@ -159,13 +173,13 @@ Update this table with the exact outcome rather than an optimistic status.
 | Check | Command | Result |
 |---|---|---|
 | TypeScript | `npm run typecheck` | Pass |
-| Frontend lint | `npm run lint` | Pass, 33 files |
-| Frontend tests | `npm test` | Pass, 20 tests across 10 files |
-| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; main entry 74.96 kB |
+| Frontend lint | `npm run lint` | Pass, 34 files |
+| Frontend tests | `npm test` | Pass, 26 tests across 11 files |
+| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; main entry 78.23 kB |
 | Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Pass |
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
 | Rust lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | Pass; `russh 0.54.5` emits a dependency future-incompatibility notice |
-| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` | Pass, 22 tests run: 21 passed and 1 interactive keyring test ignored |
+| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` | Pass, 23 tests run: 22 passed and 1 interactive keyring test ignored |
 | Windows credential round trip | `cargo test --manifest-path src-tauri/Cargo.toml keyring_round_trip -- --ignored --nocapture` | Pass; native vault write, read, and cleanup all succeed |
 | AI live integration | Production `AiService::test_connection` and streaming `AiService::chat` with the configured profile | Pass; 7 models found, chat completed with `stop`, 12 characters received, expected marker present |
 | Saved-server CRUD | `live_check save-profile` and `live_check verify-crud` with the Windows credential vault | Pass; create, edit without re-entering secret, reload, delete, and credential cleanup verified |
@@ -175,6 +189,9 @@ Update this table with the exact outcome rather than an optimistic status.
 | AI secret audit | Inspect `%APPDATA%/myterm/config.json` and Windows Credential Manager | Pass; JSON contains only `api_key_ref`, no key prefix; referenced credential target is present |
 | Desktop visual QA | In-app Chromium at 1280x800 | Pass; nonblank xterm canvas, Agent settings, approval trace, result, and completion states inspected |
 | Narrow viewport QA | In-app Chromium at 760x800 | Pass; Agent becomes a 360 px overlay, document has no horizontal overflow, and controls remain visible |
+| Theme persistence | Switch white, eye-care, and dark themes; reload after selecting eye-care | Pass; every application and terminal surface changes together, and `eye_care` remains selected after reload |
+| Multiline quick command | Create, save, execute, and delete a two-line command in browser QA | Pass; command body is hidden from the compact library and both lines are sent as separate terminal returns |
+| Split close | Create a right split and close the right caption action | Pass; target session is disconnected, one terminal remains, and the split action becomes available again |
 | Windows release build | `npm run build:release` | Pass for 0.1.2; native EXE, NSIS installer, and portable ZIP produced |
 | Distribution audit | `npm run check:dist` | Pass; 0.1.2 installer 6.54 MB, portable ZIP 6.98 MB, required files present |
 | Native startup smoke | Start the installed 0.1.2 EXE and capture its rendered main window | Pass; app opens with the saved server, Agent panel, and 0.1.2 version marker visible |

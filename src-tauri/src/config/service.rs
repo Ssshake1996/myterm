@@ -11,11 +11,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    types::{AgentSettings, AiProfile, QuickCommand, SessionProfile},
+    types::{AgentSettings, AiProfile, AppTheme, QuickCommand, SessionProfile},
     AppError,
 };
 
 pub const DEFAULT_SYSTEM_PROMPT: &str = "You are a senior Linux operations assistant embedded in an SSH terminal client.\nRules:\n- Answer based on the terminal output provided by the user. Do not invent output.\n- When suggesting a fix, give the exact command in a fenced code block, one command per block.\n- Never suggest destructive commands (rm -rf, dd, mkfs...) without an explicit warning.\n- Reply in the language the user writes in.";
+const THEME_SETTING_KEY: &str = "theme";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -105,6 +106,17 @@ impl ConfigService {
 
     pub fn quick_command_delete(&self, id: &str) -> Result<(), AppError> {
         self.update(|config| config.quick_commands.retain(|command| command.id != id))
+    }
+
+    pub fn app_theme(&self) -> Result<AppTheme, AppError> {
+        Ok(self
+            .setting_get(THEME_SETTING_KEY)?
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default())
+    }
+
+    pub fn app_theme_save(&self, theme: AppTheme) -> Result<(), AppError> {
+        self.setting_set(THEME_SETTING_KEY.to_owned(), serde_json::to_value(theme)?)
     }
 
     pub fn ai_profile_list(&self) -> Result<Vec<AiProfile>, AppError> {
@@ -285,7 +297,7 @@ pub fn default_config_path(portable: bool) -> Result<PathBuf, AppError> {
 #[cfg(test)]
 mod tests {
     use super::{AppConfig, ConfigService};
-    use crate::types::{AuthMethod, SessionProfile, SessionTarget};
+    use crate::types::{AppTheme, AuthMethod, SessionProfile, SessionTarget};
     use std::fs;
 
     fn test_root() -> std::path::PathBuf {
@@ -351,6 +363,21 @@ mod tests {
         let source = serde_json::to_string(&AppConfig::default())?;
         assert!(!source.contains("password"));
         assert!(!source.contains("api_key\""));
+        Ok(())
+    }
+
+    #[test]
+    fn appearance_theme_is_validated_and_persisted() -> Result<(), Box<dyn std::error::Error>> {
+        let root = test_root();
+        let path = root.join("config.json");
+        let service = ConfigService::open(path.clone())?;
+        assert_eq!(service.app_theme()?, AppTheme::Dark);
+
+        service.app_theme_save(AppTheme::EyeCare)?;
+        let reloaded = ConfigService::open(path)?;
+        assert_eq!(reloaded.app_theme()?, AppTheme::EyeCare);
+
+        fs::remove_dir_all(root)?;
         Ok(())
     }
 }

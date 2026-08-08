@@ -59,4 +59,22 @@ describe("layout store", () => {
       error: "authentication failed",
     });
   });
+
+  it("closes either split pane and keeps the other pane active", () => {
+    useLayoutStore.setState({ tabs: [], activeTabId: null });
+    useLayoutStore.getState().openProfile(profile);
+    useLayoutStore.getState().splitActive();
+    const tab = useLayoutStore.getState().tabs[0];
+    const leftPane = tab?.panes[0];
+    const rightPane = tab?.panes[1];
+    expect(tab?.activePaneId).toBe(rightPane?.id);
+
+    useLayoutStore.getState().closePane(tab?.id ?? "", rightPane?.id ?? "");
+
+    expect(useLayoutStore.getState().tabs[0]).toMatchObject({
+      panes: [{ id: leftPane?.id }],
+      activePaneId: leftPane?.id,
+      splitRatio: 50,
+    });
+  });
 });

@@ -2,12 +2,13 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal } from "@xterm/xterm";
+import { type ITheme, Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createChannel,
   type SessionProfile,
   sessionConnect,
+  sessionDisconnect,
   terminalResize,
   terminalWrite,
 } from "../../ipc";
@@ -15,6 +16,78 @@ import type { PaneModel } from "../../store/layout";
 import { useLayoutStore } from "../../store/layout";
 import { useUiStore } from "../../store/ui";
 import { Icon } from "../shell/Icon";
+
+const terminalThemes: Record<"light" | "eye_care" | "dark", ITheme> = {
+  dark: {
+    background: "#151817",
+    foreground: "#d7dad7",
+    cursor: "#e7bf65",
+    cursorAccent: "#151817",
+    selectionBackground: "#49655b99",
+    black: "#151817",
+    red: "#f07d72",
+    green: "#92b88a",
+    yellow: "#e7bf65",
+    blue: "#7da9b4",
+    magenta: "#bf92b2",
+    cyan: "#79b9ad",
+    white: "#d7dad7",
+    brightBlack: "#6f7671",
+    brightRed: "#ff9a8f",
+    brightGreen: "#afd3a7",
+    brightYellow: "#f4d784",
+    brightBlue: "#9bc7d2",
+    brightMagenta: "#d9aecb",
+    brightCyan: "#9bd4ca",
+    brightWhite: "#f6f7f4",
+  },
+  light: {
+    background: "#ffffff",
+    foreground: "#202724",
+    cursor: "#8b651e",
+    cursorAccent: "#ffffff",
+    selectionBackground: "#b9d2c6aa",
+    black: "#202724",
+    red: "#b23a36",
+    green: "#3f7547",
+    yellow: "#8b651e",
+    blue: "#3e6f82",
+    magenta: "#805579",
+    cyan: "#39796e",
+    white: "#e9eeeb",
+    brightBlack: "#65716b",
+    brightRed: "#d04e48",
+    brightGreen: "#568e5e",
+    brightYellow: "#a77b29",
+    brightBlue: "#54869a",
+    brightMagenta: "#976b90",
+    brightCyan: "#4c9184",
+    brightWhite: "#ffffff",
+  },
+  eye_care: {
+    background: "#f2f6eb",
+    foreground: "#2b342d",
+    cursor: "#8d6927",
+    cursorAccent: "#f2f6eb",
+    selectionBackground: "#b5ccb1aa",
+    black: "#2b342d",
+    red: "#a8443e",
+    green: "#4e7454",
+    yellow: "#8d6927",
+    blue: "#4b7180",
+    magenta: "#775b76",
+    cyan: "#47766c",
+    white: "#e3eadc",
+    brightBlack: "#687269",
+    brightRed: "#c15850",
+    brightGreen: "#648a69",
+    brightYellow: "#a27c38",
+    brightBlue: "#638796",
+    brightMagenta: "#8e718d",
+    brightCyan: "#5d8d82",
+    brightWhite: "#f8faf4",
+  },
+};
 
 interface TerminalViewProps {
   pane: PaneModel;
@@ -30,6 +103,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
   const bindSession = useLayoutStore((state) => state.bindSession);
   const failConnection = useLayoutStore((state) => state.failConnection);
   const notify = useUiStore((state) => state.notify);
+  const theme = useUiStore((state) => state.theme);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
 
@@ -41,6 +115,13 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
     channel.onmessage = (buffer) => terminal.write(new Uint8Array(buffer));
     try {
       const session = await sessionConnect(profile.id, terminal.cols, terminal.rows, channel);
+      const paneExists = useLayoutStore
+        .getState()
+        .tabs.some((tab) => tab.panes.some((candidate) => candidate.id === pane.id));
+      if (!paneExists) {
+        await sessionDisconnect(session.session_id).catch(() => undefined);
+        return;
+      }
       sessionRef.current = session.session_id;
       bindSession(pane.id, session);
     } catch (error) {
@@ -61,29 +142,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       fontSize: 13,
       lineHeight: 1.22,
       scrollback: 10_000,
-      theme: {
-        background: "#151817",
-        foreground: "#d7dad7",
-        cursor: "#e7bf65",
-        cursorAccent: "#151817",
-        selectionBackground: "#49655b99",
-        black: "#151817",
-        red: "#f07d72",
-        green: "#92b88a",
-        yellow: "#e7bf65",
-        blue: "#7da9b4",
-        magenta: "#bf92b2",
-        cyan: "#79b9ad",
-        white: "#d7dad7",
-        brightBlack: "#6f7671",
-        brightRed: "#ff9a8f",
-        brightGreen: "#afd3a7",
-        brightYellow: "#f4d784",
-        brightBlue: "#9bc7d2",
-        brightMagenta: "#d9aecb",
-        brightCyan: "#9bd4ca",
-        brightWhite: "#f6f7f4",
-      },
+      theme: terminalThemes.dark,
     });
     const fit = new FitAddon();
     const search = new SearchAddon();
@@ -137,6 +196,10 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       terminalRef.current = null;
     };
   }, [connect, notify]);
+
+  useEffect(() => {
+    if (terminalRef.current) terminalRef.current.options.theme = terminalThemes[theme];
+  }, [theme]);
 
   const disconnected = pane.state === "disconnected" || pane.state === "failed";
 
