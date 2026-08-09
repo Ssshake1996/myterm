@@ -11,10 +11,12 @@ describe("HelpManual", () => {
     const onClose = vi.fn();
     render(<HelpManual onClose={onClose} />);
 
-    expect(screen.getByRole("dialog", { name: "myterm 使用说明书" })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "myterm 使用说明书" });
+    expect(dialog).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "说明书目录" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "服务器与会话" })).toBeInTheDocument();
-    expect(screen.getByText("myterm agent run", { exact: false })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "远端 CLI 与 REST 操作" })).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("0.6.3 已删除早期实现的本机 Agent CLI");
 
     await user.click(screen.getByRole("button", { name: "关闭" }));
     expect(onClose).toHaveBeenCalledOnce();

@@ -1,9 +1,7 @@
 pub mod agent;
 pub mod ai;
-pub mod cli;
 pub mod config;
 pub mod ipc;
-pub mod rest;
 pub mod session;
 pub mod sftp;
 pub mod types;

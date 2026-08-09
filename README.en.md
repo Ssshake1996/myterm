@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.6.2`
+Current version: `0.6.3`
 
 ## Core Features
 
@@ -49,7 +49,8 @@ task input -> model decision -> tool call -> result -> continue -> final answer
 
 - Persistent tasks, ordered events, approvals, tool audit records, background jobs, cancellation, and crash recovery.
 - A tool-centric timeline shows model decisions, tool names, parameter summaries, stdout, stderr, results, and status.
-- Built-in tools cover session metadata, terminal context, terminal input, structured SSH execution, host facts, directories, and files.
+- Task input supports `Shift+Enter` newlines and IME protection; a top handle expands the composer up to half the Agent panel height.
+- Built-in tools cover session metadata, terminal context, terminal input, structured SSH execution, host facts, directories, and files; explicit multi-SSH targets are planned next.
 - Structured execution records stdout/stderr separately with exit code, signal, timeout, cancellation, and disconnect outcomes.
 - Long operations can become background jobs with status, paged output, and cancellation tools.
 - Diagnostic runbooks, context compaction, loop detection, and pre-persistence secret redaction are built in.
@@ -71,27 +72,14 @@ Hard-deny commands, production/root escalation, output limits, audit records, an
 - Large MCP catalogs use search plus explicit invocation to protect model context.
 - Bounded deterministic lifecycle Hooks are supported and cannot lower core permissions.
 
-### CLI and REST API
+### Remote CLI, REST, and Multi-SSH Plan
 
-Desktop, terminal automation, and local HTTP clients share the same Agent, policy, SSH, and persistence core:
+- CLI means running large numbers of `systemctl`, `journalctl`, `docker`, `kubectl`, and business commands over SSH with structured results. It does not mean that myterm needs a public CLI product surface.
+- REST means calling business or infrastructure HTTP APIs from an explicit remote SSH origin with the correct network perspective, credential redaction, and audit. It does not mean exposing the myterm Agent as a REST service.
+- Multi-SSH binds several saved servers to one Task, requires an explicit target on every tool call, and supports operating on A, observing from B, and continuing only after a condition passes.
+- OS installation is planned as a local-Skill-triggered installation Task. The Skill builds and validates the plan; approved provisioning tools perform disk, boot, and power operations through a hypervisor, cloud API, MAAS, or Redfish/BMC.
 
-```powershell
-myterm agent run --server yuxiaservers --task "Inspect disk pressure" --permission read-only
-myterm agent run --server yuxiaservers --task - --output jsonl
-myterm task list --output json
-myterm task events TASK_ID --follow
-myterm task approve TASK_ID APPROVAL_ID
-myterm task cancel TASK_ID
-```
-
-The REST API is off by default and must be explicitly started on loopback:
-
-```powershell
-myterm api token create
-myterm api serve --bind 127.0.0.1:9867
-```
-
-It provides hashed bearer tokens, rate limiting, idempotent task creation, task queries, approvals, cancellation, resumable SSE, and `/v1/openapi.json`. Non-loopback binding remains rejected until TLS, RBAC, and server allowlists are delivered together.
+See the [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-installation-plan.md) for boundaries, tradeoffs, and staged delivery. Version `0.6.3` removes the early local Agent CLI and loopback REST surfaces. myterm remains a desktop application; CLI/REST refers only to commands and HTTP requests executed by the Agent in remote SSH environments.
 
 ### Appearance and Help
 
@@ -104,14 +92,15 @@ It provides hashed bearer tokens, rate limiting, idempotent task creation, task 
 ```text
 React UI
   -> typed IPC adapter
-    -> Tauri commands / CLI / loopback REST
+    -> Tauri commands
       -> Agent application service
         -> policy + audit + SQLite task store
-        -> SSH / PTY / SFTP / Skill / MCP / Hooks
+        -> SSH targets / PTY / SFTP / Skill / MCP / Hooks
+        -> planned provisioning adapters
 ```
 
 - `src/`: React UI, state, and typed IPC boundary.
-- `src-tauri/`: Rust services, Tauri entry point, CLI, and REST API.
+- `src-tauri/`: Rust services, Agent core, and the Tauri desktop entry point.
 - `myterm-spec/`: product, architecture, milestone, and acceptance specifications.
 - `myterm-prototype/`: early static interaction prototype.
 - `docs/`: user guide, Agent specifications, development plan, and experience record.
@@ -162,8 +151,9 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 - [Linux Agent Improvement Study](docs/linux-agent-improvement-study.md)
 - [Linux Agent Development Plan](docs/linux-agent-development-plan.md)
 - [Linux Agent Specification](docs/linux-agent-specification.md)
+- [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-installation-plan.md)
 - [Development Experience Record](docs/development-experience.md)
 
 ## Current Boundaries
 
-The first release excludes complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, remote MCP transports, and public REST exposure. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.
+Version `0.6.3` does not yet implement multi-SSH Tasks, structured remote HTTP, or Skill-driven OS installation; these follow the staged plan. The first release still excludes complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.

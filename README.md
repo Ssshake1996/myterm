@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.6.2`
+当前版本：`0.6.3`
 
 ## 核心功能
 
@@ -49,7 +49,8 @@ Agent 使用类似 Claude Code 的循环：
 
 - 持久化任务、事件、审批、工具审计、后台 Job、取消和崩溃恢复。
 - AI 面板按时间线展示模型决策、工具名称、参数摘要、stdout、stderr、结果和状态。
-- 基础工具覆盖会话信息、终端上下文、终端输入、结构化 SSH 命令、主机事实、目录和文件操作。
+- 任务输入支持 `Shift+Enter` 换行和输入法保护，顶部拖柄可将输入区向上扩大到 Agent 面板高度的一半。
+- 基础工具覆盖会话信息、终端上下文、终端输入、结构化 SSH 命令、主机事实、目录和文件操作；后续按显式目标扩展多 SSH 协同。
 - 结构化命令执行分别记录 stdout/stderr、退出码、信号、超时、取消和断连结果。
 - 长任务可转入后台 Job，并通过状态、分页输出和取消工具继续管理。
 - 内置诊断 Runbook、上下文压缩、循环检测和敏感字段脱敏。
@@ -71,27 +72,14 @@ Agent 使用类似 Claude Code 的循环：
 - MCP 工具较多时使用搜索和显式调用，避免一次性占满模型上下文。
 - 支持有界、确定性的任务生命周期 Hooks；Hooks 不能降低核心权限策略。
 
-### CLI 与 REST API
+### 远端 CLI、REST 与多 SSH 规划
 
-桌面程序和自动化入口共用同一个 Agent、权限、SSH 和持久化内核：
+- CLI 指 Agent 通过 SSH 大量执行 `systemctl`、`journalctl`、`docker`、`kubectl` 和业务命令，并取得结构化结果；不是要求 myterm 对外提供一套 CLI 产品接口。
+- REST 指从明确的远端 SSH 主机调用业务或基础设施 HTTP API，保留真实网络视角、凭据脱敏和审计；不是要求 myterm 对外暴露 Agent REST 服务。
+- 多 SSH 采用一个 Task 绑定多个保存的服务器，每次工具调用显式指定目标，支持 A 操作、B 观察、条件满足后继续。
+- OS 安装规划为由本地 Skill 触发的安装 Task。Skill 生成和校验计划，真正的写盘、启动和电源动作由受审批的 provisioning 工具通过虚拟化平台、云 API、MAAS 或 Redfish/BMC 执行。
 
-```powershell
-myterm agent run --server yuxiaservers --task "检查磁盘压力" --permission read-only
-myterm agent run --server yuxiaservers --task - --output jsonl
-myterm task list --output json
-myterm task events TASK_ID --follow
-myterm task approve TASK_ID APPROVAL_ID
-myterm task cancel TASK_ID
-```
-
-REST API 默认关闭，只允许显式启动的回环地址服务：
-
-```powershell
-myterm api token create
-myterm api serve --bind 127.0.0.1:9867
-```
-
-API 提供 Bearer Token 哈希存储、限流、幂等创建、任务查询、审批、取消、SSE 断点续传和 `/v1/openapi.json`。非回环监听在 TLS、RBAC 和服务器白名单一起实现前保持拒绝。
+以上能力的完整边界、方案优缺点和阶段计划见[多 SSH 协同与 Skill 驱动 OS 安装方案](docs/multi-ssh-os-installation-plan.md)。`0.6.3` 已删除早期实现的本机 Agent CLI 和 loopback REST；myterm 保持桌面应用边界，CLI/REST 只表示 Agent 在远端 SSH 环境中执行命令和 HTTP 请求。
 
 ### 外观与帮助
 
@@ -104,14 +92,15 @@ API 提供 Bearer Token 哈希存储、限流、幂等创建、任务查询、�
 ```text
 React UI
   -> typed IPC adapter
-    -> Tauri commands / CLI / loopback REST
+    -> Tauri commands
       -> Agent application service
         -> policy + audit + SQLite task store
-        -> SSH / PTY / SFTP / Skill / MCP / Hooks
+        -> SSH targets / PTY / SFTP / Skill / MCP / Hooks
+        -> planned provisioning adapters
 ```
 
 - `src/`：React 界面、状态管理和类型化 IPC 边界。
-- `src-tauri/`：Rust 服务、Tauri 桌面入口、CLI 与 REST。
+- `src-tauri/`：Rust 服务、Agent 内核与 Tauri 桌面入口。
 - `myterm-spec/`：产品、架构、里程碑和验收规范。
 - `myterm-prototype/`：早期静态交互原型。
 - `docs/`：使用说明书、Agent 规范、开发计划和经验记录。
@@ -162,8 +151,9 @@ npm run check:dist
 - [Linux Agent 改进研究](docs/linux-agent-improvement-study.md)
 - [Linux Agent 开发计划](docs/linux-agent-development-plan.md)
 - [Linux Agent 规范](docs/linux-agent-specification.md)
+- [多 SSH 协同与 Skill 驱动 OS 安装方案](docs/multi-ssh-os-installation-plan.md)
 - [开发经验记录](docs/development-experience.md)
 
 ## 当前边界
 
-第一版不实现复杂多 Agent、长期记忆、云端 Skill 市场、远程 MCP 传输和公网 REST。聚合 WebView2 进程组内存仍高于项目的 80 MiB 目标，原生 Agent 内核保持轻量，完整浏览器运行时优化继续作为后续工作。
+当前 `0.6.3` 尚未实现多 SSH Task、结构化远端 HTTP 工具或 Skill 驱动的 OS 安装；这些能力按专项方案分阶段开发。第一版仍不实现复杂多 Agent、长期记忆、云端 Skill 市场和远程 MCP 传输。聚合 WebView2 进程组内存仍高于项目的 80 MiB 目标，原生 Agent 内核保持轻量，完整浏览器运行时优化继续作为后续工作。

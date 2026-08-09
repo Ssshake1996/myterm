@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.6.2。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.6.3。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -131,6 +131,10 @@ docker compose up -d
 
 执行时间线会显示模型决策、工具、参数摘要、审批状态、stdout、stderr、结果和最终答复。任务会写入本地 SQLite，关闭面板或重新打开应用后仍可查询历史。
 
+- `Enter` 提交任务，`Shift+Enter` 在任务中插入换行；中文输入法正在组词时按 `Enter` 不会误提交。
+- 输入区顶部有水平拖柄。向上拖动可扩大输入区，向下拖动可恢复，最大不超过 Agent 面板高度的一半。
+- 聚焦拖柄后可用 `↑`/`↓` 逐级调整，`Home` 恢复最小高度，`End` 扩大到允许的最大高度。
+
 ### 推荐任务写法
 
 - 说明目标，例如“检查服务器磁盘压力并找出增长最快的日志目录”。
@@ -199,37 +203,30 @@ docker compose up -d
 - 工具超过 48 个时，Agent 先搜索目录再显式调用，避免上下文膨胀。
 - 不要在普通命令参数中直接写密钥；优先使用受控环境或系统凭据方案。
 
-## CLI
+## 远端 CLI 与 REST 操作
 
-安装后的 `myterm.exe` 同时提供桌面和命令行入口。
+myterm 所说的 CLI 和 REST 能力，主要指 Agent 在远程 SSH 环境中执行运维命令和 HTTP 请求，不是让 myterm 自身成为 CLI 或 REST 服务。
 
-```powershell
-myterm agent run --server yuxiaservers --task "检查系统负载" --permission read-only
-myterm agent run --server yuxiaservers --task - --output jsonl
-myterm task list --output json
-myterm task status TASK_ID --output json
-myterm task events TASK_ID --follow
-myterm task approve TASK_ID APPROVAL_ID
-myterm task cancel TASK_ID
+- 远端 CLI 使用 `remote_exec` 运行 `systemctl`、`journalctl`、`docker`、`kubectl`、包管理器和业务命令，并分别记录退出码、stdout、stderr、超时和取消结果。
+- 当前可以通过 `remote_exec` 使用 `curl` 或 `httpie`。不要把 token 写入命令行、快捷命令或 Task 文本。
+- 后续的 `remote_http_request` 会从指定 SSH 主机发起结构化 HTTP 请求，明确记录网络执行来源、状态码、TLS 验证、耗时和脱敏结果。
+- 非幂等 POST 不自动重试；需要凭据时只引用系统凭据库，由工具在受控位置注入。
+
+`0.6.3` 已删除早期实现的本机 Agent CLI 和 loopback REST。启动 myterm 始终进入桌面应用；当前也不会监听 Agent HTTP 端口。
+
+## 多 SSH 与 OS 安装规划
+
+当前 `0.6.3` 的 Agent Task 仍以单个活动 SSH 目标为主。计划中的多 SSH 模式会让一个 Task 绑定多个保存的服务器，每次工具调用明确显示目标，例如先在 A 执行变更，再从 B 观察 A 的健康接口，满足连续成功条件后继续。
+
+OS 安装不会通过一条 SSH 命令直接执行。计划流程是：
+
+```text
+创建安装 Task -> 加载 OS 安装 Skill -> 只读盘点 -> 生成并校验 plan
+-> 两阶段审批 -> provisioning 控制面执行 -> 观察重启/安装
+-> 重建 SSH 信任 -> 后置验收
 ```
 
-使用 `--task -` 从标准输入读取任务。`--output jsonl` 适合脚本逐行解析事件。按 Ctrl+C 会请求取消并使用稳定退出码结束。
-
-## REST API
-
-REST 服务默认关闭。先创建一次性显示的 Bearer Token，再启动回环监听。
-
-```powershell
-myterm api token create
-myterm api serve --bind 127.0.0.1:9867
-```
-
-- 健康检查、任务创建和任务查询使用 `/v1` 路径。
-- SSE 事件支持断点续传。
-- 创建任务支持幂等键，重复请求不会重复执行。
-- Token 只保存 SHA-256 哈希，可通过 CLI 撤销。
-- `/v1/openapi.json` 提供 OpenAPI 文档。
-- 第一版拒绝非回环监听，不应通过端口映射暴露到公网。
+Skill 负责安装流程、模板和参数检查；真正的系统盘、启动项、电源和介质操作必须通过受策略保护的 provisioning 工具，并由虚拟化平台、云 API、MAAS 或 Redfish/BMC 控制。第一版只计划在隔离虚拟机上支持 Ubuntu Server Autoinstall，不支持生产物理机无人审批重装。详细方案见仓库中的 `docs/multi-ssh-os-installation-plan.md`。
 
 ## 数据与安全
 
@@ -274,4 +271,4 @@ myterm api serve --bind 127.0.0.1:9867
 
 ## 第一版边界
 
-当前不提供复杂多 Agent、长期记忆、任务编排平台、云端 Skill 市场、非 stdio MCP 和公网 REST。对于高风险生产变更，myterm 应作为具备审批和审计的执行辅助工具，而不是替代变更流程、备份和人工复核。
+当前不提供多 SSH Task、结构化远端 HTTP、Skill 驱动 OS 安装、复杂多 Agent、长期记忆、任务编排平台、云端 Skill 市场和非 stdio MCP。对于高风险生产变更和 OS 重装，myterm 应作为具备审批和审计的执行辅助工具，而不是替代资产系统、变更流程、备份和人工复核。

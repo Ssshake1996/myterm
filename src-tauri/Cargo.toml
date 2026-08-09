@@ -1,6 +1,6 @@
 [package]
 name = "myterm"
-version = "0.6.2"
+version = "0.6.3"
 description = "A lightweight SSH terminal with a native AI assistant"
 authors = ["myterm contributors"]
 edition = "2021"
@@ -14,8 +14,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
-clap = { version = "4.6", features = ["derive"] }
 dirs = "6"
 keyring = "3"
 portable-pty = "0.9"
@@ -29,8 +27,7 @@ serde_json = "1"
 sha2 = "0.10"
 tauri = { version = "2", features = [] }
 thiserror = "2"
-tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
-tokio-stream = "0.1"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = "0.3"
@@ -42,4 +39,4 @@ uuid = { version = "1", features = ["v4", "serde"] }
 tokio = { version = "1", features = ["full"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_System_Console"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials"] }

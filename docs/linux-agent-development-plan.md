@@ -1,326 +1,305 @@
 # myterm Linux Agent 开发计划
 
-> 文档状态：`0.6.2` 第一版已实施并补齐双语 README 与离线使用说明书，验收与剩余风险见 `development-experience.md`
-> 当前产品基线：`0.6.2`
+> 文档状态：`0.6.3` 删除 myterm 自身 CLI/REST 后的后续实施计划
+> 当前产品基线：`0.6.3`
 > 对应说明书：[`linux-agent-specification.md`](linux-agent-specification.md)
+> 专项方案：[`multi-ssh-os-installation-plan.md`](multi-ssh-os-installation-plan.md)
 > 研究依据：[`linux-agent-improvement-study.md`](linux-agent-improvement-study.md)
 
 ## 1. 计划目标
 
-本计划把当前有限 Agent 闭环演进为面向 Linux 服务器的可靠执行系统，并在核心稳定后增加 CLI 和 RESTful API。计划不以功能数量为目标，而以以下结果为完成标准：
+myterm 保持轻量桌面 SSH 终端定位，在已经交付的单主机 Linux Agent 内核上增加三项能力：
 
-- 命令有明确开始、结束、退出码、stdout、stderr、超时和取消结果。
-- 权限由统一策略引擎判定，桌面端、CLI、REST 和 MCP 不能绕过。
-- 每次系统变更都能关联审批、执行证据、验证证据和审计记录。
-- 任务在 UI 断开、CLI 退出或 SSE 重连后仍可查询，不会重复执行。
-- CLI 和 REST 复用同一 Agent 应用服务，不形成第二套 SSH 或 shell 实现。
+1. 一个 Agent Task 显式绑定和协调多个已保存 SSH 目标。
+2. 从指定远端 SSH 主机执行大量 CLI 和结构化 REST 请求。
+3. 由本地 Skill 触发 OS 安装 Task，通过独立 provisioning 控制面完成安装、观察和验收。
 
-本计划不承诺日历工期。每个里程碑必须通过退出门槛并独立提交，才能开始依赖它的下一里程碑。
+本计划中的 CLI/REST 都是远端运维手段，不是 myterm 自身的产品入口。`0.6.3` 已删除 `myterm agent/task/api` 子命令、loopback REST、Bearer Token、SSE、OpenAPI 和专用幂等存储。桌面启动参数 `--profile`、`--portable` 和 `--debug` 继续保留。
 
-## 2. 实施原则
+## 2. 完成标准
 
-1. **先内核，后入口**：先完成执行、任务、权限、审计，再开发 CLI 和 REST。
-2. **契约先行**：先更新说明书中的类型、状态、事件和错误码，再修改实现。
-3. **纵向交付**：每个里程碑必须包含 Rust、IPC/UI、迁移和测试，不留下不可运行的半层实现。
-4. **默认保守**：无法解析、无法分类、生产环境、root 和远程副作用自动提升风险，不用模型猜测安全性。
-5. **同一管线**：内置工具、Skill 脚本和 MCP 工具共用审批、取消、输出限制与审计。
-6. **一次只扩大一个边界**：多 Agent、长期记忆和通用工作流编排不与执行内核同时开发。
-7. **轻量是发布门槛**：每个里程碑记录原生内核与完整进程组的体积、内存、CPU、启动和吞吐差异，超预算不发布。
-8. **经验同步**：每个里程碑完成时更新 `docs/development-experience.md` 的决定、失败和验证记录。
+- 多主机任务的每次工具调用、审批、输出和证据都能唯一定位目标。
+- A 操作、B 观察、条件满足后继续的流程无需通用 DAG 或多 Agent。
+- HTTP 请求保留远端网络视角，凭据不进入 prompt、argv、日志或 Artifact 明文。
+- OS 安装不是一条 shell 命令；旧 SSH 消失后由 BMC、MAAS、虚拟化或云控制面继续观察。
+- Skill 只能编排内核工具，不能扩大权限或建立第二执行入口。
+- 未启用多 SSH/provisioning 时没有 provider 常驻进程、监听端口、忙轮询或明显资源回退。
+- 每个里程碑同时完成实现、测试、说明书、经验记录、发行构建和升级安装验证。
 
-## 3. 版本与里程碑
+## 3. 实施原则
+
+1. **桌面唯一入口**：Agent 任务从桌面 UI 创建、审批、观察和取消。
+2. **显式目标**：多主机工具调用必须带 `target_alias`，不能依赖当前焦点终端。
+3. **单一安全内核**：内置工具、Skill、MCP 和 provider adapter 共用权限、取消、输出限制、脱敏和审计。
+4. **副作用串行**：只读探针可有界并发，跨主机写默认串行；并行写单独审批。
+5. **安装计划先行**：OS 安装先产生不可变 plan 和 plan hash，再进入两阶段审批。
+6. **控制面独立**：系统盘安装期间不依赖被重装 OS 的 SSH。
+7. **最少 provider**：第一版只选择一个 VM adapter，不静态打入全部云和硬件 SDK。
+8. **契约先行**：先修改说明书、类型和状态，再实现服务和 UI。
+9. **经验同步**：每个里程碑把决定、失败和证据写入 `development-experience.md`。
+10. **轻量门槛**：体积、内存、CPU、启动和长输出指标回退时不发布。
+
+## 4. 当前基线
+
+### 4.1 已交付
+
+- 保存服务器新增、修改、删除、凭据持久化、点击连接和自动登录。
+- 本地终端、SSH 标签、向右分屏、分屏关闭、SFTP 和多行快捷命令。
+- 三套主题、紧凑工作区、离线帮助与中英文 README。
+- Claude Code 风格的单 Agent 循环、持久 Task/Event/Approval/Audit、取消和历史。
+- `remote_exec`、后台 Job、主机事实、远端文件读写、tree-sitter Bash 权限策略和证据式完成。
+- 本地 `SKILL.md`、stdio MCP、Hooks、上下文压缩和工具时间线。
+- Agent 输入框 `Enter` 提交、`Shift+Enter` 换行、IME 组合保护，以及向上拖至面板一半的可调高度。
+
+### 4.2 `0.6.3` 删除项
+
+- `myterm agent run/serve`。
+- `myterm task list/status/events/approve/cancel`。
+- `myterm api serve/token`。
+- Axum listener、REST Token、rate limit、SSE、OpenAPI 和 API 幂等键。
+- CLI/REST smoke 脚本、专用依赖和文档。
+
+升级迁移会删除配置中的 `rest_token_hash` 和 Agent 数据库中的 `api_idempotency_keys`，但保留桌面 Task 历史、Agent 设置、服务器、AI 配置和系统凭据。
+
+### 4.3 尚未交付
+
+- 一个 Task 绑定多个 SSH profile。
+- 工具级 `target_alias`、每目标连接池/锁和跨主机证据。
+- `remote_http_request` 与 `wait_condition`。
+- Provisioning plan、状态机、provider adapter 和 OS 安装 Skill。
+- 物理机、虚拟化平台或云控制面接入。
+
+## 5. 版本与里程碑
 
 | 版本 | 里程碑 | 核心交付 | 依赖 |
 |---|---|---|---|
-| `0.2.0-alpha.1` | A0 契约与存储骨架 | 统一任务模型、版本化事件、SQLite 迁移、旧配置迁移 | 原 `0.1.4` |
-| `0.2.0-alpha.2` | A1 结构化执行 | `remote_exec`、流式输出、退出码、超时和取消 | A0 |
-| `0.2.0-beta.1` | A2 权限与风险 | 三级权限、命令解析、allow/ask/deny、危险操作规则 | A1 |
-| `0.2.0` | A3 任务控制与审计 | 后台任务、循环保护、证据验证、持久历史、Agent 控制台 | A2 |
-| `0.3.0` | B1 Linux 运维工具 | 主机事实、文件工具、标准排查 runbook | A3 |
-| `0.4.0` | C1 CLI | Agent 任务命令、JSONL、审批、取消和退出码 | A3；建议 B1 |
-| `0.5.0` | C2 RESTful API | `/v1` 任务资源、SSE、认证、幂等和 OpenAPI | C1 |
-| `0.6.0` | D1 扩展层增强 | MCP 长连接、Hooks、Skill v2、上下文压缩 | A3；可与 C1/C2 独立排期 |
-| 后续评估 | E1 受限子 Agent | 只读并行排查、权限继承和摘要返回 | D1 稳定后 |
+| `0.6.3` | R0 产品面收敛 | 删除本机 CLI/REST、迁移旧数据、多行与可调输入区、文档重构 | `0.6.2` |
+| `0.7.0` | M1 多 SSH 内核 | 多目标 Task、alias、连接 owner、锁、事件和 UI 目标展示 | R0 |
+| `0.8.0` | M2 远端 CLI/REST 协同 | `remote_http_request`、`wait_condition`、A/B 门控流程 | M1 |
+| `0.9.0` | M3 Provisioning 骨架 | plan、状态机、fake adapter、两阶段审批、安装 Skill plan-only | M2 |
+| `1.0.0` 候选 | M4 Ubuntu VM 安装 | 一个 VM adapter、Autoinstall、SSH 身份重建和验收 | M3 |
+| 后续 | M5 物理机与更多 OS | MAAS/Redfish、RHEL、Windows、云 provider | M4 稳定后 |
 
-`0.2.0` 是第一条完整完成线：只有 A0-A3 全部通过，才可称为可靠的 Linux Agent 执行版。
+版本号表达能力成熟度，不承诺日历工期。每个里程碑通过退出门槛后才能开始依赖它的下一里程碑。
 
-## 4. 依赖顺序
+## 6. 依赖顺序
 
-```text
-A0 任务契约与事件存储
-  -> A1 结构化远程执行
-    -> A2 权限与风险引擎
-      -> A3 后台任务、证据、审计与控制台
-        -> B1 主机事实、文件工具和 runbook
-        -> C1 CLI -> C2 RESTful API
-        -> D1 MCP、Hooks、Skill v2 -> E1 只读子 Agent
+```mermaid
+flowchart LR
+    R0["R0 删除本机 CLI/REST"] --> M1["M1 多 SSH 内核"]
+    M1 --> M2["M2 远端 HTTP 与条件等待"]
+    M2 --> M3["M3 Provisioning 状态机"]
+    M3 --> M4["M4 Ubuntu VM 安装 Skill"]
+    M4 --> M5["M5 MAAS/Redfish 与更多 OS"]
 ```
 
-C1 不能先于 A3。C2 不能先于 C1 的跨入口契约测试通过。D1 可以在 A3 后与 B1/C1 并行设计，但不得并行修改同一权限与事件契约。
+不能先写 OS 安装脚本再补状态机。不能先接 BMC/云 API 再补资产身份和审批。不能为了并行开发复制 SSH、HTTP、凭据或策略实现。
 
-## 5. 里程碑明细
+## 7. 里程碑明细
 
-### A0 统一任务契约与存储骨架
+### R0 产品面收敛
 
-目标：把当前仅存在于组件内存中的一次运行升级为可查询、可恢复、可复用的任务域。
-
-交付物：
-
-- 按说明书实现 `AgentTask`、`AgentEventEnvelope`、`ToolCallRecord`、`ApprovalRequest`、`ExecutionJob` 和统一错误类型。
-- 将 Agent 服务拆分为应用服务、循环运行时、工具注册表、策略接口、事件存储接口；暂不抽成独立 crate。
-- 引入 SQLite 持久化，建立 schema 版本、顺序迁移、事务和崩溃恢复规则。
-- 建立可重复的 release 性能基准脚本，记录 `0.1.4` 的启动、原生主进程、完整进程组、CPU、包体积和输出吞吐基线。
-- 事件先落盘再发布给 Tauri Channel，UI 重连可按 `run_id + sequence` 补取。
-- 把旧 `full_access` 持久设置迁移为 `confirm`；任务级授权只存在于一次运行中。
-- 保持现有四个内置工具和现有 UI 可运行，增加兼容适配测试。
-
-退出门槛：
-
-- 状态转换测试覆盖全部合法路径，并拒绝终态回到运行态。
-- 连续写入 10,000 个事件后顺序唯一且可按游标恢复。
-- 在事件写入、任务快照和迁移中模拟中断，数据库可重新打开且无半条审批。
-- 从 `0.1.4` 配置升级后，AI profile、Skill、MCP 和服务器 profile 均保留。
-- SQLite 未使用时不启动忙轮询；A0 相对基线的原生进程增量不超过说明书预算。
-- `cargo test`、Clippy、TypeScript、Biome 和前端测试全部通过。
-
-### A1 结构化远程执行
-
-目标：普通 Linux 命令不再依赖 PTY 屏幕快照判断结果。
+目标：让实现、文档和产品定义都只保留桌面入口，并为后续多目标工作建立干净基线。
 
 交付物：
 
-- 基于现有 SSH 连接打开独立 exec channel，实现 `remote_exec`。
-- 分离 stdout/stderr，记录退出码、signal、开始时间、耗时、超时、截断和连接中断。
-- 增量输出写入事件和受限 artifact；发给模型的内容使用首尾预览。
-- stdout/stderr 使用固定内存窗口并合并输出事件，不按行或字节无限排队。
-- 取消从 Agent 任务传播到 SSH channel；超时后按说明书执行关闭和最终状态落盘。
-- 保留 `terminal_send`，并在工具说明中限定为交互式 PTY 场景。
-- 增加 `job_status`、`job_output`、`job_cancel` 的底层接口，A3 再开放完整后台 UI。
+- 删除 `cli.rs`、`rest.rs` 和 REST smoke 脚本。
+- 删除 `clap`、`axum`、`tokio-stream` 及不再需要的 Tokio/Windows feature。
+- Agent SQLite schema 升级并删除 API 幂等表。
+- 配置打开时清理旧 REST Token hash。
+- 桌面仍解析 `--profile`、`--portable`、`--debug`。
+- Agent 输入框支持 `Shift+Enter` 换行，IME 组合阶段不提交。
+- 输入区从顶部向上拖动扩大，最大占 Agent 面板高度一半；支持向下恢复和键盘调整。
+- README、使用说明、研究、规范、计划和经验记录同步。
 
 退出门槛：
 
-- `true` 返回 0，`false` 返回非零，stdout 与 stderr 不串流。
-- 超时、用户取消、SSH 断线和远端 signal 具有不同结果与错误码。
-- 10MB 输出不阻塞 UI，模型预览不超过配置上限，完整 artifact 可读取。
-- 10MB 输出吞吐、峰值内存和事件延迟满足说明书效率预算。
-- 取消后没有仍被 myterm 持有的 SSH channel 或本地任务。
-- 交互式 PTY 回归测试证明终端输入、分屏和快捷命令未受影响。
+- `rg` 不再发现本机 Agent CLI/REST 命令、路由、Token、SSE 或 OpenAPI 实现。
+- 旧配置升级后只移除 REST Token，配置 hash 变化可解释，服务器和 AI 凭据可继续使用。
+- 旧 Agent DB 升级后 Task 历史可读，`api_idempotency_keys` 不存在。
+- `myterm.exe agent` 不再进入 headless 模式；桌面 `--profile` 自动连接通过。
+- 前端、Rust、发行构建、覆盖安装和桌面启动验证通过。
+- 输入区指针与键盘缩放、窗口缩小时的高度上限和三主题视觉验证通过。
 
-### A2 权限与风险引擎
+### M1 多 SSH 内核
 
-目标：从“每次都问/全部放行”升级为可解释、不可绕过的策略。
+目标：一个 Agent Task 安全绑定 2-8 个已保存服务器，并让每项事实都有明确目标。
 
 交付物：
 
-- 新增 `read_only`、`confirm`、`task_grant`，删除可持久化的 `full_access`。
-- 使用成熟 Bash 语法解析器生成命令结构；A0 技术决策记录最终依赖，禁止仅靠字符串前缀。
-- 建立 effect、resource、risk 和 `deny > ask > allow` 规则求值器。
-- 实现危险操作硬拒绝、root/生产环境限制、受保护路径和无法解析命令升级确认。
-- 审批支持拒绝、仅本次调用允许、本次任务精确规则允许；审批 5 分钟后失效。
-- UI 显示主机、用户、环境、风险、解析效果、资源和规则范围。
+- `AgentTask.targets`：alias 到 existing session/profile 的冻结映射。
+- 单主机兼容：允许一个 `default_target`，多主机调用必须显式 alias。
+- profile ID、host、port、user、环境、host key 和凭据引用快照。
+- 每目标连接 owner、连接状态、只读信号量和副作用写锁。
+- Event、ToolCall、Approval、Job、Artifact 和 Evidence 增加 target alias/identity。
+- 工具 schema、策略资源和审计键统一增加目标。
+- AI 面板展示目标集合、每步目标、连接和锁状态。
 
 退出门槛：
 
-- 表驱动测试覆盖说明书列出的所有危险类别、管道、重定向、命令替换和多命令组合。
-- 任意宽泛 allow 规则都不能覆盖 hard deny。
-- root 和 production 任务不能启用宽泛 `task_grant`。
-- 未识别语法不能自动执行；模型、Skill、MCP 都不能修改策略结果。
-- 审批过期、重复响应和任务结束后的响应均安全失败。
+- 焦点标签切换、profile 修改或删除不能静默改变运行中 Task。
+- 任一无目标或未知 alias 的工具调用在执行前失败。
+- 逐目标断线和取消不污染其他目标状态。
+- 旧单主机 Task 历史迁移后仍可查看。
+- 未启用多主机时单主机延迟和内存不显著回退。
 
-### A3 任务控制、证据、审计与控制台
+### M2 远端 CLI/REST 协同
 
-目标：形成第一条可靠 Linux Agent 完成线。
+目标：支持 A 操作、B 观察、条件满足后继续，并让 REST 请求具有结构化语义。
 
 交付物：
 
-- 完整开放前台/后台 job 生命周期、状态、输出、取消和清理。
-- 相同工具与参数连续调用 3 次触发循环保护；每类错误有独立重试预算。
-- 对有副作用的工具记录预期后置条件，完成前运行验证并保存证据。
-- 审计记录入口、调用方、主机、模型、审批、工具、脱敏参数、结果和 artifact 引用。
-- AI 面板升级为任务控制台：任务清单、风险、stdout/stderr、耗时、退出码、验证状态和历史。
-- 支持任务历史查看、恢复事件、导出和删除；实施存储配额与保留策略。
+- `remote_exec(target_alias, ...)` 完整迁移。
+- `remote_http_request(observer_alias, method, url, credential_ref, ...)`。
+- `wait_condition` 支持 HTTP、TCP、SSH exit/status 和受限文本比较。
+- 明确 `execution_origin=remote:<alias>`，第一版不开放本机任意 HTTP。
+- credential reference 受控注入，禁止 secret 进入 argv 和事件。
+- 有界轮询、连续成功阈值、超时、取消、状态变化压缩和 Artifact 上限。
+- 一个标准 A/B 协同 runbook 与 AI 时间线。
 
 退出门槛：
 
-- UI 刷新或重开应用后能查看已完成任务及完整事件顺序。
-- 有副作用任务缺少验证时不能报告成功；验证失败使用独立 finish reason。
-- 重复工具调用、步骤上限、审批拒绝、取消和连接中断都有明确终态。
-- secret 注入测试证明配置、事件、artifact、日志和 UI 中均无明文。
-- 在隔离 Linux 测试机完成磁盘排查、服务排查和安全配置修改的端到端验收。
+- 两台 SSH 测试机完成 A 变更、B 连续三次健康验证和门控继续。
+- 超时、TLS 失败、401、非幂等 POST、断线和取消均有稳定结果。
+- HTTP secret 在 prompt、日志、SQLite、事件和截图中均不可见。
+- 副作用默认串行；并行写未经专门审批不能发生。
 
-### B1 Linux 主机事实、文件工具与 runbook
+### M3 Provisioning 骨架
 
-目标：提高跨发行版命令正确性，并减少模型用 shell 拼装文件操作。
+目标：先证明安装 Task 可以安全建模和恢复，不触碰真实系统盘。
 
 交付物：
 
-- 连接后采集带有效期的主机事实快照。
-- 实现 `file_stat`、`file_read`、`file_search`、`file_write`、`file_patch`、上传和下载。
-- 文件写入使用临时文件、权限保留、原子替换和 readback；审批展示 diff。
-- 提供磁盘、内存/CPU、服务、端口、日志、TLS、Docker 等有限 runbook。
-- 确定性采集步骤写成代码，模型只负责选择、解释和综合。
+- Asset identity、InstallRequest、不可变 InstallPlan 和 plan hash。
+- Provisioning 状态机：验证、计划审批、staging、破坏审批、执行、重启、发现、引导、验证和恢复。
+- `ProvisioningAdapter` 最小 trait 与确定性 fake adapter。
+- `provision_capabilities/plan/validate/apply/status/console/abort` 工具。
+- 两阶段审批、精确磁盘稳定 ID、镜像 digest 和备份证据。
+- `install-linux-os` Skill 样例，仅支持 plan-only 与 fake adapter。
+- 应用重启后的任务恢复、provider 未知状态和 `recovery_required`。
 
 退出门槛：
 
-- Debian/Ubuntu、RHEL 系和 Alpine 测试镜像选择正确包管理器和 init 行为。
-- 路径穿越、symlink 逃逸、超大文件、二进制文件和敏感路径测试通过。
-- 每个 runbook 有固定输入、证据字段、停止规则和至少一个失败用例。
+- fake adapter 覆盖全部终态、每个阶段失败、崩溃恢复和审批 hash 失效。
+- 进入破坏阶段后的取消不会伪报回滚成功。
+- Skill 直接运行写盘/BMC 脚本会被策略拒绝。
+- 没有启用 provisioning 时不启动 adapter 或轮询。
 
-### C1 CLI
+### M4 Ubuntu VM 安装 Skill
 
-目标：提供适合人工终端、脚本和 CI 的 Agent 入口。
+目标：在可销毁实验 VM 中完成第一个真实 OS 安装闭环。
+
+实施前 ADR：根据真实测试环境选择一个虚拟化平台 adapter。已有 Proxmox、vSphere、Hyper-V 或 libvirt 时优先复用；不为了演示同时实现多个。
 
 交付物：
 
-- `myterm agent run`、`task status`、`task events`、`task approve` 和 `task cancel`。
-- 人类输出与版本化 JSONL 输出；稳定退出码和 `Ctrl+C` 取消语义。
-- CLI 连接本机 Agent 服务，不直接创建另一套 SSH 执行器。
-- Desktop 未运行时按任务启动同一内核的临时 headless service；不注册系统自启动，安全空闲 300 秒后退出。
-- 非交互审批返回可恢复状态，不自动提升权限。
-- 帮助、shell completion 和 CLI 契约测试。
+- Ubuntu Server Autoinstall 模板、schema/语义 validator 和镜像 hash 校验。
+- VM 资产绑定、快照/备份证据、虚拟介质、一次性启动、电源和控制台事件。
+- 安装器事件或串口观察，旧 SSH 中断被识别为预期阶段。
+- 一次性 bootstrap key、新 host key 验证、正式凭据绑定和凭据撤销。
+- SSH、地址、DNS、默认路由、时间同步和磁盘布局后置检查。
+- 仅允许 `development`/`lab` 环境、单 VM 和人工两阶段审批。
 
 退出门槛：
 
-- 桌面端和 CLI 对同一任务输出相同 `run_id`、状态、事件和 finish reason。
-- JSONL 每行都是独立合法 JSON，断线后可从 sequence 继续。
-- secret 不出现在 argv、进程列表、标准输出和 shell history 示例中。
-- 无运行/等待 Task、REST listener 和未清理 Job 时，临时 headless service 在 idle timeout 后不再留存进程或端口。
-- 所有退出码与说明书一致，并有黑盒测试。
+- 连续至少 10 次全新安装成功。
+- 镜像错误、磁盘错误、网络失败、引导失败和身份不匹配注入测试通过。
+- 任何目标、磁盘或镜像变化都使旧审批失效。
+- UI 清楚区分预期 SSH 中断、安装失败和恢复待处理。
 
-### C2 RESTful API
+### M5 物理机与更多 OS
 
-目标：在不扩大执行权限的前提下提供可自动化集成的服务接口。
+优先顺序：
 
-交付物：
+1. 已有 MAAS 时实现 MAAS adapter。
+2. 没有 MAAS且硬件型号固定时，评估直接 Redfish + VirtualMedia/PXE adapter。
+3. Ubuntu 稳定后增加 RHEL Kickstart。
+4. Windows 使用独立 Skill、Windows PE 和 unattended 模板。
+5. 云平台按业务需要实现镜像/启动盘 provider，不通过 SSH 重装。
 
-- `/v1/tasks` 任务创建、查询、SSE 事件、审批和取消接口。
-- loopback 默认监听；远程启用需要 TLS、认证、RBAC 和 profile 白名单。
-- 生成高熵 bearer token、仅存 hash、一次性显示、轮换和吊销流程。
-- 幂等创建、幂等审批/取消、速率限制、并发限制和输出限制。
-- OpenAPI 3 文档、错误码映射和最小客户端示例。
-- API 审计记录调用方身份、入口和请求关联 ID。
+每个物理机型号必须进入能力矩阵和认证测试。未认证型号只能 plan-only。
 
-退出门槛：
+## 8. 数据迁移与兼容
 
-- OpenAPI 契约测试与实际响应一致。
-- `Last-Event-ID` 重连不丢事件、不重复执行任务。
-- 相同幂等键只创建一个任务；并发竞态测试通过。
-- 未认证、越权 profile、过期 token、重放审批和超限请求均被拒绝并审计。
-- 非 loopback 无 TLS 时服务拒绝启动。
+### 8.1 `0.6.3`
 
-### D1 MCP、Hooks、Skill v2 与上下文
+- 配置 schema 不删除通用 `settings`，只删除键 `rest_token_hash`。
+- Agent DB schema 从 3 升到 4并删除 `api_idempotency_keys`。
+- 不删除 Task/Event/Approval/Job/Artifact。
+- 不删除 Windows 凭据库中的服务器、私钥口令或 AI Key。
+- 旧 `myterm agent/task/api` 调用直接回到桌面启动行为，不再承诺 CLI 错误码或兼容提示。
 
-目标：扩展能力时仍保持统一边界。
+### 8.2 M1 以后
 
-交付物：
+- 单 `session_id`/profile 的旧 Task 映射为 alias `primary`。
+- 新 Event 字段只追加；无法推导 target 的旧事件显示“历史单目标”，不伪造 profile。
+- InstallPlan 一经审批不可修改；修改产生新 plan ID/hash。
+- Provider 版本和 schema 记录在每次安装任务中，升级不重写历史证据。
 
-- MCP 运行内长连接、健康检查、重连、stderr 日志和按工具授权。
-- 工具目录搜索与按需 schema 加载，避免全部 MCP 定义占用上下文。
-- Hooks 生命周期与确定性 deny/ask/context/verify 行为。
-- Skill frontmatter 权限、风险、适用系统、按需引用、实时刷新和内容哈希。
-- 上下文压缩保留任务、权限、证据和未完成验证。
+## 9. 效率预算
 
-退出门槛：
-
-- MCP 崩溃和恢复不丢失任务终态，超大输出进入 artifact。
-- Hook 与 Skill 脚本不能覆盖 hard deny 或绕过审计。
-- 压缩前后任务目标、已批准规则和待验证事项一致。
-- 48 个以上工具时采用搜索/按需加载，提示上下文不线性增长。
-
-### E1 受限只读子 Agent
-
-只有 D1 稳定并完成独立安全评审后才立项。第一阶段只允许读取主机事实、日志和文件，不允许写入、后台进程或并发服务器变更。子 Agent 继承主任务权限，只向主任务返回摘要和证据引用。
-
-## 6. 需求追踪
-
-| 里程碑 | 负责的说明书需求 |
-|---|---|
-| A0 | FR-TASK-001、002、008、009；FR-AUD-001..003；FR-ENTRY-001..005；FR-EFF-001、002、004..006 |
-| A1 | FR-TASK-005；FR-EXEC-001..007；FR-EFF-003 |
-| A2 | FR-EXEC-008；FR-POL-001..007、009 |
-| A3 | FR-TASK-003、004、006、007、010；FR-POL-008；FR-AUD-004..007 |
-| B1 | FR-OPS-001..004 |
-| C1 | FR-CLI-001..003，并回归 FR-ENTRY-001..005 |
-| C2 | FR-API-001..004，并回归 FR-ENTRY-001..005 |
-| D1 | FR-EXT-001..004，并回归 FR-EXEC-008、FR-POL-009 |
-| E1 | 立项前先在说明书增加子 Agent 正式需求；当前不进入实现 |
-
-需求范围使用闭区间，例如 `FR-EXEC-001..007` 表示 001 至 007。A0 之后每个里程碑都必须回归 `FR-EFF-001..006`。每条正式需求必须在对应里程碑的测试报告中映射到自动测试或人工验收证据。
-
-## 7. 资源与效率预算
-
-| 指标 | 硬门槛 |
+| 指标 | 发布预算 |
 |---|---|
 | 原生主进程空闲 private working set | `<= 12MiB` |
-| 完整 desktop/WebView2 进程组空闲 private working set | `< 80MiB`；`0.1.4` 实测 `93.01MB`，是待关闭阻断项 |
-| headless Agent service 空闲 private working set | `<= 20MiB` |
-| 空闲 CPU | desktop 进程组和 headless service 分别 `<= 1%` |
-| NSIS 与便携 ZIP | 各 `< 20MiB` |
-| 单里程碑压缩体积增长 | `> 1MiB` 必须 ADR 和用户可见说明 |
-| 启动回归 | 相比 `0.1.4` 中位数不超过 `10%` |
-| 10MiB 输出 | `>= 5MiB/s`，峰值内存增量 `<= 25MiB`，UI 不阻塞 |
-| Event 本地发布/查询 | 发布 p95 `<250ms`；10,000 条游标查询 p95 `<100ms` |
+| 完整 desktop/WebView2 进程组 | 继续以 `<80MiB` 为目标并如实报告当前差距 |
+| 空闲 CPU | `<= 1%` |
+| NSIS 与便携 ZIP | 各 `<20MiB`；单里程碑增加 `>1MiB` 必须 ADR |
+| 10MiB 命令输出 | UI 不阻塞；内存窗口合计默认 `<=2MiB` |
+| 远端条件等待 | 仅状态变化持久化；无每秒数据库忙写 |
+| 未启用 provider | 0 listener、0 provider child、0周期轮询 |
+| 多目标默认并发 | Task 只读 4、每目标只读 2、每目标副作用 1 |
 
-测量必须使用 release 构建和固定验证机，记录硬件、OS、WebView2、采样方法、原生进程与完整进程组。不得把主进程 `6.69MB` 当作整机占用。新增依赖前记录压缩体积和空闲内存差；超出预算时优先移除依赖、懒加载或削减功能，不以提高预算作为默认处理。
+Provider 优先使用轻量 HTTP 契约或外部受控服务，不因一个厂商接入把全部 SDK 静态链接到主程序。
 
-运行时约束：REST 默认关闭且无 listener；MCP 随 Task 启停；CLI 不安装自启动 daemon；SQLite 无忙轮询；命令输出使用固定内存窗口并流式落盘；Desktop/CLI/REST 共享 Tokio、SSH、HTTP、模型与存储实现。
-
-## 8. 全程测试门槛
+## 10. 全程测试门槛
 
 每个里程碑至少运行：
 
-```text
+```powershell
 npm run typecheck
 npm run lint
 npm test
 npm run build
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+cargo check --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
+npm run build:release
+npm run check:dist
 ```
 
-涉及 SSH、进程、安装或 API 时，还必须运行对应的隔离环境集成测试。真实服务器验收只能使用专用测试 profile，凭据从 OS vault 读取，不得写进脚本、文档、命令行或 CI 日志。
+并完成：
 
-发布候选版额外执行：
+- 浏览器桌面与窄窗口几何、溢出和控制台错误检查。
+- 安装包覆盖旧版本、单一卸载项、桌面快捷方式和配置迁移检查。
+- 保存服务器自动登录、Agent 单主机回归和凭据 secret 扫描。
+- 新增能力对应的真实 SSH/provider 集成测试和故障注入。
+- 发行前 `rg` 残留扫描和依赖树/包体积对比。
 
-- 三主题、窄窗口和长内容的桌面视觉检查。
-- 旧版本安装升级、配置迁移、凭据保留和回滚验证。
-- 安装包体积、空载内存、10MB 输出吞吐和事件存储性能测量。
-- secret 扫描、依赖审计、危险策略回归和 API 攻击面检查。
+## 11. 主要风险与预案
 
-## 9. 迁移与兼容策略
-
-- SQLite schema 只做向前迁移；升级前备份数据库，迁移失败则保留原文件并拒绝启动 Agent 服务。
-- 桌面 IPC 在 `0.2.x` 保持现有方法可用，由适配器转换成新任务契约；弃用项至少保留一个 minor 版本。
-- `full_access` 配置升级为 `confirm`，不能静默转成 `task_grant`。
-- CLI JSONL、REST JSON 和持久事件都带 schema 版本；新增字段向后兼容，删除或改义必须提升 API 主版本。
-- `terminal_send` 保留用于交互终端，不作为一般命令的兼容回退。
-- 每个 release candidate 必须验证从已发布前一版本升级，安装器继续执行旧版卸载后安装新版。
-
-## 10. 风险与预案
-
-| 风险 | 发现方式 | 预案 |
+| 风险 | 预防 | 失败处理 |
 |---|---|---|
-| SSH exec channel 在不同 shell 上行为不一致 | Debian/RHEL/Alpine 集成矩阵 | 使用主机事实选择明确 shell；未知环境只读并请求确认 |
-| Bash 解析与真实 shell 语义偏差 | 语料回归、差分测试、fuzz | 无法完整解析即升级审批；hard deny 另做 token/资源兜底 |
-| 取消后远程进程继续运行 | PID/marker 集成测试 | 关闭 channel 后验证；无法确认时标记 `cancel_unknown`，不报告已停止 |
-| SQLite 写入阻塞 Tokio | 压力测试和延迟指标 | 使用专用存储 worker/`spawn_blocking`，批量但不越过持久化后发布顺序 |
-| artifact 泄露 secret 或占满磁盘 | secret corpus、配额测试 | 写前脱敏、权限限制、单任务/总配额和保留期清理 |
-| CLI/REST 与桌面行为漂移 | 跨入口契约测试 | 所有入口只调用应用服务，禁止复制策略和工具实现 |
-| REST 暴露到不可信网络 | 启动配置测试和安全检查 | 默认 loopback；非 loopback 强制 TLS、认证、RBAC 和显式开关 |
-| 新依赖推高包体积或 MSRV | 每里程碑构建审计 | 依赖先写 ADR；记录体积/MSRV，未达标则替换或推迟 |
-| 常驻服务和轮询使空闲资源持续增长 | 60 秒 CPU/内存采样、进程与端口审计 | REST/MCP/SQLite 按需启停；禁止默认 daemon 和短周期刷新 |
-| 模型误报完成 | 后置条件和故障注入 | 有副作用任务无验证证据不得进入成功终态 |
+| 工具发到错误主机 | alias 必填、目标冻结、审批显示身份 | 执行前拒绝，不能自动选择焦点终端 |
+| A 成功但 B 观察失败 | 独立证据和条件超时 | 停止后续副作用，进入验证失败 |
+| 多主机并发写冲突 | 每目标写锁、副作用串行 | 取消未开始 Job，保留已执行证据 |
+| HTTP secret 泄漏 | vault ref、受控注入、持久化前脱敏 | 阻断结果并提示轮换凭据 |
+| 重装后 SSH 消失 | 独立 provider 状态机 | 通过控制面继续，不盲目重连旧会话 |
+| 写错系统盘 | 稳定磁盘 ID、两阶段审批、plan hash | 写盘前硬拒绝；写盘后 recovery_required |
+| Redfish 厂商差异 | 型号能力矩阵和认证 | 未认证型号 plan-only |
+| Provider 使软件臃肿 | 单 adapter、懒加载、依赖体积 ADR | 超预算不发布或改为外部受控 adapter |
+| Skill 绕过策略 | Skill 脚本注册为工具并过统一策略 | deny 优先，记录 Skill hash |
 
-## 11. 每个里程碑的完成定义
+## 12. 每个里程碑的完成定义
 
-只有同时满足以下条件才能标记完成：
+只有同时满足以下条件才可标记完成：
 
-- 对应说明书需求有实现和测试映射，没有未解释偏差。
-- 自动检查、专项集成测试和人工验收全部通过。
-- 新错误路径有用户可理解的状态，没有“日志报错但 UI 显示成功”。
-- 数据迁移可恢复，secret 检查无命中，危险操作策略回归通过。
-- release 性能报告同时列出原生主进程和完整进程组，所有适用效率预算通过。
-- 开发经验记录已经补充决定、失败、验证数据和剩余风险。
-- 版本号、安装包、便携包和升级测试只在形成用户可用版本时更新，不为内部文档或半成品发布。
-- 每个里程碑一个可回滚提交；验证通过后再推送并进入下一阶段。
+1. 说明书、领域类型、事件、错误和迁移已更新。
+2. 核心 happy path 与失败路径均有自动测试。
+3. 至少一次真实环境集成验证，无法执行的外部验收明确列出。
+4. 权限、secret、取消、恢复和错误目标回归通过。
+5. 体积、内存、CPU、启动和长输出指标已测量并记录。
+6. 三主题、桌面和窄窗口没有重叠、截断或不可达操作。
+7. 安装包覆盖升级、配置保留、桌面快捷方式和自动登录通过。
+8. `development-experience.md` 记录决定、失败、修复和证据。
+9. Git 工作树只包含本里程碑相关改动，提交并推送成功。

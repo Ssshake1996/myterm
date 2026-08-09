@@ -47,6 +47,19 @@ const DEFAULT_AGENT_SETTINGS: AgentSettingsValue = {
   mcp_servers: [],
 };
 
+const MIN_AGENT_COMPOSER_HEIGHT = 111;
+const AGENT_COMPOSER_HEIGHT_STEP = 16;
+
+function agentComposerMaxHeight(panel: HTMLElement | null) {
+  const measuredHeight = panel?.clientHeight ?? 0;
+  const panelHeight = measuredHeight > 0 ? measuredHeight : window.innerHeight;
+  return Math.max(MIN_AGENT_COMPOSER_HEIGHT, Math.floor(panelHeight / 2));
+}
+
+function clampAgentComposerHeight(value: number, panel: HTMLElement | null) {
+  return Math.min(agentComposerMaxHeight(panel), Math.max(MIN_AGENT_COMPOSER_HEIGHT, value));
+}
+
 type ToolStatus = "requested" | "approval" | "running" | "success" | "error";
 
 interface PolicySummary {
@@ -251,6 +264,9 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
   const [width, setWidth] = useState(372);
+  const [composerHeight, setComposerHeight] = useState(MIN_AGENT_COMPOSER_HEIGHT);
+  const [composerMaxHeight, setComposerMaxHeight] = useState(() => agentComposerMaxHeight(null));
+  const panelRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -277,6 +293,29 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onCollapsedChange]);
+
+  useEffect(() => {
+    if (collapsed) return;
+    let frame = 0;
+    const syncToPanel = () => {
+      const maximum = agentComposerMaxHeight(panelRef.current);
+      setComposerMaxHeight(maximum);
+      setComposerHeight((value) => Math.min(maximum, Math.max(MIN_AGENT_COMPOSER_HEIGHT, value)));
+    };
+    const queueSync = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(syncToPanel);
+    };
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(queueSync);
+    if (panelRef.current) observer?.observe(panelRef.current);
+    queueSync();
+    window.addEventListener("resize", queueSync);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", queueSync);
+    };
+  }, [collapsed]);
 
   const currentProfile = profiles.find((profile) => profile.id === profileId) ?? null;
 
@@ -415,11 +454,27 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     }
   };
 
-  const beginResize = (event: React.PointerEvent<HTMLDivElement>) => {
+  const beginResize = (event: React.PointerEvent<HTMLHRElement>) => {
     const startX = event.clientX;
     const startWidth = width;
     const move = (moveEvent: PointerEvent) => {
       setWidth(Math.min(560, Math.max(320, startWidth + startX - moveEvent.clientX)));
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+
+  const beginComposerResize = (event: React.PointerEvent<HTMLHRElement>) => {
+    const startY = event.clientY;
+    const startHeight = composerHeight;
+    const move = (moveEvent: PointerEvent) => {
+      setComposerHeight(
+        clampAgentComposerHeight(startHeight + startY - moveEvent.clientY, panelRef.current),
+      );
     };
     const stop = () => {
       window.removeEventListener("pointermove", move);
@@ -445,7 +500,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   }
 
   return (
-    <aside className="ai-panel" style={{ width }}>
+    <aside className="ai-panel" ref={panelRef} style={{ width }}>
       <hr
         aria-label="调整 Agent 面板宽度"
         aria-orientation="vertical"
@@ -762,7 +817,42 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         ) : null}
       </div>
 
-      <div className="ai-composer agent-composer">
+      <div
+        className="ai-composer agent-composer"
+        style={{ flexBasis: composerHeight, height: composerHeight }}
+      >
+        <hr
+          aria-label="调整 Agent 输入框高度"
+          aria-orientation="horizontal"
+          aria-valuemax={composerMaxHeight}
+          aria-valuemin={MIN_AGENT_COMPOSER_HEIGHT}
+          aria-valuenow={Math.round(composerHeight)}
+          className="agent-composer-resizer"
+          onKeyDown={(event) => {
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setComposerHeight((value) =>
+                clampAgentComposerHeight(value + AGENT_COMPOSER_HEIGHT_STEP, panelRef.current),
+              );
+            }
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setComposerHeight((value) =>
+                clampAgentComposerHeight(value - AGENT_COMPOSER_HEIGHT_STEP, panelRef.current),
+              );
+            }
+            if (event.key === "Home") {
+              event.preventDefault();
+              setComposerHeight(MIN_AGENT_COMPOSER_HEIGHT);
+            }
+            if (event.key === "End") {
+              event.preventDefault();
+              setComposerHeight(agentComposerMaxHeight(panelRef.current));
+            }
+          }}
+          onPointerDown={beginComposerResize}
+          tabIndex={0}
+        />
         <label className="context-toggle">
           <input
             checked={attach}
@@ -781,7 +871,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             disabled={running}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 void send();
               }

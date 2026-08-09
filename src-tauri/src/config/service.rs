@@ -17,6 +17,7 @@ use crate::{
 
 pub const DEFAULT_SYSTEM_PROMPT: &str = "You are a senior Linux operations assistant embedded in an SSH terminal client.\nRules:\n- Answer based on the terminal output provided by the user. Do not invent output.\n- When suggesting a fix, give the exact command in a fenced code block, one command per block.\n- Never suggest destructive commands (rm -rf, dd, mkfs...) without an explicit warning.\n- Reply in the language the user writes in.";
 const THEME_SETTING_KEY: &str = "theme";
+const REMOVED_REST_TOKEN_SETTING_KEY: &str = "rest_token_hash";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -67,7 +68,14 @@ pub struct ConfigService {
 
 impl ConfigService {
     pub fn open(path: PathBuf) -> Result<Self, AppError> {
-        let value = load_config(&path)?;
+        let mut value = load_config(&path)?;
+        if value
+            .settings
+            .remove(REMOVED_REST_TOKEN_SETTING_KEY)
+            .is_some()
+        {
+            write_atomic(&path, &value)?;
+        }
         Ok(Self {
             path,
             value: RwLock::new(value),
@@ -298,6 +306,7 @@ pub fn default_config_path(portable: bool) -> Result<PathBuf, AppError> {
 mod tests {
     use super::{AppConfig, ConfigService};
     use crate::types::{AppTheme, AuthMethod, SessionProfile, SessionTarget};
+    use serde_json::Value;
     use std::fs;
 
     fn test_root() -> std::path::PathBuf {
@@ -377,6 +386,25 @@ mod tests {
         service.app_theme_save(AppTheme::EyeCare)?;
         let reloaded = ConfigService::open(path)?;
         assert_eq!(reloaded.app_theme()?, AppTheme::EyeCare);
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn removed_rest_token_setting_is_deleted_on_open() -> Result<(), Box<dyn std::error::Error>> {
+        let root = test_root();
+        let path = root.join("config.json");
+        let service = ConfigService::open(path.clone())?;
+        service.setting_set(
+            "rest_token_hash".to_owned(),
+            Value::String("digest".to_owned()),
+        )?;
+        drop(service);
+
+        let reloaded = ConfigService::open(path.clone())?;
+        assert!(reloaded.setting_get("rest_token_hash")?.is_none());
+        assert!(!fs::read_to_string(path)?.contains("rest_token_hash"));
 
         fs::remove_dir_all(root)?;
         Ok(())

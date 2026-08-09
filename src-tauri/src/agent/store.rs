@@ -9,7 +9,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use super::domain::{now_ms, AgentTask, AgentTaskState, ExecutionJob};
 use crate::{types::AgentEvent, AppError};
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 pub struct AgentStore {
     path: PathBuf,
@@ -390,31 +390,6 @@ impl AgentStore {
         })
     }
 
-    pub fn idempotency_task(
-        &self,
-        key: &str,
-        request_hash: &str,
-    ) -> Result<Option<String>, AppError> {
-        self.with_connection(|connection| {
-            let existing: Option<(String, String)> = connection
-                .query_row(
-                    "SELECT task_id, request_hash FROM api_idempotency_keys WHERE key = ?1",
-                    [key],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .optional()?;
-            match existing {
-                Some((_, existing_hash)) if existing_hash != request_hash => {
-                    Err(AppError::InvalidInput(
-                        "idempotency key was already used for a different request".to_owned(),
-                    ))
-                }
-                Some((task_id, _)) => Ok(Some(task_id)),
-                None => Ok(None),
-            }
-        })
-    }
-
     pub fn request_cancel(&self, task_id: &str) -> Result<bool, AppError> {
         self.with_connection(|connection| {
             Ok(connection.execute(
@@ -440,39 +415,6 @@ impl AgentStore {
 
     pub fn recover_stale_tasks(&self, cutoff_ms: i64) -> Result<usize, AppError> {
         self.with_connection(|connection| recover_interrupted_tasks(connection, cutoff_ms))
-    }
-
-    pub fn reserve_idempotency(
-        &self,
-        key: &str,
-        request_hash: &str,
-        proposed_task_id: &str,
-    ) -> Result<(String, bool), AppError> {
-        self.with_connection(|connection| {
-            let transaction = connection.transaction()?;
-            let existing: Option<(String, String)> = transaction
-                .query_row(
-                    "SELECT task_id, request_hash FROM api_idempotency_keys WHERE key = ?1",
-                    [key],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .optional()?;
-            if let Some((task_id, existing_hash)) = existing {
-                if existing_hash != request_hash {
-                    return Err(AppError::InvalidInput(
-                        "idempotency key was already used for a different request".to_owned(),
-                    ));
-                }
-                return Ok((task_id, false));
-            }
-            transaction.execute(
-                "INSERT INTO api_idempotency_keys(key, task_id, request_hash, created_at_ms)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![key, proposed_task_id, request_hash, now_ms()],
-            )?;
-            transaction.commit()?;
-            Ok((proposed_task_id.to_owned(), true))
-        })
     }
 
     fn with_connection<T>(
@@ -574,14 +516,9 @@ fn migrate(transaction: &Transaction<'_>) -> Result<(), AppError> {
             completed_at_ms INTEGER,
             artifact_path TEXT,
             FOREIGN KEY(task_id) REFERENCES agent_tasks(id) ON DELETE CASCADE
-         );
-         CREATE TABLE IF NOT EXISTS api_idempotency_keys (
-            key TEXT PRIMARY KEY,
-            task_id TEXT NOT NULL,
-            request_hash TEXT NOT NULL,
-            created_at_ms INTEGER NOT NULL
          );",
     )?;
+    transaction.execute("DROP TABLE IF EXISTS api_idempotency_keys", [])?;
     let has_cancel_column: i64 = transaction.query_row(
         "SELECT COUNT(*) FROM pragma_table_info('agent_tasks') WHERE name = 'cancel_requested'",
         [],
@@ -663,6 +600,7 @@ mod tests {
         agent::domain::{now_ms, AgentTask, AgentTaskState, ExecutionJob},
         types::{AgentEvent, AgentPermissionMode},
     };
+    use rusqlite::Connection;
 
     fn task(id: &str) -> AgentTask {
         AgentTask {
@@ -682,10 +620,24 @@ mod tests {
     }
 
     #[test]
-    fn background_job_state_and_idempotency_are_persisted() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn background_job_state_is_persisted_and_removed_api_state_is_cleaned(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let root = std::env::temp_dir().join(format!("myterm-job-store-{}", uuid::Uuid::new_v4()));
-        let store = AgentStore::new(root.join("agent.db"));
+        std::fs::create_dir_all(&root)?;
+        let database_path = root.join("agent.db");
+        let legacy = Connection::open(&database_path)?;
+        legacy.execute_batch(
+            "CREATE TABLE api_idempotency_keys (
+                key TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                request_hash TEXT NOT NULL,
+                created_at_ms INTEGER NOT NULL
+             );
+             INSERT INTO api_idempotency_keys VALUES ('old-key', 'old-task', 'old-hash', 1);",
+        )?;
+        drop(legacy);
+
+        let store = AgentStore::new(database_path);
         let task = task("task-job");
         store.create_task(&task)?;
         store.job_started(&ExecutionJob {
@@ -704,13 +656,17 @@ mod tests {
         assert_eq!(store.job("job-1")?.expect("job").exit_code, Some(0));
         assert_eq!(store.running_job_count(&task.id)?, 0);
 
-        let reserved = store.reserve_idempotency("same", "hash", "task-job")?;
-        assert_eq!(reserved, ("task-job".to_owned(), true));
-        assert_eq!(
-            store.idempotency_task("same", "hash")?,
-            Some("task-job".to_owned())
-        );
-        assert!(store.idempotency_task("same", "different").is_err());
+        let api_table_count = store.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master
+                     WHERE type = 'table' AND name = 'api_idempotency_keys'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(Into::into)
+        })?;
+        assert_eq!(api_table_count, 0);
         drop(store);
         std::fs::remove_dir_all(root)?;
         Ok(())

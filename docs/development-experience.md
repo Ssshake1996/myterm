@@ -61,6 +61,14 @@ Version 0.6.2 completes the public and in-product documentation surface:
 - The existing safe React text renderer gains a controlled document variant for headings, flat lists, paragraphs, inline emphasis/code, and fenced code blocks; no HTML injection or large Markdown runtime is added.
 - The document dialog provides a 20-section desktop table of contents and a single-column mobile reader while preserving zero horizontal overflow.
 
+Version 0.6.3 narrows the product boundary and improves long-form Agent task entry:
+
+- The early local Agent CLI and loopback REST surfaces are removed with their dedicated dependencies, token field, idempotency table, and smoke script. CLI/REST now consistently means remote commands and HTTP operations from an explicit SSH origin.
+- Existing server profiles, OS-backed credentials, AI profiles, Agent settings, and Task history remain intact during schema migration.
+- `Enter` submits, `Shift+Enter` inserts a newline, and IME composition cannot trigger an accidental submission.
+- A keyboard-accessible top handle expands the whole Agent composer upward, caps it at half the actual panel height, and reclamps it when the window shrinks.
+- The multi-SSH and Skill-driven OS installation plan separates workflow guidance from provisioning authority and recommends an isolated Ubuntu VM/Autoinstall adapter as the first executable slice.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.
@@ -216,8 +224,8 @@ This pattern is reusable when a specification is sourced from one repository but
 | Quick-command title alignment | Name-only command rows left the title visually high inside its button | The flex container centered its main axis but kept the default cross-axis alignment from the former two-line layout | Center the existing title on the flex cross axis without changing markup or row dimensions | Browser geometry reports a 0 px center offset for short and long names; installed 0.1.4 preserves the compact layout |
 | SSH exec termination order | Structured exec intermittently lost the exit code on the live OpenSSH server | OpenSSH sent channel `EOF` before `ExitStatus`; treating EOF as final stopped the reader too early | Keep draining protocol messages after EOF and finish on channel close/termination | Live command returns exit 7 with distinct stdout/stderr; timeout and 10 MiB streaming checks pass |
 | SFTP atomic overwrite | Updating an existing remote file returned SFTP `Failure` | OpenSSH SFTP v3 `RENAME` does not guarantee replacement of an existing target | Keep same-directory temp write, fsync and permissions, then use quoted `mv -f --` over the same SSH connection for an atomic existing-file replacement | Live hash-locked update, readback, search and cleanup pass on `192.168.3.94` |
-| CLI help exit code | `agent run --help` printed correct help but returned usage code 2 | All Clap parse outcomes were mapped to usage errors | Map `DisplayHelp` and `DisplayVersion` to 0 while retaining 2 for invalid syntax | Process-level help and JSONL Agent checks return 0 |
-| REST smoke cleanup | The first smoke run passed but PowerShell treated token-revoke stderr as a script failure | `$ErrorActionPreference=Stop` converts native stderr to `NativeCommandError` | Temporarily relax only the cleanup call while still revoking the token and preserving the preceding assertions | Repeat smoke run exits 0 after auth, idempotency, SSE and OpenAPI checks |
+| CLI help exit code (historical, removed in 0.6.3) | `agent run --help` printed correct help but returned usage code 2 | All Clap parse outcomes were mapped to usage errors | Map `DisplayHelp` and `DisplayVersion` to 0 while retaining 2 for invalid syntax | Process-level help and JSONL Agent checks return 0 |
+| REST smoke cleanup (historical, removed in 0.6.3) | The first smoke run passed but PowerShell treated token-revoke stderr as a script failure | `$ErrorActionPreference=Stop` converts native stderr to `NativeCommandError` | Temporarily relax only the cleanup call while still revoking the token and preserving the preceding assertions | Repeat smoke run exits 0 after auth, idempotency, SSE and OpenAPI checks |
 
 ## 7. Verification Ledger
 
@@ -226,13 +234,13 @@ Update this table with the exact outcome rather than an optimistic status.
 | Check | Command | Result |
 |---|---|---|
 | TypeScript | `npm run typecheck` | Pass |
-| Frontend lint | `npm run lint` | Pass, 34 files |
-| Frontend tests | `npm test` | Pass, 26 tests across 11 files |
-| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; release main entry 83.84 kB |
+| Frontend lint | `npm run lint` | Pass, 36 files |
+| Frontend tests | `npm test` | Pass, 29 tests across 12 files |
+| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; release main entry 101.88 kB |
 | Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Pass |
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
 | Rust lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | Pass; `russh 0.54.5` emits a dependency future-incompatibility notice |
-| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` | Pass, 37 tests discovered: 36 passed and 1 interactive keyring test ignored |
+| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` | Pass, 35 tests discovered: 34 passed and 1 interactive keyring test ignored |
 | Windows credential round trip | `cargo test --manifest-path src-tauri/Cargo.toml keyring_round_trip -- --ignored --nocapture` | Pass; native vault write, read, and cleanup all succeed |
 | AI live integration | Production `AiService::test_connection` and streaming `AiService::chat` with the configured profile | Pass; 7 models found, chat completed with `stop`, 12 characters received, expected marker present |
 | Saved-server CRUD | `live_check verify-crud` with the Windows credential vault | Pass; create, edit without re-entering secret, reload, delete, and credential cleanup verified |
@@ -241,14 +249,14 @@ Update this table with the exact outcome rather than an optimistic status.
 | File-tool live integration | `live_check verify-files` against the saved SSH session | Pass; atomic create/update, optimistic SHA-256 lock, readback, search, and cleanup verified |
 | Agent live integration | `live_check verify-agent` with the configured OpenAI-compatible profile and saved SSH session | Pass; model called `session_info`, `terminal_context`, `remote_exec`, `host_facts`, and remote `list_directory`, then returned `stop` |
 | MCP live integration | `live_check verify-mcp` with the official stdio Everything server | Pass; initialization handshake completed and 13 tools were enumerated |
-| CLI process contract | Release-equivalent binary `agent run --output jsonl` plus help exit check | Pass; every output line parses as JSON, `remote_exec` and terminal `complete/stop` events are present, exit code is 0 |
-| REST process contract | `scripts/rest-smoke.ps1` | Pass; loopback health, unauthorized rejection, bearer auth, idempotent create replay, completed task query, SSE and OpenAPI verified; one-time token revoked |
+| CLI process contract (historical, removed in 0.6.3) | Release-equivalent binary `agent run --output jsonl` plus help exit check | Pass in 0.6.0; surface removed in 0.6.3 |
+| REST process contract (historical, removed in 0.6.3) | `scripts/rest-smoke.ps1` | Pass in 0.6.0; surface and script removed in 0.6.3 |
 | AI secret audit | Inspect `%APPDATA%/myterm/config.json` and Windows Credential Manager | Pass; JSON contains only `api_key_ref`, no key prefix; referenced credential target is present |
 | Desktop visual QA | Playwright Chromium at 1280x800 | Pass; nonblank xterm canvas, Agent approval trace, result, completion, split-close and labeled quick-command collapse states inspected; zero console errors |
 | Narrow viewport QA | Playwright Chromium at 900x650 and 390x844 | Pass; document/body scroll widths equal viewport widths, Agent becomes a 344 px overlay on mobile, and controls do not overlap |
 | Compact shell QA | Playwright Chromium at 1440x900, 900x650, and 390x844 | Pass; brand block absent, session strip is exactly 34 px, desktop sidebar starts at y=0, mobile sidebar overlay remains usable, and scroll width equals viewport width |
 | Offline help QA | Playwright Chromium at 1440x900 and 390x844 | Pass; help is the 34 px rightmost title action, desktop dialog is 920x760 with 20-section navigation, TOC scrolling lands at the heading margin, mobile document has no horizontal overflow, and console has zero errors/warnings |
-| Documentation component tests | `HelpManual.test.tsx` plus existing hostile-markup Agent test | Pass; packaged manual headings/CLI content render, close works, hostile HTML remains text, and Agent terminal fill behavior is unchanged |
+| Documentation component tests | `HelpManual.test.tsx` plus existing hostile-markup Agent test | Pass; packaged manual headings/remote CLI content render, close works, hostile HTML remains text, and Agent terminal fill behavior is unchanged |
 | Theme persistence | Switch white, eye-care, and dark themes | Pass; application, terminal, modal, Agent and quick-command surfaces change together |
 | Multiline quick command | Create, save, execute, and delete a two-line command in browser QA | Pass; command body is hidden from the compact library and both lines are sent as separate terminal returns |
 | Split close | Create a right split and close the right caption action | Pass; target session is disconnected, one terminal remains, and the split action becomes available again |
@@ -261,13 +269,18 @@ Update this table with the exact outcome rather than an optimistic status.
 | Installed saved-server auto-login | Open installed 0.6.0 with `--profile yuxiaservers` | Pass; persisted profile starts without another password prompt and the vault-backed SSH live check authenticates as `root` |
 | Upgrade replacement | Install 0.6.0 over 0.1.4 | Pass; installer exits 0, one uninstall entry remains, and installed EXE/registry report 0.6.0 |
 | Upgrade data retention | Compare `%APPDATA%/myterm/config.json` SHA-256 before/after upgrade | Pass; configuration hash is unchanged |
-| Headless efficiency | Release `agent serve --idle-timeout 8` private working set and CPU sample | Pass; 1.07 MiB private working set, 0% sampled CPU, clean idle exit code 0 |
+| Headless efficiency (historical, removed in 0.6.3) | Release `agent serve --idle-timeout 8` private working set and CPU sample | Pass in 0.6.0; no headless product entry remains |
 | Empty memory | 45-second `Working Set - Private` sample | Main process 7.08 MiB passes `<=12 MiB`; full 7-process WebView2 group is 111.24 MiB, so aggregate `<80 MiB` target remains unmet |
 | Compact-shell release build | `npm run build:release` and `npm run check:dist` | Pass for 0.6.1; installer remains 8.00 MB and portable ZIP remains 8.98 MB |
 | Compact-shell upgrade install | Silently install 0.6.1 over 0.6.0, then inspect file metadata, registry, shortcut, and config SHA-256 | Pass; installed file and registry report 0.6.1, one uninstall entry remains, desktop shortcut exists, and configuration hash is unchanged |
 | Installed native screenshot | Bundled `computer-use` capture against the running 0.6.1 window | Not used as evidence; the installed plugin exposed a runtime API that did not match its documentation, so browser geometry plus installed binary/registry checks remain the reproducible evidence |
 | Documentation release build | `npm run build:release` and `npm run check:dist` | Pass for 0.6.2; installer is 8.01 MB and portable ZIP is 8.99 MB, a roughly 0.01 MB distribution increase for packaged offline help |
 | Documentation upgrade install | Silently install 0.6.2 over 0.6.1, then inspect file metadata, registry, shortcut, and config SHA-256 | Pass; installed file and registry report 0.6.2, one uninstall entry remains, desktop shortcut exists, configuration hash is unchanged, and saved-profile startup remains responsive |
+| Agent composer interaction | Browser QA at 1280x720 and 900x650 | Pass; pointer drag changes 111 px to 211 px, `End` caps at exactly 50% of the panel, `Home` restores 111 px, Shift+Enter preserves two lines, narrow viewport has zero horizontal overflow, and ARIA min/current/max stay synchronized |
+| Desktop-only surface audit | Source/dependency scan plus installed `myterm.exe agent` and port 4765 probe | Pass; CLI/REST sources and dependencies are absent, the legacy argument stays in the desktop process, and no REST listener exists |
+| 0.6.3 schema migration | Open installed app over the 0.6.2 config and Agent DB | Pass; only `rest_token_hash` is removed, schema is 4, `api_idempotency_keys` is absent, and all 3 Task records remain |
+| Boundary-contraction release | `npm run build:release` and `npm run check:dist` | Pass for 0.6.3; installer is 7.60 MB and portable ZIP is 8.35 MB, smaller by about 0.41 MB and 0.64 MB from 0.6.2 |
+| 0.6.3 upgrade install | Silently install over 0.6.2, then inspect file metadata, registry, shortcut, config, SSH, and Agent | Pass; one 0.6.3 uninstall entry and desktop shortcut remain, saved `yuxiaservers` authenticates as `root`, and the configured model completes the five-tool Agent loop with `stop` |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
 The browser screenshots and console logs are generated under ignored `output/playwright/` paths. They are verification artifacts rather than shipped product files.
@@ -279,7 +292,7 @@ External acceptance not performed on this workstation must remain explicit:
 
 ## 8. Future Skill Shape
 
-The Linux operations Agent comparison and prioritized safety roadmap are recorded in [`linux-agent-improvement-study.md`](linux-agent-improvement-study.md). Its conclusions are converted into the gated milestones in [`linux-agent-development-plan.md`](linux-agent-development-plan.md) and the normative requirements, domain contracts, CLI, and RESTful API in [`linux-agent-specification.md`](linux-agent-specification.md). Together they distinguish local coding-agent mechanisms from controls required on a remote SSH host, especially as `root`, and keep future desktop, CLI, and REST entry points on one task/event contract.
+The Linux operations Agent comparison and prioritized safety roadmap are recorded in [`linux-agent-improvement-study.md`](linux-agent-improvement-study.md). Its conclusions are converted into the gated milestones in [`linux-agent-development-plan.md`](linux-agent-development-plan.md) and the normative requirements and domain contracts in [`linux-agent-specification.md`](linux-agent-specification.md). Together they distinguish local coding-agent mechanisms from controls required on a remote SSH host, especially as `root`, and keep the product on one desktop task/event contract while treating remote CLI/REST as Agent tools.
 
 A future skill derived from this record should accept:
 

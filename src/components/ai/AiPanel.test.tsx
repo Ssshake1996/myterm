@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useLayoutStore } from "../../store/layout";
@@ -49,6 +49,7 @@ describe("AiPanel Agent trace", () => {
     ipcMocks.agentTaskList.mockResolvedValue([]);
     ipcMocks.agentAbort.mockResolvedValue(undefined);
     ipcMocks.agentApprove.mockResolvedValue(undefined);
+    ipcMocks.agentRun.mockResolvedValue({ runId: "run", finishReason: "stop", steps: 1 });
     useLayoutStore.setState({
       activeTabId: "tab",
       tabs: [
@@ -177,5 +178,52 @@ describe("AiPanel Agent trace", () => {
 
     expect(ipcMocks.agentApprove).toHaveBeenCalledWith("approval-1", true);
     expect(screen.getByText(/df -h/u)).toBeInTheDocument();
+  });
+
+  it("inserts a newline with Shift+Enter and submits with Enter outside IME composition", async () => {
+    const user = userEvent.setup();
+    render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
+
+    await screen.findByRole("option", { name: "Ops AI · ops-model" });
+    const input = screen.getByRole("textbox", { name: "输入 Agent 任务" });
+    await user.type(input, "先检查 A");
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    await user.type(input, "再观察 B");
+
+    expect(input).toHaveValue("先检查 A\n再观察 B");
+    expect(ipcMocks.agentRun).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(ipcMocks.agentRun).not.toHaveBeenCalled();
+
+    await user.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(ipcMocks.agentRun).toHaveBeenCalledWith(
+        "ai-1",
+        "先检查 A\n再观察 B",
+        "session-active",
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("resizes the composer upward and caps it at half the Agent panel height", async () => {
+    render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
+
+    await screen.findByRole("option", { name: "Ops AI · ops-model" });
+    const resizer = screen.getByRole("separator", { name: "调整 Agent 输入框高度" });
+    const composer = resizer.parentElement;
+
+    expect(composer).toHaveStyle({ height: "111px" });
+    fireEvent.keyDown(resizer, { key: "ArrowUp" });
+    expect(composer).toHaveStyle({ height: "127px" });
+
+    fireEvent.keyDown(resizer, { key: "End" });
+    expect(Number.parseInt(composer?.style.height ?? "0", 10)).toBeLessThanOrEqual(
+      window.innerHeight / 2,
+    );
+
+    fireEvent.keyDown(resizer, { key: "Home" });
+    expect(composer).toHaveStyle({ height: "111px" });
   });
 });
