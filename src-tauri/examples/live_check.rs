@@ -304,6 +304,11 @@ async fn verify_files() -> Result<(), Box<dyn std::error::Error>> {
         .connect(profile, 120, 36, Arc::new(DiscardOutput))
         .await?;
     let session_id = session.session_id;
+    let default_directory = sftp.default_directory(&session_id).await?;
+    if !default_directory.starts_with('/') {
+        return Err("SFTP default directory is not absolute".into());
+    }
+    let default_entries = sftp.read_dir(&session_id, &default_directory).await?;
     let directory = format!("/tmp/myterm-live-{}", uuid::Uuid::new_v4());
     let path = format!("{directory}/check.txt");
     let run = async {
@@ -335,7 +340,11 @@ async fn verify_files() -> Result<(), Box<dyn std::error::Error>> {
     let _ = sftp.delete(&session_id, &directory, true).await;
     sessions.disconnect(&session_id).await?;
     run?;
-    println!("FILES_VERIFIED atomic-write read search cleanup");
+    println!(
+        "FILES_VERIFIED default={} entries={} atomic-write read search cleanup",
+        default_directory,
+        default_entries.len()
+    );
     Ok(())
 }
 

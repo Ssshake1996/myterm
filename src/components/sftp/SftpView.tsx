@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type LocalEntry,
+  localDefaultDirectory,
   localReadDir,
   onTransferProgress,
   type RemoteEntry,
+  sftpDefaultDirectory,
   sftpDelete,
   sftpDownload,
   sftpMkdir,
@@ -51,38 +53,114 @@ function formatTime(value: number) {
   }).format(new Date(value * 1000));
 }
 
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+  }
+  return fallback;
+}
+
 export function SftpView({ sessionId }: SftpViewProps) {
   const notify = useUiStore((state) => state.notify);
-  const [localPath, setLocalPath] = useState("C:\\deploy");
-  const [remotePath, setRemotePath] = useState("/opt/app");
+  const [localPath, setLocalPath] = useState("");
+  const [remotePath, setRemotePath] = useState("");
   const [localEntries, setLocalEntries] = useState<LocalEntry[]>([]);
   const [remoteEntries, setRemoteEntries] = useState<RemoteEntry[]>([]);
   const [selectedLocal, setSelectedLocal] = useState<LocalEntry | null>(null);
   const [selectedRemote, setSelectedRemote] = useState<RemoteEntry | null>(null);
   const [transfers, setTransfers] = useState<Map<string, TransferItem>>(new Map());
   const [queueOpen, setQueueOpen] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const [localLoading, setLocalLoading] = useState(true);
+  const [remoteLoading, setRemoteLoading] = useState(true);
   const [remoteAction, setRemoteAction] = useState<RemoteAction | null>(null);
+  const localRequestRef = useRef(0);
+  const remoteRequestRef = useRef(0);
+  const remotePathSessionRef = useRef<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const loadLocal = useCallback(async () => {
+    if (!localPath) return;
+    const request = ++localRequestRef.current;
+    setSelectedLocal(null);
+    setLocalLoading(true);
     try {
-      const [local, remote] = await Promise.all([
-        localReadDir(localPath),
-        sftpReadDir(sessionId, remotePath),
-      ]);
-      setLocalEntries(local);
-      setRemoteEntries(remote);
+      const entries = await localReadDir(localPath);
+      if (request === localRequestRef.current) setLocalEntries(entries);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "目录读取失败", "error");
+      if (request !== localRequestRef.current) return;
+      setLocalEntries([]);
+      notify(`本地目录读取失败：${errorMessage(error, "未知错误")}`, "error");
     } finally {
-      setLoading(false);
+      if (request === localRequestRef.current) setLocalLoading(false);
     }
-  }, [localPath, notify, remotePath, sessionId]);
+  }, [localPath, notify]);
+
+  const loadRemote = useCallback(async () => {
+    if (!remotePath || remotePathSessionRef.current !== sessionId) return;
+    const request = ++remoteRequestRef.current;
+    setSelectedRemote(null);
+    setRemoteAction(null);
+    setRemoteLoading(true);
+    try {
+      const entries = await sftpReadDir(sessionId, remotePath);
+      if (request === remoteRequestRef.current) setRemoteEntries(entries);
+    } catch (error) {
+      if (request !== remoteRequestRef.current) return;
+      setRemoteEntries([]);
+      notify(`远程目录读取失败：${errorMessage(error, "未知错误")}`, "error");
+    } finally {
+      if (request === remoteRequestRef.current) setRemoteLoading(false);
+    }
+  }, [notify, remotePath, sessionId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let active = true;
+    localRequestRef.current += 1;
+    remoteRequestRef.current += 1;
+    remotePathSessionRef.current = null;
+    setLocalPath("");
+    setRemotePath("");
+    setLocalEntries([]);
+    setRemoteEntries([]);
+    setSelectedLocal(null);
+    setSelectedRemote(null);
+    setRemoteAction(null);
+    setLocalLoading(true);
+    setRemoteLoading(true);
+    void localDefaultDirectory()
+      .then((path) => {
+        if (active) setLocalPath(path);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setLocalLoading(false);
+        notify(`本地初始目录读取失败：${errorMessage(error, "未知错误")}`, "error");
+      });
+    void sftpDefaultDirectory(sessionId)
+      .then((path) => {
+        if (!active) return;
+        remotePathSessionRef.current = sessionId;
+        setRemotePath(path);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setRemoteLoading(false);
+        notify(`SFTP 初始目录读取失败：${errorMessage(error, "未知错误")}`, "error");
+      });
+    return () => {
+      active = false;
+    };
+  }, [notify, sessionId]);
+
+  useEffect(() => {
+    void loadLocal();
+  }, [loadLocal]);
+
+  useEffect(() => {
+    void loadRemote();
+  }, [loadRemote]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -133,7 +211,7 @@ export function SftpView({ sessionId }: SftpViewProps) {
       const transferId = await sftpUpload(sessionId, entry.path, `${remotePath}/${entry.name}`);
       registerTransfer(transferId, entry.name, "upload", entry.size);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "上传失败", "error");
+      notify(errorMessage(error, "上传失败"), "error");
     }
   };
 
@@ -143,7 +221,7 @@ export function SftpView({ sessionId }: SftpViewProps) {
       const transferId = await sftpDownload(sessionId, entry.path, `${localPath}\\${entry.name}`);
       registerTransfer(transferId, entry.name, "download", entry.size);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "下载失败", "error");
+      notify(errorMessage(error, "下载失败"), "error");
     }
   };
 
@@ -171,9 +249,9 @@ export function SftpView({ sessionId }: SftpViewProps) {
       }
       setRemoteAction(null);
       setSelectedRemote(null);
-      await load();
+      await loadRemote();
     } catch (error) {
-      notify(error instanceof Error ? error.message : "远程文件操作失败", "error");
+      notify(errorMessage(error, "远程文件操作失败"), "error");
     }
   };
 
@@ -183,7 +261,7 @@ export function SftpView({ sessionId }: SftpViewProps) {
         <FilePane
           entries={localEntries}
           kind="local"
-          loading={loading}
+          loading={localLoading}
           onActivate={(entry) => {
             const localEntry = entry as LocalEntry;
             if (localEntry.is_dir) setLocalPath(localEntry.path);
@@ -191,6 +269,7 @@ export function SftpView({ sessionId }: SftpViewProps) {
           }}
           onDropRemote={(entry) => void download(entry)}
           onPathChange={setLocalPath}
+          onRefresh={() => void loadLocal()}
           onSelect={(entry) => setSelectedLocal(entry as LocalEntry)}
           path={localPath}
           selectedPath={selectedLocal?.path ?? null}
@@ -250,7 +329,7 @@ export function SftpView({ sessionId }: SftpViewProps) {
         <FilePane
           entries={remoteEntries}
           kind="remote"
-          loading={loading}
+          loading={remoteLoading}
           onActivate={(entry) => {
             const remoteEntry = entry as RemoteEntry;
             if (remoteEntry.is_dir) setRemotePath(remoteEntry.path);
@@ -258,6 +337,7 @@ export function SftpView({ sessionId }: SftpViewProps) {
           }}
           onDropLocal={(entry) => void upload(entry)}
           onPathChange={setRemotePath}
+          onRefresh={() => void loadRemote()}
           onSelect={(entry) => setSelectedRemote(entry as RemoteEntry)}
           path={remotePath}
           selectedPath={selectedRemote?.path ?? null}
@@ -378,6 +458,7 @@ interface FilePaneProps {
   selectedPath: string | null;
   loading: boolean;
   onPathChange: (path: string) => void;
+  onRefresh: () => void;
   onSelect: (entry: FileEntry) => void;
   onActivate: (entry: FileEntry) => void;
   onDropLocal?: (entry: LocalEntry) => void;
@@ -391,6 +472,7 @@ function FilePane({
   selectedPath,
   loading,
   onPathChange,
+  onRefresh,
   onSelect,
   onActivate,
   onDropLocal,
@@ -434,9 +516,9 @@ function FilePane({
           value={path}
         />
         <button
-          aria-label="刷新目录"
+          aria-label={`刷新${kind === "local" ? "本地" : "远程"}目录`}
           className="icon-button"
-          onClick={() => onPathChange(`${path}`)}
+          onClick={onRefresh}
           type="button"
         >
           <Icon name="refresh" />

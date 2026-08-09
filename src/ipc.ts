@@ -233,7 +233,7 @@ export function createChannel<T>(): MessageChannel<T> {
 export async function getAppInfo(): Promise<AppInfo> {
   if (!isDesktopRuntime) {
     return {
-      version: "0.6.3",
+      version: "0.6.4",
       commitHash: "browser-demo",
       startupProfile: null,
       portable: false,
@@ -335,6 +335,11 @@ export async function sftpReadDir(sessionId: string, path: string): Promise<Remo
   return invoke<RemoteEntry[]>("sftp_read_dir", { sessionId, path });
 }
 
+export async function sftpDefaultDirectory(sessionId: string): Promise<string> {
+  if (!isDesktopRuntime) return demoBackend.sftpDefaultDirectory(sessionId);
+  return invoke<string>("sftp_default_directory", { sessionId });
+}
+
 export async function sftpMkdir(sessionId: string, path: string): Promise<void> {
   if (!isDesktopRuntime) return demoBackend.sftpMkdir(sessionId, path);
   return invoke("sftp_mkdir", { sessionId, path });
@@ -380,6 +385,11 @@ export async function transferCancel(transferId: string): Promise<void> {
 export async function localReadDir(path: string): Promise<LocalEntry[]> {
   if (!isDesktopRuntime) return demoBackend.localReadDir(path);
   return invoke<LocalEntry[]>("local_read_dir", { path });
+}
+
+export async function localDefaultDirectory(): Promise<string> {
+  if (!isDesktopRuntime) return demoBackend.localDefaultDirectory();
+  return invoke<string>("local_default_directory");
 }
 
 export async function aiProfileList(): Promise<AiProfile[]> {

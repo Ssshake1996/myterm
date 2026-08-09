@@ -214,6 +214,18 @@ pub async fn sftp_read_dir(
 }
 
 #[tauri::command]
+pub async fn sftp_default_directory(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<String, IpcError> {
+    state
+        .sftp
+        .default_directory(&session_id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn sftp_mkdir(
     state: State<'_, AppState>,
     session_id: String,
@@ -296,6 +308,13 @@ pub async fn local_read_dir(path: String) -> Result<Vec<LocalEntry>, IpcError> {
         .await
         .map_err(|error| AppError::Io(std::io::Error::other(error.to_string())))?
         .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn local_default_directory() -> Result<String, IpcError> {
+    dirs::home_dir()
+        .map(|path| path.to_string_lossy().into_owned())
+        .ok_or_else(|| AppError::Config("local home directory is unavailable".to_owned()).into())
 }
 
 #[tauri::command]

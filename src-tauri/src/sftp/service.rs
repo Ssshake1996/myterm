@@ -101,6 +101,14 @@ impl SftpService {
         Ok(result)
     }
 
+    pub async fn default_directory(&self, session_id: &str) -> Result<String, AppError> {
+        self.session(session_id)
+            .await?
+            .canonicalize(".")
+            .await
+            .map_err(|error| AppError::Sftp(error.to_string()))
+    }
+
     pub async fn mkdir(&self, session_id: &str, path: &str) -> Result<(), AppError> {
         self.session(session_id)
             .await?

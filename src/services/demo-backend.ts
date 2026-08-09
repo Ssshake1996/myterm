@@ -307,6 +307,10 @@ class DemoBackend {
     ];
   }
 
+  async sftpDefaultDirectory(_sessionId: string) {
+    return "/opt/app";
+  }
+
   async localReadDir(path: string): Promise<LocalEntry[]> {
     return [
       { name: "dist", path: `${path}\\dist`, is_dir: true, size: 0, modified: 1_776_000_000 },
@@ -325,6 +329,10 @@ class DemoBackend {
         modified: 1_775_990_000,
       },
     ];
+  }
+
+  async localDefaultDirectory() {
+    return "C:\\deploy";
   }
 
   async sftpMkdir(_sessionId: string, _path: string) {}
