@@ -96,7 +96,7 @@ Quick-command storage uses normalized LF line endings because it is configuratio
 
 ### Windows installation and upgrade lifecycle
 
-Version 0.1.2 is installed per user at `%LOCALAPPDATA%/myterm`, with desktop and Start Menu shortcuts targeting the installed executable. The bundle identifier and product name remain stable across versions so Windows keeps one uninstall registration.
+Version 0.1.3 is installed per user at `%LOCALAPPDATA%/myterm`, with desktop and Start Menu shortcuts targeting the installed executable. The bundle identifier and product name remain stable across versions so Windows keeps one uninstall registration.
 
 Tauri's normal interactive NSIS path offers to uninstall an older version, but a silent installer only overwrites known files. myterm therefore uses the officially supported [NSIS pre-install hook](https://v2.tauri.app/distribute/windows-installer/#extending-the-installer). The hook accepts an install directory only when the existing myterm product registry path matches it exactly, runs the old uninstaller with `/S /UPDATE`, checks its exit code, removes residual files from that known application directory, and recreates the directory before copying the new release. `/UPDATE` preserves shortcuts and prevents app-data deletion. Downgrades are disabled in all newly generated installers.
 
@@ -175,7 +175,7 @@ Update this table with the exact outcome rather than an optimistic status.
 | TypeScript | `npm run typecheck` | Pass |
 | Frontend lint | `npm run lint` | Pass, 34 files |
 | Frontend tests | `npm test` | Pass, 26 tests across 11 files |
-| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; main entry 78.23 kB |
+| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; release main entry 78.27 kB |
 | Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Pass |
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
 | Rust lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | Pass; `russh 0.54.5` emits a dependency future-incompatibility notice |
@@ -192,13 +192,14 @@ Update this table with the exact outcome rather than an optimistic status.
 | Theme persistence | Switch white, eye-care, and dark themes; reload after selecting eye-care | Pass; every application and terminal surface changes together, and `eye_care` remains selected after reload |
 | Multiline quick command | Create, save, execute, and delete a two-line command in browser QA | Pass; command body is hidden from the compact library and both lines are sent as separate terminal returns |
 | Split close | Create a right split and close the right caption action | Pass; target session is disconnected, one terminal remains, and the split action becomes available again |
-| Windows release build | `npm run build:release` | Pass for 0.1.2; native EXE, NSIS installer, and portable ZIP produced |
-| Distribution audit | `npm run check:dist` | Pass; 0.1.2 installer 6.54 MB, portable ZIP 6.98 MB, required files present |
-| Native startup smoke | Start the installed 0.1.2 EXE and capture its rendered main window | Pass; app opens with the saved server, Agent panel, and 0.1.2 version marker visible |
-| Installed application | Install the NSIS package silently, then inspect registry and shortcuts | Pass; installed at `%LOCALAPPDATA%/myterm`, version 0.1.2, desktop and Start Menu targets resolve to the installed EXE |
-| Installed saved-server click | Click `yuxiaservers` once in the installed 0.1.2 application | Pass; the persisted profile and Windows-vault credential opened an SSH session at `root@yuxiaservers:~#` without another password prompt |
-| Upgrade replacement | Install 0.1.2 over 0.1.1 after placing an old-install-only marker | Pass; marker removed, one uninstall entry remains, installed EXE reports 0.1.2 |
-| Upgrade data retention | Compare `%APPDATA%/myterm/config.json` SHA-256 and credential targets before/after upgrade | Pass; configuration hash is unchanged and the saved server and AI credentials remain present |
+| Windows release build | `npm run build:release` | Pass for 0.1.3; native EXE, NSIS installer, and portable ZIP produced from source commit `895c929` |
+| Distribution audit | `npm run check:dist` | Pass; 0.1.3 installer 6.55 MB, portable ZIP 6.99 MB, and required portable files are present |
+| Native startup smoke | Start the installed 0.1.3 EXE with the saved profile and capture its rendered main window | Pass; app opens on the persisted server with a connected state and a live `root@yuxiaservers:~#` prompt |
+| Installed minimum-window QA | Resize the installed 0.1.3 window to 900 x 650 and capture the rendered UI | Pass; side panels become on-demand overlays, terminal and quick-command controls remain readable, and no surfaces overlap |
+| Installed application | Silently install 0.1.3, then inspect file metadata, registry, and shortcuts | Pass; installed at `%LOCALAPPDATA%/myterm`, file and registry versions are 0.1.3, one uninstall entry remains, and desktop and Start Menu shortcuts exist |
+| Installed saved-server auto-login | Open installed 0.1.3 with `--profile yuxiaservers` and run `live_check verify-profile` | Pass; the persisted profile and Windows-vault credential authenticate as `root` without another password prompt |
+| Upgrade replacement | Install 0.1.3 over 0.1.2 after placing an old-install-only marker | Pass; marker removed, one uninstall entry remains, installed EXE and registry report 0.1.3 |
+| Upgrade data retention | Compare `%APPDATA%/myterm/config.json` SHA-256 and persisted record counts before/after upgrade | Pass; hash `E5B7...C458` is unchanged, with one saved server and one AI profile retained |
 | Empty memory | 45-second private working-set sample | Main process 6.69 MB; full 7-process WebView2 group 93.01 MB, so aggregate `< 80 MB` target is not met |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
