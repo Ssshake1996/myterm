@@ -11,19 +11,27 @@ use std::{
 };
 
 use russh_sftp::client::SftpSession;
+use sha2::{Digest, Sha256};
 use tokio::{
     fs,
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     sync::{Mutex, RwLock, Semaphore},
 };
 
 use crate::{
-    session::manager::SessionManager,
-    types::{RemoteEntry, SessionId, TransferId, TransferProgress, TransferState},
+    session::{
+        manager::SessionManager,
+        ssh::{ExecOutputSink, ExecStream},
+    },
+    types::{
+        RemoteEntry, RemoteFileMatch, RemoteFileRead, RemoteFileStat, SessionId, TransferId,
+        TransferProgress, TransferState,
+    },
     AppError,
 };
 
 const BLOCK_SIZE: usize = 64 * 1024;
+const MAX_AGENT_FILE_BYTES: u64 = 1024 * 1024;
 
 pub trait TransferEventSink: Send + Sync {
     fn progress(&self, progress: &TransferProgress);
@@ -33,6 +41,14 @@ pub struct NullTransferSink;
 
 impl TransferEventSink for NullTransferSink {
     fn progress(&self, _progress: &TransferProgress) {}
+}
+
+struct DiscardExecOutput;
+
+impl ExecOutputSink for DiscardExecOutput {
+    fn send(&self, _stream: ExecStream, _data: &[u8]) -> Result<(), AppError> {
+        Ok(())
+    }
 }
 
 pub struct SftpService {
@@ -91,6 +107,234 @@ impl SftpService {
             .create_dir(path)
             .await
             .map_err(|error| AppError::Sftp(error.to_string()))
+    }
+
+    pub async fn file_stat(
+        &self,
+        session_id: &str,
+        path: &str,
+    ) -> Result<RemoteFileStat, AppError> {
+        let sftp = self.session(session_id).await?;
+        let metadata = sftp
+            .symlink_metadata(path)
+            .await
+            .map_err(|error| AppError::Sftp(error.to_string()))?;
+        let sha256 = if !metadata.is_dir()
+            && !metadata.is_symlink()
+            && metadata.len() <= MAX_AGENT_FILE_BYTES
+        {
+            let bytes = sftp
+                .read(path)
+                .await
+                .map_err(|error| AppError::Sftp(error.to_string()))?;
+            Some(hex_digest(&bytes))
+        } else {
+            None
+        };
+        Ok(RemoteFileStat {
+            path: path.to_owned(),
+            is_dir: metadata.is_dir(),
+            is_symlink: metadata.is_symlink(),
+            size: metadata.len(),
+            modified: i64::from(metadata.mtime.unwrap_or(0)),
+            permissions: format_permissions(metadata.permissions.unwrap_or(0)),
+            sha256,
+        })
+    }
+
+    pub async fn file_read(
+        &self,
+        session_id: &str,
+        path: &str,
+        offset: u64,
+        limit: u64,
+    ) -> Result<RemoteFileRead, AppError> {
+        let sftp = self.session(session_id).await?;
+        let metadata = sftp
+            .symlink_metadata(path)
+            .await
+            .map_err(|error| AppError::Sftp(error.to_string()))?;
+        if metadata.is_dir() || metadata.is_symlink() {
+            return Err(AppError::InvalidInput(
+                "file_read refuses directories and symbolic links".to_owned(),
+            ));
+        }
+        let limit = limit.clamp(1, MAX_AGENT_FILE_BYTES);
+        let mut file = sftp
+            .open(path)
+            .await
+            .map_err(|error| AppError::Sftp(error.to_string()))?;
+        file.seek(std::io::SeekFrom::Start(offset)).await?;
+        let mut bytes = Vec::with_capacity(limit as usize);
+        file.take(limit).read_to_end(&mut bytes).await?;
+        if bytes.contains(&0) {
+            return Err(AppError::InvalidInput(
+                "file_read refuses binary content".to_owned(),
+            ));
+        }
+        let content = String::from_utf8(bytes.clone()).map_err(|_| {
+            AppError::InvalidInput("file_read content is not valid UTF-8".to_owned())
+        })?;
+        Ok(RemoteFileRead {
+            path: path.to_owned(),
+            offset,
+            bytes: bytes.len() as u64,
+            eof: offset.saturating_add(bytes.len() as u64) >= metadata.len(),
+            sha256: hex_digest(&bytes),
+            content,
+        })
+    }
+
+    pub async fn file_write_atomic(
+        &self,
+        session_id: &str,
+        path: &str,
+        content: &[u8],
+        expected_hash: Option<&str>,
+    ) -> Result<RemoteFileStat, AppError> {
+        if content.len() as u64 > MAX_AGENT_FILE_BYTES {
+            return Err(AppError::InvalidInput(format!(
+                "agent file writes are limited to {MAX_AGENT_FILE_BYTES} bytes"
+            )));
+        }
+        if content.contains(&0) {
+            return Err(AppError::InvalidInput(
+                "file_write refuses binary content".to_owned(),
+            ));
+        }
+        let sftp = self.session(session_id).await?;
+        let exists = sftp
+            .try_exists(path)
+            .await
+            .map_err(|error| AppError::Sftp(error.to_string()))?;
+        let metadata = if exists {
+            let metadata = sftp
+                .symlink_metadata(path)
+                .await
+                .map_err(|error| AppError::Sftp(error.to_string()))?;
+            if metadata.is_dir() || metadata.is_symlink() {
+                return Err(AppError::InvalidInput(
+                    "file_write refuses directories and symbolic links".to_owned(),
+                ));
+            }
+            if metadata.len() > MAX_AGENT_FILE_BYTES {
+                return Err(AppError::InvalidInput(format!(
+                    "agent file writes require the existing file to be at most {MAX_AGENT_FILE_BYTES} bytes"
+                )));
+            }
+            let current = sftp
+                .read(path)
+                .await
+                .map_err(|error| AppError::Sftp(error.to_string()))?;
+            if let Some(expected) = expected_hash {
+                let actual = hex_digest(&current);
+                if !constant_time_eq(expected.as_bytes(), actual.as_bytes()) {
+                    return Err(AppError::Agent(format!(
+                        "file changed since it was read; expected {expected}, found {actual}"
+                    )));
+                }
+            }
+            Some(metadata)
+        } else {
+            if expected_hash.is_some() {
+                return Err(AppError::Agent(
+                    "file does not exist but an expected hash was provided".to_owned(),
+                ));
+            }
+            None
+        };
+        let replace_existing = metadata.is_some();
+        let (parent, name) = split_remote_path(path)?;
+        let temporary = format!(
+            "{}/.{}.myterm-{}.tmp",
+            parent.trim_end_matches('/'),
+            name,
+            uuid::Uuid::new_v4()
+        );
+        let mut file = sftp
+            .create(temporary.clone())
+            .await
+            .map_err(|error| AppError::Sftp(error.to_string()))?;
+        file.write_all(content)
+            .await
+            .map_err(|error| AppError::Sftp(error.to_string()))?;
+        file.sync_all()
+            .await
+            .map_err(|error| AppError::Sftp(error.to_string()))?;
+        file.shutdown()
+            .await
+            .map_err(|error| AppError::Sftp(error.to_string()))?;
+        if let Some(mut metadata) = metadata {
+            metadata.size = None;
+            metadata.atime = None;
+            metadata.mtime = None;
+            sftp.set_metadata(temporary.clone(), metadata)
+                .await
+                .map_err(|error| AppError::Sftp(error.to_string()))?;
+        }
+        let replaced = if replace_existing {
+            let (_cancel, receiver) = tokio::sync::watch::channel(false);
+            let command = format!("mv -f -- {} {}", shell_quote(&temporary), shell_quote(path));
+            self.sessions
+                .remote_exec(
+                    session_id,
+                    &command,
+                    Duration::from_secs(30),
+                    receiver,
+                    Arc::new(DiscardExecOutput),
+                )
+                .await
+                .map(|result| {
+                    result.exit_code == Some(0)
+                        && !result.timed_out
+                        && !result.canceled
+                        && !result.disconnected
+                })
+                .unwrap_or(false)
+        } else {
+            sftp.rename(temporary.clone(), path).await.is_ok()
+        };
+        if !replaced {
+            let _ = sftp.remove_file(temporary).await;
+            return Err(AppError::Sftp(
+                "atomic remote file replacement failed".to_owned(),
+            ));
+        }
+        let readback = sftp
+            .read(path)
+            .await
+            .map_err(|error| AppError::Sftp(error.to_string()))?;
+        if hex_digest(&readback) != hex_digest(content) {
+            return Err(AppError::Agent(
+                "file readback did not match the requested content".to_owned(),
+            ));
+        }
+        self.file_stat(session_id, path).await
+    }
+
+    pub async fn file_search(
+        &self,
+        session_id: &str,
+        path: &str,
+        pattern: &str,
+        max_files: usize,
+        max_matches: usize,
+    ) -> Result<Vec<RemoteFileMatch>, AppError> {
+        if pattern.is_empty() {
+            return Err(AppError::InvalidInput(
+                "file_search pattern is required".to_owned(),
+            ));
+        }
+        let sftp = self.session(session_id).await?;
+        let mut state = SearchState {
+            pattern: pattern.to_owned(),
+            files_seen: 0,
+            max_files: max_files.clamp(1, 500),
+            max_matches: max_matches.clamp(1, 1_000),
+            matches: Vec::new(),
+        };
+        search_remote_tree(sftp, path.to_owned(), 0, &mut state).await?;
+        Ok(state.matches)
     }
 
     pub async fn rename(&self, session_id: &str, from: &str, to: &str) -> Result<(), AppError> {
@@ -307,6 +551,109 @@ impl SftpService {
             error,
         });
     }
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
+}
+
+fn split_remote_path(path: &str) -> Result<(&str, &str), AppError> {
+    let (parent, name) = path.rsplit_once('/').ok_or_else(|| {
+        AppError::InvalidInput("remote file path must include its parent directory".to_owned())
+    })?;
+    if name.is_empty() || name == "." || name == ".." {
+        return Err(AppError::InvalidInput(
+            "remote file path has an invalid file name".to_owned(),
+        ));
+    }
+    Ok((if parent.is_empty() { "/" } else { parent }, name))
+}
+
+struct SearchState {
+    pattern: String,
+    files_seen: usize,
+    max_files: usize,
+    max_matches: usize,
+    matches: Vec<RemoteFileMatch>,
+}
+
+fn search_remote_tree<'a>(
+    sftp: Arc<SftpSession>,
+    path: String,
+    depth: u8,
+    state: &'a mut SearchState,
+) -> Pin<Box<dyn Future<Output = Result<(), AppError>> + Send + 'a>> {
+    Box::pin(async move {
+        if depth > 6
+            || state.files_seen >= state.max_files
+            || state.matches.len() >= state.max_matches
+        {
+            return Ok(());
+        }
+        let metadata = sftp
+            .symlink_metadata(path.clone())
+            .await
+            .map_err(|error| AppError::Sftp(error.to_string()))?;
+        if metadata.is_symlink() {
+            return Ok(());
+        }
+        if metadata.is_dir() {
+            for entry in sftp
+                .read_dir(path)
+                .await
+                .map_err(|error| AppError::Sftp(error.to_string()))?
+            {
+                search_remote_tree(sftp.clone(), entry.path(), depth + 1, state).await?;
+                if state.files_seen >= state.max_files || state.matches.len() >= state.max_matches {
+                    break;
+                }
+            }
+            return Ok(());
+        }
+        state.files_seen += 1;
+        if metadata.len() > MAX_AGENT_FILE_BYTES {
+            return Ok(());
+        }
+        let bytes = sftp
+            .read(path.clone())
+            .await
+            .map_err(|error| AppError::Sftp(error.to_string()))?;
+        if bytes.contains(&0) {
+            return Ok(());
+        }
+        let Ok(content) = String::from_utf8(bytes) else {
+            return Ok(());
+        };
+        for (index, line) in content.lines().enumerate() {
+            if line.contains(&state.pattern) {
+                state.matches.push(RemoteFileMatch {
+                    path: path.clone(),
+                    line: index as u64 + 1,
+                    text: line.chars().take(500).collect(),
+                });
+                if state.matches.len() >= state.max_matches {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    })
 }
 
 #[derive(Clone, Default)]

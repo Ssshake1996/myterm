@@ -135,7 +135,7 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
     try {
       const saved = await agentSettingsSave({
         ...draft,
-        max_steps: Math.min(12, Math.max(1, draft.max_steps)),
+        max_steps: Math.min(32, Math.max(1, draft.max_steps)),
         skill_directories: directories,
         mcp_servers: servers,
       });
@@ -200,9 +200,18 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
             <div className="setting-row setting-row-stack">
               <div>
                 <strong>工具执行权限</strong>
-                <small>确认模式会在每次工具调用前暂停；完全授权会连续执行。</small>
+                <small>只读禁止变更；确认模式逐次询问；任务授权仅在当前任务中生效。</small>
               </div>
               <fieldset aria-label="工具执行权限" className="segmented">
+                <button
+                  className={draft.permission_mode === "read_only" ? "is-active" : ""}
+                  onClick={() =>
+                    setDraft((current) => ({ ...current, permission_mode: "read_only" }))
+                  }
+                  type="button"
+                >
+                  只读
+                </button>
                 <button
                   className={draft.permission_mode === "confirm" ? "is-active" : ""}
                   onClick={() =>
@@ -213,24 +222,24 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
                   用户确认
                 </button>
                 <button
-                  className={draft.permission_mode === "full_access" ? "is-active" : ""}
+                  className={draft.permission_mode === "task_grant" ? "is-active" : ""}
                   onClick={() =>
-                    setDraft((current) => ({ ...current, permission_mode: "full_access" }))
+                    setDraft((current) => ({ ...current, permission_mode: "task_grant" }))
                   }
                   type="button"
                 >
-                  完全授权
+                  任务授权
                 </button>
               </fieldset>
             </div>
             <label className="setting-row">
               <span>
                 <strong>最大循环步数</strong>
-                <small>限制一次任务中的模型决策轮次，范围 1 到 12。</small>
+                <small>限制一次任务中的模型决策轮次，范围 1 到 32。</small>
               </span>
               <input
                 aria-label="最大循环步数"
-                max={12}
+                max={32}
                 min={1}
                 onChange={(event) =>
                   setDraft((current) => ({ ...current, max_steps: Number(event.target.value) }))

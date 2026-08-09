@@ -10,6 +10,9 @@ const ipcMocks = vi.hoisted(() => ({
   agentRun: vi.fn(),
   agentSettingsGet: vi.fn(),
   agentSettingsSave: vi.fn(),
+  agentTaskDelete: vi.fn(),
+  agentTaskEvents: vi.fn(),
+  agentTaskList: vi.fn(),
   aiProfileList: vi.fn(),
 }));
 
@@ -29,7 +32,7 @@ const aiProfile = {
 };
 
 const settings = {
-  permission_mode: "full_access" as const,
+  permission_mode: "task_grant" as const,
   max_steps: 8,
   skill_directories: [],
   enabled_skills: [],
@@ -41,6 +44,9 @@ describe("AiPanel Agent trace", () => {
     ipcMocks.aiProfileList.mockResolvedValue([aiProfile]);
     ipcMocks.agentSettingsGet.mockResolvedValue(settings);
     ipcMocks.agentSettingsSave.mockImplementation(async (value) => value);
+    ipcMocks.agentTaskDelete.mockResolvedValue(true);
+    ipcMocks.agentTaskEvents.mockResolvedValue([]);
+    ipcMocks.agentTaskList.mockResolvedValue([]);
     ipcMocks.agentAbort.mockResolvedValue(undefined);
     ipcMocks.agentApprove.mockResolvedValue(undefined);
     useLayoutStore.setState({

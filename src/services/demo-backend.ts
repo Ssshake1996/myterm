@@ -418,6 +418,12 @@ class DemoBackend {
             name: "incident-response",
             description: "按标准流程收集服务状态、日志和资源占用。",
             path: `${skillDirectories[0]}\\incident-response\\SKILL.md`,
+            contentHash: "demo-skill-sha256",
+            platforms: ["linux"],
+            allowedTools: ["host_facts", "remote_exec", "file_read"],
+            risk: "read_only",
+            modelInvocable: true,
+            trusted: false,
           },
         ]
       : [];
@@ -444,10 +450,15 @@ class DemoBackend {
     this.agentAborted = false;
     const runId = crypto.randomUUID();
     const callId = crypto.randomUUID();
-    sink.onmessage({ eventType: "status", runId, message: "正在准备工具和上下文" });
+    let sequence = 0;
+    const emit = (event: Omit<AgentEvent, "schemaVersion" | "sequence" | "createdAtMs">) => {
+      sequence += 1;
+      sink.onmessage({ ...event, schemaVersion: 1, sequence, createdAtMs: Date.now() });
+    };
+    emit({ eventType: "status", runId, message: "正在准备工具和上下文" });
     await new Promise((resolve) => window.setTimeout(resolve, 180));
-    sink.onmessage({ eventType: "status", runId, step: 1, message: "模型决策 · 1/8" });
-    sink.onmessage({
+    emit({ eventType: "status", runId, step: 1, message: "模型决策 · 1/8" });
+    emit({
       eventType: "tool_requested",
       runId,
       step: 1,
@@ -456,7 +467,7 @@ class DemoBackend {
       arguments: {},
     });
     if (this.agentSettings.permission_mode === "confirm") {
-      sink.onmessage({
+      emit({
         eventType: "approval_required",
         runId,
         step: 1,
@@ -466,7 +477,7 @@ class DemoBackend {
       });
       const approved = await new Promise<boolean>((resolve) => this.approvals.set(callId, resolve));
       if (!approved || this.agentAborted) {
-        sink.onmessage({
+        emit({
           eventType: "tool_result",
           runId,
           step: 1,
@@ -475,7 +486,7 @@ class DemoBackend {
           content: this.agentAborted ? "任务已停止" : "用户拒绝了本次工具调用",
           isError: true,
         });
-        sink.onmessage({
+        emit({
           eventType: "complete",
           runId,
           step: 1,
@@ -485,7 +496,7 @@ class DemoBackend {
       }
     }
     const activeSession = sessionId ? this.sessions.get(sessionId) : undefined;
-    sink.onmessage({
+    emit({
       eventType: "tool_result",
       runId,
       step: 1,
@@ -498,8 +509,8 @@ class DemoBackend {
     const answer = prompt.includes("磁盘")
       ? "已读取活动会话。根分区使用率较高，建议先运行 `du` 定位占用目录，再决定清理范围。"
       : "已读取活动会话信息，当前连接可用，可以继续执行终端排查。";
-    sink.onmessage({ eventType: "assistant", runId, step: 2, content: answer });
-    sink.onmessage({ eventType: "complete", runId, step: 2, message: "stop" });
+    emit({ eventType: "assistant", runId, step: 2, content: answer });
+    emit({ eventType: "complete", runId, step: 2, message: "stop" });
     return { runId, finishReason: "stop", steps: 2 };
   }
 

@@ -14,6 +14,7 @@ export interface SessionProfile {
   id: string;
   name: string;
   group: string;
+  environment?: "production" | "staging" | "development";
   target: SessionTarget;
 }
 
@@ -85,7 +86,7 @@ export interface AiChatResult {
   attachedContext?: string;
 }
 
-export type AgentPermissionMode = "full_access" | "confirm";
+export type AgentPermissionMode = "read_only" | "confirm" | "task_grant";
 
 export interface McpServerConfig {
   id: string;
@@ -102,6 +103,16 @@ export interface AgentSettings {
   skill_directories: string[];
   enabled_skills: string[];
   mcp_servers: McpServerConfig[];
+  hooks?: AgentHookConfig[];
+}
+
+export interface AgentHookConfig {
+  id: string;
+  event: "SessionStart" | "PreToolUse" | "PostToolUse" | "ToolFailure" | "PreCompact" | "Stop";
+  command: string;
+  args: string[];
+  cwd: string | null;
+  enabled: boolean;
 }
 
 export interface SkillInfo {
@@ -109,6 +120,12 @@ export interface SkillInfo {
   name: string;
   description: string;
   path: string;
+  contentHash: string;
+  platforms: string[];
+  allowedTools: string[];
+  risk: string;
+  modelInvocable: boolean;
+  trusted: boolean;
 }
 
 export interface McpToolInfo {
@@ -119,11 +136,20 @@ export interface McpToolInfo {
 }
 
 export interface AgentEvent {
+  schemaVersion: number;
+  sequence: number;
+  createdAtMs: number;
   eventType:
     | "status"
     | "tool_requested"
+    | "tool_output"
+    | "policy"
+    | "context_compacted"
+    | "hook"
     | "approval_required"
     | "tool_result"
+    | "job_started"
+    | "job_finished"
     | "mcp_error"
     | "assistant"
     | "complete";
@@ -139,8 +165,43 @@ export interface AgentEvent {
 
 export interface AgentRunResult {
   runId: string;
-  finishReason: "stop" | "aborted" | "limit";
+  finishReason: "stop" | "aborted" | "limit" | "loop_detected" | "error";
   steps: number;
+}
+
+export type AgentTaskState =
+  | "queued"
+  | "running"
+  | "waiting_approval"
+  | "succeeded"
+  | "failed"
+  | "canceled";
+
+export interface AgentTask {
+  id: string;
+  profileId: string;
+  sessionId: string | null;
+  prompt: string;
+  state: AgentTaskState;
+  permissionMode: AgentPermissionMode;
+  createdAtMs: number;
+  updatedAtMs: number;
+  finishReason: string | null;
+  steps: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+export interface ExecutionJob {
+  id: string;
+  taskId: string;
+  toolCallId: string;
+  state: "running" | "canceling" | "succeeded" | "failed" | "canceled" | "timed_out" | "lost";
+  exitCode: number | null;
+  signal: string | null;
+  startedAtMs: number;
+  completedAtMs: number | null;
+  artifactPath: string | null;
 }
 
 export interface LocalEntry {
@@ -172,7 +233,7 @@ export function createChannel<T>(): MessageChannel<T> {
 export async function getAppInfo(): Promise<AppInfo> {
   if (!isDesktopRuntime) {
     return {
-      version: "0.1.4",
+      version: "0.6.0",
       commitHash: "browser-demo",
       startupProfile: null,
       portable: false,
@@ -398,6 +459,46 @@ export async function agentApprove(callId: string, approved: boolean): Promise<v
 export async function agentAbort(): Promise<void> {
   if (!isDesktopRuntime) return demoBackend.agentAbort();
   return invoke("agent_abort");
+}
+
+export async function agentJobCancel(jobId: string): Promise<ExecutionJob> {
+  if (!isDesktopRuntime) {
+    return {
+      id: jobId,
+      taskId: "demo",
+      toolCallId: "demo",
+      state: "canceling",
+      exitCode: null,
+      signal: null,
+      startedAtMs: Date.now(),
+      completedAtMs: null,
+      artifactPath: null,
+    };
+  }
+  return invoke<ExecutionJob>("agent_job_cancel", { jobId });
+}
+
+export async function agentTaskList(limit = 50): Promise<AgentTask[]> {
+  if (!isDesktopRuntime) return [];
+  return invoke<AgentTask[]>("agent_task_list", { limit });
+}
+
+export async function agentTaskGet(taskId: string): Promise<AgentTask> {
+  return invoke<AgentTask>("agent_task_get", { taskId });
+}
+
+export async function agentTaskEvents(
+  taskId: string,
+  afterSequence = 0,
+  limit = 500,
+): Promise<AgentEvent[]> {
+  if (!isDesktopRuntime) return [];
+  return invoke<AgentEvent[]>("agent_task_events", { taskId, afterSequence, limit });
+}
+
+export async function agentTaskDelete(taskId: string): Promise<boolean> {
+  if (!isDesktopRuntime) return false;
+  return invoke<boolean>("agent_task_delete", { taskId });
 }
 
 export async function onSessionState(handler: (payload: SessionInfo) => void): Promise<UnlistenFn> {

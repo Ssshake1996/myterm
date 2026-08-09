@@ -1,3 +1,7 @@
+pub mod domain;
+pub mod hooks;
 pub mod mcp;
+pub mod policy;
 pub mod service;
 pub mod skills;
+pub mod store;

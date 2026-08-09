@@ -1,7 +1,9 @@
 pub mod agent;
 pub mod ai;
+pub mod cli;
 pub mod config;
 pub mod ipc;
+pub mod rest;
 pub mod session;
 pub mod sftp;
 pub mod types;
@@ -30,6 +32,10 @@ pub enum AppError {
     Sftp(String),
     #[error("AI service error: {0}")]
     Ai(String),
+    #[error("agent error: {0}")]
+    Agent(String),
+    #[error("storage error: {0}")]
+    Storage(String),
     #[error("not found: {0}")]
     NotFound(String),
     #[error("invalid input: {0}")]
@@ -38,6 +44,8 @@ pub enum AppError {
     Io(#[from] std::io::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("database error: {0}")]
+    Database(#[from] rusqlite::Error),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -54,10 +62,13 @@ impl From<AppError> for IpcError {
             AppError::Session(_) => "session",
             AppError::Sftp(_) => "sftp",
             AppError::Ai(_) => "ai",
+            AppError::Agent(_) => "agent",
+            AppError::Storage(_) => "storage",
             AppError::NotFound(_) => "not_found",
             AppError::InvalidInput(_) => "invalid_input",
             AppError::Io(_) => "io",
             AppError::Json(_) => "json",
+            AppError::Database(_) => "database",
         };
         Self {
             code: code.to_owned(),
@@ -208,6 +219,11 @@ pub fn run() {
             ipc::agent_run,
             ipc::agent_approve,
             ipc::agent_abort,
+            ipc::agent_job_cancel,
+            ipc::agent_task_list,
+            ipc::agent_task_get,
+            ipc::agent_task_events,
+            ipc::agent_task_delete,
             ipc::local_shell_list,
         ])
         .run(tauri::generate_context!())

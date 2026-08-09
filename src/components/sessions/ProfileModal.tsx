@@ -14,6 +14,7 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
   const [targetKind, setTargetKind] = useState<"ssh" | "local">(profile?.target.kind ?? "ssh");
   const [name, setName] = useState(profile?.name ?? "");
   const [group, setGroup] = useState(profile?.group ?? "默认");
+  const [environment, setEnvironment] = useState(profile?.environment ?? "production");
   const [host, setHost] = useState(profile?.target.kind === "ssh" ? profile.target.host : "");
   const [port, setPort] = useState(profile?.target.kind === "ssh" ? profile.target.port : 22);
   const [username, setUsername] = useState(
@@ -73,6 +74,7 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
       id,
       name: name.trim(),
       group: group.trim() || "默认",
+      environment,
       target:
         targetKind === "local"
           ? { kind: "local", shell }
@@ -146,6 +148,19 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
         <label className="field">
           <span>分组</span>
           <input onChange={(event) => setGroup(event.target.value)} value={group} />
+        </label>
+        <label className="field">
+          <span>环境</span>
+          <select
+            onChange={(event) =>
+              setEnvironment(event.target.value as "production" | "staging" | "development")
+            }
+            value={environment}
+          >
+            <option value="production">生产</option>
+            <option value="staging">预发布</option>
+            <option value="development">开发</option>
+          </select>
         </label>
         <div className="field field-span">
           <span>类型</span>

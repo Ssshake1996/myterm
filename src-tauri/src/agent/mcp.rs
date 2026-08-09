@@ -9,6 +9,67 @@ use crate::{
     AppError,
 };
 
+type RunningClient = rmcp::service::RunningService<rmcp::RoleClient, ()>;
+
+pub struct McpTaskClient {
+    server: McpServerConfig,
+    client: RunningClient,
+}
+
+impl McpTaskClient {
+    pub async fn start(server: &McpServerConfig) -> Result<Self, AppError> {
+        Ok(Self {
+            server: server.clone(),
+            client: connect(server).await?,
+        })
+    }
+
+    pub async fn list_tools(&self) -> Result<Vec<McpToolDefinition>, AppError> {
+        let tools = tokio::time::timeout(Duration::from_secs(15), self.client.list_all_tools())
+            .await
+            .map_err(|_| AppError::Ai(format!("MCP server '{}' timed out", self.server.name)))?
+            .map_err(|error| AppError::Ai(format!("MCP server '{}': {error}", self.server.name)))?;
+        Ok(tools
+            .into_iter()
+            .map(|tool| McpToolDefinition {
+                internal_name: tool_name(&self.server.id, &tool.name),
+                server_id: self.server.id.clone(),
+                original_name: tool.name.into_owned(),
+                description: tool
+                    .description
+                    .map_or_else(String::new, |value| value.into_owned()),
+                input_schema: Value::Object((*tool.input_schema).clone()),
+            })
+            .collect())
+    }
+
+    pub async fn call_tool(&self, tool_name: &str, arguments: Value) -> Result<String, AppError> {
+        let arguments = arguments.as_object().cloned().ok_or_else(|| {
+            AppError::InvalidInput("MCP tool arguments must be a JSON object".to_owned())
+        })?;
+        let result = tokio::time::timeout(
+            Duration::from_secs(60),
+            self.client.call_tool(
+                CallToolRequestParams::new(tool_name.to_owned()).with_arguments(arguments),
+            ),
+        )
+        .await
+        .map_err(|_| AppError::Ai(format!("MCP tool '{tool_name}' timed out")))?
+        .map_err(|error| AppError::Ai(format!("MCP tool '{tool_name}': {error}")))?;
+        serde_json::to_string(&result).map_err(Into::into)
+    }
+
+    pub async fn close(&mut self) {
+        let _ = self.client.close_with_timeout(Duration::from_secs(2)).await;
+    }
+}
+
+impl Drop for McpTaskClient {
+    fn drop(&mut self) {
+        self.client.cancellation_token().cancel();
+    }
+}
+
 #[derive(Clone)]
 pub struct McpToolDefinition {
     pub internal_name: String,
@@ -19,26 +80,10 @@ pub struct McpToolDefinition {
 }
 
 pub async fn list_tools(server: &McpServerConfig) -> Result<Vec<McpToolDefinition>, AppError> {
-    let client = connect(server).await?;
-    let result = tokio::time::timeout(Duration::from_secs(15), client.list_all_tools())
-        .await
-        .map_err(|_| AppError::Ai(format!("MCP server '{}' timed out", server.name)))?
-        .map_err(|error| AppError::Ai(format!("MCP server '{}': {error}", server.name)));
-    let _ = client.cancel().await;
-    result.map(|tools| {
-        tools
-            .into_iter()
-            .map(|tool| McpToolDefinition {
-                internal_name: tool_name(&server.id, &tool.name),
-                server_id: server.id.clone(),
-                original_name: tool.name.into_owned(),
-                description: tool
-                    .description
-                    .map_or_else(String::new, |value| value.into_owned()),
-                input_schema: Value::Object((*tool.input_schema).clone()),
-            })
-            .collect()
-    })
+    let mut client = McpTaskClient::start(server).await?;
+    let result = client.list_tools().await;
+    client.close().await;
+    result
 }
 
 pub async fn list_tool_info(server: &McpServerConfig) -> Result<Vec<McpToolInfo>, AppError> {
@@ -59,20 +104,10 @@ pub async fn call_tool(
     tool_name: &str,
     arguments: Value,
 ) -> Result<String, AppError> {
-    let client = connect(server).await?;
-    let arguments = arguments.as_object().cloned().ok_or_else(|| {
-        AppError::InvalidInput("MCP tool arguments must be a JSON object".to_owned())
-    })?;
-    let result = tokio::time::timeout(
-        Duration::from_secs(60),
-        client
-            .call_tool(CallToolRequestParams::new(tool_name.to_owned()).with_arguments(arguments)),
-    )
-    .await
-    .map_err(|_| AppError::Ai(format!("MCP tool '{tool_name}' timed out")))?
-    .map_err(|error| AppError::Ai(format!("MCP tool '{tool_name}': {error}")));
-    let _ = client.cancel().await;
-    serde_json::to_string(&result?).map_err(Into::into)
+    let mut client = McpTaskClient::start(server).await?;
+    let result = client.call_tool(tool_name, arguments).await;
+    client.close().await;
+    result
 }
 
 async fn connect(

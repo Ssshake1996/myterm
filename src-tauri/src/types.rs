@@ -33,7 +33,18 @@ pub struct SessionProfile {
     pub id: String,
     pub name: String,
     pub group: String,
+    #[serde(default)]
+    pub environment: SessionEnvironment,
     pub target: SessionTarget,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionEnvironment {
+    #[default]
+    Production,
+    Staging,
+    Development,
 }
 
 // ── Live sessions ────────────────────────────────────────
@@ -67,6 +78,37 @@ pub struct RemoteEntry {
     pub size: u64,
     pub modified: i64,
     pub permissions: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteFileStat {
+    pub path: String,
+    pub is_dir: bool,
+    pub is_symlink: bool,
+    pub size: u64,
+    pub modified: i64,
+    pub permissions: String,
+    pub sha256: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteFileRead {
+    pub path: String,
+    pub offset: u64,
+    pub bytes: u64,
+    pub eof: bool,
+    pub sha256: String,
+    pub content: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteFileMatch {
+    pub path: String,
+    pub line: u64,
+    pub text: String,
 }
 
 pub type TransferId = String;
@@ -127,12 +169,14 @@ pub struct AiProfile {
     pub context_lines: u32,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentPermissionMode {
-    FullAccess,
+    ReadOnly,
     #[default]
+    #[serde(alias = "full_access")]
     Confirm,
+    TaskGrant,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -161,6 +205,20 @@ pub struct AgentSettings {
     pub enabled_skills: Vec<String>,
     #[serde(default)]
     pub mcp_servers: Vec<McpServerConfig>,
+    #[serde(default)]
+    pub hooks: Vec<AgentHookConfig>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct AgentHookConfig {
+    pub id: String,
+    pub event: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    pub cwd: Option<String>,
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
 }
 
 impl Default for AgentSettings {
@@ -171,6 +229,7 @@ impl Default for AgentSettings {
             skill_directories: Vec::new(),
             enabled_skills: Vec::new(),
             mcp_servers: Vec::new(),
+            hooks: Vec::new(),
         }
     }
 }
@@ -182,6 +241,12 @@ pub struct SkillInfo {
     pub name: String,
     pub description: String,
     pub path: String,
+    pub content_hash: String,
+    pub platforms: Vec<String>,
+    pub allowed_tools: Vec<String>,
+    pub risk: String,
+    pub model_invocable: bool,
+    pub trusted: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -193,9 +258,12 @@ pub struct McpToolInfo {
     pub description: String,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentEvent {
+    pub schema_version: u16,
+    pub sequence: u64,
+    pub created_at_ms: i64,
     pub event_type: String,
     pub run_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]

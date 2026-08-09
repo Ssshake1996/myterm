@@ -7,7 +7,7 @@ use tauri::{
 };
 
 use crate::{
-    agent::{mcp, service::AgentEventSink, skills},
+    agent::{domain::AgentTask, mcp, service::AgentEventSink, skills},
     ai::service::{AiChatResult, AiTestResult, DeltaSink},
     session::{local::detect_shells, manager::OutputSink, profile},
     sftp::service::local_entries,
@@ -433,6 +433,45 @@ pub async fn agent_abort(state: State<'_, AppState>) -> Result<(), IpcError> {
 }
 
 #[tauri::command]
+pub async fn agent_job_cancel(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<crate::agent::domain::ExecutionJob, IpcError> {
+    state.agent.cancel_job(&job_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn agent_task_list(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<AgentTask>, IpcError> {
+    state.agent.tasks(limit.unwrap_or(50)).map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn agent_task_get(state: State<'_, AppState>, task_id: String) -> Result<AgentTask, IpcError> {
+    state.agent.task(&task_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn agent_task_events(
+    state: State<'_, AppState>,
+    task_id: String,
+    after_sequence: Option<u64>,
+    limit: Option<usize>,
+) -> Result<Vec<AgentEvent>, IpcError> {
+    state
+        .agent
+        .task_events(&task_id, after_sequence.unwrap_or(0), limit.unwrap_or(500))
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn agent_task_delete(state: State<'_, AppState>, task_id: String) -> Result<bool, IpcError> {
+    state.agent.task_delete(&task_id).map_err(Into::into)
+}
+
+#[tauri::command]
 pub fn local_shell_list() -> Vec<String> {
     detect_shells()
 }
@@ -458,6 +497,7 @@ mod tests {
             id: id.to_owned(),
             name: name.to_owned(),
             group: "测试/服务器".to_owned(),
+            environment: crate::types::SessionEnvironment::Production,
             target: SessionTarget::Ssh {
                 host: host.to_owned(),
                 port: 22,

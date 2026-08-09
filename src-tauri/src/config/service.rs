@@ -146,7 +146,7 @@ impl ConfigService {
     }
 
     pub fn agent_settings_save(&self, mut settings: AgentSettings) -> Result<(), AppError> {
-        settings.max_steps = settings.max_steps.clamp(1, 12);
+        settings.max_steps = settings.max_steps.clamp(1, 32);
         settings
             .skill_directories
             .retain(|directory| !directory.trim().is_empty());
@@ -309,6 +309,7 @@ mod tests {
             id: id.to_owned(),
             name: "prod".to_owned(),
             group: "ops".to_owned(),
+            environment: crate::types::SessionEnvironment::Production,
             target: SessionTarget::Ssh {
                 host: "127.0.0.1".to_owned(),
                 port: 22,

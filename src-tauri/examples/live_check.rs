@@ -6,6 +6,7 @@ use myterm_lib::{
     session::{
         manager::{NullEventSink, OutputSink, SessionManager},
         profile,
+        ssh::{ExecOutputSink, ExecStream},
     },
     sftp::service::{NullTransferSink, SftpService},
     types::{
@@ -20,6 +21,33 @@ struct DiscardOutput;
 
 impl OutputSink for DiscardOutput {
     fn send(&self, _data: &[u8]) -> Result<(), AppError> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct ExecCapture {
+    stdout: Mutex<Vec<u8>>,
+    stderr: Mutex<Vec<u8>>,
+    stdout_bytes: Mutex<u64>,
+    stderr_bytes: Mutex<u64>,
+}
+
+impl ExecOutputSink for ExecCapture {
+    fn send(&self, stream: ExecStream, data: &[u8]) -> Result<(), AppError> {
+        let (preview, count) = match stream {
+            ExecStream::Stdout => (&self.stdout, &self.stdout_bytes),
+            ExecStream::Stderr => (&self.stderr, &self.stderr_bytes),
+        };
+        let mut count = count
+            .lock()
+            .map_err(|_| AppError::Session("exec byte counter lock is poisoned".to_owned()))?;
+        *count = count.saturating_add(data.len() as u64);
+        let mut preview = preview
+            .lock()
+            .map_err(|_| AppError::Session("exec preview lock is poisoned".to_owned()))?;
+        let remaining = (64 * 1024usize).saturating_sub(preview.len());
+        preview.extend_from_slice(&data[..data.len().min(remaining)]);
         Ok(())
     }
 }
@@ -43,11 +71,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("save-profile") => save_profile()?,
         Some("verify-crud") => verify_crud()?,
         Some("verify-profile") => verify_profile().await?,
+        Some("verify-exec") => verify_exec().await?,
+        Some("verify-files") => verify_files().await?,
         Some("verify-agent") => verify_agent().await?,
         Some("verify-mcp") => verify_mcp().await?,
         _ => {
             return Err(
-                "usage: cargo run --example live_check -- <save-profile|verify-crud|verify-profile|verify-agent|verify-mcp>"
+                "usage: cargo run --example live_check -- <save-profile|verify-crud|verify-profile|verify-exec|verify-files|verify-agent|verify-mcp>"
                     .into(),
             );
         }
@@ -56,10 +86,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn verify_crud() -> Result<(), Box<dyn std::error::Error>> {
-    let password = std::env::var("MYTERM_LIVE_PASSWORD")?;
     let config_path = default_config_path(false)?;
     let config = ConfigService::open(config_path.clone())?;
     let vault = KeyringVault::new();
+    let saved = find_profile(&config)?;
+    let saved_reference = match saved.target {
+        SessionTarget::Ssh {
+            auth: AuthMethod::Password { vault_ref },
+            ..
+        } => vault_ref,
+        _ => return Err("live profile does not use password authentication".into()),
+    };
+    let password = vault
+        .get(&saved_reference)?
+        .ok_or("live profile credential is not available")?;
     let temporary_id = format!("live-crud-{}", uuid::Uuid::new_v4());
     let created = profile::save(
         &config,
@@ -68,6 +108,7 @@ fn verify_crud() -> Result<(), Box<dyn std::error::Error>> {
             id: temporary_id.clone(),
             name: "临时服务器".to_owned(),
             group: "验证".to_owned(),
+            environment: myterm_lib::types::SessionEnvironment::Production,
             target: SessionTarget::Ssh {
                 host: "192.168.3.94".to_owned(),
                 port: 22,
@@ -135,6 +176,7 @@ fn save_profile() -> Result<(), Box<dyn std::error::Error>> {
             id: PROFILE_ID.to_owned(),
             name: "yuxiaservers".to_owned(),
             group: "服务器".to_owned(),
+            environment: myterm_lib::types::SessionEnvironment::Production,
             target: SessionTarget::Ssh {
                 host: "192.168.3.94".to_owned(),
                 port: 22,
@@ -191,6 +233,112 @@ async fn verify_profile() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+async fn verify_exec() -> Result<(), Box<dyn std::error::Error>> {
+    let (_config, _vault, sessions, profile) = live_services()?;
+    let session = sessions
+        .connect(profile, 120, 36, Arc::new(DiscardOutput))
+        .await?;
+    let session_id = session.session_id;
+
+    let run = async {
+        let capture = Arc::new(ExecCapture::default());
+        let (_cancel, receiver) = tokio::sync::watch::channel(false);
+        let result = sessions
+            .remote_exec(
+                &session_id,
+                "printf 'OUT_OK'; printf 'ERR_OK' >&2; exit 7",
+                std::time::Duration::from_secs(10),
+                receiver,
+                capture.clone(),
+            )
+            .await?;
+        if result.exit_code != Some(7)
+            || String::from_utf8_lossy(&capture.stdout.lock().unwrap()) != "OUT_OK"
+            || String::from_utf8_lossy(&capture.stderr.lock().unwrap()) != "ERR_OK"
+        {
+            return Err("structured stdout/stderr/exit verification failed".into());
+        }
+
+        let timeout_capture = Arc::new(ExecCapture::default());
+        let (_cancel, receiver) = tokio::sync::watch::channel(false);
+        let timed_out = sessions
+            .remote_exec(
+                &session_id,
+                "sleep 2",
+                std::time::Duration::from_millis(150),
+                receiver,
+                timeout_capture,
+            )
+            .await?;
+        if !timed_out.timed_out || timed_out.canceled {
+            return Err("structured timeout verification failed".into());
+        }
+
+        let large_capture = Arc::new(ExecCapture::default());
+        let (_cancel, receiver) = tokio::sync::watch::channel(false);
+        let large = sessions
+            .remote_exec(
+                &session_id,
+                "head -c 10485760 /dev/zero",
+                std::time::Duration::from_secs(30),
+                receiver,
+                large_capture.clone(),
+            )
+            .await?;
+        if large.exit_code != Some(0) || *large_capture.stdout_bytes.lock().unwrap() != 10_485_760 {
+            return Err("10 MiB streaming output verification failed".into());
+        }
+        Ok::<_, Box<dyn std::error::Error>>(())
+    }
+    .await;
+    sessions.disconnect(&session_id).await?;
+    run?;
+    println!("EXEC_VERIFIED exit stderr timeout 10MiB");
+    Ok(())
+}
+
+async fn verify_files() -> Result<(), Box<dyn std::error::Error>> {
+    let (_config, _vault, sessions, profile) = live_services()?;
+    let sftp = SftpService::new(sessions.clone(), Arc::new(NullTransferSink));
+    let session = sessions
+        .connect(profile, 120, 36, Arc::new(DiscardOutput))
+        .await?;
+    let session_id = session.session_id;
+    let directory = format!("/tmp/myterm-live-{}", uuid::Uuid::new_v4());
+    let path = format!("{directory}/check.txt");
+    let run = async {
+        sftp.mkdir(&session_id, &directory).await?;
+        let created = sftp
+            .file_write_atomic(&session_id, &path, b"alpha\nbeta\n", None)
+            .await?;
+        let read = sftp.file_read(&session_id, &path, 0, 1024).await?;
+        if read.content != "alpha\nbeta\n" {
+            return Err("file readback differs from atomic write".into());
+        }
+        let changed = sftp
+            .file_write_atomic(
+                &session_id,
+                &path,
+                b"alpha\ngamma\n",
+                created.sha256.as_deref(),
+            )
+            .await?;
+        let matches = sftp
+            .file_search(&session_id, &directory, "gamma", 10, 10)
+            .await?;
+        if changed.sha256 == created.sha256 || matches.len() != 1 {
+            return Err("file optimistic write or search verification failed".into());
+        }
+        Ok::<_, Box<dyn std::error::Error>>(())
+    }
+    .await;
+    let _ = sftp.delete(&session_id, &directory, true).await;
+    sessions.disconnect(&session_id).await?;
+    run?;
+    println!("FILES_VERIFIED atomic-write read search cleanup");
+    Ok(())
+}
+
 async fn verify_agent() -> Result<(), Box<dyn std::error::Error>> {
     let source = default_config_path(false)?;
     let temporary_root = std::env::temp_dir().join(format!("myterm-live-{}", uuid::Uuid::new_v4()));
@@ -208,7 +356,7 @@ async fn verify_agent_with_config(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = Arc::new(ConfigService::open(config_path)?);
     let mut settings = config.agent_settings()?;
-    settings.permission_mode = AgentPermissionMode::FullAccess;
+    settings.permission_mode = AgentPermissionMode::ReadOnly;
     config.agent_settings_save(settings)?;
     let profile = find_profile(&config)?;
     let ai_profile = config
@@ -242,7 +390,7 @@ async fn verify_agent_with_config(
     let run = agent
         .run(
             &ai_profile.id,
-            "Use all four built-in tools before the final answer: call session_info; call terminal_context; call terminal_send with command `printf 'MYTERM_AGENT_TOOL_OK\\n'`; and call list_directory with scope `remote` and path `/root`. After every tool has returned, report only the hostname and current user."
+            "Use all five read-only tools before the final answer: call session_info; call terminal_context; call remote_exec with command `hostname; whoami`; call host_facts; and call list_directory with scope `remote` and path `/root`. After every tool has returned, report only the hostname and current user."
                 .to_owned(),
             Some(session_id.clone()),
             events.clone(),
@@ -258,7 +406,8 @@ async fn verify_agent_with_config(
     let required = [
         "session_info",
         "terminal_context",
-        "terminal_send",
+        "remote_exec",
+        "host_facts",
         "list_directory",
     ];
     if required.iter().any(|required| !tools.contains(required)) {

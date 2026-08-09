@@ -16,6 +16,29 @@ use tokio::sync::{oneshot, Mutex};
 use super::manager::OutputSink;
 use crate::{config::atomic_replace, types::AuthMethod, AppError, SecretResolver};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExecStream {
+    Stdout,
+    Stderr,
+}
+
+pub trait ExecOutputSink: Send + Sync {
+    fn send(&self, stream: ExecStream, data: &[u8]) -> Result<(), AppError>;
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecResult {
+    pub exit_code: Option<i32>,
+    pub signal: Option<String>,
+    pub stdout_bytes: u64,
+    pub stderr_bytes: u64,
+    pub duration_ms: u64,
+    pub timed_out: bool,
+    pub canceled: bool,
+    pub disconnected: bool,
+}
+
 pub struct ClientHandler {
     host_key: String,
     known_hosts_path: PathBuf,
@@ -176,6 +199,94 @@ impl SshTerminal {
             .map_err(Into::into)
     }
 
+    pub async fn exec(
+        &self,
+        command: &str,
+        timeout: Duration,
+        mut cancel: tokio::sync::watch::Receiver<bool>,
+        sink: Arc<dyn ExecOutputSink>,
+    ) -> Result<ExecResult, AppError> {
+        let mut channel = self.handle.lock().await.channel_open_session().await?;
+        channel.exec(true, command.as_bytes()).await?;
+
+        let started = std::time::Instant::now();
+        let deadline = tokio::time::sleep(timeout);
+        tokio::pin!(deadline);
+        let mut stdout = Vec::with_capacity(64 * 1024);
+        let mut stderr = Vec::with_capacity(64 * 1024);
+        let mut stdout_bytes = 0_u64;
+        let mut stderr_bytes = 0_u64;
+        let mut exit_code = None;
+        let mut signal = None;
+        let mut timed_out = false;
+        let mut canceled = false;
+        let mut disconnected = false;
+        let mut last_flush = std::time::Instant::now();
+
+        loop {
+            let message = tokio::select! {
+                _ = &mut deadline => {
+                    timed_out = true;
+                    None
+                }
+                changed = cancel.changed() => {
+                    if changed.is_ok() && *cancel.borrow() {
+                        canceled = true;
+                        None
+                    } else {
+                        continue;
+                    }
+                }
+                message = channel.wait() => message,
+            };
+
+            match message {
+                Some(ChannelMsg::Data { data }) => {
+                    stdout_bytes = stdout_bytes.saturating_add(data.len() as u64);
+                    stdout.extend_from_slice(data.as_ref());
+                }
+                Some(ChannelMsg::ExtendedData { data, .. }) => {
+                    stderr_bytes = stderr_bytes.saturating_add(data.len() as u64);
+                    stderr.extend_from_slice(data.as_ref());
+                }
+                Some(ChannelMsg::ExitStatus { exit_status }) => {
+                    exit_code = i32::try_from(exit_status).ok();
+                }
+                Some(ChannelMsg::ExitSignal { signal_name, .. }) => {
+                    signal = Some(format!("{signal_name:?}"));
+                }
+                Some(ChannelMsg::Eof) => {}
+                Some(ChannelMsg::Close) => break,
+                Some(_) => {}
+                None => {
+                    disconnected =
+                        !timed_out && !canceled && exit_code.is_none() && signal.is_none();
+                    let _ = channel.close().await;
+                    break;
+                }
+            }
+
+            if stdout.len() + stderr.len() >= 64 * 1024
+                || last_flush.elapsed() >= Duration::from_millis(50)
+            {
+                flush_exec_output(&sink, &mut stdout, &mut stderr)?;
+                last_flush = std::time::Instant::now();
+            }
+        }
+        flush_exec_output(&sink, &mut stdout, &mut stderr)?;
+
+        Ok(ExecResult {
+            exit_code,
+            signal,
+            stdout_bytes,
+            stderr_bytes,
+            duration_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            timed_out,
+            canceled,
+            disconnected,
+        })
+    }
+
     pub(crate) async fn open_sftp(&self) -> Result<russh_sftp::client::SftpSession, AppError> {
         let channel = self.handle.lock().await.channel_open_session().await?;
         channel.request_subsystem(true, "sftp").await?;
@@ -183,6 +294,22 @@ impl SshTerminal {
             .await
             .map_err(|error| AppError::Sftp(error.to_string()))
     }
+}
+
+fn flush_exec_output(
+    sink: &Arc<dyn ExecOutputSink>,
+    stdout: &mut Vec<u8>,
+    stderr: &mut Vec<u8>,
+) -> Result<(), AppError> {
+    if !stdout.is_empty() {
+        sink.send(ExecStream::Stdout, stdout)?;
+        stdout.clear();
+    }
+    if !stderr.is_empty() {
+        sink.send(ExecStream::Stderr, stderr)?;
+        stderr.clear();
+    }
+    Ok(())
 }
 
 fn default_known_hosts_path() -> Result<PathBuf, AppError> {

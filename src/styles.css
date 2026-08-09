@@ -1621,6 +1621,110 @@ button:disabled {
   border-radius: 2px;
 }
 
+.agent-history-toolbar {
+  height: 29px;
+  flex: 0 0 29px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface-low-raised);
+}
+
+.agent-history-toolbar > button:first-child {
+  height: 23px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 8.5px;
+  cursor: pointer;
+}
+
+.agent-history-toolbar > button:first-child.is-active {
+  background: var(--surface-hover);
+  color: var(--text-soft);
+}
+
+.agent-history-toolbar > button:first-child small {
+  color: var(--gold);
+  font: 8px/1 "Cascadia Mono", Consolas, monospace;
+}
+
+.agent-history-toolbar > span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 8px/1 "Cascadia Mono", Consolas, monospace;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-history-list {
+  max-height: min(240px, 34vh);
+  flex: 0 0 auto;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-deep);
+}
+
+.agent-history-list > p {
+  margin: 0;
+  padding: 14px 10px;
+  color: var(--text-muted);
+  font-size: 9px;
+  text-align: center;
+}
+
+.agent-history-list > div {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.agent-history-list > div.is-selected {
+  box-shadow: inset 2px 0 var(--blue);
+  background: var(--blue-surface);
+}
+
+.agent-history-list > div > button:first-child {
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-history-list > div > button:first-child span,
+.agent-history-list > div > button:first-child small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-history-list > div > button:first-child span {
+  font-size: 9px;
+}
+
+.agent-history-list > div > button:first-child small {
+  color: var(--text-muted);
+  font: 7.5px/1 "Cascadia Mono", Consolas, monospace;
+}
+
 .ai-messages {
   min-height: 0;
   flex: 1;
@@ -1819,6 +1923,63 @@ button:disabled {
   padding: 8px;
   border-top: 1px solid var(--gold-border);
   background: var(--gold-surface);
+}
+
+.job-control {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.job-control code {
+  color: var(--text-primary);
+}
+
+.job-control .button {
+  min-height: 24px;
+  padding: 3px 8px;
+}
+
+.tool-policy {
+  min-height: 27px;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-muted);
+  font: 8px/1.35 "Cascadia Mono", Consolas, monospace;
+}
+
+.tool-policy > span,
+.tool-policy > strong {
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  text-transform: uppercase;
+}
+
+.tool-policy.risk-high > strong,
+.tool-policy.risk-critical > strong {
+  border-color: var(--red-border);
+  color: var(--red);
+}
+
+.tool-policy.risk-medium > strong {
+  border-color: var(--gold-border);
+  color: var(--gold);
+}
+
+.tool-policy > small {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .tool-approval > span {

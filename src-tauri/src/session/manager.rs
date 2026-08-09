@@ -3,7 +3,11 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-use super::{buffer::TerminalBuffer, local::LocalTerminal, ssh::SshTerminal};
+use super::{
+    buffer::TerminalBuffer,
+    local::LocalTerminal,
+    ssh::{ExecOutputSink, ExecResult, SshTerminal},
+};
 use crate::{
     types::{SessionId, SessionInfo, SessionProfile, SessionState, SessionTarget},
     AppError, SecretResolver,
@@ -183,6 +187,19 @@ impl SessionManager {
 
     pub fn buffer_lines(&self, session_id: &str, count: usize) -> Result<String, AppError> {
         self.get(session_id)?.buffer.snapshot_lines(count)
+    }
+
+    pub async fn remote_exec(
+        &self,
+        session_id: &str,
+        command: &str,
+        timeout: std::time::Duration,
+        cancel: tokio::sync::watch::Receiver<bool>,
+        output: Arc<dyn ExecOutputSink>,
+    ) -> Result<ExecResult, AppError> {
+        self.ssh_terminal(session_id)?
+            .exec(command, timeout, cancel, output)
+            .await
     }
 
     pub(crate) fn ssh_terminal(&self, session_id: &str) -> Result<Arc<SshTerminal>, AppError> {

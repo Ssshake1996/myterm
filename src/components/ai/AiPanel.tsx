@@ -3,10 +3,14 @@ import {
   Bot,
   CheckCircle2,
   CircleDot,
+  History,
   LoaderCircle,
+  RefreshCw,
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
+  Square,
+  Trash2,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -14,12 +18,17 @@ import { useEffect, useRef, useState } from "react";
 import {
   type AgentEvent,
   type AgentSettings as AgentSettingsValue,
+  type AgentTask,
   type AiProfile,
   agentAbort,
   agentApprove,
+  agentJobCancel,
   agentRun,
   agentSettingsGet,
   agentSettingsSave,
+  agentTaskDelete,
+  agentTaskEvents,
+  agentTaskList,
   aiProfileList,
   createChannel,
 } from "../../ipc";
@@ -40,6 +49,14 @@ const DEFAULT_AGENT_SETTINGS: AgentSettingsValue = {
 
 type ToolStatus = "requested" | "approval" | "running" | "success" | "error";
 
+interface PolicySummary {
+  action?: "allow" | "ask" | "deny";
+  effect?: "read" | "execute" | "write";
+  risk?: "low" | "medium" | "high" | "critical";
+  reason?: string;
+  resources?: string[];
+}
+
 type TraceEntry =
   | { id: string; kind: "task"; content: string; session?: string }
   | { id: string; kind: "status"; content: string; step?: number; error?: boolean }
@@ -51,8 +68,13 @@ type TraceEntry =
       toolName: string;
       arguments?: unknown;
       result?: string;
+      stdout?: string;
+      stderr?: string;
+      policy?: PolicySummary;
       step?: number;
       status: ToolStatus;
+      jobId?: string;
+      jobState?: string;
     };
 
 interface AiPanelProps {
@@ -61,6 +83,7 @@ interface AiPanelProps {
 }
 
 const TOOL_LABELS: Record<string, string> = {
+  remote_exec: "结构化执行命令",
   terminal_context: "读取终端上下文",
   terminal_send: "向活动终端发送命令",
   session_info: "读取会话信息",
@@ -69,6 +92,128 @@ const TOOL_LABELS: Record<string, string> = {
 
 function toolLabel(name: string) {
   return TOOL_LABELS[name] ?? name;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[] {
+  const eventId = event.sequence ? `${event.runId}:${event.sequence}` : crypto.randomUUID();
+  if (event.eventType === "tool_requested" && event.callId && event.toolName) {
+    if (current.some((entry) => entry.kind === "tool" && entry.callId === event.callId)) {
+      return current;
+    }
+    return [
+      ...current,
+      {
+        id: event.callId,
+        kind: "tool",
+        callId: event.callId,
+        toolName: event.toolName,
+        arguments: event.arguments,
+        step: event.step,
+        status: "requested",
+      },
+    ];
+  }
+  if (event.eventType === "policy" && event.callId) {
+    return updateTool(current, event.callId, {
+      policy: asRecord(event.arguments) as PolicySummary,
+    });
+  }
+  if (event.eventType === "approval_required" && event.callId) {
+    const detail = asRecord(event.arguments);
+    return updateTool(current, event.callId, {
+      arguments: detail.toolArguments ?? event.arguments,
+      policy: asRecord(detail.policy) as PolicySummary,
+      status: "approval",
+    });
+  }
+  if (event.eventType === "tool_output" && event.callId) {
+    const stream = asRecord(event.arguments).stream;
+    const patch: Partial<Extract<TraceEntry, { kind: "tool" }>> = { status: "running" };
+    const tool = current.find(
+      (entry): entry is Extract<TraceEntry, { kind: "tool" }> =>
+        entry.kind === "tool" && entry.callId === event.callId,
+    );
+    if (stream === "stderr") patch.stderr = `${tool?.stderr ?? ""}${event.content ?? ""}`;
+    else patch.stdout = `${tool?.stdout ?? ""}${event.content ?? ""}`;
+    return updateTool(current, event.callId, patch);
+  }
+  if (event.eventType === "tool_result" && event.callId) {
+    const tool = current.find(
+      (entry): entry is Extract<TraceEntry, { kind: "tool" }> =>
+        entry.kind === "tool" && entry.callId === event.callId,
+    );
+    const jobStillRunning = tool?.jobState === "running" || tool?.jobState === "canceling";
+    return updateTool(current, event.callId, {
+      result: event.content ?? "",
+      status: event.isError ? "error" : jobStillRunning ? "running" : "success",
+    });
+  }
+  if (event.eventType === "job_started" && event.callId) {
+    const detail = asRecord(event.arguments);
+    return updateTool(current, event.callId, {
+      jobId: typeof detail.id === "string" ? detail.id : undefined,
+      jobState: "running",
+      status: "running",
+    });
+  }
+  if (event.eventType === "job_finished" && event.callId) {
+    const detail = asRecord(event.arguments);
+    const state = typeof detail.state === "string" ? detail.state : "failed";
+    return updateTool(current, event.callId, {
+      jobId: typeof detail.jobId === "string" ? detail.jobId : undefined,
+      jobState: state,
+      result: formatArguments(detail),
+      status: state === "succeeded" ? "success" : "error",
+    });
+  }
+  if (event.eventType === "assistant") {
+    return [
+      ...current,
+      { id: eventId, kind: "assistant", content: event.content ?? "", step: event.step },
+    ];
+  }
+  if (
+    event.eventType === "mcp_error" ||
+    event.eventType === "status" ||
+    event.eventType === "hook" ||
+    event.eventType === "context_compacted"
+  ) {
+    return [
+      ...current,
+      {
+        id: eventId,
+        kind: "status",
+        content:
+          event.message ?? (event.eventType === "mcp_error" ? "MCP 连接失败" : "Agent 运行中"),
+        step: event.step,
+        error: event.eventType === "mcp_error",
+      },
+    ];
+  }
+  if (event.eventType === "complete") {
+    const labels: Record<string, string> = {
+      limit: "已达到最大循环步数",
+      aborted: "任务已停止",
+      loop_detected: "检测到重复工具调用，任务已停止",
+      failed: "任务执行失败",
+      stop: "任务完成",
+    };
+    return [
+      ...current,
+      {
+        id: eventId,
+        kind: "status",
+        content: labels[event.message ?? ""] ?? "任务完成",
+        step: event.step,
+        error: !["stop", "aborted"].includes(event.message ?? ""),
+      },
+    ];
+  }
+  return current;
 }
 
 function formatArguments(value: unknown) {
@@ -96,6 +241,9 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   const [profiles, setProfiles] = useState<AiProfile[]>([]);
   const [profileId, setProfileId] = useState("");
   const [agentSettings, setAgentSettings] = useState(DEFAULT_AGENT_SETTINGS);
+  const [tasks, setTasks] = useState<AgentTask[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [entries, setEntries] = useState<TraceEntry[]>([]);
   const [input, setInput] = useState("");
   const [attach, setAttach] = useState(true);
@@ -107,11 +255,12 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    void Promise.all([aiProfileList(), agentSettingsGet()])
-      .then(([items, settings]) => {
+    void Promise.all([aiProfileList(), agentSettingsGet(), agentTaskList()])
+      .then(([items, settings, savedTasks]) => {
         setProfiles(items);
         setProfileId((current) => current || items[0]?.id || "");
         setAgentSettings(settings);
+        setTasks(savedTasks);
       })
       .catch((error) =>
         notify(error instanceof Error ? error.message : "Agent 配置读取失败", "error"),
@@ -138,88 +287,47 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   };
 
   const onAgentEvent = (event: AgentEvent) => {
-    setEntries((current) => {
-      if (event.eventType === "tool_requested" && event.callId && event.toolName) {
-        if (current.some((entry) => entry.kind === "tool" && entry.callId === event.callId)) {
-          return current;
-        }
-        return [
-          ...current,
-          {
-            id: event.callId,
-            kind: "tool",
-            callId: event.callId,
-            toolName: event.toolName,
-            arguments: event.arguments,
-            step: event.step,
-            status: "requested",
-          },
-        ];
-      }
-      if (event.eventType === "approval_required" && event.callId) {
-        return updateTool(current, event.callId, { status: "approval" });
-      }
-      if (event.eventType === "tool_result" && event.callId) {
-        return updateTool(current, event.callId, {
-          result: event.content ?? "",
-          status: event.isError ? "error" : "success",
-        });
-      }
-      if (event.eventType === "assistant") {
-        return [
-          ...current,
-          {
-            id: crypto.randomUUID(),
-            kind: "assistant",
-            content: event.content ?? "",
-            step: event.step,
-          },
-        ];
-      }
-      if (event.eventType === "mcp_error") {
-        return [
-          ...current,
-          {
-            id: crypto.randomUUID(),
-            kind: "status",
-            content: event.message ?? "MCP 连接失败",
-            step: event.step,
-            error: true,
-          },
-        ];
-      }
-      if (event.eventType === "status") {
-        return [
-          ...current,
-          {
-            id: crypto.randomUUID(),
-            kind: "status",
-            content: event.message ?? "Agent 运行中",
-            step: event.step,
-          },
-        ];
-      }
-      if (event.eventType === "complete") {
-        const label =
-          event.message === "limit"
-            ? "已达到最大循环步数"
-            : event.message === "aborted"
-              ? "任务已停止"
-              : "任务完成";
-        return [
-          ...current,
-          {
-            id: crypto.randomUUID(),
-            kind: "status",
-            content: label,
-            step: event.step,
-            error: event.message === "limit",
-          },
-        ];
-      }
-      return current;
-    });
+    setSelectedTaskId(event.runId);
+    setEntries((current) => reduceAgentEvent(current, event));
+    if (event.eventType === "complete") {
+      void agentTaskList()
+        .then(setTasks)
+        .catch(() => undefined);
+    }
     scrollToBottom();
+  };
+
+  const loadTask = async (task: AgentTask) => {
+    try {
+      const events = await agentTaskEvents(task.id, 0, 1_000);
+      const initial: TraceEntry[] = [
+        {
+          id: `task:${task.id}`,
+          kind: "task",
+          content: task.prompt,
+          session: task.sessionId ?? undefined,
+        },
+      ];
+      setEntries(events.reduce(reduceAgentEvent, initial));
+      setSelectedTaskId(task.id);
+      setHistoryOpen(false);
+      scrollToBottom();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "任务历史读取失败", "error");
+    }
+  };
+
+  const removeTask = async (taskId: string) => {
+    try {
+      await agentTaskDelete(taskId);
+      setTasks((current) => current.filter((task) => task.id !== taskId));
+      if (selectedTaskId === taskId) {
+        setSelectedTaskId(null);
+        setEntries([]);
+      }
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "任务删除失败", "error");
+    }
   };
 
   const send = async () => {
@@ -248,6 +356,10 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         attach ? (activePane?.sessionId ?? null) : null,
         channel,
       );
+      setSelectedTaskId(result.runId);
+      void agentTaskList()
+        .then(setTasks)
+        .catch(() => undefined);
       if (result.finishReason === "limit") notify("Agent 已达到最大循环步数", "error");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Agent 运行失败";
@@ -270,6 +382,21 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
       setEntries((current) =>
         updateTool(current, callId, {
           result: error instanceof Error ? error.message : "审批请求已失效",
+          status: "error",
+        }),
+      );
+    }
+  };
+
+  const cancelJob = async (callId: string, jobId: string) => {
+    setEntries((current) => updateTool(current, callId, { jobState: "canceling" }));
+    try {
+      const job = await agentJobCancel(jobId);
+      setEntries((current) => updateTool(current, callId, { jobState: job.state }));
+    } catch (error) {
+      setEntries((current) =>
+        updateTool(current, callId, {
+          result: error instanceof Error ? error.message : "Job cancel failed",
           status: "error",
         }),
       );
@@ -389,6 +516,15 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         </select>
         <fieldset aria-label="权限模式" className="permission-switch">
           <button
+            className={agentSettings.permission_mode === "read_only" ? "is-active" : ""}
+            disabled={running}
+            onClick={() => void changePermission("read_only")}
+            title="仅允许读取工具"
+            type="button"
+          >
+            只读
+          </button>
+          <button
             className={agentSettings.permission_mode === "confirm" ? "is-active" : ""}
             disabled={running}
             onClick={() => void changePermission("confirm")}
@@ -398,16 +534,65 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             确认
           </button>
           <button
-            className={agentSettings.permission_mode === "full_access" ? "is-active" : ""}
+            className={agentSettings.permission_mode === "task_grant" ? "is-active" : ""}
             disabled={running}
-            onClick={() => void changePermission("full_access")}
+            onClick={() => void changePermission("task_grant")}
             title="自动执行工具"
             type="button"
           >
-            授权
+            任务授权
           </button>
         </fieldset>
       </div>
+
+      <div className="agent-history-toolbar">
+        <button
+          className={historyOpen ? "is-active" : ""}
+          onClick={() => setHistoryOpen((value) => !value)}
+          title="任务历史"
+          type="button"
+        >
+          <History size={12} />
+          <span>任务历史</span>
+          <small>{tasks.length}</small>
+        </button>
+        <span>{selectedTaskId ? selectedTaskId.slice(0, 8) : "当前任务"}</span>
+        <button
+          aria-label="刷新任务历史"
+          className="icon-button"
+          onClick={() => void agentTaskList().then(setTasks)}
+          title="刷新任务历史"
+          type="button"
+        >
+          <RefreshCw size={12} />
+        </button>
+      </div>
+
+      {historyOpen ? (
+        <div className="agent-history-list">
+          {!tasks.length ? <p>暂无已保存任务</p> : null}
+          {tasks.map((task) => (
+            <div className={task.id === selectedTaskId ? "is-selected" : ""} key={task.id}>
+              <button onClick={() => void loadTask(task)} type="button">
+                <span>{task.prompt}</span>
+                <small>
+                  {task.state.replace("_", " ")} · {new Date(task.updatedAtMs).toLocaleString()}
+                </small>
+              </button>
+              <button
+                aria-label="删除任务"
+                className="icon-button"
+                disabled={!(["succeeded", "failed", "canceled"] as string[]).includes(task.state)}
+                onClick={() => void removeTask(task.id)}
+                title="删除任务"
+                type="button"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="agent-trace" ref={scrollRef}>
         {!entries.length ? (
@@ -423,7 +608,11 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
               </span>
               <span>
                 <ShieldCheck size={11} />{" "}
-                {agentSettings.permission_mode === "confirm" ? "逐次确认" : "完全授权"}
+                {agentSettings.permission_mode === "read_only"
+                  ? "只读"
+                  : agentSettings.permission_mode === "confirm"
+                    ? "逐次确认"
+                    : "任务授权"}
               </span>
             </div>
             <div className="prompt-suggestions">
@@ -499,6 +688,30 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
                 <summary>参数摘要</summary>
                 <pre>{formatArguments(entry.arguments)}</pre>
               </details>
+              {entry.policy ? (
+                <div className={`tool-policy risk-${entry.policy.risk ?? "high"}`}>
+                  <span>{entry.policy.action ?? "ask"}</span>
+                  <strong>{entry.policy.risk ?? "high"}</strong>
+                  <small>{entry.policy.reason}</small>
+                </div>
+              ) : null}
+              {entry.jobId ? (
+                <div className="job-control">
+                  <span>
+                    Job <code>{entry.jobId.slice(0, 8)}</code> · {entry.jobState ?? "running"}
+                  </span>
+                  {entry.jobState === "running" ? (
+                    <button
+                      className="button button-ghost"
+                      onClick={() => entry.jobId && void cancelJob(entry.callId, entry.jobId)}
+                      type="button"
+                    >
+                      <Square size={11} />
+                      取消
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               {entry.status === "approval" ? (
                 <div className="tool-approval">
                   <span>是否允许执行此工具？</span>
@@ -519,6 +732,18 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
                     </button>
                   </div>
                 </div>
+              ) : null}
+              {entry.stdout ? (
+                <details className="tool-result">
+                  <summary>stdout</summary>
+                  <pre>{entry.stdout}</pre>
+                </details>
+              ) : null}
+              {entry.stderr ? (
+                <details className="tool-result" open>
+                  <summary>stderr</summary>
+                  <pre>{entry.stderr}</pre>
+                </details>
               ) : null}
               {entry.result !== undefined ? (
                 <details className="tool-result" open={entry.status === "error"}>

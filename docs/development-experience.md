@@ -35,6 +35,17 @@ Version 0.1.3 tightens the daily terminal workflow without expanding the Agent b
 
 Version 0.1.4 is a focused visual correction: after command bodies were removed from quick-command rows, the remaining single-line title is centered on both axes without changing row density, truncation, or the execution and edit controls.
 
+Version 0.6.0 delivers the first persistent Linux operations Agent line from A0 through D1:
+
+- SQLite-backed tasks, ordered events, approvals, tool audit records, background Jobs, crash recovery, cancellation, history, and bounded artifacts.
+- Structured SSH exec with separate stdout/stderr, exit/signal/timeout/cancel/disconnect results, 50 MiB artifact caps, and 64 KiB head/tail previews.
+- Tree-sitter Bash policy analysis with read-only, confirm, and conservative task-grant modes; hard-deny rules cannot be lowered by Hooks, Skills, prompts, or MCP.
+- Host facts, bounded UTF-8 file stat/read/search/atomic write/patch, deterministic diagnostic runbooks, and readback/hash verification.
+- One executable for Desktop, CLI JSONL/task control, and an opt-in loopback REST API with bearer hash storage, rate limiting, idempotency, SSE resume, and OpenAPI.
+- Task-scoped stdio MCP connections, on-demand MCP catalog search above 48 tools, Skill v2 metadata/on-demand loading, bounded lifecycle Hooks, deterministic context compaction, and pre-persistence event redaction.
+
+The first version deliberately excludes multi-Agent execution, long-term memory, cloud Skill distribution, non-stdio MCP transports, and remote REST exposure. Non-loopback REST is rejected until TLS, RBAC, and profile allowlists are implemented together.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.
@@ -174,6 +185,10 @@ This pattern is reusable when a specification is sourced from one repository but
 | Multiline demo echo | Browser QA displayed two multiline commands over each other | The demo adapter wrote terminal CR input directly to the xterm output channel, where CR moves the cursor without adding a display line | Keep native input as CR but translate standalone CR to CRLF only in the browser demo echo | Browser QA displays each submitted command on its own line; the native send contract remains unchanged |
 | Split-pane cleanup | Split terminals had no per-pane close action, and a connection completing after UI removal could become orphaned | Layout state supported split creation and resize but not pane lifecycle; connection completion assumed the pane still existed | Add close controls to both captions, disconnect before removal, and reclaim a session when its pane no longer exists at connect completion | Store, workspace, and pending-connect tests pass; browser QA closes the right pane and restores one terminal |
 | Quick-command title alignment | Name-only command rows left the title visually high inside its button | The flex container centered its main axis but kept the default cross-axis alignment from the former two-line layout | Center the existing title on the flex cross axis without changing markup or row dimensions | Browser geometry reports a 0 px center offset for short and long names; installed 0.1.4 preserves the compact layout |
+| SSH exec termination order | Structured exec intermittently lost the exit code on the live OpenSSH server | OpenSSH sent channel `EOF` before `ExitStatus`; treating EOF as final stopped the reader too early | Keep draining protocol messages after EOF and finish on channel close/termination | Live command returns exit 7 with distinct stdout/stderr; timeout and 10 MiB streaming checks pass |
+| SFTP atomic overwrite | Updating an existing remote file returned SFTP `Failure` | OpenSSH SFTP v3 `RENAME` does not guarantee replacement of an existing target | Keep same-directory temp write, fsync and permissions, then use quoted `mv -f --` over the same SSH connection for an atomic existing-file replacement | Live hash-locked update, readback, search and cleanup pass on `192.168.3.94` |
+| CLI help exit code | `agent run --help` printed correct help but returned usage code 2 | All Clap parse outcomes were mapped to usage errors | Map `DisplayHelp` and `DisplayVersion` to 0 while retaining 2 for invalid syntax | Process-level help and JSONL Agent checks return 0 |
+| REST smoke cleanup | The first smoke run passed but PowerShell treated token-revoke stderr as a script failure | `$ErrorActionPreference=Stop` converts native stderr to `NativeCommandError` | Temporarily relax only the cleanup call while still revoking the token and preserving the preceding assertions | Repeat smoke run exits 0 after auth, idempotency, SSE and OpenAPI checks |
 
 ## 7. Verification Ledger
 
@@ -184,33 +199,38 @@ Update this table with the exact outcome rather than an optimistic status.
 | TypeScript | `npm run typecheck` | Pass |
 | Frontend lint | `npm run lint` | Pass, 34 files |
 | Frontend tests | `npm test` | Pass, 26 tests across 11 files |
-| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; release main entry 78.27 kB |
+| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; release main entry 83.84 kB |
 | Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Pass |
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
 | Rust lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | Pass; `russh 0.54.5` emits a dependency future-incompatibility notice |
-| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` | Pass, 23 tests run: 22 passed and 1 interactive keyring test ignored |
+| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` | Pass, 37 tests discovered: 36 passed and 1 interactive keyring test ignored |
 | Windows credential round trip | `cargo test --manifest-path src-tauri/Cargo.toml keyring_round_trip -- --ignored --nocapture` | Pass; native vault write, read, and cleanup all succeed |
 | AI live integration | Production `AiService::test_connection` and streaming `AiService::chat` with the configured profile | Pass; 7 models found, chat completed with `stop`, 12 characters received, expected marker present |
-| Saved-server CRUD | `live_check save-profile` and `live_check verify-crud` with the Windows credential vault | Pass; create, edit without re-entering secret, reload, delete, and credential cleanup verified |
+| Saved-server CRUD | `live_check verify-crud` with the Windows credential vault | Pass; create, edit without re-entering secret, reload, delete, and credential cleanup verified |
 | Saved-server auto-login | `live_check verify-profile` after a fresh config reload | Pass; native SSH backend loaded the saved credential and authenticated as `root` |
-| Agent live integration | `live_check verify-agent` with the configured OpenAI-compatible profile and saved SSH session | Pass; model called `session_info`, `terminal_context`, `terminal_send`, and remote `list_directory`, then returned `stop` |
+| Structured exec live integration | `live_check verify-exec` against the saved SSH session | Pass; exit 7, distinct stdout/stderr, 150 ms timeout, and exact 10 MiB streaming byte count verified |
+| File-tool live integration | `live_check verify-files` against the saved SSH session | Pass; atomic create/update, optimistic SHA-256 lock, readback, search, and cleanup verified |
+| Agent live integration | `live_check verify-agent` with the configured OpenAI-compatible profile and saved SSH session | Pass; model called `session_info`, `terminal_context`, `remote_exec`, `host_facts`, and remote `list_directory`, then returned `stop` |
 | MCP live integration | `live_check verify-mcp` with the official stdio Everything server | Pass; initialization handshake completed and 13 tools were enumerated |
+| CLI process contract | Release-equivalent binary `agent run --output jsonl` plus help exit check | Pass; every output line parses as JSON, `remote_exec` and terminal `complete/stop` events are present, exit code is 0 |
+| REST process contract | `scripts/rest-smoke.ps1` | Pass; loopback health, unauthorized rejection, bearer auth, idempotent create replay, completed task query, SSE and OpenAPI verified; one-time token revoked |
 | AI secret audit | Inspect `%APPDATA%/myterm/config.json` and Windows Credential Manager | Pass; JSON contains only `api_key_ref`, no key prefix; referenced credential target is present |
-| Desktop visual QA | In-app Chromium at 1280x800 | Pass; nonblank xterm canvas, Agent settings, approval trace, result, and completion states inspected |
-| Narrow viewport QA | In-app Chromium at 760x800 | Pass; Agent becomes a 360 px overlay, document has no horizontal overflow, and controls remain visible |
-| Theme persistence | Switch white, eye-care, and dark themes; reload after selecting eye-care | Pass; every application and terminal surface changes together, and `eye_care` remains selected after reload |
+| Desktop visual QA | Playwright Chromium at 1280x800 | Pass; nonblank xterm canvas, Agent approval trace, result, completion, split-close and labeled quick-command collapse states inspected; zero console errors |
+| Narrow viewport QA | Playwright Chromium at 900x650 and 390x844 | Pass; document/body scroll widths equal viewport widths, Agent becomes a 344 px overlay on mobile, and controls do not overlap |
+| Theme persistence | Switch white, eye-care, and dark themes | Pass; application, terminal, modal, Agent and quick-command surfaces change together |
 | Multiline quick command | Create, save, execute, and delete a two-line command in browser QA | Pass; command body is hidden from the compact library and both lines are sent as separate terminal returns |
 | Split close | Create a right split and close the right caption action | Pass; target session is disconnected, one terminal remains, and the split action becomes available again |
 | Quick-command title alignment | Measure the first three `.quick-command-main` and label rectangles in browser QA | Pass; `align-items` resolves to `center` and every label center offset is exactly 0 px |
-| Windows release build | `npm run build:release` | Pass for 0.1.4; native EXE, NSIS installer, and portable ZIP produced from source commit `f7222a4` |
-| Distribution audit | `npm run check:dist` | Pass; 0.1.4 installer 6.55 MB, portable ZIP 6.99 MB, and required portable files are present |
-| Native startup smoke | Start the installed 0.1.4 EXE with the saved profile and capture its rendered main window | Pass; app opens on the persisted server with a connected state and a live `root@yuxiaservers:~#` prompt |
+| Windows release build | `npm run build:release` | Pass for 0.6.0; optimized native EXE, NSIS installer, and portable ZIP produced |
+| Distribution audit | `npm run check:dist` | Pass; 0.6.0 installer 8.00 MB, portable ZIP 8.98 MB, and required portable files are present |
+| Native startup smoke | Start installed 0.6.0 with `--profile yuxiaservers` | Pass; process opens and remains responsive; separate fresh-config live check authenticates as `root` with the saved vault credential |
 | Installed minimum-window QA | Resize the installed 0.1.3 window to 900 x 650 and capture the rendered UI | Pass; side panels become on-demand overlays, terminal and quick-command controls remain readable, and no surfaces overlap |
-| Installed application | Silently install 0.1.4, then inspect file metadata, registry, and shortcuts | Pass; installed at `%LOCALAPPDATA%/myterm`, file and registry versions are 0.1.4, one uninstall entry remains, and desktop and Start Menu shortcuts exist |
-| Installed saved-server auto-login | Open installed 0.1.4 with `--profile yuxiaservers` | Pass; the persisted profile and Windows-vault credential authenticate as `root` without another password prompt |
-| Upgrade replacement | Install 0.1.4 over 0.1.3 after placing an old-install-only marker | Pass; marker removed, one uninstall entry remains, installed EXE and registry report 0.1.4 |
-| Upgrade data retention | Compare `%APPDATA%/myterm/config.json` SHA-256 and persisted record counts before/after upgrade | Pass; configuration hash is unchanged, with one saved server and one AI profile retained |
-| Empty memory | 45-second private working-set sample | Main process 6.69 MB; full 7-process WebView2 group 93.01 MB, so aggregate `< 80 MB` target is not met |
+| Installed application | Silently install 0.6.0, then inspect file metadata, registry, and shortcuts | Pass; installed at `%LOCALAPPDATA%/myterm`, file and registry versions are 0.6.0, one uninstall entry remains, and desktop `myterm.lnk` exists |
+| Installed saved-server auto-login | Open installed 0.6.0 with `--profile yuxiaservers` | Pass; persisted profile starts without another password prompt and the vault-backed SSH live check authenticates as `root` |
+| Upgrade replacement | Install 0.6.0 over 0.1.4 | Pass; installer exits 0, one uninstall entry remains, and installed EXE/registry report 0.6.0 |
+| Upgrade data retention | Compare `%APPDATA%/myterm/config.json` SHA-256 before/after upgrade | Pass; configuration hash is unchanged |
+| Headless efficiency | Release `agent serve --idle-timeout 8` private working set and CPU sample | Pass; 1.07 MiB private working set, 0% sampled CPU, clean idle exit code 0 |
+| Empty memory | 45-second `Working Set - Private` sample | Main process 7.08 MiB passes `<=12 MiB`; full 7-process WebView2 group is 111.24 MiB, so aggregate `<80 MiB` target remains unmet |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
 The browser screenshots and console logs are generated under ignored `output/playwright/` paths. They are verification artifacts rather than shipped product files.

@@ -1,7 +1,7 @@
 # myterm Linux Agent 开发计划
 
-> 文档状态：待实施基线
-> 当前产品基线：`0.1.4`
+> 文档状态：`0.6.0` 第一版已实施，验收与剩余风险见 `development-experience.md`
+> 当前产品基线：`0.6.0`
 > 对应说明书：[`linux-agent-specification.md`](linux-agent-specification.md)
 > 研究依据：[`linux-agent-improvement-study.md`](linux-agent-improvement-study.md)
 
@@ -32,7 +32,7 @@
 
 | 版本 | 里程碑 | 核心交付 | 依赖 |
 |---|---|---|---|
-| `0.2.0-alpha.1` | A0 契约与存储骨架 | 统一任务模型、版本化事件、SQLite 迁移、旧配置迁移 | 当前 `0.1.4` |
+| `0.2.0-alpha.1` | A0 契约与存储骨架 | 统一任务模型、版本化事件、SQLite 迁移、旧配置迁移 | 原 `0.1.4` |
 | `0.2.0-alpha.2` | A1 结构化执行 | `remote_exec`、流式输出、退出码、超时和取消 | A0 |
 | `0.2.0-beta.1` | A2 权限与风险 | 三级权限、命令解析、allow/ask/deny、危险操作规则 | A1 |
 | `0.2.0` | A3 任务控制与审计 | 后台任务、循环保护、证据验证、持久历史、Agent 控制台 | A2 |
