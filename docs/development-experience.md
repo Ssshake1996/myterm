@@ -80,6 +80,12 @@ Skill discovery recursively scans configured roots to depth three, ignores symli
 
 MCP v1 uses the official Rust SDK client with `TokioChildProcess`. Servers are configured as a command plus an argument array, so quoting is not reparsed by an ad hoc shell parser. Configuration tests operate on the unsaved draft; cancelling the modal therefore has no hidden persistence side effect. Enabled servers are connected when a run prepares its tool catalog, model-facing tool names are namespaced and sanitized, and actual calls pass through the same approval loop as built-in tools.
 
+### Efficiency is a product contract
+
+Lightweight behavior is measured at both the native kernel and full desktop process-group boundaries. The installed 0.1.4 baseline is 6.69 MB private working set for the native process but 93.01 MB for the complete seven-process WebView2 group; the original aggregate `< 80 MB` target is therefore still open and must not be reported as met by quoting only the smaller native number.
+
+The post-MVP Agent plan makes resource budgets release gates. Agent storage, MCP, REST, and host refresh work start on demand; CLI does not install a default resident service; command output uses bounded memory and streamed artifacts; Desktop, CLI, and REST reuse the same Tokio, SSH, HTTP, model, and storage implementations. Every milestone records package size, native and aggregate memory, idle CPU, startup, event latency, and long-output behavior before it can ship.
+
 ### Operational visual direction
 
 The interface offers dark charcoal, neutral white, and low-glare green eye-care surfaces while retaining green state, gold action, red failure, and cyan informational accents. All application surfaces use semantic color tokens instead of component-level dark overrides. xterm keeps a separate ANSI palette per theme and changes it through the terminal options object, so a theme switch does not recreate or reconnect a session. Typography uses compact Windows-native technical faces. The design favors scanning and repeated operations over marketing-style cards or decorative surfaces.

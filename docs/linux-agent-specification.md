@@ -166,6 +166,17 @@ myterm Linux Agent 是嵌入 SSH 客户端的受控运维执行器。用户给�
 | FR-EXT-003 | Hook 必须使用明确生命周期，允许追加上下文、deny、ask 和验证建议，但不能降低策略结果。 |
 | FR-EXT-004 | 上下文压缩必须保留 Task 目标、主机、批准规则、关键证据、运行 Job 和未完成验证。 |
 
+### 5.9 内核效率
+
+| ID | 需求 |
+|---|---|
+| FR-EFF-001 | Agent、SQLite worker、MCP、REST 和主机事实刷新必须按需启动；功能未启用时不得产生常驻子进程、监听端口或忙轮询。 |
+| FR-EFF-002 | Desktop、CLI 和 REST 必须复用同一 Tokio runtime、HTTP client、模型 client、SSH 实现和事件存储，不得复制执行内核。 |
+| FR-EFF-003 | 命令输出必须流式写入有界缓冲和 Artifact，内存占用不得随完整 stdout/stderr 线性增长。 |
+| FR-EFF-004 | 新依赖必须记录用途、license、MSRV、压缩体积、运行内存和可替代方案；不得嵌入第二个浏览器或语言运行时。 |
+| FR-EFF-005 | 每个里程碑必须测量体积、内存、空闲 CPU、启动、事件和长输出性能，超过预算即阻止发布。 |
+| FR-EFF-006 | CLI/REST 不得安装默认自启动的常驻系统服务；headless Agent 只能由用户显式启动或按任务临时启动，并在安全空闲后退出。 |
+
 ## 6. 总体架构
 
 ```mermaid
@@ -224,6 +235,8 @@ src-tauri/src/agent/
 - policy 不能执行命令或调用模型。
 - store 不包含业务状态推断，只执行事务、查询和迁移。
 - secret 只能由 credential vault 在执行边界按引用解析，不能进入 Task 请求对象。
+- Agent 相关模块不得创建第二个异步 runtime、第二套 SSH client 或重复 HTTP 连接池。
+- SQLite worker、MCP child、REST listener 和定时刷新器必须有明确 owner、启动条件、停止条件和资源上限。
 
 ## 7. 领域模型与状态
 
@@ -557,6 +570,7 @@ Evidence 类型：
 
 ```text
 myterm agent run --server <profile-id-or-name> --task <text> [--permission <mode>] [--output human|jsonl]
+myterm agent serve [--idle-timeout <seconds>]
 myterm task status <run-id> [--output human|json]
 myterm task events <run-id> [--after <sequence>] [--follow]
 myterm task approve <run-id> <approval-id> --decision approve-once|allow-rule-for-run|deny
@@ -564,6 +578,8 @@ myterm task cancel <run-id>
 ```
 
 `--task -` 从 stdin 读取。CLI 不接受密码、API Key 或私钥内容参数；敏感任务文本也应通过 stdin 输入，避免进入进程列表和 shell history。重名 server profile 必须报错并要求 ID。
+
+CLI 优先连接已运行的 desktop Agent application service。没有可用实例时，`agent run` 可以启动同一可执行文件的临时 headless service；不得注册 Windows 自启动服务。`agent serve` 由用户显式启动，默认空闲 300 秒退出；存在运行中或等待审批的 Task、REST listener 或尚未清理的 Job 时不计为空闲。
 
 ### 15.2 JSONL
 
@@ -708,10 +724,29 @@ internal_error
 
 ### 19.3 性能与容量
 
-- 10MB stdout/stderr 不阻塞桌面交互，事件发布延迟 p95 小于 250ms，不含网络延迟。
-- Event 游标查询 10,000 条范围内 p95 小于 100ms（发布硬件基线记录在验证报告）。
-- 模型单次工具结果默认不超过 12,000 字符；使用首尾预览和 Artifact 引用。
-- SQLite 和新依赖加入后，安装包仍满足项目 20MB 上限；不满足必须在发布前决策而非隐瞒。
+基线测量使用 release 构建、同一台 Windows 验证机、相同 WebView2 版本。空闲指标在启动 45 秒后连续采样 60 秒并取中位数；每份发布报告同时记录原生主进程和完整进程组，禁止只选择较小数字。
+
+| 指标 | 发布预算 | 当前已知基线/说明 |
+|---|---|---|
+| 原生主进程空闲 private working set | `<= 12MiB` | `0.1.4` 为 `6.69MB` |
+| 完整 desktop/WebView2 进程组空闲 private working set | `< 80MiB` | `0.1.4` 为 `93.01MB`，当前未达标，仍是发布阻断项 |
+| headless Agent service 空闲 private working set | `<= 20MiB` | C1 首次实现时建立基线 |
+| 空闲 CPU | desktop 进程组及 headless service 分别 `<= 1%` | 无 Task、无传输、无用户输入时测量 |
+| NSIS 安装包和便携 ZIP | 各 `< 20MiB` | 任何单里程碑压缩体积增加 `> 1MiB` 必须 ADR |
+| 启动时间 | 相比 `0.1.4` 中位数不得回退 `> 10%` | A0 先补可重复基线；headless help/status 另测 |
+| 10MiB 命令输出 | 吞吐 `>= 5MiB/s`，UI 无可见卡死，进程组峰值增量 `<= 25MiB` | stdout/stderr 进入 Artifact，不整体驻留内存 |
+| Event 发布 | 本地持久化后到订阅方 p95 `< 250ms` | 不含模型和远端网络延迟 |
+| Event 游标查询 | 10,000 条内 p95 `< 100ms` | 在发布硬件和数据库规模说明中记录 |
+
+实现约束：
+
+- 每个运行中 Job 的 stdout/stderr 内存窗口合计默认不超过 `2MiB`；更早内容只保留 Artifact 和游标。
+- `job.output` 事件按最多 50ms 或累计 64KiB 合并，避免逐字节/逐行写 SQLite 和跨 IPC。
+- 模型单次工具结果默认不超过 12,000 字符，使用首尾预览和 Artifact 引用。
+- REST 关闭时没有 listener；MCP 只在使用它的 Task 生命周期内存在；主机事实不得以短周期轮询刷新。
+- SQLite 在首次 Agent/历史/API 操作时启动专用 worker，禁止在 Tokio worker 上执行阻塞查询。
+- 禁止为 CLI 或 REST 引入第二个 SSH 栈、第二个模型客户端、第二个 Tokio runtime、内嵌 Node/Python 或额外 WebView。
+- 任一预算未达标时不得把里程碑标记为可发布。确因 OS WebView2 基线无法达到的指标必须向用户报告实测和原因，并取得明确决策，不能静默修改预算。
 
 ### 19.4 可观测性
 
@@ -738,6 +773,7 @@ internal_error
 | CLI | human/JSONL、游标、退出码、Ctrl+C、无交互审批 | US-06、FR-ENTRY-001..005、FR-CLI-001..003 |
 | REST | auth/RBAC、幂等、SSE 续传、限流、TLS、OpenAPI | US-07、FR-ENTRY-001..005、FR-API-001..004 |
 | 扩展 | MCP 崩溃、Skill 按需、Hook deny、上下文压缩 | FR-EXEC-008、FR-POL-009、FR-EXT-001..004 |
+| 内核效率 | 懒启动、有界输出、无默认 daemon、内存/CPU/体积/启动回归 | FR-EFF-001..006 |
 
 发布前必须把每个需求 ID 映射到至少一个自动测试或明确的人工验收记录。缺少映射的需求不能标记完成。
 
