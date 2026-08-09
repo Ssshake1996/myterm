@@ -216,6 +216,8 @@ External acceptance not performed on this workstation must remain explicit:
 
 ## 8. Future Skill Shape
 
+The Linux operations Agent comparison and prioritized safety roadmap are recorded separately in [`linux-agent-improvement-study.md`](linux-agent-improvement-study.md). It distinguishes local coding-agent mechanisms from the controls required for commands executed on a remote SSH host, especially as `root`, and defines a shared task/event contract for future desktop, CLI, and RESTful API entry points.
+
 A future skill derived from this record should accept:
 
 - A product specification directory.
