@@ -33,6 +33,8 @@ Version 0.1.3 tightens the daily terminal workflow without expanding the Agent b
 - Multiline commands preserve stored whitespace, normalize file-style line endings, and translate each internal line break to a terminal return when sent.
 - Each side of a split terminal has an explicit close action. Closing a pane disconnects its session, restores the remaining pane, and reclaims a connection that finishes after its pane was removed.
 
+Version 0.1.4 is a focused visual correction: after command bodies were removed from quick-command rows, the remaining single-line title is centered on both axes without changing row density, truncation, or the execution and edit controls.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.
@@ -96,7 +98,7 @@ Quick-command storage uses normalized LF line endings because it is configuratio
 
 ### Windows installation and upgrade lifecycle
 
-Version 0.1.3 is installed per user at `%LOCALAPPDATA%/myterm`, with desktop and Start Menu shortcuts targeting the installed executable. The bundle identifier and product name remain stable across versions so Windows keeps one uninstall registration.
+Version 0.1.4 is installed per user at `%LOCALAPPDATA%/myterm`, with desktop and Start Menu shortcuts targeting the installed executable. The bundle identifier and product name remain stable across versions so Windows keeps one uninstall registration.
 
 Tauri's normal interactive NSIS path offers to uninstall an older version, but a silent installer only overwrites known files. myterm therefore uses the officially supported [NSIS pre-install hook](https://v2.tauri.app/distribute/windows-installer/#extending-the-installer). The hook accepts an install directory only when the existing myterm product registry path matches it exactly, runs the old uninstaller with `/S /UPDATE`, checks its exit code, removes residual files from that known application directory, and recreates the directory before copying the new release. `/UPDATE` preserves shortcuts and prevents app-data deletion. Downgrades are disabled in all newly generated installers.
 
@@ -165,6 +167,7 @@ This pattern is reusable when a specification is sourced from one repository but
 | Theme surface drift | A token-only theme switch would have left dozens of component-local dark backgrounds unchanged | The first visual pass encoded charcoal shades directly in individual selectors | Replace component-local surface colors with semantic tokens and define complete white, eye-care, and dark palettes; update xterm through its runtime theme option | All three themes render without dark surface leftovers; eye-care selection survives reload without reconnecting |
 | Multiline demo echo | Browser QA displayed two multiline commands over each other | The demo adapter wrote terminal CR input directly to the xterm output channel, where CR moves the cursor without adding a display line | Keep native input as CR but translate standalone CR to CRLF only in the browser demo echo | Browser QA displays each submitted command on its own line; the native send contract remains unchanged |
 | Split-pane cleanup | Split terminals had no per-pane close action, and a connection completing after UI removal could become orphaned | Layout state supported split creation and resize but not pane lifecycle; connection completion assumed the pane still existed | Add close controls to both captions, disconnect before removal, and reclaim a session when its pane no longer exists at connect completion | Store, workspace, and pending-connect tests pass; browser QA closes the right pane and restores one terminal |
+| Quick-command title alignment | Name-only command rows left the title visually high inside its button | The flex container centered its main axis but kept the default cross-axis alignment from the former two-line layout | Center the existing title on the flex cross axis without changing markup or row dimensions | Browser geometry reports a 0 px center offset for short and long names; installed 0.1.4 preserves the compact layout |
 
 ## 7. Verification Ledger
 
@@ -192,14 +195,15 @@ Update this table with the exact outcome rather than an optimistic status.
 | Theme persistence | Switch white, eye-care, and dark themes; reload after selecting eye-care | Pass; every application and terminal surface changes together, and `eye_care` remains selected after reload |
 | Multiline quick command | Create, save, execute, and delete a two-line command in browser QA | Pass; command body is hidden from the compact library and both lines are sent as separate terminal returns |
 | Split close | Create a right split and close the right caption action | Pass; target session is disconnected, one terminal remains, and the split action becomes available again |
-| Windows release build | `npm run build:release` | Pass for 0.1.3; native EXE, NSIS installer, and portable ZIP produced from source commit `895c929` |
-| Distribution audit | `npm run check:dist` | Pass; 0.1.3 installer 6.55 MB, portable ZIP 6.99 MB, and required portable files are present |
-| Native startup smoke | Start the installed 0.1.3 EXE with the saved profile and capture its rendered main window | Pass; app opens on the persisted server with a connected state and a live `root@yuxiaservers:~#` prompt |
+| Quick-command title alignment | Measure the first three `.quick-command-main` and label rectangles in browser QA | Pass; `align-items` resolves to `center` and every label center offset is exactly 0 px |
+| Windows release build | `npm run build:release` | Pass for 0.1.4; native EXE, NSIS installer, and portable ZIP produced from source commit `f7222a4` |
+| Distribution audit | `npm run check:dist` | Pass; 0.1.4 installer 6.55 MB, portable ZIP 6.99 MB, and required portable files are present |
+| Native startup smoke | Start the installed 0.1.4 EXE with the saved profile and capture its rendered main window | Pass; app opens on the persisted server with a connected state and a live `root@yuxiaservers:~#` prompt |
 | Installed minimum-window QA | Resize the installed 0.1.3 window to 900 x 650 and capture the rendered UI | Pass; side panels become on-demand overlays, terminal and quick-command controls remain readable, and no surfaces overlap |
-| Installed application | Silently install 0.1.3, then inspect file metadata, registry, and shortcuts | Pass; installed at `%LOCALAPPDATA%/myterm`, file and registry versions are 0.1.3, one uninstall entry remains, and desktop and Start Menu shortcuts exist |
-| Installed saved-server auto-login | Open installed 0.1.3 with `--profile yuxiaservers` and run `live_check verify-profile` | Pass; the persisted profile and Windows-vault credential authenticate as `root` without another password prompt |
-| Upgrade replacement | Install 0.1.3 over 0.1.2 after placing an old-install-only marker | Pass; marker removed, one uninstall entry remains, installed EXE and registry report 0.1.3 |
-| Upgrade data retention | Compare `%APPDATA%/myterm/config.json` SHA-256 and persisted record counts before/after upgrade | Pass; hash `E5B7...C458` is unchanged, with one saved server and one AI profile retained |
+| Installed application | Silently install 0.1.4, then inspect file metadata, registry, and shortcuts | Pass; installed at `%LOCALAPPDATA%/myterm`, file and registry versions are 0.1.4, one uninstall entry remains, and desktop and Start Menu shortcuts exist |
+| Installed saved-server auto-login | Open installed 0.1.4 with `--profile yuxiaservers` | Pass; the persisted profile and Windows-vault credential authenticate as `root` without another password prompt |
+| Upgrade replacement | Install 0.1.4 over 0.1.3 after placing an old-install-only marker | Pass; marker removed, one uninstall entry remains, installed EXE and registry report 0.1.4 |
+| Upgrade data retention | Compare `%APPDATA%/myterm/config.json` SHA-256 and persisted record counts before/after upgrade | Pass; configuration hash is unchanged, with one saved server and one AI profile retained |
 | Empty memory | 45-second private working-set sample | Main process 6.69 MB; full 7-process WebView2 group 93.01 MB, so aggregate `< 80 MB` target is not met |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
