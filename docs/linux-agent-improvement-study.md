@@ -3,6 +3,8 @@
 > 研究日期：2026-08-09
 > 范围：对照 Codex、Claude Code、OpenCode 和 work-buddy，评估 `myterm` 面向 Linux 服务器运维时的下一步改进，并为后续 CLI 和 RESTful API 入口预留统一架构。本文是设计输入，不代表当前版本已经实现这些能力。
 
+实施文档：[`linux-agent-development-plan.md`](linux-agent-development-plan.md) 和 [`linux-agent-specification.md`](linux-agent-specification.md)。研究报告解释“为什么”，实施时以说明书的正式契约为准。
+
 ## 1. 结论
 
 `myterm` 下一阶段最重要的工作不是增加多 Agent，而是建立一个可验证、可中止、可审计的 Linux 执行层。
@@ -156,7 +158,7 @@ CLI、RESTful API 和桌面端必须只是同一个 Agent 应用服务的不同�
 myterm agent run --server <profile-id> --task <text> --output jsonl
 myterm task status <run-id>
 myterm task events <run-id>
-myterm task approve <run-id> <call-id>
+myterm task approve <run-id> <approval-id>
 myterm task cancel <run-id>
 ```
 
@@ -174,7 +176,7 @@ REST 第一阶段保持小而完整，使用版本化资源接口：
 POST /v1/tasks
 GET  /v1/tasks/{run_id}
 GET  /v1/tasks/{run_id}/events
-POST /v1/tasks/{run_id}/approvals/{call_id}
+POST /v1/tasks/{run_id}/approvals/{approval_id}
 POST /v1/tasks/{run_id}/cancel
 ```
 

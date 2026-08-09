@@ -11,6 +11,9 @@ The Agent follows a bounded model/tool loop, can read or write the active termin
 - `myterm-spec/`: Product, architecture, milestone, and acceptance specifications.
 - `myterm-prototype/`: The original static interaction prototype.
 - `docs/development-experience.md`: Implementation decisions, failures, verification results, and reusable workflow notes.
+- `docs/linux-agent-improvement-study.md`: Comparison research and the prioritized Linux operations Agent roadmap.
+- `docs/linux-agent-development-plan.md`: Gated release milestones from the execution core through CLI and REST.
+- `docs/linux-agent-specification.md`: Normative Linux Agent requirements, domain contracts, tools, permissions, events, CLI, and REST API.
 
 ## Development
 
