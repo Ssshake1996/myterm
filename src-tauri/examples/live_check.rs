@@ -8,9 +8,10 @@ use myterm_lib::{
         profile,
         ssh::{ExecOutputSink, ExecStream},
     },
-    sftp::service::{NullTransferSink, SftpService},
+    sftp::service::{NullTransferSink, SftpService, TransferEventSink},
     types::{
-        AgentEvent, AgentPermissionMode, AuthMethod, McpServerConfig, SessionProfile, SessionTarget,
+        AgentEvent, AgentPermissionMode, AuthMethod, McpServerConfig, SessionProfile,
+        SessionTarget, TransferProgress, TransferState,
     },
     AppError, SecretResolver,
 };
@@ -23,6 +24,58 @@ impl OutputSink for DiscardOutput {
     fn send(&self, _data: &[u8]) -> Result<(), AppError> {
         Ok(())
     }
+}
+
+#[derive(Default)]
+struct TransferLog(Mutex<Vec<TransferProgress>>);
+
+impl TransferEventSink for TransferLog {
+    fn progress(&self, progress: &TransferProgress) {
+        self.0.lock().unwrap().push(progress.clone());
+    }
+}
+
+async fn wait_for_transfers(
+    events: &TransferLog,
+    transfer_ids: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    for _ in 0..200 {
+        let latest = {
+            let events = events.0.lock().unwrap();
+            transfer_ids
+                .iter()
+                .map(|transfer_id| {
+                    events
+                        .iter()
+                        .rev()
+                        .find(|event| &event.transfer_id == transfer_id)
+                        .cloned()
+                })
+                .collect::<Vec<_>>()
+        };
+        if let Some(failed) = latest.iter().flatten().find(|event| {
+            matches!(
+                event.state,
+                TransferState::Failed | TransferState::Cancelled
+            )
+        }) {
+            return Err(format!(
+                "transfer {} failed: {}",
+                failed.transfer_id,
+                failed.error.as_deref().unwrap_or("cancelled")
+            )
+            .into());
+        }
+        if latest.iter().all(|event| {
+            event
+                .as_ref()
+                .is_some_and(|event| event.state == TransferState::Done)
+        }) {
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    Err("transfer verification timed out".into())
 }
 
 #[derive(Default)]
@@ -299,7 +352,8 @@ async fn verify_exec() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn verify_files() -> Result<(), Box<dyn std::error::Error>> {
     let (_config, _vault, sessions, profile) = live_services()?;
-    let sftp = SftpService::new(sessions.clone(), Arc::new(NullTransferSink));
+    let transfer_log = Arc::new(TransferLog::default());
+    let sftp = Arc::new(SftpService::new(sessions.clone(), transfer_log.clone()));
     let session = sessions
         .connect(profile, 120, 36, Arc::new(DiscardOutput))
         .await?;
@@ -311,6 +365,15 @@ async fn verify_files() -> Result<(), Box<dyn std::error::Error>> {
     let default_entries = sftp.read_dir(&session_id, &default_directory).await?;
     let directory = format!("/tmp/myterm-live-{}", uuid::Uuid::new_v4());
     let path = format!("{directory}/check.txt");
+    let local_directory =
+        std::env::temp_dir().join(format!("myterm-transfer-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&local_directory)?;
+    let upload_sources = [
+        local_directory.join("alpha.txt"),
+        local_directory.join("beta.txt"),
+    ];
+    std::fs::write(&upload_sources[0], b"upload alpha\n")?;
+    std::fs::write(&upload_sources[1], b"upload beta\n")?;
     let run = async {
         sftp.mkdir(&session_id, &directory).await?;
         let created = sftp
@@ -334,14 +397,56 @@ async fn verify_files() -> Result<(), Box<dyn std::error::Error>> {
         if changed.sha256 == created.sha256 || matches.len() != 1 {
             return Err("file optimistic write or search verification failed".into());
         }
+        let mut upload_ids = Vec::new();
+        for (name, source) in ["alpha.txt", "beta.txt"].iter().zip(&upload_sources) {
+            upload_ids.push(
+                sftp.upload(
+                    session_id.clone(),
+                    source.clone(),
+                    format!("{directory}/{name}"),
+                )
+                .await?,
+            );
+        }
+        wait_for_transfers(&transfer_log, &upload_ids).await?;
+        if sftp
+            .file_read(&session_id, &format!("{directory}/alpha.txt"), 0, 1024)
+            .await?
+            .content
+            != "upload alpha\n"
+        {
+            return Err("batch upload readback differs".into());
+        }
+        let download_targets = [
+            local_directory.join("download-alpha.txt"),
+            local_directory.join("download-beta.txt"),
+        ];
+        let mut download_ids = Vec::new();
+        for (name, target) in ["alpha.txt", "beta.txt"].iter().zip(&download_targets) {
+            download_ids.push(
+                sftp.download(
+                    session_id.clone(),
+                    format!("{directory}/{name}"),
+                    target.clone(),
+                )
+                .await?,
+            );
+        }
+        wait_for_transfers(&transfer_log, &download_ids).await?;
+        if std::fs::read(&download_targets[0])? != b"upload alpha\n"
+            || std::fs::read(&download_targets[1])? != b"upload beta\n"
+        {
+            return Err("batch download readback differs".into());
+        }
         Ok::<_, Box<dyn std::error::Error>>(())
     }
     .await;
     let _ = sftp.delete(&session_id, &directory, true).await;
+    let _ = std::fs::remove_dir_all(&local_directory);
     sessions.disconnect(&session_id).await?;
     run?;
     println!(
-        "FILES_VERIFIED default={} entries={} atomic-write read search cleanup",
+        "FILES_VERIFIED default={} entries={} atomic-write read search batch-upload batch-download cleanup",
         default_directory,
         default_entries.len()
     );

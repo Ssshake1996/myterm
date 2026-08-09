@@ -75,6 +75,12 @@ Version 0.6.4 fixes the installed SFTP browser at its initialization boundary:
 - Local and remote panes load independently, keep independent spinners, and report structured IPC error messages with the failing side identified.
 - Refresh explicitly reruns the current-pane request; session switches resolve a new remote root before listing and invalidate older in-flight results.
 
+Version 0.6.5 makes the SFTP browser useful for operational file sets without expanding the native API:
+
+- Local and remote panes use ordered selections with independent anchors: plain click replaces, `Ctrl` toggles, `Shift` selects the inclusive visible range, and `Ctrl+Shift` adds a range.
+- Batch uploads and downloads reuse the existing two-slot transfer queue for both files and directory trees; the UI registers each task and exposes terminal failure details.
+- Remote batch delete executes sequentially after one confirmation, preserves successful deletions when another item fails, and reports the success/failure split; rename remains single-item only.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.
@@ -231,6 +237,7 @@ This pattern is reusable when a specification is sourced from one repository but
 | SSH exec termination order | Structured exec intermittently lost the exit code on the live OpenSSH server | OpenSSH sent channel `EOF` before `ExitStatus`; treating EOF as final stopped the reader too early | Keep draining protocol messages after EOF and finish on channel close/termination | Live command returns exit 7 with distinct stdout/stderr; timeout and 10 MiB streaming checks pass |
 | SFTP atomic overwrite | Updating an existing remote file returned SFTP `Failure` | OpenSSH SFTP v3 `RENAME` does not guarantee replacement of an existing target | Keep same-directory temp write, fsync and permissions, then use quoted `mv -f --` over the same SSH connection for an atomic existing-file replacement | Live hash-locked update, readback, search and cleanup pass on `192.168.3.94` |
 | SFTP first-open blank panes | Opening the installed file view reported only “目录读取失败” and displayed no remote entries | The prototype paths `C:\\deploy` and `/opt/app` were shipped as runtime defaults, and `Promise.all` discarded the successful pane when either path failed | Resolve real local/remote starting directories through typed IPC, load panes independently, preserve structured error messages, and invalidate stale requests | Component regression keeps remote entries visible during a local failure; live SFTP resolves `/root`, lists 12 entries, and completes file operations |
+| SFTP multi-selection side effects | A scalar selected-entry state could not express Ctrl toggles, Shift ranges, or useful batch actions | Selection identity, range order, and action ownership were coupled to one row | Keep ordered entry arrays and per-pane anchors in the existing component; enqueue transfers through existing IPC and execute destructive deletes sequentially with partial-failure accounting | Six SFTP component tests pass; browser QA selects all four rows with Shift and removes one with Ctrl; live server verification completes two queued uploads and two downloads with exact readback |
 | CLI help exit code (historical, removed in 0.6.3) | `agent run --help` printed correct help but returned usage code 2 | All Clap parse outcomes were mapped to usage errors | Map `DisplayHelp` and `DisplayVersion` to 0 while retaining 2 for invalid syntax | Process-level help and JSONL Agent checks return 0 |
 | REST smoke cleanup (historical, removed in 0.6.3) | The first smoke run passed but PowerShell treated token-revoke stderr as a script failure | `$ErrorActionPreference=Stop` converts native stderr to `NativeCommandError` | Temporarily relax only the cleanup call while still revoking the token and preserving the preceding assertions | Repeat smoke run exits 0 after auth, idempotency, SSE and OpenAPI checks |
 
@@ -242,8 +249,8 @@ Update this table with the exact outcome rather than an optimistic status.
 |---|---|---|
 | TypeScript | `npm run typecheck` | Pass |
 | Frontend lint | `npm run lint` | Pass, 36 files |
-| Frontend tests | `npm test` | Pass, 32 tests across 12 files |
-| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; release main entry 102.52 kB and lazy SFTP entry 9.00 kB |
+| Frontend tests | `npm test` | Pass, 34 tests across 12 files |
+| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; release main entry 103.05 kB and lazy SFTP entry 11.26 kB |
 | Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Pass |
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
 | Rust lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | Pass; `russh 0.54.5` emits a dependency future-incompatibility notice |
@@ -253,7 +260,7 @@ Update this table with the exact outcome rather than an optimistic status.
 | Saved-server CRUD | `live_check verify-crud` with the Windows credential vault | Pass; create, edit without re-entering secret, reload, delete, and credential cleanup verified |
 | Saved-server auto-login | `live_check verify-profile` after a fresh config reload | Pass; native SSH backend loaded the saved credential and authenticated as `root` |
 | Structured exec live integration | `live_check verify-exec` against the saved SSH session | Pass; exit 7, distinct stdout/stderr, 150 ms timeout, and exact 10 MiB streaming byte count verified |
-| File-tool live integration | `live_check verify-files` against the saved SSH session | Pass; canonical login directory resolves to `/root` with 12 entries, then atomic create/update, optimistic SHA-256 lock, readback, search, and cleanup complete |
+| File-tool live integration | `live_check verify-files` against the saved SSH session | Pass; `/root` resolves with 12 entries, atomic file operations pass, two queued uploads and two downloads complete with exact content readback, and remote/local cleanup succeeds |
 | Agent live integration | `live_check verify-agent` with the configured OpenAI-compatible profile and saved SSH session | Pass; model called `session_info`, `terminal_context`, `remote_exec`, `host_facts`, and remote `list_directory`, then returned `stop` |
 | MCP live integration | `live_check verify-mcp` with the official stdio Everything server | Pass; initialization handshake completed and 13 tools were enumerated |
 | CLI process contract (historical, removed in 0.6.3) | Release-equivalent binary `agent run --output jsonl` plus help exit check | Pass in 0.6.0; surface removed in 0.6.3 |
@@ -290,6 +297,8 @@ Update this table with the exact outcome rather than an optimistic status.
 | 0.6.3 upgrade install | Silently install over 0.6.2, then inspect file metadata, registry, shortcut, config, SSH, and Agent | Pass; one 0.6.3 uninstall entry and desktop shortcut remain, saved `yuxiaservers` authenticates as `root`, and the configured model completes the five-tool Agent loop with `stop` |
 | SFTP initialization release | `npm run build:release` and `npm run check:dist` | Pass for 0.6.4; installer is 7.60 MB, portable ZIP is 8.36 MB, and the SFTP view remains a 9.00 kB lazy chunk |
 | 0.6.4 upgrade install | Silently install over 0.6.3, then inspect file metadata, registry, shortcut, configuration hash, SSH, and SFTP | Pass; one 0.6.4 uninstall entry and desktop shortcut remain, configuration SHA-256 is unchanged, the installed window responds, and saved-profile SFTP resolves `/root` with 12 entries |
+| SFTP multi-selection release | `npm run build:release` and `npm run check:dist` | Pass for 0.6.5; installer is 7.61 MB, portable ZIP is 8.36 MB, and the lazy SFTP entry is 11.26 kB without a new runtime dependency |
+| 0.6.5 upgrade install | Silently install over 0.6.4, then inspect file metadata, registry, shortcut, configuration hash, SSH, and queued transfers | Pass; one 0.6.5 uninstall entry and desktop shortcut remain, configuration SHA-256 is unchanged, the installed window responds, saved SSH authenticates, and two uploads plus two downloads complete with exact readback |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
 The browser screenshots and console logs are generated under ignored `output/playwright/` paths. They are verification artifacts rather than shipped product files.

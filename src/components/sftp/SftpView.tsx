@@ -31,10 +31,49 @@ interface TransferItem extends TransferProgress {
 type RemoteAction =
   | { kind: "mkdir"; value: string }
   | { kind: "rename"; entry: RemoteEntry; value: string }
-  | { kind: "delete"; entry: RemoteEntry };
+  | { kind: "delete"; entries: RemoteEntry[] };
+
+type FileEntry = LocalEntry | RemoteEntry;
+
+interface SelectionModifiers {
+  toggle: boolean;
+  range: boolean;
+}
+
+function nextSelection<T extends FileEntry>(
+  entries: T[],
+  selected: T[],
+  anchorPath: string | null,
+  target: T,
+  modifiers: SelectionModifiers,
+) {
+  if (modifiers.range && anchorPath) {
+    const anchorIndex = entries.findIndex((entry) => entry.path === anchorPath);
+    const targetIndex = entries.findIndex((entry) => entry.path === target.path);
+    if (anchorIndex >= 0 && targetIndex >= 0) {
+      const range = entries.slice(
+        Math.min(anchorIndex, targetIndex),
+        Math.max(anchorIndex, targetIndex) + 1,
+      );
+      if (!modifiers.toggle) return range;
+      const selectedPaths = new Set(selected.map((entry) => entry.path));
+      return [...selected, ...range.filter((entry) => !selectedPaths.has(entry.path))];
+    }
+  }
+  if (modifiers.toggle) {
+    return selected.some((entry) => entry.path === target.path)
+      ? selected.filter((entry) => entry.path !== target.path)
+      : [...selected, target];
+  }
+  return [target];
+}
 
 function joinRemotePath(parent: string, name: string) {
   return `${parent.replace(/\/$/u, "")}/${name}` || "/";
+}
+
+function joinLocalPath(parent: string, name: string) {
+  return `${parent.replace(/[\\/]+$/u, "")}\\${name}`;
 }
 
 function formatBytes(value: number) {
@@ -69,8 +108,8 @@ export function SftpView({ sessionId }: SftpViewProps) {
   const [remotePath, setRemotePath] = useState("");
   const [localEntries, setLocalEntries] = useState<LocalEntry[]>([]);
   const [remoteEntries, setRemoteEntries] = useState<RemoteEntry[]>([]);
-  const [selectedLocal, setSelectedLocal] = useState<LocalEntry | null>(null);
-  const [selectedRemote, setSelectedRemote] = useState<RemoteEntry | null>(null);
+  const [selectedLocal, setSelectedLocal] = useState<LocalEntry[]>([]);
+  const [selectedRemote, setSelectedRemote] = useState<RemoteEntry[]>([]);
   const [transfers, setTransfers] = useState<Map<string, TransferItem>>(new Map());
   const [queueOpen, setQueueOpen] = useState(true);
   const [localLoading, setLocalLoading] = useState(true);
@@ -79,11 +118,14 @@ export function SftpView({ sessionId }: SftpViewProps) {
   const localRequestRef = useRef(0);
   const remoteRequestRef = useRef(0);
   const remotePathSessionRef = useRef<string | null>(null);
+  const localSelectionAnchorRef = useRef<string | null>(null);
+  const remoteSelectionAnchorRef = useRef<string | null>(null);
 
   const loadLocal = useCallback(async () => {
     if (!localPath) return;
     const request = ++localRequestRef.current;
-    setSelectedLocal(null);
+    setSelectedLocal([]);
+    localSelectionAnchorRef.current = null;
     setLocalLoading(true);
     try {
       const entries = await localReadDir(localPath);
@@ -100,7 +142,8 @@ export function SftpView({ sessionId }: SftpViewProps) {
   const loadRemote = useCallback(async () => {
     if (!remotePath || remotePathSessionRef.current !== sessionId) return;
     const request = ++remoteRequestRef.current;
-    setSelectedRemote(null);
+    setSelectedRemote([]);
+    remoteSelectionAnchorRef.current = null;
     setRemoteAction(null);
     setRemoteLoading(true);
     try {
@@ -124,8 +167,10 @@ export function SftpView({ sessionId }: SftpViewProps) {
     setRemotePath("");
     setLocalEntries([]);
     setRemoteEntries([]);
-    setSelectedLocal(null);
-    setSelectedRemote(null);
+    setSelectedLocal([]);
+    setSelectedRemote([]);
+    localSelectionAnchorRef.current = null;
+    remoteSelectionAnchorRef.current = null;
     setRemoteAction(null);
     setLocalLoading(true);
     setRemoteLoading(true);
@@ -205,30 +250,113 @@ export function SftpView({ sessionId }: SftpViewProps) {
     setQueueOpen(true);
   };
 
-  const upload = async (entry = selectedLocal) => {
-    if (!entry) return;
-    try {
-      const transferId = await sftpUpload(sessionId, entry.path, `${remotePath}/${entry.name}`);
-      registerTransfer(transferId, entry.name, "upload", entry.size);
-    } catch (error) {
-      notify(errorMessage(error, "上传失败"), "error");
+  const upload = async (entries: LocalEntry[] = selectedLocal) => {
+    if (!entries.length) return;
+    const results = await Promise.allSettled(
+      entries.map(async (entry) => {
+        const transferId = await sftpUpload(
+          sessionId,
+          entry.path,
+          joinRemotePath(remotePath, entry.name),
+        );
+        registerTransfer(transferId, entry.name, "upload", entry.size);
+      }),
+    );
+    const failures = results.filter((result) => result.status === "rejected");
+    if (failures.length) {
+      const first = failures[0] as PromiseRejectedResult;
+      notify(
+        `${entries.length - failures.length} 项已加入上传队列，${failures.length} 项启动失败：${errorMessage(first.reason, "未知错误")}`,
+        "error",
+      );
+    } else if (entries.length > 1) {
+      notify(`已加入 ${entries.length} 个上传任务`, "success");
     }
   };
 
-  const download = async (entry = selectedRemote) => {
-    if (!entry) return;
-    try {
-      const transferId = await sftpDownload(sessionId, entry.path, `${localPath}\\${entry.name}`);
-      registerTransfer(transferId, entry.name, "download", entry.size);
-    } catch (error) {
-      notify(errorMessage(error, "下载失败"), "error");
+  const download = async (entries: RemoteEntry[] = selectedRemote) => {
+    if (!entries.length) return;
+    const results = await Promise.allSettled(
+      entries.map(async (entry) => {
+        const transferId = await sftpDownload(
+          sessionId,
+          entry.path,
+          joinLocalPath(localPath, entry.name),
+        );
+        registerTransfer(transferId, entry.name, "download", entry.size);
+      }),
+    );
+    const failures = results.filter((result) => result.status === "rejected");
+    if (failures.length) {
+      const first = failures[0] as PromiseRejectedResult;
+      notify(
+        `${entries.length - failures.length} 项已加入下载队列，${failures.length} 项启动失败：${errorMessage(first.reason, "未知错误")}`,
+        "error",
+      );
+    } else if (entries.length > 1) {
+      notify(`已加入 ${entries.length} 个下载任务`, "success");
     }
   };
 
   const transferItems = useMemo(() => [...transfers.values()].reverse(), [transfers]);
+  const localSelectedPaths = useMemo(
+    () => new Set(selectedLocal.map((entry) => entry.path)),
+    [selectedLocal],
+  );
+  const remoteSelectedPaths = useMemo(
+    () => new Set(selectedRemote.map((entry) => entry.path)),
+    [selectedRemote],
+  );
+
+  const selectLocal = (entry: FileEntry, modifiers: SelectionModifiers) => {
+    const localEntry = entry as LocalEntry;
+    setSelectedLocal((current) =>
+      nextSelection(localEntries, current, localSelectionAnchorRef.current, localEntry, modifiers),
+    );
+    if (!modifiers.range || !localSelectionAnchorRef.current) {
+      localSelectionAnchorRef.current = localEntry.path;
+    }
+  };
+
+  const selectRemote = (entry: FileEntry, modifiers: SelectionModifiers) => {
+    const remoteEntry = entry as RemoteEntry;
+    setSelectedRemote((current) =>
+      nextSelection(
+        remoteEntries,
+        current,
+        remoteSelectionAnchorRef.current,
+        remoteEntry,
+        modifiers,
+      ),
+    );
+    if (!modifiers.range || !remoteSelectionAnchorRef.current) {
+      remoteSelectionAnchorRef.current = remoteEntry.path;
+    }
+  };
 
   const applyRemoteAction = async () => {
     if (!remoteAction) return;
+    if (remoteAction.kind === "delete") {
+      const failures: string[] = [];
+      for (const entry of remoteAction.entries) {
+        try {
+          await sftpDelete(sessionId, entry.path, entry.is_dir);
+        } catch (error) {
+          failures.push(`${entry.name}：${errorMessage(error, "未知错误")}`);
+        }
+      }
+      const successCount = remoteAction.entries.length - failures.length;
+      setRemoteAction(null);
+      setSelectedRemote([]);
+      remoteSelectionAnchorRef.current = null;
+      await loadRemote();
+      if (failures.length) {
+        notify(`${successCount} 项已删除，${failures.length} 项失败：${failures[0]}`, "error");
+      } else if (successCount > 1) {
+        notify(`已删除 ${successCount} 个远程项目`, "success");
+      }
+      return;
+    }
     try {
       if (remoteAction.kind === "mkdir") {
         const name = remoteAction.value.trim();
@@ -244,11 +372,10 @@ export function SftpView({ sessionId }: SftpViewProps) {
           return;
         }
         await sftpRename(sessionId, remoteAction.entry.path, joinRemotePath(remotePath, name));
-      } else {
-        await sftpDelete(sessionId, remoteAction.entry.path, remoteAction.entry.is_dir);
       }
       setRemoteAction(null);
-      setSelectedRemote(null);
+      setSelectedRemote([]);
+      remoteSelectionAnchorRef.current = null;
       await loadRemote();
     } catch (error) {
       notify(errorMessage(error, "远程文件操作失败"), "error");
@@ -265,31 +392,30 @@ export function SftpView({ sessionId }: SftpViewProps) {
           onActivate={(entry) => {
             const localEntry = entry as LocalEntry;
             if (localEntry.is_dir) setLocalPath(localEntry.path);
-            else setSelectedLocal(localEntry);
           }}
-          onDropRemote={(entry) => void download(entry)}
+          onDropRemote={(entry) => void download([entry])}
           onPathChange={setLocalPath}
           onRefresh={() => void loadLocal()}
-          onSelect={(entry) => setSelectedLocal(entry as LocalEntry)}
+          onSelect={selectLocal}
           path={localPath}
-          selectedPath={selectedLocal?.path ?? null}
+          selectedPaths={localSelectedPaths}
         />
         <div className="transfer-controls">
           <span className="connection-reuse">SFTP</span>
           <button
             aria-label="上传"
-            disabled={!selectedLocal}
+            disabled={!selectedLocal.length}
             onClick={() => void upload()}
-            title="上传"
+            title={selectedLocal.length > 1 ? `上传 ${selectedLocal.length} 个项目` : "上传"}
             type="button"
           >
             <Icon name="upload" />
           </button>
           <button
             aria-label="下载"
-            disabled={!selectedRemote}
+            disabled={!selectedRemote.length}
             onClick={() => void download()}
-            title="下载"
+            title={selectedRemote.length > 1 ? `下载 ${selectedRemote.length} 个项目` : "下载"}
             type="button"
           >
             <Icon name="download" />
@@ -304,23 +430,28 @@ export function SftpView({ sessionId }: SftpViewProps) {
           </button>
           <button
             aria-label="重命名远程项目"
-            disabled={!selectedRemote}
+            disabled={selectedRemote.length !== 1}
             onClick={() =>
-              selectedRemote &&
-              setRemoteAction({ kind: "rename", entry: selectedRemote, value: selectedRemote.name })
+              selectedRemote.length === 1 &&
+              setRemoteAction({
+                kind: "rename",
+                entry: selectedRemote[0],
+                value: selectedRemote[0].name,
+              })
             }
-            title="重命名"
+            title={selectedRemote.length > 1 ? "重命名仅支持单个项目" : "重命名"}
             type="button"
           >
             <Icon name="edit" />
           </button>
           <button
             aria-label="删除远程项目"
-            disabled={!selectedRemote}
+            disabled={!selectedRemote.length}
             onClick={() =>
-              selectedRemote && setRemoteAction({ kind: "delete", entry: selectedRemote })
+              selectedRemote.length &&
+              setRemoteAction({ kind: "delete", entries: [...selectedRemote] })
             }
-            title="删除"
+            title={selectedRemote.length > 1 ? `删除 ${selectedRemote.length} 个项目` : "删除"}
             type="button"
           >
             <Icon name="trash" />
@@ -333,14 +464,13 @@ export function SftpView({ sessionId }: SftpViewProps) {
           onActivate={(entry) => {
             const remoteEntry = entry as RemoteEntry;
             if (remoteEntry.is_dir) setRemotePath(remoteEntry.path);
-            else setSelectedRemote(remoteEntry);
           }}
-          onDropLocal={(entry) => void upload(entry)}
+          onDropLocal={(entry) => void upload([entry])}
           onPathChange={setRemotePath}
           onRefresh={() => void loadRemote()}
-          onSelect={(entry) => setSelectedRemote(entry as RemoteEntry)}
+          onSelect={selectRemote}
           path={remotePath}
-          selectedPath={selectedRemote?.path ?? null}
+          selectedPaths={remoteSelectedPaths}
         />
       </div>
       <section className={`transfer-queue ${queueOpen ? "is-open" : ""}`}>
@@ -374,12 +504,18 @@ export function SftpView({ sessionId }: SftpViewProps) {
                         ? "完成"
                         : item.state === "cancelled"
                           ? "已取消"
-                          : `${percent}% · ${formatBytes(item.bytes_per_sec)}/s`}
+                          : item.state === "failed"
+                            ? `失败${item.error ? ` · ${item.error}` : ""}`
+                            : `${percent}% · ${formatBytes(item.bytes_per_sec)}/s`}
                     </span>
                     <button
                       aria-label={`取消 ${item.name}`}
                       className="icon-button"
-                      disabled={item.state === "done" || item.state === "cancelled"}
+                      disabled={
+                        item.state === "done" ||
+                        item.state === "cancelled" ||
+                        item.state === "failed"
+                      }
                       onClick={() => void transferCancel(item.transfer_id)}
                       type="button"
                     >
@@ -421,13 +557,19 @@ export function SftpView({ sessionId }: SftpViewProps) {
               ? "新建远程目录"
               : remoteAction.kind === "rename"
                 ? "重命名远程项目"
-                : "删除远程项目"
+                : remoteAction.entries.length > 1
+                  ? `删除 ${remoteAction.entries.length} 个远程项目`
+                  : "删除远程项目"
           }
         >
           {remoteAction.kind === "delete" ? (
             <p className="confirm-copy">
-              确认删除“{remoteAction.entry.name}”吗？
-              {remoteAction.entry.is_dir ? "目录中的内容也会一并删除。" : ""}
+              {remoteAction.entries.length === 1
+                ? `确认删除“${remoteAction.entries[0].name}”吗？`
+                : `确认删除所选的 ${remoteAction.entries.length} 个远程项目吗？`}
+              {remoteAction.entries.some((entry) => entry.is_dir)
+                ? "目录中的内容也会一并删除。"
+                : ""}
             </p>
           ) : (
             <label className="field">
@@ -449,17 +591,15 @@ export function SftpView({ sessionId }: SftpViewProps) {
   );
 }
 
-type FileEntry = LocalEntry | RemoteEntry;
-
 interface FilePaneProps {
   kind: "local" | "remote";
   path: string;
   entries: FileEntry[];
-  selectedPath: string | null;
+  selectedPaths: Set<string>;
   loading: boolean;
   onPathChange: (path: string) => void;
   onRefresh: () => void;
-  onSelect: (entry: FileEntry) => void;
+  onSelect: (entry: FileEntry, modifiers: SelectionModifiers) => void;
   onActivate: (entry: FileEntry) => void;
   onDropLocal?: (entry: LocalEntry) => void;
   onDropRemote?: (entry: RemoteEntry) => void;
@@ -469,7 +609,7 @@ function FilePane({
   kind,
   path,
   entries,
-  selectedPath,
+  selectedPaths,
   loading,
   onPathChange,
   onRefresh,
@@ -537,10 +677,16 @@ function FilePane({
           <tbody>
             {entries.map((entry) => (
               <tr
-                className={entry.path === selectedPath ? "is-selected" : ""}
+                aria-selected={selectedPaths.has(entry.path)}
+                className={selectedPaths.has(entry.path) ? "is-selected" : ""}
                 draggable
                 key={entry.path}
-                onClick={() => onSelect(entry)}
+                onClick={(event) =>
+                  onSelect(entry, {
+                    toggle: event.ctrlKey || event.metaKey,
+                    range: event.shiftKey,
+                  })
+                }
                 onDoubleClick={() => onActivate(entry)}
                 onDragStart={(event) =>
                   event.dataTransfer.setData(
@@ -568,7 +714,10 @@ function FilePane({
           </div>
         ) : null}
       </div>
-      <footer className="file-pane-footer">{entries.length} 个项目</footer>
+      <footer className="file-pane-footer">
+        <span>{entries.length} 个项目</span>
+        {selectedPaths.size ? <span>已选 {selectedPaths.size} 项</span> : null}
+      </footer>
     </section>
   );
 }

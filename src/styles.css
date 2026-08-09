@@ -3288,6 +3288,7 @@ input:checked + .toggle-track > span {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
+  user-select: none;
 }
 
 .file-table th {
@@ -3325,9 +3326,12 @@ input:checked + .toggle-track > span {
   gap: 7px;
 }
 
-.file-table tbody tr:hover,
-.file-table tbody tr.is-selected {
+.file-table tbody tr:hover {
   background: var(--panel-strong);
+}
+
+.file-table tbody tr.is-selected {
+  background: var(--surface-selected);
 }
 
 .file-table tbody tr.is-selected td:first-child {
@@ -3356,6 +3360,9 @@ input:checked + .toggle-track > span {
 .file-pane-footer {
   height: 24px;
   flex: 0 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 5px 9px;
   border-top: 1px solid var(--border-soft);
   color: var(--text-muted);
@@ -3481,6 +3488,11 @@ input:checked + .toggle-track > span {
 
 .transfer-cancelled {
   opacity: 0.58;
+}
+
+.transfer-failed .transfer-direction,
+.transfer-failed .transfer-status {
+  color: var(--red);
 }
 
 .queue-empty {

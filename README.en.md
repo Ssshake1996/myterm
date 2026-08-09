@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.6.4`
+Current version: `0.6.5`
 
 ## Core Features
 
@@ -36,7 +36,8 @@ Current version: `0.6.4`
 
 - Reuse the active SSH connection and start from the local user directory and remote login directory instead of assuming deployment paths.
 - Load local and remote panes independently so one failed directory does not hide the other; errors identify the pane and underlying reason.
-- Upload, download, create, rename, and recursively delete entries.
+- Use standard single selection, `Ctrl` toggling, and `Shift` range selection with a visible selected-item count.
+- Batch upload, download, and recursively delete files or directories; rename remains single-item and partial delete failures are reported.
 - Inspect size, modification time, and permissions, with a cancellable transfer queue.
 - Agent file writes use a same-directory temporary file, synchronization, permission preservation, hash locking, and readback verification.
 
@@ -157,4 +158,4 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 
 ## Current Boundaries
 
-Version `0.6.4` does not yet implement multi-SSH Tasks, structured remote HTTP, or Skill-driven OS installation; these follow the staged plan. The first release still excludes complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.
+Version `0.6.5` does not yet implement multi-SSH Tasks, structured remote HTTP, or Skill-driven OS installation; these follow the staged plan. The first release still excludes complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.
