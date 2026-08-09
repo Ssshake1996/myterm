@@ -29,7 +29,7 @@ export function App() {
   const [aiCollapsed, setAiCollapsed] = useState(() => window.innerWidth <= 900);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo>({
-    version: "0.6.0",
+    version: "0.6.1",
     commitHash: "unknown",
     startupProfile: null,
     portable: false,
@@ -100,23 +100,6 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="brand-block">
-          <img alt="" className="brand-mark" src="/favicon.png" />
-          <div>
-            <strong>myterm</strong>
-            <small>OPERATIONS CONSOLE</small>
-          </div>
-        </div>
-        <TabBar onNewSession={() => setProfileEditorOpen(true)} />
-        <div className="topbar-meta">
-          {!isDesktopRuntime ? <span className="demo-badge">DEMO</span> : null}
-          <span className="secure-indicator">
-            <span /> VAULT
-          </span>
-        </div>
-      </header>
-
       <div className="app-body">
         <nav className="activitybar" aria-label="主导航">
           <button
@@ -191,11 +174,24 @@ export function App() {
             profiles={profiles}
           />
         ) : null}
-        <main className="main-stage">
-          <Workspace profiles={profiles} />
-          <QuickBar />
-        </main>
-        <AiPanel collapsed={aiCollapsed} onCollapsedChange={setAiCollapsed} />
+        <div className="workbench">
+          <header className="topbar">
+            <TabBar onNewSession={() => setProfileEditorOpen(true)} />
+            <div className="topbar-meta">
+              {!isDesktopRuntime ? <span className="demo-badge">DEMO</span> : null}
+              <span className="secure-indicator">
+                <span /> VAULT
+              </span>
+            </div>
+          </header>
+          <div className="workbench-body">
+            <main className="main-stage">
+              <Workspace profiles={profiles} />
+              <QuickBar />
+            </main>
+            <AiPanel collapsed={aiCollapsed} onCollapsedChange={setAiCollapsed} />
+          </div>
+        </div>
       </div>
 
       <footer className="statusbar">

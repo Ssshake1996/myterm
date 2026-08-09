@@ -46,6 +46,13 @@ Version 0.6.0 delivers the first persistent Linux operations Agent line from A0 
 
 The first version deliberately excludes multi-Agent execution, long-term memory, cloud Skill distribution, non-stdio MCP transports, and remote REST exposure. Non-loopback REST is rejected until TLS, RBAC, and profile allowlists are implemented together.
 
+Version 0.6.1 is a compact-shell correction driven by annotated installed-app feedback:
+
+- The redundant `myterm / OPERATIONS CONSOLE` block is removed instead of merely hidden.
+- Activity navigation and the session sidebar now own the full content height, while tabs belong to a dedicated workbench column above terminal and Agent content.
+- The session strip is reduced from 44 px to 34 px, with stable close and add targets and tighter tab width/spacing.
+- Desktop, 900 px, and 390 px browser geometry checks confirm a 34 px strip, top-aligned sidebar, and no horizontal overflow.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.
@@ -72,6 +79,12 @@ The desktop application depends on Rust, WebView2, SSH targets, and optional AI 
 Tabs, panes, active focus, session IDs, and connection state live in one Zustand store. Terminal, SFTP, quick commands, and AI all consume the active pane from that store, which prevents commands from being sent to stale or visually inactive sessions.
 
 A split pane has only two lifecycle states: present or closed. There is no hidden pane state. The close action first disconnects a bound session and then removes the pane. If an asynchronous connection completes after the pane disappeared, `TerminalView` detects the missing pane and disconnects the newly returned session instead of binding an orphan.
+
+### Compact workbench ownership
+
+The original shell made the top bar a global grid row. That coupled the left activity/sidebar region to a 44 px header even after its branding became redundant. Deleting only the brand child would have left the sidebar displaced and shifted the tab strip into an unowned blank area.
+
+The 0.6.1 correction changes ownership rather than layering offsets: the activity bar and session sidebar fill the application body, and a `workbench` column owns its compact tab strip plus a flexible `workbench-body`. This preserves one containing block for terminal and Agent overlays, removes obsolete responsive brand rules, and makes the 34 px density invariant measurable at every viewport.
 
 ### Transactional saved-server lifecycle
 
@@ -165,6 +178,7 @@ This pattern is reusable when a specification is sourced from one repository but
 | Desktop icon build | Tauri packaging had no complete icon set | The scaffold had no product identity asset | Generate the original myterm mark and derive the complete Tauri icon set | Windows ICO and all generated bitmap variants exist |
 | Browser visual QA | Terminal stayed blank and console showed a Tauri `Channel` constructor error | Components constructed native Channel objects before the browser demo adapter could branch | Add `createChannel`, returning a native channel only in Tauri and a structural channel in browser mode | Terminal output renders; browser console has zero errors |
 | Narrow viewport QA | Sidebar and AI panel left only a sliver of terminal visible | Both desktop overlays initialized open below 900 px | Initialize narrow mode collapsed, make overlays mutually exclusive, and use a two-row quick-command bar | 390x844 terminal, AI, and session views are usable |
+| Compact header correction | Removing the brand node alone would still leave the sidebar below a global header row | Header ownership was encoded in the page grid rather than the workbench | Move tabs into a right-side workbench column, let left navigation fill the body, and delete obsolete brand CSS | Sidebar starts at y=0, tab strip measures 34 px, and no viewport overflows |
 | SSH trust persistence | Known-host replacement deleted the old file before rename | Windows rename cannot overwrite an existing destination | Reuse the configuration service's `ReplaceFileW` atomic replacement | Overwrite/readback unit test passes |
 | Release command | Tauri CLI could not find `cargo` although direct Cargo commands worked | Cargo's bin directory was absent from the child process `PATH` | Add both Cargo and NASM directories to the Visual Studio Developer PowerShell environment | Release compilation starts normally |
 | NSIS bootstrap | First installer attempt timed out downloading `nsis_tauri_utils.dll` | A transient GitHub download exceeded Tauri's global timeout | Download the exact official asset with retries, verify Tauri's pinned SHA-1, and place it in the documented NSIS cache path | Subsequent NSIS packaging succeeds |
@@ -217,6 +231,7 @@ Update this table with the exact outcome rather than an optimistic status.
 | AI secret audit | Inspect `%APPDATA%/myterm/config.json` and Windows Credential Manager | Pass; JSON contains only `api_key_ref`, no key prefix; referenced credential target is present |
 | Desktop visual QA | Playwright Chromium at 1280x800 | Pass; nonblank xterm canvas, Agent approval trace, result, completion, split-close and labeled quick-command collapse states inspected; zero console errors |
 | Narrow viewport QA | Playwright Chromium at 900x650 and 390x844 | Pass; document/body scroll widths equal viewport widths, Agent becomes a 344 px overlay on mobile, and controls do not overlap |
+| Compact shell QA | Playwright Chromium at 1440x900, 900x650, and 390x844 | Pass; brand block absent, session strip is exactly 34 px, desktop sidebar starts at y=0, mobile sidebar overlay remains usable, and scroll width equals viewport width |
 | Theme persistence | Switch white, eye-care, and dark themes | Pass; application, terminal, modal, Agent and quick-command surfaces change together |
 | Multiline quick command | Create, save, execute, and delete a two-line command in browser QA | Pass; command body is hidden from the compact library and both lines are sent as separate terminal returns |
 | Split close | Create a right split and close the right caption action | Pass; target session is disconnected, one terminal remains, and the split action becomes available again |
@@ -231,6 +246,9 @@ Update this table with the exact outcome rather than an optimistic status.
 | Upgrade data retention | Compare `%APPDATA%/myterm/config.json` SHA-256 before/after upgrade | Pass; configuration hash is unchanged |
 | Headless efficiency | Release `agent serve --idle-timeout 8` private working set and CPU sample | Pass; 1.07 MiB private working set, 0% sampled CPU, clean idle exit code 0 |
 | Empty memory | 45-second `Working Set - Private` sample | Main process 7.08 MiB passes `<=12 MiB`; full 7-process WebView2 group is 111.24 MiB, so aggregate `<80 MiB` target remains unmet |
+| Compact-shell release build | `npm run build:release` and `npm run check:dist` | Pass for 0.6.1; installer remains 8.00 MB and portable ZIP remains 8.98 MB |
+| Compact-shell upgrade install | Silently install 0.6.1 over 0.6.0, then inspect file metadata, registry, shortcut, and config SHA-256 | Pass; installed file and registry report 0.6.1, one uninstall entry remains, desktop shortcut exists, and configuration hash is unchanged |
+| Installed native screenshot | Bundled `computer-use` capture against the running 0.6.1 window | Not used as evidence; the installed plugin exposed a runtime API that did not match its documentation, so browser geometry plus installed binary/registry checks remain the reproducible evidence |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
 The browser screenshots and console logs are generated under ignored `output/playwright/` paths. They are verification artifacts rather than shipped product files.
