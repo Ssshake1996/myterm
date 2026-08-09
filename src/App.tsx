@@ -1,6 +1,7 @@
-import { Leaf, Moon, Sun } from "lucide-react";
+import { CircleHelp, Leaf, Moon, Sun } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { AiPanel } from "./components/ai/AiPanel";
+import { HelpManual } from "./components/help/HelpManual";
 import { QuickBar } from "./components/quickbar/QuickBar";
 import { SessionSidebar } from "./components/sessions/SessionSidebar";
 import { Icon } from "./components/shell/Icon";
@@ -28,8 +29,9 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 900);
   const [aiCollapsed, setAiCollapsed] = useState(() => window.innerWidth <= 900);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo>({
-    version: "0.6.1",
+    version: "0.6.2",
     commitHash: "unknown",
     startupProfile: null,
     portable: false,
@@ -183,6 +185,15 @@ export function App() {
                 <span /> VAULT
               </span>
             </div>
+            <button
+              aria-label="打开使用说明书"
+              className="topbar-help"
+              onClick={() => setHelpOpen(true)}
+              title="使用说明书"
+              type="button"
+            >
+              <CircleHelp aria-hidden="true" size={16} strokeWidth={1.7} />
+            </button>
           </header>
           <div className="workbench-body">
             <main className="main-stage">
@@ -253,6 +264,7 @@ export function App() {
           </dl>
         </Modal>
       ) : null}
+      {helpOpen ? <HelpManual onClose={() => setHelpOpen(false)} /> : null}
       <ToastRegion />
     </div>
   );

@@ -53,6 +53,14 @@ Version 0.6.1 is a compact-shell correction driven by annotated installed-app fe
 - The session strip is reduced from 44 px to 34 px, with stable close and add targets and tighter tab width/spacing.
 - Desktop, 900 px, and 390 px browser geometry checks confirm a 34 px strip, top-aligned sidebar, and no horizontal overflow.
 
+Version 0.6.2 completes the public and in-product documentation surface:
+
+- `README.md` becomes the detailed Simplified Chinese entry point and `README.en.md` provides an equivalent English feature, architecture, development, security, and release reference.
+- `docs/user-guide.zh-CN.md` is the canonical user manual for both the repository and packaged application.
+- A 34 px `CircleHelp` action at the far-right edge of the session strip opens the offline manual without hiding at narrow breakpoints.
+- The existing safe React text renderer gains a controlled document variant for headings, flat lists, paragraphs, inline emphasis/code, and fenced code blocks; no HTML injection or large Markdown runtime is added.
+- The document dialog provides a 20-section desktop table of contents and a single-column mobile reader while preserving zero horizontal overflow.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.
@@ -85,6 +93,12 @@ A split pane has only two lifecycle states: present or closed. There is no hidde
 The original shell made the top bar a global grid row. That coupled the left activity/sidebar region to a 44 px header even after its branding became redundant. Deleting only the brand child would have left the sidebar displaced and shifted the tab strip into an unowned blank area.
 
 The 0.6.1 correction changes ownership rather than layering offsets: the activity bar and session sidebar fill the application body, and a `workbench` column owns its compact tab strip plus a flexible `workbench-body`. This preserves one containing block for terminal and Agent overlays, removes obsolete responsive brand rules, and makes the 34 px density invariant measurable at every viewport.
+
+### Packaged documentation from one source
+
+User documentation must not be copied into a React component and maintained separately from repository docs. The help surface imports `docs/user-guide.zh-CN.md` as a Vite raw asset, so Release builds package the exact reviewed source file. A small controlled Markdown subset is sufficient for this owned document and keeps hostile markup rendered as text. Agent messages retain their terminal-fill action, while document code blocks expose copy only, preventing a help example from becoming an execution control.
+
+The help action lives outside optional title metadata. This makes it the actual rightmost control at every width: desktop may show `DEMO/VAULT` before it, while narrower layouts hide metadata but never hide help.
 
 ### Transactional saved-server lifecycle
 
@@ -179,6 +193,7 @@ This pattern is reusable when a specification is sourced from one repository but
 | Browser visual QA | Terminal stayed blank and console showed a Tauri `Channel` constructor error | Components constructed native Channel objects before the browser demo adapter could branch | Add `createChannel`, returning a native channel only in Tauri and a structural channel in browser mode | Terminal output renders; browser console has zero errors |
 | Narrow viewport QA | Sidebar and AI panel left only a sliver of terminal visible | Both desktop overlays initialized open below 900 px | Initialize narrow mode collapsed, make overlays mutually exclusive, and use a two-row quick-command bar | 390x844 terminal, AI, and session views are usable |
 | Compact header correction | Removing the brand node alone would still leave the sidebar below a global header row | Header ownership was encoded in the page grid rather than the workbench | Move tabs into a right-side workbench column, let left navigation fill the body, and delete obsolete brand CSS | Sidebar starts at y=0, tab strip measures 34 px, and no viewport overflows |
+| Documentation source drift | A separately authored in-app manual would diverge from repository documentation | UI copy and Markdown would have independent owners | Import the reviewed Markdown file as a build-time raw asset and render a controlled subset | Repository and packaged help always use the same bytes; no network or new parser dependency required |
 | SSH trust persistence | Known-host replacement deleted the old file before rename | Windows rename cannot overwrite an existing destination | Reuse the configuration service's `ReplaceFileW` atomic replacement | Overwrite/readback unit test passes |
 | Release command | Tauri CLI could not find `cargo` although direct Cargo commands worked | Cargo's bin directory was absent from the child process `PATH` | Add both Cargo and NASM directories to the Visual Studio Developer PowerShell environment | Release compilation starts normally |
 | NSIS bootstrap | First installer attempt timed out downloading `nsis_tauri_utils.dll` | A transient GitHub download exceeded Tauri's global timeout | Download the exact official asset with retries, verify Tauri's pinned SHA-1, and place it in the documented NSIS cache path | Subsequent NSIS packaging succeeds |
@@ -232,6 +247,8 @@ Update this table with the exact outcome rather than an optimistic status.
 | Desktop visual QA | Playwright Chromium at 1280x800 | Pass; nonblank xterm canvas, Agent approval trace, result, completion, split-close and labeled quick-command collapse states inspected; zero console errors |
 | Narrow viewport QA | Playwright Chromium at 900x650 and 390x844 | Pass; document/body scroll widths equal viewport widths, Agent becomes a 344 px overlay on mobile, and controls do not overlap |
 | Compact shell QA | Playwright Chromium at 1440x900, 900x650, and 390x844 | Pass; brand block absent, session strip is exactly 34 px, desktop sidebar starts at y=0, mobile sidebar overlay remains usable, and scroll width equals viewport width |
+| Offline help QA | Playwright Chromium at 1440x900 and 390x844 | Pass; help is the 34 px rightmost title action, desktop dialog is 920x760 with 20-section navigation, TOC scrolling lands at the heading margin, mobile document has no horizontal overflow, and console has zero errors/warnings |
+| Documentation component tests | `HelpManual.test.tsx` plus existing hostile-markup Agent test | Pass; packaged manual headings/CLI content render, close works, hostile HTML remains text, and Agent terminal fill behavior is unchanged |
 | Theme persistence | Switch white, eye-care, and dark themes | Pass; application, terminal, modal, Agent and quick-command surfaces change together |
 | Multiline quick command | Create, save, execute, and delete a two-line command in browser QA | Pass; command body is hidden from the compact library and both lines are sent as separate terminal returns |
 | Split close | Create a right split and close the right caption action | Pass; target session is disconnected, one terminal remains, and the split action becomes available again |
@@ -249,6 +266,8 @@ Update this table with the exact outcome rather than an optimistic status.
 | Compact-shell release build | `npm run build:release` and `npm run check:dist` | Pass for 0.6.1; installer remains 8.00 MB and portable ZIP remains 8.98 MB |
 | Compact-shell upgrade install | Silently install 0.6.1 over 0.6.0, then inspect file metadata, registry, shortcut, and config SHA-256 | Pass; installed file and registry report 0.6.1, one uninstall entry remains, desktop shortcut exists, and configuration hash is unchanged |
 | Installed native screenshot | Bundled `computer-use` capture against the running 0.6.1 window | Not used as evidence; the installed plugin exposed a runtime API that did not match its documentation, so browser geometry plus installed binary/registry checks remain the reproducible evidence |
+| Documentation release build | `npm run build:release` and `npm run check:dist` | Pass for 0.6.2; installer is 8.01 MB and portable ZIP is 8.99 MB, a roughly 0.01 MB distribution increase for packaged offline help |
+| Documentation upgrade install | Silently install 0.6.2 over 0.6.1, then inspect file metadata, registry, shortcut, and config SHA-256 | Pass; installed file and registry report 0.6.2, one uninstall entry remains, desktop shortcut exists, configuration hash is unchanged, and saved-profile startup remains responsive |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
 The browser screenshots and console logs are generated under ignored `output/playwright/` paths. They are verification artifacts rather than shipped product files.

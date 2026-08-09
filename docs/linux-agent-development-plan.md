@@ -1,7 +1,7 @@
 # myterm Linux Agent 开发计划
 
-> 文档状态：`0.6.1` 第一版已实施并完成紧凑工作区修正，验收与剩余风险见 `development-experience.md`
-> 当前产品基线：`0.6.1`
+> 文档状态：`0.6.2` 第一版已实施并补齐双语 README 与离线使用说明书，验收与剩余风险见 `development-experience.md`
+> 当前产品基线：`0.6.2`
 > 对应说明书：[`linux-agent-specification.md`](linux-agent-specification.md)
 > 研究依据：[`linux-agent-improvement-study.md`](linux-agent-improvement-study.md)
 

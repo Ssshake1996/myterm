@@ -480,7 +480,7 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 fn openapi_document() -> Value {
     json!({
         "openapi": "3.0.3",
-        "info": { "title": "myterm Agent API", "version": "0.6.1" },
+        "info": { "title": "myterm Agent API", "version": "0.6.2" },
         "servers": [{ "url": "http://127.0.0.1:9867" }],
         "security": [{ "bearerAuth": [] }],
         "paths": {
