@@ -172,7 +172,7 @@ export function createChannel<T>(): MessageChannel<T> {
 export async function getAppInfo(): Promise<AppInfo> {
   if (!isDesktopRuntime) {
     return {
-      version: "0.1.3",
+      version: "0.1.4",
       commitHash: "browser-demo",
       startupProfile: null,
       portable: false,

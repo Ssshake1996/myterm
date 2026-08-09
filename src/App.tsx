@@ -29,7 +29,7 @@ export function App() {
   const [aiCollapsed, setAiCollapsed] = useState(() => window.innerWidth <= 900);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo>({
-    version: "0.1.3",
+    version: "0.1.4",
     commitHash: "unknown",
     startupProfile: null,
     portable: false,
