@@ -8,6 +8,9 @@ const ipcMocks = vi.hoisted(() => ({
   quickCommandList: vi.fn(),
   quickCommandSave: vi.fn(),
   quickCommandDelete: vi.fn(),
+  quickCommandImportPreview: vi.fn(),
+  quickCommandImportApply: vi.fn(),
+  quickCommandExport: vi.fn(),
   terminalWrite: vi.fn(),
 }));
 
@@ -32,6 +35,24 @@ describe("QuickBar", () => {
     ipcMocks.quickCommandList.mockResolvedValue(commands);
     ipcMocks.quickCommandSave.mockResolvedValue(undefined);
     ipcMocks.quickCommandDelete.mockResolvedValue(undefined);
+    ipcMocks.quickCommandImportPreview.mockResolvedValue({
+      source_format: "xshell_qbl",
+      source_version: "8.2",
+      total: 5,
+      importable: 3,
+      duplicates: 1,
+      conflicts: 1,
+      skipped: 1,
+      groups: ["生产排查"],
+    });
+    ipcMocks.quickCommandImportApply.mockResolvedValue({
+      imported: 3,
+      replaced: 0,
+      renamed: 1,
+      duplicates: 1,
+      skipped: 1,
+    });
+    ipcMocks.quickCommandExport.mockResolvedValue('{"format":"myterm.quick-commands"}');
     ipcMocks.terminalWrite.mockResolvedValue(undefined);
     useLayoutStore.setState({
       activeTabId: "tab",
@@ -59,6 +80,7 @@ describe("QuickBar", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("routes commands to the active pane and only appends return when configured", async () => {
@@ -173,5 +195,51 @@ describe("QuickBar", () => {
 
     fireEvent.keyDown(resizer, { key: "ArrowUp" });
     await waitFor(() => expect(resizer).toHaveAttribute("aria-valuenow", "236"));
+  });
+
+  it("previews Xshell imports and defaults conflicts to keeping both", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<QuickBar />);
+    await screen.findByRole("button", { name: "导入快捷命令" });
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    if (!input) throw new Error("快捷命令文件输入未渲染");
+    const file = {
+      name: "生产排查.qbl",
+      arrayBuffer: vi.fn().mockResolvedValue(Uint8Array.from([0xff, 0xfe, 1, 0]).buffer),
+    };
+
+    fireEvent.change(input, { target: { files: [file] } });
+
+    const dialog = await screen.findByRole("dialog", { name: "导入快捷命令" });
+    expect(within(dialog).getByText("Xshell QBL · v8.2")).toBeInTheDocument();
+    expect(within(dialog).getByText("生产排查")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "保留两者" })).toHaveClass("is-active");
+
+    await user.click(within(dialog).getByRole("button", { name: "导入 3 条" }));
+    await waitFor(() =>
+      expect(ipcMocks.quickCommandImportApply).toHaveBeenCalledWith(
+        "生产排查.qbl",
+        [0xff, 0xfe, 1, 0],
+        "keep_both",
+      ),
+    );
+  });
+
+  it("exports the selected scope as versioned JSON", async () => {
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => "blob:quick-commands"),
+      revokeObjectURL: vi.fn(),
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    render(<QuickBar />);
+
+    await user.click(await screen.findByRole("button", { name: "导出快捷命令" }));
+    const dialog = screen.getByRole("dialog", { name: "导出快捷命令" });
+    await user.click(within(dialog).getByRole("button", { name: "全部命令 · 2" }));
+    await user.click(within(dialog).getByRole("button", { name: "导出 JSON" }));
+
+    await waitFor(() => expect(ipcMocks.quickCommandExport).toHaveBeenCalledWith(undefined));
   });
 });

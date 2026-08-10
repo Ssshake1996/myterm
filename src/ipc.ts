@@ -56,6 +56,27 @@ export interface QuickCommand {
   sort: number;
 }
 
+export type QuickCommandImportStrategy = "keep_both" | "overwrite";
+
+export interface QuickCommandImportPreview {
+  source_format: "myterm" | "xshell_qbl";
+  source_version: string;
+  total: number;
+  importable: number;
+  duplicates: number;
+  conflicts: number;
+  skipped: number;
+  groups: string[];
+}
+
+export interface QuickCommandImportResult {
+  imported: number;
+  replaced: number;
+  renamed: number;
+  duplicates: number;
+  skipped: number;
+}
+
 export type AppTheme = "light" | "eye_care" | "dark";
 
 export interface AiProfile {
@@ -233,7 +254,7 @@ export function createChannel<T>(): MessageChannel<T> {
 export async function getAppInfo(): Promise<AppInfo> {
   if (!isDesktopRuntime) {
     return {
-      version: "0.6.5",
+      version: "0.6.6",
       commitHash: "browser-demo",
       startupProfile: null,
       portable: false,
@@ -328,6 +349,32 @@ export async function quickCommandSave(command: QuickCommand): Promise<void> {
 export async function quickCommandDelete(id: string): Promise<void> {
   if (!isDesktopRuntime) return demoBackend.quickCommandDelete(id);
   return invoke("quick_command_delete", { id });
+}
+
+export async function quickCommandImportPreview(
+  fileName: string,
+  bytes: number[],
+): Promise<QuickCommandImportPreview> {
+  if (!isDesktopRuntime) return demoBackend.quickCommandImportPreview(fileName, bytes);
+  return invoke<QuickCommandImportPreview>("quick_command_import_preview", { fileName, bytes });
+}
+
+export async function quickCommandImportApply(
+  fileName: string,
+  bytes: number[],
+  strategy: QuickCommandImportStrategy,
+): Promise<QuickCommandImportResult> {
+  if (!isDesktopRuntime) return demoBackend.quickCommandImportApply(fileName, bytes, strategy);
+  return invoke<QuickCommandImportResult>("quick_command_import_apply", {
+    fileName,
+    bytes,
+    strategy,
+  });
+}
+
+export async function quickCommandExport(group?: string): Promise<string> {
+  if (!isDesktopRuntime) return demoBackend.quickCommandExport(group);
+  return invoke<string>("quick_command_export", { group: group ?? null });
 }
 
 export async function sftpReadDir(sessionId: string, path: string): Promise<RemoteEntry[]> {

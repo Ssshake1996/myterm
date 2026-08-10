@@ -116,6 +116,10 @@ impl ConfigService {
         self.update(|config| config.quick_commands.retain(|command| command.id != id))
     }
 
+    pub fn quick_command_replace_all(&self, commands: Vec<QuickCommand>) -> Result<(), AppError> {
+        self.update(|config| config.quick_commands = commands)
+    }
+
     pub fn app_theme(&self) -> Result<AppTheme, AppError> {
         Ok(self
             .setting_get(THEME_SETTING_KEY)?

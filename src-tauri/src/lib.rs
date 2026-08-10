@@ -2,6 +2,7 @@ pub mod agent;
 pub mod ai;
 pub mod config;
 pub mod ipc;
+pub mod quick_commands;
 pub mod session;
 pub mod sftp;
 pub mod types;
@@ -194,6 +195,9 @@ pub fn run() {
             ipc::quick_command_list,
             ipc::quick_command_save,
             ipc::quick_command_delete,
+            ipc::quick_command_import_preview,
+            ipc::quick_command_import_apply,
+            ipc::quick_command_export,
             ipc::app_theme_get,
             ipc::app_theme_save,
             ipc::sftp_default_directory,

@@ -9,6 +9,9 @@ use tauri::{
 use crate::{
     agent::{domain::AgentTask, mcp, service::AgentEventSink, skills},
     ai::service::{AiChatResult, AiTestResult, DeltaSink},
+    quick_commands::{
+        self, QuickCommandImportPreview, QuickCommandImportResult, QuickCommandImportStrategy,
+    },
     session::{local::detect_shells, manager::OutputSink, profile},
     sftp::service::local_entries,
     types::{
@@ -187,6 +190,33 @@ pub fn quick_command_save(state: State<'_, AppState>, cmd: QuickCommand) -> Resu
 #[tauri::command]
 pub fn quick_command_delete(state: State<'_, AppState>, id: String) -> Result<(), IpcError> {
     state.config.quick_command_delete(&id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn quick_command_import_preview(
+    state: State<'_, AppState>,
+    file_name: String,
+    bytes: Vec<u8>,
+) -> Result<QuickCommandImportPreview, IpcError> {
+    quick_commands::preview(&state.config, &file_name, &bytes).map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn quick_command_import_apply(
+    state: State<'_, AppState>,
+    file_name: String,
+    bytes: Vec<u8>,
+    strategy: QuickCommandImportStrategy,
+) -> Result<QuickCommandImportResult, IpcError> {
+    quick_commands::apply(&state.config, &file_name, &bytes, strategy).map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn quick_command_export(
+    state: State<'_, AppState>,
+    group: Option<String>,
+) -> Result<String, IpcError> {
+    quick_commands::export(&state.config, group.as_deref()).map_err(Into::into)
 }
 
 #[tauri::command]

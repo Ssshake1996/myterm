@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.6.5`
+Current version: `0.6.6`
 
 ## Core Features
 
@@ -29,6 +29,8 @@ Current version: `0.6.5`
 - Organize common, deployment, and troubleshooting commands into command sets that scale to dozens of entries.
 - Compact rows show only operator-authored names; long command bodies stay out of the main surface.
 - Search, create, edit, delete, reorder, and browse commands in a scrolling multi-column layout.
+- Import UTF-16 `.qbl` command sets exported by Xshell 8 and older releases, with a preview of formats, groups, duplicates, conflicts, and unsupported entries.
+- Export the current set or all commands as versioned myterm JSON, then safely keep both conflicting names or explicitly overwrite them on import.
 - A single command may contain multiple lines. Each line is sent with terminal-return semantics.
 - Resize or clearly collapse the command dock while keeping titles vertically centered.
 
@@ -158,4 +160,4 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 
 ## Current Boundaries
 
-Version `0.6.5` does not yet implement multi-SSH Tasks, structured remote HTTP, or Skill-driven OS installation; these follow the staged plan. The first release still excludes complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.
+Version `0.6.6` does not yet implement multi-SSH Tasks, structured remote HTTP, or Skill-driven OS installation; these follow the staged plan. The first release still excludes complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports. Xshell import maps only Send String entries that can be represented safely as terminal text; menu, script, application, and text-file actions are reported as unsupported in the preview. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.

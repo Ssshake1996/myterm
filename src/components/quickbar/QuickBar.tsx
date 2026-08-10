@@ -4,16 +4,19 @@ import {
   ChevronDown,
   ChevronUp,
   CornerDownLeft,
+  Download,
   ListTree,
   Pencil,
   Plus,
   Search,
   TextCursorInput,
+  Upload,
 } from "lucide-react";
-import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type QuickCommand,
   quickCommandDelete,
+  quickCommandImportPreview,
   quickCommandList,
   quickCommandSave,
   terminalWrite,
@@ -21,6 +24,11 @@ import {
 import { getActivePane, useLayoutStore } from "../../store/layout";
 import { useUiStore } from "../../store/ui";
 import { Modal } from "../shell/Modal";
+import {
+  QuickCommandExportModal,
+  QuickCommandImportModal,
+  type QuickCommandImportState,
+} from "./QuickCommandExchange";
 
 const MIN_PANEL_HEIGHT = 168;
 const DEFAULT_PANEL_HEIGHT = 224;
@@ -40,6 +48,9 @@ export function QuickBar() {
   const [collapsed, setCollapsed] = useState(false);
   const [height, setHeight] = useState(DEFAULT_PANEL_HEIGHT);
   const [editing, setEditing] = useState<QuickCommand | null | undefined>(undefined);
+  const [importState, setImportState] = useState<QuickCommandImportState>();
+  const [exportOpen, setExportOpen] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
     void quickCommandList()
@@ -113,6 +124,16 @@ export function QuickBar() {
     window.addEventListener("pointerup", stop);
   };
 
+  const selectImportFile = async (file: File) => {
+    try {
+      const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+      const preview = await quickCommandImportPreview(file.name, bytes);
+      setImportState({ fileName: file.name, bytes, preview });
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "快捷命令文件读取失败", "error");
+    }
+  };
+
   return (
     <>
       <section
@@ -166,6 +187,37 @@ export function QuickBar() {
                   value={query}
                 />
               </label>
+              <input
+                ref={importInputRef}
+                accept=".qbl,.json,application/json"
+                aria-hidden="true"
+                className="visually-hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void selectImportFile(file);
+                  event.target.value = "";
+                }}
+                tabIndex={-1}
+                type="file"
+              />
+              <button
+                aria-label="导入快捷命令"
+                className="quick-panel-icon"
+                onClick={() => importInputRef.current?.click()}
+                title="导入快捷命令"
+                type="button"
+              >
+                <Upload aria-hidden="true" size={15} strokeWidth={1.9} />
+              </button>
+              <button
+                aria-label="导出快捷命令"
+                className="quick-panel-icon"
+                onClick={() => setExportOpen(true)}
+                title="导出快捷命令"
+                type="button"
+              >
+                <Download aria-hidden="true" size={15} strokeWidth={1.9} />
+              </button>
               <button
                 aria-label="新建快捷命令"
                 className="quick-panel-create"
@@ -282,6 +334,29 @@ export function QuickBar() {
           onSaved={() => {
             setEditing(undefined);
             load();
+          }}
+        />
+      ) : null}
+      {importState ? (
+        <QuickCommandImportModal
+          state={importState}
+          onClose={() => setImportState(undefined)}
+          onImported={(message) => {
+            setImportState(undefined);
+            notify(message, "success");
+            load();
+          }}
+        />
+      ) : null}
+      {exportOpen ? (
+        <QuickCommandExportModal
+          currentGroup={group}
+          currentGroupCount={groupCommandCount}
+          total={commands.length}
+          onClose={() => setExportOpen(false)}
+          onExported={(message) => {
+            setExportOpen(false);
+            notify(message, "success");
           }}
         />
       ) : null}

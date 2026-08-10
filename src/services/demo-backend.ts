@@ -11,11 +11,113 @@ import type {
   McpToolInfo,
   MessageChannel,
   QuickCommand,
+  QuickCommandImportPreview,
+  QuickCommandImportResult,
+  QuickCommandImportStrategy,
   RemoteEntry,
   SessionInfo,
   SessionProfile,
   TransferProgress,
 } from "../ipc";
+
+interface PortableQuickCommand {
+  label: string;
+  group: string;
+  command: string;
+  send_newline: boolean;
+  sort: number;
+}
+
+interface ParsedQuickCommands {
+  format: "myterm" | "xshell_qbl";
+  version: string;
+  total: number;
+  skipped: number;
+  commands: PortableQuickCommand[];
+}
+
+function decodeQuickCommandBytes(bytes: number[]) {
+  const source = Uint8Array.from(bytes);
+  if (source[0] === 0xff && source[1] === 0xfe) {
+    return new TextDecoder("utf-16le").decode(source.slice(2));
+  }
+  if (source[0] === 0xfe && source[1] === 0xff) {
+    return new TextDecoder("utf-16be").decode(source.slice(2));
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(source);
+}
+
+function parseDemoQuickCommands(fileName: string, bytes: number[]): ParsedQuickCommands {
+  const source = decodeQuickCommandBytes(bytes)
+    .replace(/^\uFEFF/, "")
+    .trim();
+  if (source.startsWith("{")) {
+    const value = JSON.parse(source) as {
+      format?: string;
+      version?: number;
+      commands?: PortableQuickCommand[];
+    };
+    if (value.format !== "myterm.quick-commands" || value.version !== 1) {
+      throw new Error("不支持的 myterm 快捷命令文件");
+    }
+    const commands = (value.commands ?? []).filter(
+      (command) => command.label?.trim() && command.group?.trim() && command.command?.trim(),
+    );
+    return {
+      format: "myterm",
+      version: "1",
+      total: value.commands?.length ?? 0,
+      skipped: (value.commands?.length ?? 0) - commands.length,
+      commands,
+    };
+  }
+
+  const sections = new Map<string, Map<string, string>>();
+  let current = "";
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line.startsWith("[") && line.endsWith("]")) {
+      current = line.slice(1, -1).toLowerCase();
+      continue;
+    }
+    const separator = line.indexOf("=");
+    if (separator < 0) continue;
+    const section = sections.get(current) ?? new Map<string, string>();
+    section.set(line.slice(0, separator).trim().toLowerCase(), line.slice(separator + 1));
+    sections.set(current, section);
+  }
+  const info = sections.get("info");
+  const quick = sections.get("quickbutton");
+  if (!quick) throw new Error("Xshell QBL 缺少 [QuickButton] 命令区");
+  const total = Number(info?.get("count") ?? 0);
+  const group = fileName.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, "") || "Xshell 导入";
+  const commands: PortableQuickCommand[] = [];
+  let skipped = 0;
+  for (let index = 0; index < total; index += 1) {
+    const type = quick.get(`button_${index}_type`) ?? quick.get(`type_${index}`);
+    const label = quick.get(`button_${index}_name`) ?? quick.get(`label_${index}`) ?? "";
+    const action = quick.get(`button_${index}_action`) ?? quick.get(`text_${index}`) ?? "";
+    if (Number(type) !== 1 || !label.trim() || !action) {
+      skipped += 1;
+      continue;
+    }
+    const unescaped = action.replace(/\\r/g, "\r").replace(/\\n/g, "\n");
+    commands.push({
+      label: label.trim(),
+      group,
+      command: unescaped.replace(/[\r\n]+$/, "").replace(/\r\n?/g, "\n"),
+      send_newline: /[\r\n]$/.test(unescaped),
+      sort: index,
+    });
+  }
+  return {
+    format: "xshell_qbl",
+    version: info?.get("version") ?? "legacy",
+    total,
+    skipped,
+    commands,
+  };
+}
 
 const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   permission_mode: "confirm",
@@ -268,6 +370,125 @@ class DemoBackend {
   async quickCommandDelete(id: string) {
     this.commands = this.commands.filter((command) => command.id !== id);
     writeStored("myterm.demo.commands", this.commands);
+  }
+
+  async quickCommandImportPreview(
+    fileName: string,
+    bytes: number[],
+  ): Promise<QuickCommandImportPreview> {
+    const parsed = parseDemoQuickCommands(fileName, bytes);
+    let duplicates = 0;
+    let conflicts = 0;
+    for (const candidate of parsed.commands) {
+      const existing = this.commands.find(
+        (command) => command.group === candidate.group && command.label === candidate.label,
+      );
+      if (!existing) continue;
+      if (
+        existing.command === candidate.command &&
+        existing.send_newline === candidate.send_newline
+      ) {
+        duplicates += 1;
+      } else {
+        conflicts += 1;
+      }
+    }
+    return {
+      source_format: parsed.format,
+      source_version: parsed.version,
+      total: parsed.total,
+      importable: parsed.commands.length - duplicates,
+      duplicates,
+      conflicts,
+      skipped: parsed.skipped,
+      groups: [...new Set(parsed.commands.map((command) => command.group))].sort(),
+    };
+  }
+
+  async quickCommandImportApply(
+    fileName: string,
+    bytes: number[],
+    strategy: QuickCommandImportStrategy,
+  ): Promise<QuickCommandImportResult> {
+    const parsed = parseDemoQuickCommands(fileName, bytes);
+    const result: QuickCommandImportResult = {
+      imported: 0,
+      replaced: 0,
+      renamed: 0,
+      duplicates: 0,
+      skipped: parsed.skipped,
+    };
+    for (const candidate of parsed.commands) {
+      const existing = this.commands.find(
+        (command) => command.group === candidate.group && command.label === candidate.label,
+      );
+      if (
+        existing?.command === candidate.command &&
+        existing.send_newline === candidate.send_newline
+      ) {
+        result.duplicates += 1;
+        continue;
+      }
+      if (existing && strategy === "overwrite") {
+        existing.command = candidate.command;
+        existing.send_newline = candidate.send_newline;
+        result.replaced += 1;
+        continue;
+      }
+      let label = candidate.label;
+      if (existing) {
+        let suffix = 1;
+        do {
+          label = `${candidate.label} (导入${suffix === 1 ? "" : ` ${suffix}`})`;
+          suffix += 1;
+        } while (
+          this.commands.some(
+            (command) => command.group === candidate.group && command.label === label,
+          )
+        );
+        result.renamed += 1;
+      }
+      const sort =
+        Math.max(
+          -1,
+          ...this.commands
+            .filter((command) => command.group === candidate.group)
+            .map((command) => command.sort),
+        ) + 1;
+      this.commands.push({ ...candidate, id: crypto.randomUUID(), label, sort });
+      result.imported += 1;
+    }
+    writeStored("myterm.demo.commands", this.commands);
+    return result;
+  }
+
+  async quickCommandExport(group?: string) {
+    const commands = this.commands
+      .filter((command) => !group || command.group === group)
+      .sort(
+        (left, right) =>
+          left.group.localeCompare(right.group) ||
+          left.sort - right.sort ||
+          left.label.localeCompare(right.label),
+      )
+      .map(({ label, group: commandGroup, command, send_newline, sort }) => ({
+        label,
+        group: commandGroup,
+        command,
+        send_newline,
+        sort,
+      }));
+    return JSON.stringify(
+      {
+        format: "myterm.quick-commands",
+        version: 1,
+        exported_at: Math.floor(Date.now() / 1000),
+        scope: group ?? "all",
+        commands,
+      },
+      null,
+      2,
+    );
   }
 
   async sftpReadDir(_sessionId: string, path: string): Promise<RemoteEntry[]> {

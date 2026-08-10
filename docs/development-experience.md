@@ -81,6 +81,14 @@ Version 0.6.5 makes the SFTP browser useful for operational file sets without ex
 - Batch uploads and downloads reuse the existing two-slot transfer queue for both files and directory trees; the UI registers each task and exposes terminal failure details.
 - Remote batch delete executes sequentially after one confirmation, preserves successful deletions when another item fails, and reports the success/failure split; rename remains single-item only.
 
+Version 0.6.6 adds a bounded quick-command interchange boundary without adding a dialog, filesystem, CSV, or encoding dependency:
+
+- Native export uses a versioned `myterm.quick-commands` JSON envelope and excludes runtime IDs so files merge cleanly across machines.
+- Xshell import is based on the actual UTF-16LE `.qbl` contract: Xshell 8.2 `Button_%d_Name/Type/Action` fields plus the legacy `Type_/Label_/Text_/CR_` layout.
+- Only Send String actions are mapped. Menu, script, application, and text-file actions remain visible as skipped entries instead of being guessed into unsafe shell commands.
+- Preview and apply both parse and validate the source. Exact duplicates are skipped, conflicts default to a deterministic imported label, explicit overwrite preserves the existing ID/order, and the final command vector is written with one atomic configuration replacement.
+- Browser file input and Blob download keep the desktop runtime dependency set unchanged; exchange dialogs are isolated from the command-dock component after the first implementation made that component too large.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.
@@ -101,6 +109,12 @@ All frontend calls live in `src/ipc.ts`. Components import typed functions rathe
 ### Browser demo adapter
 
 The desktop application depends on Rust, WebView2, SSH targets, and optional AI endpoints. A browser demo adapter implements the same frontend contract for visual verification and interaction tests. It is selected only when Tauri is unavailable and does not move production network or credential logic into JavaScript.
+
+### Quick-command interchange boundary
+
+External formats terminate at `quick_commands.rs`. The React dock sends raw bounded bytes for preview and apply, while Rust owns BOM-aware decoding, source detection, normalization, conflict classification, ID generation, ordering, and persistence. This keeps Xshell compatibility out of components and prevents a preview/apply mismatch from bypassing current configuration state.
+
+Using the WebView file picker and download primitive keeps the installer small and avoids a second native file-dialog/filesystem stack. The tradeoff is that export follows the WebView's download destination instead of choosing an arbitrary native path inside myterm. For command-set files this is acceptable; a future workspace-wide backup feature would justify a first-party Tauri dialog/filesystem plugin because it has broader path and overwrite requirements.
 
 ### Shared session layout state
 
@@ -222,6 +236,7 @@ This pattern is reusable when a specification is sourced from one repository but
 | Windows credential vault | The keyring API reported a successful write, but immediate readback returned no entry | The upstream Windows backend uses enterprise persistence, which silently failed on this host | Use native `CredWriteW`, `CredReadW`, and `CredDeleteW` with local-machine persistence, zero the temporary byte buffer, and verify every write | Ignored real-vault round-trip test passes; AI credential remains available after the test process exits |
 | AI base URL compatibility | Model discovery worked, but streaming chat returned 0 characters and a false success | A host-only base URL sent `POST /chat/completions` to the gateway's HTML application; its OpenAI API is under `/v1` | Parse the configured URL and insert `/v1` only when it has no path; preserve explicit `/v1` and custom path prefixes | App service reports 7 models and receives the 12-character `MYTERM_AI_OK` stream marker |
 | Quick-command scale | Deployment and troubleshooting commands were confined to a one-line horizontal scroller; the 14 px collapsed marker was easy to miss | The original component modeled commands as toolbar buttons instead of a managed operational library | Replace it with a resizable dock, vertical command-set navigation, group search, multi-column scrolling rows, visible edit controls, and labeled Lucide collapse states | 32-command component test passes; 36-command Playwright QA passes at desktop and narrow viewports |
+| Xshell interchange contract | Official documentation confirms Quick Commands import/export but does not publish the `.qbl` field schema | Treating the file as generic INI or guessing action types could silently turn non-command actions into terminal input | Inspect a real Xshell 8.2 UTF-16LE export and the installed parser's field constants, then constrain mapping to `Button_*` Send String entries and the verified legacy layout | Rust fixtures decode UTF-16, map multiline text, skip an unsupported action, and browser QA reports the same 4/3/1 preview totals |
 | Silent NSIS upgrade | A silent `0.1.0` to `0.1.1` install updated the version but left an old-install-only marker in place | Tauri's interactive maintenance page can drive uninstallation, while silent mode copies over the existing directory | Add a guarded `NSIS_HOOK_PREINSTALL` that invokes the old uninstaller in update mode and cleans the verified install directory before copying | Repeated `0.1.0` to `0.1.1` silent upgrade removes the marker, leaves one uninstall entry, and preserves configuration and credentials |
 | Saved-session duplication | A profile row had both click and double-click connection handlers | The second click of a double-click also triggered the single-click path | Make single click the only connection gesture and give edit/delete dedicated visible controls | Component test asserts exactly one connect call per click |
 | Credential edit semantics | Editing an SSH profile with a blank password could not distinguish retain from erase | Credential saving was split between the modal and separate vault IPC calls | Move profile and credential changes into one Rust domain operation with rollback and obsolete-reference cleanup | Add/edit/reload/delete tests pass with both memory and Windows vaults |
@@ -248,13 +263,13 @@ Update this table with the exact outcome rather than an optimistic status.
 | Check | Command | Result |
 |---|---|---|
 | TypeScript | `npm run typecheck` | Pass |
-| Frontend lint | `npm run lint` | Pass, 36 files |
-| Frontend tests | `npm test` | Pass, 34 tests across 12 files |
-| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; release main entry 103.05 kB and lazy SFTP entry 11.26 kB |
+| Frontend lint | `npm run lint` | Pass, 37 files |
+| Frontend tests | `npm test` | Pass, 36 tests across 12 files |
+| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; release main entry 113.59 kB and lazy SFTP entry 11.26 kB |
 | Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Pass |
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
 | Rust lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | Pass; `russh 0.54.5` emits a dependency future-incompatibility notice |
-| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml` | Pass, 35 tests discovered: 34 passed and 1 interactive keyring test ignored |
+| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml --lib` | Pass, 38 passed and 1 interactive keyring test ignored |
 | Windows credential round trip | `cargo test --manifest-path src-tauri/Cargo.toml keyring_round_trip -- --ignored --nocapture` | Pass; native vault write, read, and cleanup all succeed |
 | AI live integration | Production `AiService::test_connection` and streaming `AiService::chat` with the configured profile | Pass; 7 models found, chat completed with `stop`, 12 characters received, expected marker present |
 | Saved-server CRUD | `live_check verify-crud` with the Windows credential vault | Pass; create, edit without re-entering secret, reload, delete, and credential cleanup verified |
@@ -275,6 +290,8 @@ Update this table with the exact outcome rather than an optimistic status.
 | Multiline quick command | Create, save, execute, and delete a two-line command in browser QA | Pass; command body is hidden from the compact library and both lines are sent as separate terminal returns |
 | Split close | Create a right split and close the right caption action | Pass; target session is disconnected, one terminal remains, and the split action becomes available again |
 | Quick-command title alignment | Measure the first three `.quick-command-main` and label rectangles in browser QA | Pass; `align-items` resolves to `center` and every label center offset is exactly 0 px |
+| Quick-command interchange tests | `QuickBar.test.tsx` plus `quick_commands.rs` unit tests | Pass; preview, default keep-both merge, export scope, UTF-16LE Xshell mapping, deterministic conflict handling, and versioned native export are covered |
+| Quick-command interchange QA | Import a real-shape Xshell 8.2 `.qbl`, export all commands, and inspect desktop plus 900 x 650 layouts | Pass; preview reports 4 total, 3 importable, and 1 unsupported; downloaded JSON is schema v1 with 6 portable entries and no runtime IDs; narrow scroll width equals 900 px |
 | Windows release build | `npm run build:release` | Pass for 0.6.0; optimized native EXE, NSIS installer, and portable ZIP produced |
 | Distribution audit | `npm run check:dist` | Pass; 0.6.0 installer 8.00 MB, portable ZIP 8.98 MB, and required portable files are present |
 | Native startup smoke | Start installed 0.6.0 with `--profile yuxiaservers` | Pass; process opens and remains responsive; separate fresh-config live check authenticates as `root` with the saved vault credential |
@@ -299,6 +316,8 @@ Update this table with the exact outcome rather than an optimistic status.
 | 0.6.4 upgrade install | Silently install over 0.6.3, then inspect file metadata, registry, shortcut, configuration hash, SSH, and SFTP | Pass; one 0.6.4 uninstall entry and desktop shortcut remain, configuration SHA-256 is unchanged, the installed window responds, and saved-profile SFTP resolves `/root` with 12 entries |
 | SFTP multi-selection release | `npm run build:release` and `npm run check:dist` | Pass for 0.6.5; installer is 7.61 MB, portable ZIP is 8.36 MB, and the lazy SFTP entry is 11.26 kB without a new runtime dependency |
 | 0.6.5 upgrade install | Silently install over 0.6.4, then inspect file metadata, registry, shortcut, configuration hash, SSH, and queued transfers | Pass; one 0.6.5 uninstall entry and desktop shortcut remain, configuration SHA-256 is unchanged, the installed window responds, saved SSH authenticates, and two uploads plus two downloads complete with exact readback |
+| Quick-command interchange release | `npm run build:release` and `npm run check:dist` | Pass for 0.6.6; installer is 7.64 MB, portable ZIP is 8.40 MB, required portable files are present, and no runtime dependency was added |
+| 0.6.6 upgrade install | Silently install over 0.6.5, then inspect file metadata, registry, shortcut, configuration hash, process response, and SSH | Pass; installer exits 0, one 0.6.6 uninstall entry and desktop shortcut remain, configuration SHA-256 and saved-profile count are unchanged, the installed process responds, and vault-backed SSH authenticates as `root` |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
 The browser screenshots and console logs are generated under ignored `output/playwright/` paths. They are verification artifacts rather than shipped product files.
