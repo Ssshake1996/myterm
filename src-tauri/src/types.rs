@@ -144,6 +144,16 @@ pub enum AppTheme {
     Dark,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AppFontScale {
+    Small,
+    #[default]
+    Standard,
+    Large,
+    ExtraLarge,
+}
+
 // ── Quick commands ───────────────────────────────────────
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -158,12 +168,22 @@ pub struct QuickCommand {
 
 // ── AI ───────────────────────────────────────────────────
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AiAuthMode {
+    #[default]
+    Bearer,
+    ApiKey,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AiProfile {
     pub id: String,
     pub name: String,
     pub base_url: String,
     pub api_key_ref: String,
+    #[serde(default)]
+    pub auth_mode: AiAuthMode,
     pub model: String,
     pub system_prompt: String,
     pub context_lines: u32,

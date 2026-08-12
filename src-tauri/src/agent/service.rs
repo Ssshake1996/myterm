@@ -20,7 +20,7 @@ use super::{
     store::AgentStore,
 };
 use crate::{
-    ai::service::{endpoint, summarize},
+    ai::service::{endpoint, summarize, with_auth},
     config::{ConfigService, CredentialVault, DEFAULT_SYSTEM_PROMPT},
     session::{
         manager::SessionManager,
@@ -670,20 +670,22 @@ impl AgentService {
         messages: &[Value],
         tools: &[Value],
     ) -> Result<ChatResponse, AppError> {
-        let response = self
-            .client
-            .post(endpoint(&profile.base_url, "chat/completions")?)
-            .bearer_auth(key)
-            .json(&json!({
-                "model": profile.model,
-                "messages": messages,
-                "tools": tools,
-                "tool_choice": "auto",
-                "stream": false,
-            }))
-            .send()
-            .await
-            .map_err(|error| AppError::Ai(error.to_string()))?;
+        let response = with_auth(
+            self.client
+                .post(endpoint(&profile.base_url, "chat/completions")?),
+            profile,
+            key,
+        )
+        .json(&json!({
+            "model": profile.model,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "auto",
+            "stream": false,
+        }))
+        .send()
+        .await
+        .map_err(|error| AppError::Ai(error.to_string()))?;
         let status = response.status();
         let body = response
             .text()
@@ -2038,6 +2040,7 @@ mod tests {
             name: "AI".to_owned(),
             base_url: "http://localhost".to_owned(),
             api_key_ref: "key".to_owned(),
+            auth_mode: crate::types::AiAuthMode::Bearer,
             model: "model".to_owned(),
             system_prompt: String::new(),
             context_lines: 80,

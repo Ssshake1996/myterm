@@ -26,6 +26,7 @@ const aiProfile = {
   name: "Ops AI",
   base_url: "https://api.example.test/v1",
   api_key_ref: "ai.ai-1.key",
+  auth_mode: "bearer" as const,
   model: "ops-model",
   system_prompt: "",
   context_lines: 80,

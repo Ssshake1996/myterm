@@ -24,6 +24,6 @@ export function Modal({ title, onClose, footer, size = "medium", children }: Mod
         {footer ? <footer className="modal-footer">{footer}</footer> : null}
       </section>
     </div>,
-    document.body,
+    document.getElementById("root") ?? document.body,
   );
 }

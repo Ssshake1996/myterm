@@ -1,12 +1,13 @@
 use std::{sync::Arc, time::Duration};
 
+use reqwest::RequestBuilder;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{watch, Mutex};
 
 use crate::{
     config::{ConfigService, CredentialVault, DEFAULT_SYSTEM_PROMPT},
     session::manager::SessionManager,
-    types::{AiMessage, AiProfile, AiRole},
+    types::{AiAuthMode, AiMessage, AiProfile, AiRole},
     AppError,
 };
 
@@ -62,13 +63,14 @@ impl AiService {
     pub async fn test_connection(&self, profile_id: &str) -> Result<AiTestResult, AppError> {
         let profile = self.profile(profile_id)?;
         let key = self.vault.get(&profile.api_key_ref)?.unwrap_or_default();
-        let response = self
-            .client
-            .get(endpoint(&profile.base_url, "models")?)
-            .bearer_auth(key)
-            .send()
-            .await
-            .map_err(|error| AppError::Ai(error.to_string()))?;
+        let response = with_auth(
+            self.client.get(endpoint(&profile.base_url, "models")?),
+            &profile,
+            &key,
+        )
+        .send()
+        .await
+        .map_err(|error| AppError::Ai(error.to_string()))?;
         let status = response.status();
         let body = response
             .text()
@@ -164,14 +166,16 @@ impl AiService {
             .get(&profile.api_key_ref)?
             .ok_or_else(|| AppError::Ai("API key is not configured".to_owned()))?;
         let started = std::time::Instant::now();
-        let mut response = self
-            .client
-            .post(endpoint(&profile.base_url, "chat/completions")?)
-            .bearer_auth(key)
-            .json(&request)
-            .send()
-            .await
-            .map_err(|error| AppError::Ai(error.to_string()))?;
+        let mut response = with_auth(
+            self.client
+                .post(endpoint(&profile.base_url, "chat/completions")?),
+            &profile,
+            &key,
+        )
+        .json(&request)
+        .send()
+        .await
+        .map_err(|error| AppError::Ai(error.to_string()))?;
         let status = response.status();
         if !status.is_success() {
             let body = response
@@ -345,6 +349,13 @@ pub(crate) fn endpoint(base_url: &str, path: &str) -> Result<reqwest::Url, AppEr
     Ok(url)
 }
 
+pub(crate) fn with_auth(request: RequestBuilder, profile: &AiProfile, key: &str) -> RequestBuilder {
+    match profile.auth_mode {
+        AiAuthMode::Bearer => request.bearer_auth(key),
+        AiAuthMode::ApiKey => request.header(reqwest::header::AUTHORIZATION, key),
+    }
+}
+
 pub(crate) fn summarize(body: &str) -> String {
     let clean = body.replace(['\r', '\n'], " ");
     clean.chars().take(512).collect()
@@ -352,7 +363,8 @@ pub(crate) fn summarize(body: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{endpoint, summarize, SseDecoder};
+    use super::{endpoint, summarize, with_auth, SseDecoder};
+    use crate::types::{AiAuthMode, AiProfile};
 
     #[test]
     fn parses_split_sse_and_ignores_unknown_lines() -> Result<(), Box<dyn std::error::Error>> {
@@ -378,6 +390,41 @@ mod tests {
         );
         assert_eq!(summarize("line one\nline two"), "line one line two");
         assert_eq!(summarize(&"x".repeat(600)).len(), 512);
+        Ok(())
+    }
+
+    #[test]
+    fn auth_mode_builds_bearer_or_raw_authorization_header(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut profile = AiProfile {
+            id: "ai".to_owned(),
+            name: "AI".to_owned(),
+            base_url: "http://localhost".to_owned(),
+            api_key_ref: "key".to_owned(),
+            auth_mode: AiAuthMode::Bearer,
+            model: "model".to_owned(),
+            system_prompt: String::new(),
+            context_lines: 80,
+        };
+        let request = with_auth(
+            reqwest::Client::new().get("http://localhost"),
+            &profile,
+            "sk-test",
+        )
+        .build()?;
+        assert_eq!(
+            request.headers()[reqwest::header::AUTHORIZATION],
+            "Bearer sk-test"
+        );
+
+        profile.auth_mode = AiAuthMode::ApiKey;
+        let request = with_auth(
+            reqwest::Client::new().get("http://localhost"),
+            &profile,
+            "sk-test",
+        )
+        .build()?;
+        assert_eq!(request.headers()[reqwest::header::AUTHORIZATION], "sk-test");
         Ok(())
     }
 }

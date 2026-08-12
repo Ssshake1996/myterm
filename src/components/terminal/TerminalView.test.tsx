@@ -9,7 +9,7 @@ import { TerminalView } from "./TerminalView";
 const terminalMocks = vi.hoisted(() => ({
   write: vi.fn(),
   fit: vi.fn(),
-  options: { theme: {} as Record<string, string> },
+  options: { theme: {} as Record<string, string>, fontSize: 13 },
 }));
 
 const ipcMocks = vi.hoisted(() => ({
@@ -104,6 +104,8 @@ describe("TerminalView", () => {
     ipcMocks.terminalResize.mockResolvedValue(undefined);
     ipcMocks.sessionDisconnect.mockResolvedValue(undefined);
     useUiStore.getState().setTheme("dark");
+    useUiStore.getState().setFontScale("standard");
+    useUiStore.getState().setTerminalFontSize(13);
     useLayoutStore.setState({
       activeTabId: "tab-terminal",
       tabs: [
@@ -163,6 +165,16 @@ describe("TerminalView", () => {
     act(() => useUiStore.getState().setTheme("eye_care"));
 
     await waitFor(() => expect(terminalMocks.options.theme.background).toBe("#f2f6eb"));
+    expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates terminal font size without reconnecting", async () => {
+    render(<TerminalView pane={pane} profile={profile} />);
+    await waitFor(() => expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1));
+
+    act(() => useUiStore.getState().setTerminalFontSize(18));
+
+    await waitFor(() => expect(terminalMocks.options.fontSize).toBe(18));
     expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1);
   });
 

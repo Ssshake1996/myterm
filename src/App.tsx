@@ -10,8 +10,11 @@ import { ToastRegion } from "./components/shell/ToastRegion";
 import { TabBar } from "./components/tabs/TabBar";
 import { Workspace } from "./components/tabs/Workspace";
 import {
+  type AppFontScale,
   type AppInfo,
   type AppTheme,
+  appFontScaleGet,
+  appFontScaleSave,
   appThemeGet,
   appThemeSave,
   getAppInfo,
@@ -19,6 +22,8 @@ import {
   onSessionState,
   profileList,
   type SessionProfile,
+  terminalFontSizeGet,
+  terminalFontSizeSave,
 } from "./ipc";
 import { getActivePane, useLayoutStore } from "./store/layout";
 import { useUiStore } from "./store/ui";
@@ -31,7 +36,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo>({
-    version: "0.6.6",
+    version: "0.6.7",
     commitHash: "unknown",
     startupProfile: null,
     portable: false,
@@ -42,15 +47,27 @@ export function App() {
   const activePane = useLayoutStore(getActivePane);
   const notify = useUiStore((state) => state.notify);
   const theme = useUiStore((state) => state.theme);
+  const fontScale = useUiStore((state) => state.fontScale);
+  const terminalFontSize = useUiStore((state) => state.terminalFontSize);
   const setTheme = useUiStore((state) => state.setTheme);
+  const setFontScale = useUiStore((state) => state.setFontScale);
+  const setTerminalFontSize = useUiStore((state) => state.setTerminalFontSize);
   const setWorkspaceView = useUiStore((state) => state.setWorkspaceView);
 
   useEffect(() => {
-    void Promise.all([profileList(), getAppInfo(), appThemeGet()])
-      .then(([items, info, savedTheme]) => {
+    void Promise.all([
+      profileList(),
+      getAppInfo(),
+      appThemeGet(),
+      appFontScaleGet(),
+      terminalFontSizeGet(),
+    ])
+      .then(([items, info, savedTheme, savedFontScale, savedTerminalFontSize]) => {
         setProfiles(items);
         setAppInfo(info);
         setTheme(savedTheme);
+        setFontScale(savedFontScale);
+        setTerminalFontSize(savedTerminalFontSize);
         const startup = info.startupProfile
           ? items.find((profile) => profile.name === info.startupProfile)
           : !isDesktopRuntime
@@ -66,7 +83,7 @@ export function App() {
       .catch((error) =>
         notify(error instanceof Error ? error.message : "会话配置读取失败", "error"),
       );
-  }, [notify, openProfile, setTheme]);
+  }, [notify, openProfile, setFontScale, setTerminalFontSize, setTheme]);
 
   const selectTheme = async (nextTheme: AppTheme) => {
     const previousTheme = theme;
@@ -76,6 +93,29 @@ export function App() {
     } catch (error) {
       setTheme(previousTheme);
       notify(error instanceof Error ? error.message : "主题保存失败", "error");
+    }
+  };
+
+  const selectFontScale = async (nextScale: AppFontScale) => {
+    const previousScale = fontScale;
+    setFontScale(nextScale);
+    try {
+      await appFontScaleSave(nextScale);
+    } catch (error) {
+      setFontScale(previousScale);
+      notify(error instanceof Error ? error.message : "界面字号保存失败", "error");
+    }
+  };
+
+  const selectTerminalFontSize = async (nextSize: number) => {
+    const previousSize = terminalFontSize;
+    setTerminalFontSize(nextSize);
+    try {
+      const saved = await terminalFontSizeSave(nextSize);
+      setTerminalFontSize(saved);
+    } catch (error) {
+      setTerminalFontSize(previousSize);
+      notify(error instanceof Error ? error.message : "终端字号保存失败", "error");
     }
   };
 
@@ -246,6 +286,42 @@ export function App() {
                 </button>
               ))}
             </fieldset>
+            <h3>字号</h3>
+            <div className="font-settings">
+              <label className="font-setting-row">
+                <span>
+                  <strong>界面字号</strong>
+                  <small>放大侧栏、工具栏和设置文字</small>
+                </span>
+                <select
+                  aria-label="界面字号"
+                  onChange={(event) => void selectFontScale(event.target.value as AppFontScale)}
+                  value={fontScale}
+                >
+                  <option value="small">小 · 90%</option>
+                  <option value="standard">标准 · 100%</option>
+                  <option value="large">大 · 115%</option>
+                  <option value="extra_large">特大 · 130%</option>
+                </select>
+              </label>
+              <label className="font-setting-row">
+                <span>
+                  <strong>终端字号</strong>
+                  <small>只调整 SSH 和本地终端内容</small>
+                </span>
+                <select
+                  aria-label="终端字号"
+                  onChange={(event) => void selectTerminalFontSize(Number(event.target.value))}
+                  value={terminalFontSize}
+                >
+                  {[12, 13, 14, 15, 16, 18, 20, 22].map((size) => (
+                    <option key={size} value={size}>
+                      {size}px
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </section>
           <h3 className="settings-section-title">关于</h3>
           <dl className="about-details">

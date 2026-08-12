@@ -15,8 +15,9 @@ use crate::{
     session::{local::detect_shells, manager::OutputSink, profile},
     sftp::service::local_entries,
     types::{
-        AgentEvent, AgentRunResult, AgentSettings, AiMessage, AiProfile, AppTheme, McpServerConfig,
-        McpToolInfo, QuickCommand, RemoteEntry, SessionInfo, SessionProfile, SkillInfo, TransferId,
+        AgentEvent, AgentRunResult, AgentSettings, AiMessage, AiProfile, AppFontScale, AppTheme,
+        McpServerConfig, McpToolInfo, QuickCommand, RemoteEntry, SessionInfo, SessionProfile,
+        SkillInfo, TransferId,
     },
     AppError, AppState, IpcError,
 };
@@ -228,6 +229,33 @@ pub fn app_theme_get(state: State<'_, AppState>) -> Result<AppTheme, IpcError> {
 pub fn app_theme_save(state: State<'_, AppState>, theme: AppTheme) -> Result<AppTheme, IpcError> {
     state.config.app_theme_save(theme)?;
     state.config.app_theme().map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn app_font_scale_get(state: State<'_, AppState>) -> Result<AppFontScale, IpcError> {
+    state.config.app_font_scale().map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn app_font_scale_save(
+    state: State<'_, AppState>,
+    scale: AppFontScale,
+) -> Result<AppFontScale, IpcError> {
+    state.config.app_font_scale_save(scale)?;
+    state.config.app_font_scale().map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn terminal_font_size_get(state: State<'_, AppState>) -> Result<u32, IpcError> {
+    state.config.terminal_font_size().map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn terminal_font_size_save(state: State<'_, AppState>, size: u32) -> Result<u32, IpcError> {
+    state
+        .config
+        .terminal_font_size_save(size)
+        .map_err(Into::into)
 }
 
 #[tauri::command]

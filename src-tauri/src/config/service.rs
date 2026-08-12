@@ -11,12 +11,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    types::{AgentSettings, AiProfile, AppTheme, QuickCommand, SessionProfile},
+    types::{AgentSettings, AiProfile, AppFontScale, AppTheme, QuickCommand, SessionProfile},
     AppError,
 };
 
 pub const DEFAULT_SYSTEM_PROMPT: &str = "You are a senior Linux operations assistant embedded in an SSH terminal client.\nRules:\n- Answer based on the terminal output provided by the user. Do not invent output.\n- When suggesting a fix, give the exact command in a fenced code block, one command per block.\n- Never suggest destructive commands (rm -rf, dd, mkfs...) without an explicit warning.\n- Reply in the language the user writes in.";
 const THEME_SETTING_KEY: &str = "theme";
+const FONT_SCALE_SETTING_KEY: &str = "font_scale";
+const TERMINAL_FONT_SIZE_SETTING_KEY: &str = "terminal_font_size";
 const REMOVED_REST_TOKEN_SETTING_KEY: &str = "rest_token_hash";
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -129,6 +131,37 @@ impl ConfigService {
 
     pub fn app_theme_save(&self, theme: AppTheme) -> Result<(), AppError> {
         self.setting_set(THEME_SETTING_KEY.to_owned(), serde_json::to_value(theme)?)
+    }
+
+    pub fn app_font_scale(&self) -> Result<AppFontScale, AppError> {
+        Ok(self
+            .setting_get(FONT_SCALE_SETTING_KEY)?
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default())
+    }
+
+    pub fn app_font_scale_save(&self, scale: AppFontScale) -> Result<(), AppError> {
+        self.setting_set(
+            FONT_SCALE_SETTING_KEY.to_owned(),
+            serde_json::to_value(scale)?,
+        )
+    }
+
+    pub fn terminal_font_size(&self) -> Result<u32, AppError> {
+        Ok(self
+            .setting_get(TERMINAL_FONT_SIZE_SETTING_KEY)?
+            .and_then(|value| value.as_u64())
+            .map(|value| value.clamp(12, 22) as u32)
+            .unwrap_or(13))
+    }
+
+    pub fn terminal_font_size_save(&self, size: u32) -> Result<u32, AppError> {
+        let size = size.clamp(12, 22);
+        self.setting_set(
+            TERMINAL_FONT_SIZE_SETTING_KEY.to_owned(),
+            serde_json::json!(size),
+        )?;
+        Ok(size)
     }
 
     pub fn ai_profile_list(&self) -> Result<Vec<AiProfile>, AppError> {
@@ -309,7 +342,7 @@ pub fn default_config_path(portable: bool) -> Result<PathBuf, AppError> {
 #[cfg(test)]
 mod tests {
     use super::{AppConfig, ConfigService};
-    use crate::types::{AppTheme, AuthMethod, SessionProfile, SessionTarget};
+    use crate::types::{AppFontScale, AppTheme, AuthMethod, SessionProfile, SessionTarget};
     use serde_json::Value;
     use std::fs;
 
@@ -390,6 +423,25 @@ mod tests {
         service.app_theme_save(AppTheme::EyeCare)?;
         let reloaded = ConfigService::open(path)?;
         assert_eq!(reloaded.app_theme()?, AppTheme::EyeCare);
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn appearance_font_settings_are_clamped_and_persisted() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let root = test_root();
+        let path = root.join("config.json");
+        let service = ConfigService::open(path.clone())?;
+        assert_eq!(service.app_font_scale()?, AppFontScale::Standard);
+        assert_eq!(service.terminal_font_size()?, 13);
+
+        service.app_font_scale_save(AppFontScale::ExtraLarge)?;
+        assert_eq!(service.terminal_font_size_save(99)?, 22);
+        let reloaded = ConfigService::open(path)?;
+        assert_eq!(reloaded.app_font_scale()?, AppFontScale::ExtraLarge);
+        assert_eq!(reloaded.terminal_font_size()?, 22);
 
         fs::remove_dir_all(root)?;
         Ok(())

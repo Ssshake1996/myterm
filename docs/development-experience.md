@@ -89,6 +89,12 @@ Version 0.6.6 adds a bounded quick-command interchange boundary without adding a
 - Preview and apply both parse and validate the source. Exact duplicates are skipped, conflicts default to a deterministic imported label, explicit overwrite preserves the existing ID/order, and the final command vector is written with one atomic configuration replacement.
 - Browser file input and Blob download keep the desktop runtime dependency set unchanged; exchange dialogs are isolated from the command-dock component after the first implementation made that component too large.
 
+Version 0.6.7 adds high-DPI readability and explicit AI authentication semantics without widening the native dependency set:
+
+- UI scale is a four-value persisted setting implemented as one root CSS zoom token, so the existing compact density remains coherent instead of receiving scattered selector overrides. The terminal font size is a separate persisted `12-22px` value applied to xterm options and refitted without reconnecting the session.
+- `AiProfile.auth_mode` defaults through serde to `bearer`, preserving existing configurations. Rust owns one `with_auth` request boundary shared by model discovery, streaming chat, and the Agent tool loop; `Bearer` produces `Authorization: Bearer <key>`, while `ApiKey` produces `Authorization: <key>`.
+- The tradeoff is an explicit per-profile selector and one additional persisted field. This is safer than guessing from gateway URLs, but requires users of raw-key gateways to choose the mode once. It also avoids a global setting that could silently break one of several configured providers.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.
@@ -246,6 +252,7 @@ This pattern is reusable when a specification is sourced from one repository but
 | Native build shell | Direct Cargo runs rebuilt `aws-lc-sys` without NASM and MSVC environment variables | Codex shell sessions do not inherit the Visual Studio developer environment | Load `Microsoft.VisualStudio.DevShell`, select x64, and prepend Cargo/NASM paths for native checks and release builds | Rust tests, Clippy, example linking, and release build complete |
 | Session state race | A fully authenticated terminal kept showing `connecting` | Native `connected` events were emitted before the frontend received and bound the new session ID | Return the complete `SessionInfo` from `session_connect`, atomically bind its final state to the pane, and track pre-ID failures by pane ID | Unit tests cover connected binding and pre-ID failure; installed SSH UI shows `connected` after authentication |
 | Theme surface drift | A token-only theme switch would have left dozens of component-local dark backgrounds unchanged | The first visual pass encoded charcoal shades directly in individual selectors | Replace component-local surface colors with semantic tokens and define complete white, eye-care, and dark palettes; update xterm through its runtime theme option | All three themes render without dark surface leftovers; eye-care selection survives reload without reconnecting |
+| High-DPI zoom geometry | The first 130% implementation divided root width/height while CSS `zoom` already adjusted the layout, leaving a blank viewport band; fixed-position dialogs then exceeded the physical viewport | Browser zoom changes both coordinate space and fixed-position sizing, while xterm glyphs would also inherit the scale unless corrected | Keep root dimensions at 100%, define one zoom/inverse pair per scale, size modal masks to the inverse logical viewport, and divide xterm's internal font option by UI zoom | At 900 x 650 and 130%, page scroll width remains 900 px, the large dialog is fully bounded at y=52..598, and terminal 20px remains visually independent |
 | Multiline demo echo | Browser QA displayed two multiline commands over each other | The demo adapter wrote terminal CR input directly to the xterm output channel, where CR moves the cursor without adding a display line | Keep native input as CR but translate standalone CR to CRLF only in the browser demo echo | Browser QA displays each submitted command on its own line; the native send contract remains unchanged |
 | Split-pane cleanup | Split terminals had no per-pane close action, and a connection completing after UI removal could become orphaned | Layout state supported split creation and resize but not pane lifecycle; connection completion assumed the pane still existed | Add close controls to both captions, disconnect before removal, and reclaim a session when its pane no longer exists at connect completion | Store, workspace, and pending-connect tests pass; browser QA closes the right pane and restores one terminal |
 | Quick-command title alignment | Name-only command rows left the title visually high inside its button | The flex container centered its main axis but kept the default cross-axis alignment from the former two-line layout | Center the existing title on the flex cross axis without changing markup or row dimensions | Browser geometry reports a 0 px center offset for short and long names; installed 0.1.4 preserves the compact layout |
@@ -263,13 +270,13 @@ Update this table with the exact outcome rather than an optimistic status.
 | Check | Command | Result |
 |---|---|---|
 | TypeScript | `npm run typecheck` | Pass |
-| Frontend lint | `npm run lint` | Pass, 37 files |
-| Frontend tests | `npm test` | Pass, 36 tests across 12 files |
-| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; release main entry 113.59 kB and lazy SFTP entry 11.26 kB |
+| Frontend lint | `npm run lint` | Pass, 38 files |
+| Frontend tests | `npm test` | Pass, 38 tests across 13 files |
+| Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; release main entry 117.75 kB and lazy SFTP entry 11.26 kB |
 | Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Pass |
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
 | Rust lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | Pass; `russh 0.54.5` emits a dependency future-incompatibility notice |
-| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml --lib` | Pass, 38 passed and 1 interactive keyring test ignored |
+| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml --lib` | Pass, 40 passed and 1 interactive keyring test ignored |
 | Windows credential round trip | `cargo test --manifest-path src-tauri/Cargo.toml keyring_round_trip -- --ignored --nocapture` | Pass; native vault write, read, and cleanup all succeed |
 | AI live integration | Production `AiService::test_connection` and streaming `AiService::chat` with the configured profile | Pass; 7 models found, chat completed with `stop`, 12 characters received, expected marker present |
 | Saved-server CRUD | `live_check verify-crud` with the Windows credential vault | Pass; create, edit without re-entering secret, reload, delete, and credential cleanup verified |
@@ -292,6 +299,8 @@ Update this table with the exact outcome rather than an optimistic status.
 | Quick-command title alignment | Measure the first three `.quick-command-main` and label rectangles in browser QA | Pass; `align-items` resolves to `center` and every label center offset is exactly 0 px |
 | Quick-command interchange tests | `QuickBar.test.tsx` plus `quick_commands.rs` unit tests | Pass; preview, default keep-both merge, export scope, UTF-16LE Xshell mapping, deterministic conflict handling, and versioned native export are covered |
 | Quick-command interchange QA | Import a real-shape Xshell 8.2 `.qbl`, export all commands, and inspect desktop plus 900 x 650 layouts | Pass; preview reports 4 total, 3 importable, and 1 unsupported; downloaded JSON is schema v1 with 6 portable entries and no runtime IDs; narrow scroll width equals 900 px |
+| Font settings | `TerminalView.test.tsx`, config unit test, and browser QA | Pass; four UI scale levels and terminal `12-22px` persistence are covered, terminal options update without reconnect, and 900 x 650 has no horizontal overflow |
+| AI auth headers | `ai::service` unit test, `AiSettings.test.tsx`, and `live_check verify-agent` | Pass; Bearer and raw API Key headers are exact, legacy profiles default to Bearer, the settings UI persists the explicit mode, and the saved legacy profile completes the live Bearer Agent loop |
 | Windows release build | `npm run build:release` | Pass for 0.6.0; optimized native EXE, NSIS installer, and portable ZIP produced |
 | Distribution audit | `npm run check:dist` | Pass; 0.6.0 installer 8.00 MB, portable ZIP 8.98 MB, and required portable files are present |
 | Native startup smoke | Start installed 0.6.0 with `--profile yuxiaservers` | Pass; process opens and remains responsive; separate fresh-config live check authenticates as `root` with the saved vault credential |
@@ -318,6 +327,8 @@ Update this table with the exact outcome rather than an optimistic status.
 | 0.6.5 upgrade install | Silently install over 0.6.4, then inspect file metadata, registry, shortcut, configuration hash, SSH, and queued transfers | Pass; one 0.6.5 uninstall entry and desktop shortcut remain, configuration SHA-256 is unchanged, the installed window responds, saved SSH authenticates, and two uploads plus two downloads complete with exact readback |
 | Quick-command interchange release | `npm run build:release` and `npm run check:dist` | Pass for 0.6.6; installer is 7.64 MB, portable ZIP is 8.40 MB, required portable files are present, and no runtime dependency was added |
 | 0.6.6 upgrade install | Silently install over 0.6.5, then inspect file metadata, registry, shortcut, configuration hash, process response, and SSH | Pass; installer exits 0, one 0.6.6 uninstall entry and desktop shortcut remain, configuration SHA-256 and saved-profile count are unchanged, the installed process responds, and vault-backed SSH authenticates as `root` |
+| 0.6.7 release build | `npm run build:release` and `npm run check:dist` | Pass; installer is 7.63 MB, portable ZIP is 8.41 MB, required portable files are present, and no runtime dependency was added |
+| 0.6.7 upgrade install | Silently install over 0.6.6, then inspect file metadata, registry, shortcut, configuration hash, saved data, process response, and Agent | Pass; installer exits 0, one 0.6.7 uninstall entry and desktop shortcut remain, configuration SHA-256 plus server/AI/quick-command counts are unchanged, the installed process responds, and the saved legacy AI profile completes the five-tool Bearer Agent loop with `stop` |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
 The browser screenshots and console logs are generated under ignored `output/playwright/` paths. They are verification artifacts rather than shipped product files.

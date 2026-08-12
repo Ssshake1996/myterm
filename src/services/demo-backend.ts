@@ -6,6 +6,7 @@ import type {
   AiMessage,
   AiProfile,
   AiTestResult,
+  AppFontScale,
   AppTheme,
   LocalEntry,
   McpToolInfo,
@@ -222,6 +223,7 @@ const DEFAULT_AI_PROFILES: AiProfile[] = [
     name: "DeepSeek",
     base_url: "https://api.deepseek.com/v1",
     api_key_ref: "ai.ai-deepseek.key",
+    auth_mode: "bearer",
     model: "deepseek-chat",
     system_prompt: "",
     context_lines: 80,
@@ -231,6 +233,7 @@ const DEFAULT_AI_PROFILES: AiProfile[] = [
     name: "Ollama 本地",
     base_url: "http://localhost:11434/v1",
     api_key_ref: "ai.ai-ollama.key",
+    auth_mode: "bearer",
     model: "qwen2.5",
     system_prompt: "",
     context_lines: 80,
@@ -267,6 +270,8 @@ class DemoBackend {
   private aiProfiles = readStored("myterm.demo.ai-profiles", DEFAULT_AI_PROFILES);
   private agentSettings = readStored("myterm.demo.agent-settings", DEFAULT_AGENT_SETTINGS);
   private theme = readStored<AppTheme>("myterm.demo.theme", "dark");
+  private fontScale = readStored<AppFontScale>("myterm.demo.font-scale", "standard");
+  private terminalFontSize = readStored<number>("myterm.demo.terminal-font-size", 13);
   private sessions = new Map<string, SessionInfo>();
   private sinks = new Map<string, MessageChannel<ArrayBuffer>>();
   private sessionHandlers = new Set<(payload: SessionInfo) => void>();
@@ -284,6 +289,26 @@ class DemoBackend {
     this.theme = theme;
     writeStored("myterm.demo.theme", theme);
     return theme;
+  }
+
+  async appFontScaleGet() {
+    return this.fontScale;
+  }
+
+  async appFontScaleSave(scale: AppFontScale) {
+    this.fontScale = scale;
+    writeStored("myterm.demo.font-scale", scale);
+    return scale;
+  }
+
+  async terminalFontSizeGet() {
+    return this.terminalFontSize;
+  }
+
+  async terminalFontSizeSave(size: number) {
+    this.terminalFontSize = Math.max(12, Math.min(22, Math.round(size)));
+    writeStored("myterm.demo.terminal-font-size", this.terminalFontSize);
+    return this.terminalFontSize;
   }
 
   async sessionConnect(

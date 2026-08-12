@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { type AiProfile, type AiTestResult, aiProfileSave, aiTestConnection } from "../../ipc";
+import {
+  type AiAuthMode,
+  type AiProfile,
+  type AiTestResult,
+  aiProfileSave,
+  aiTestConnection,
+} from "../../ipc";
 import { useUiStore } from "../../store/ui";
 import { Modal } from "../shell/Modal";
 
@@ -21,6 +27,7 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
   const [name, setName] = useState(profile?.name ?? "DeepSeek");
   const [baseUrl, setBaseUrl] = useState(profile?.base_url ?? "https://api.deepseek.com/v1");
   const [model, setModel] = useState(profile?.model ?? "deepseek-chat");
+  const [authMode, setAuthMode] = useState<AiAuthMode>(profile?.auth_mode ?? "bearer");
   const [systemPrompt, setSystemPrompt] = useState(profile?.system_prompt ?? "");
   const [contextLines, setContextLines] = useState(profile?.context_lines ?? 80);
   const [apiKey, setApiKey] = useState("");
@@ -34,6 +41,7 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
     name: name.trim(),
     base_url: baseUrl.trim().replace(/\/$/, ""),
     api_key_ref: profile?.api_key_ref ?? `ai.${id}.key`,
+    auth_mode: authMode,
     model: model.trim(),
     system_prompt: systemPrompt,
     context_lines: contextLines,
@@ -137,6 +145,18 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
             value={apiKey}
           />
           <small>密钥不会写入配置文件、日志或前端存储。</small>
+        </label>
+        <label className="field field-span">
+          <span>认证方式</span>
+          <select
+            aria-label="AI 认证方式"
+            onChange={(event) => setAuthMode(event.target.value as AiAuthMode)}
+            value={authMode}
+          >
+            <option value="bearer">Bearer Token · Authorization: Bearer sk-...</option>
+            <option value="api_key">API Key · Authorization: sk-...</option>
+          </select>
+          <small>Bearer Token 适用于 OpenAI 兼容网关；API Key 保留原始密钥头值。</small>
         </label>
         <label className="field field-span">
           <span>System Prompt</span>

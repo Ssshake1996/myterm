@@ -14,7 +14,7 @@ import {
 } from "../../ipc";
 import type { PaneModel } from "../../store/layout";
 import { useLayoutStore } from "../../store/layout";
-import { useUiStore } from "../../store/ui";
+import { fontScaleFactor, useUiStore } from "../../store/ui";
 import { Icon } from "../shell/Icon";
 
 const terminalThemes: Record<"light" | "eye_care" | "dark", ITheme> = {
@@ -104,6 +104,11 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
   const failConnection = useLayoutStore((state) => state.failConnection);
   const notify = useUiStore((state) => state.notify);
   const theme = useUiStore((state) => state.theme);
+  const fontScale = useUiStore((state) => state.fontScale);
+  const terminalFontSize = useUiStore((state) => state.terminalFontSize);
+  const xtermFontSize = terminalFontSize / fontScaleFactor[fontScale];
+  const xtermFontSizeRef = useRef(xtermFontSize);
+  xtermFontSizeRef.current = xtermFontSize;
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
 
@@ -139,7 +144,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       cursorBlink: true,
       cursorStyle: "bar",
       fontFamily: '"Cascadia Mono", "JetBrains Mono", Consolas, monospace',
-      fontSize: 13,
+      fontSize: xtermFontSizeRef.current,
       lineHeight: 1.22,
       scrollback: 10_000,
       theme: terminalThemes.dark,
@@ -200,6 +205,12 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
   useEffect(() => {
     if (terminalRef.current) terminalRef.current.options.theme = terminalThemes[theme];
   }, [theme]);
+
+  useEffect(() => {
+    if (!terminalRef.current) return;
+    terminalRef.current.options.fontSize = xtermFontSize;
+    fitRef.current?.fit();
+  }, [xtermFontSize]);
 
   const disconnected = pane.state === "disconnected" || pane.state === "failed";
 

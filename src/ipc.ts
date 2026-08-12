@@ -79,11 +79,16 @@ export interface QuickCommandImportResult {
 
 export type AppTheme = "light" | "eye_care" | "dark";
 
+export type AppFontScale = "small" | "standard" | "large" | "extra_large";
+
+export type AiAuthMode = "bearer" | "api_key";
+
 export interface AiProfile {
   id: string;
   name: string;
   base_url: string;
   api_key_ref: string;
+  auth_mode: AiAuthMode;
   model: string;
   system_prompt: string;
   context_lines: number;
@@ -254,7 +259,7 @@ export function createChannel<T>(): MessageChannel<T> {
 export async function getAppInfo(): Promise<AppInfo> {
   if (!isDesktopRuntime) {
     return {
-      version: "0.6.6",
+      version: "0.6.7",
       commitHash: "browser-demo",
       startupProfile: null,
       portable: false,
@@ -271,6 +276,26 @@ export async function appThemeGet(): Promise<AppTheme> {
 export async function appThemeSave(theme: AppTheme): Promise<AppTheme> {
   if (!isDesktopRuntime) return demoBackend.appThemeSave(theme);
   return invoke<AppTheme>("app_theme_save", { theme });
+}
+
+export async function appFontScaleGet(): Promise<AppFontScale> {
+  if (!isDesktopRuntime) return demoBackend.appFontScaleGet();
+  return invoke<AppFontScale>("app_font_scale_get");
+}
+
+export async function appFontScaleSave(scale: AppFontScale): Promise<AppFontScale> {
+  if (!isDesktopRuntime) return demoBackend.appFontScaleSave(scale);
+  return invoke<AppFontScale>("app_font_scale_save", { scale });
+}
+
+export async function terminalFontSizeGet(): Promise<number> {
+  if (!isDesktopRuntime) return demoBackend.terminalFontSizeGet();
+  return invoke<number>("terminal_font_size_get");
+}
+
+export async function terminalFontSizeSave(size: number): Promise<number> {
+  if (!isDesktopRuntime) return demoBackend.terminalFontSizeSave(size);
+  return invoke<number>("terminal_font_size_save", { size });
 }
 
 export async function sessionConnect(
