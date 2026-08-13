@@ -5,6 +5,7 @@ import {
   type AiTestResult,
   aiProfileSave,
   aiTestConnection,
+  errorMessage,
 } from "../../ipc";
 import { useUiStore } from "../../store/ui";
 import { Modal } from "../shell/Modal";
@@ -75,7 +76,10 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
       await aiProfileSave(next, apiKey || undefined);
       setTestResult(await aiTestConnection(next.id));
     } catch (error) {
-      setTestResult({ ok: false, error: error instanceof Error ? error.message : "连接失败" });
+      setTestResult({
+        ok: false,
+        error: errorMessage(error, "测试连接失败：未返回可读的错误信息"),
+      });
     } finally {
       setTesting(false);
     }
@@ -188,8 +192,13 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
             {testing ? "测试中" : "测试连接"}
           </button>
           {testResult ? (
-            <span className={testResult.ok ? "test-success" : "test-error"}>
-              {testResult.ok ? `连接成功 · ${testResult.models ?? 0} 个模型` : testResult.error}
+            <span
+              className={testResult.ok ? "test-success" : "test-error"}
+              role={testResult.ok ? undefined : "alert"}
+            >
+              {testResult.ok
+                ? `连接成功 · ${testResult.models ?? 0} 个模型`
+                : `测试失败：${testResult.error}`}
             </span>
           ) : null}
         </div>

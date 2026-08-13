@@ -3378,6 +3378,9 @@ input:checked + .toggle-track > span {
 .test-error {
   color: var(--red);
   font-size: 10px;
+  line-height: 1.45;
+  max-width: min(620px, 100%);
+  overflow-wrap: anywhere;
 }
 
 .toast-region {

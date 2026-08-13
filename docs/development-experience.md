@@ -95,6 +95,12 @@ Version 0.6.7 adds high-DPI readability and explicit AI authentication semantics
 - `AiProfile.auth_mode` defaults through serde to `bearer`, preserving existing configurations. Rust owns one `with_auth` request boundary shared by model discovery, streaming chat, and the Agent tool loop; `Bearer` produces `Authorization: Bearer <key>`, while `ApiKey` produces `Authorization: <key>`.
 - The tradeoff is an explicit per-profile selector and one additional persisted field. This is safer than guessing from gateway URLs, but requires users of raw-key gateways to choose the mode once. It also avoids a global setting that could silently break one of several configured providers.
 
+Version 0.6.8 makes AI connection failures diagnosable without exposing credentials:
+
+- Rust validates that a saved API Key exists before sending the model-list request, classifies transport failures, and maps HTTP 401/403/404/429/5xx responses to actionable Chinese messages.
+- The model-list response must contain an OpenAI-compatible `data` array; otherwise the UI reports an invalid response shape and includes only a bounded, redacted summary.
+- Tauri's serialized `{ code, message }` errors are normalized in the typed frontend IPC adapter, so the settings dialog no longer collapses native failures to a generic “连接失败”.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.
@@ -271,19 +277,19 @@ Update this table with the exact outcome rather than an optimistic status.
 |---|---|---|
 | TypeScript | `npm run typecheck` | Pass |
 | Frontend lint | `npm run lint` | Pass, 38 files |
-| Frontend tests | `npm test` | Pass, 38 tests across 13 files |
+| Frontend tests | `npm test` | Pass, 39 tests across 13 files |
 | Frontend production build | `npm run build` | Pass; dependency chunks remain below 500 kB; release main entry 117.75 kB and lazy SFTP entry 11.26 kB |
 | Rust format | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | Pass |
 | Rust check | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
 | Rust lint | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` | Pass; `russh 0.54.5` emits a dependency future-incompatibility notice |
-| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml --lib` | Pass, 40 passed and 1 interactive keyring test ignored |
+| Rust tests | `cargo test --manifest-path src-tauri/Cargo.toml --lib` | 40 passed and 1 interactive keyring test ignored; `session::local::tests::shell_echo_reaches_output_sink` remains host-blocked by Windows `ERROR: Access denied` during process cleanup |
 | Windows credential round trip | `cargo test --manifest-path src-tauri/Cargo.toml keyring_round_trip -- --ignored --nocapture` | Pass; native vault write, read, and cleanup all succeed |
 | AI live integration | Production `AiService::test_connection` and streaming `AiService::chat` with the configured profile | Pass; 7 models found, chat completed with `stop`, 12 characters received, expected marker present |
 | Saved-server CRUD | `live_check verify-crud` with the Windows credential vault | Pass; create, edit without re-entering secret, reload, delete, and credential cleanup verified |
 | Saved-server auto-login | `live_check verify-profile` after a fresh config reload | Pass; native SSH backend loaded the saved credential and authenticated as `root` |
 | Structured exec live integration | `live_check verify-exec` against the saved SSH session | Pass; exit 7, distinct stdout/stderr, 150 ms timeout, and exact 10 MiB streaming byte count verified |
 | File-tool live integration | `live_check verify-files` against the saved SSH session | Pass; `/root` resolves with 12 entries, atomic file operations pass, two queued uploads and two downloads complete with exact content readback, and remote/local cleanup succeeds |
-| Agent live integration | `live_check verify-agent` with the configured OpenAI-compatible profile and saved SSH session | Pass; model called `session_info`, `terminal_context`, `remote_exec`, `host_facts`, and remote `list_directory`, then returned `stop` |
+| Agent live integration | `live_check verify-agent` with the configured OpenAI-compatible profile and saved SSH session | Previously passed on 0.6.7; the 0.6.8 rerun was blocked by the workstation socket policy (`os error 10013`) before the session could start |
 | MCP live integration | `live_check verify-mcp` with the official stdio Everything server | Pass; initialization handshake completed and 13 tools were enumerated |
 | CLI process contract (historical, removed in 0.6.3) | Release-equivalent binary `agent run --output jsonl` plus help exit check | Pass in 0.6.0; surface removed in 0.6.3 |
 | REST process contract (historical, removed in 0.6.3) | `scripts/rest-smoke.ps1` | Pass in 0.6.0; surface and script removed in 0.6.3 |
@@ -301,6 +307,7 @@ Update this table with the exact outcome rather than an optimistic status.
 | Quick-command interchange QA | Import a real-shape Xshell 8.2 `.qbl`, export all commands, and inspect desktop plus 900 x 650 layouts | Pass; preview reports 4 total, 3 importable, and 1 unsupported; downloaded JSON is schema v1 with 6 portable entries and no runtime IDs; narrow scroll width equals 900 px |
 | Font settings | `TerminalView.test.tsx`, config unit test, and browser QA | Pass; four UI scale levels and terminal `12-22px` persistence are covered, terminal options update without reconnect, and 900 x 650 has no horizontal overflow |
 | AI auth headers | `ai::service` unit test, `AiSettings.test.tsx`, and `live_check verify-agent` | Pass; Bearer and raw API Key headers are exact, legacy profiles default to Bearer, the settings UI persists the explicit mode, and the saved legacy profile completes the live Bearer Agent loop |
+| AI connection failure diagnostics | `ai::service` error-classification tests, `AiSettings.test.tsx`, and live HTTP probe | Pass; the 401 response is reported as authentication failure with the endpoint path, the API key is redacted, and serialized IPC errors render in the dialog |
 | Windows release build | `npm run build:release` | Pass for 0.6.0; optimized native EXE, NSIS installer, and portable ZIP produced |
 | Distribution audit | `npm run check:dist` | Pass; 0.6.0 installer 8.00 MB, portable ZIP 8.98 MB, and required portable files are present |
 | Native startup smoke | Start installed 0.6.0 with `--profile yuxiaservers` | Pass; process opens and remains responsive; separate fresh-config live check authenticates as `root` with the saved vault credential |
@@ -329,6 +336,7 @@ Update this table with the exact outcome rather than an optimistic status.
 | 0.6.6 upgrade install | Silently install over 0.6.5, then inspect file metadata, registry, shortcut, configuration hash, process response, and SSH | Pass; installer exits 0, one 0.6.6 uninstall entry and desktop shortcut remain, configuration SHA-256 and saved-profile count are unchanged, the installed process responds, and vault-backed SSH authenticates as `root` |
 | 0.6.7 release build | `npm run build:release` and `npm run check:dist` | Pass; installer is 7.63 MB, portable ZIP is 8.41 MB, required portable files are present, and no runtime dependency was added |
 | 0.6.7 upgrade install | Silently install over 0.6.6, then inspect file metadata, registry, shortcut, configuration hash, saved data, process response, and Agent | Pass; installer exits 0, one 0.6.7 uninstall entry and desktop shortcut remain, configuration SHA-256 plus server/AI/quick-command counts are unchanged, the installed process responds, and the saved legacy AI profile completes the five-tool Bearer Agent loop with `stop` |
+| 0.6.8 release and upgrade | `npm run build:release`, `npm run check:dist`, then silently install over 0.6.7 | Pass; installer is 7.66 MB, portable ZIP is 8.46 MB, required portable files are present, 0.6.8 replaced the legacy executable, an uninstall entry and `uninstall.exe` are present, configuration data was retained, and the desktop shortcut was repaired to the active install path |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
 The browser screenshots and console logs are generated under ignored `output/playwright/` paths. They are verification artifacts rather than shipped product files.

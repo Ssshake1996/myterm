@@ -62,33 +62,46 @@ impl AiService {
 
     pub async fn test_connection(&self, profile_id: &str) -> Result<AiTestResult, AppError> {
         let profile = self.profile(profile_id)?;
-        let key = self.vault.get(&profile.api_key_ref)?.unwrap_or_default();
-        let response = with_auth(
-            self.client.get(endpoint(&profile.base_url, "models")?),
-            &profile,
-            &key,
-        )
-        .send()
-        .await
-        .map_err(|error| AppError::Ai(error.to_string()))?;
+        let key = self
+            .vault
+            .get(&profile.api_key_ref)?
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| AppError::Ai("API Key 未配置：请填写 API Key 并保存配置".to_owned()))?;
+        let models_endpoint = endpoint(&profile.base_url, "models")?;
+        let response = with_auth(self.client.get(models_endpoint.clone()), &profile, &key)
+            .send()
+            .await
+            .map_err(|error| AppError::Ai(format_transport_error(error, &models_endpoint)))?;
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|error| AppError::Ai(error.to_string()))?;
+            .map_err(|error| AppError::Ai(format_transport_error(error, &models_endpoint)))?;
         if !status.is_success() {
             return Ok(AiTestResult {
                 ok: false,
                 models: None,
-                error: Some(format!("HTTP {}: {}", status.as_u16(), summarize(&body))),
+                error: Some(format_http_failure(
+                    status,
+                    &body,
+                    models_endpoint.path(),
+                    &key,
+                )),
             });
         }
         let models = serde_json::from_str::<serde_json::Value>(&body)
             .ok()
             .and_then(|value| value.get("data")?.as_array().map(Vec::len));
+        let Some(models) = models else {
+            return Ok(AiTestResult {
+                ok: false,
+                models: None,
+                error: Some(format_invalid_models_response(&body, &key)),
+            });
+        };
         Ok(AiTestResult {
             ok: true,
-            models,
+            models: Some(models),
             error: None,
         })
     }
@@ -356,14 +369,87 @@ pub(crate) fn with_auth(request: RequestBuilder, profile: &AiProfile, key: &str)
     }
 }
 
+fn format_transport_error(error: reqwest::Error, endpoint: &reqwest::Url) -> String {
+    let path = endpoint.path();
+    if error.is_timeout() {
+        return format!(
+            "请求超时：请求 {path} 未在规定时间内完成。请检查服务是否可达或 Base URL 是否正确"
+        );
+    }
+    if error.is_connect() {
+        return format!("无法连接 AI 服务：请求 {path} 失败。请检查 Base URL、端口和网络连通性");
+    }
+    format!("AI 请求失败：{}（请求 {path}）", error.without_url())
+}
+
+fn format_http_failure(
+    status: reqwest::StatusCode,
+    body: &str,
+    path: &str,
+    secret: &str,
+) -> String {
+    let reason = match status.as_u16() {
+        401 => "认证失败：API Key 无效、已过期，或认证方式与网关要求不匹配",
+        403 => "访问被拒绝：当前 API Key 没有访问模型列表的权限",
+        404 => "接口不存在：请确认 Base URL 和 API 路径",
+        429 => "请求被限流或额度不足：请检查服务商配额和请求频率",
+        500..=599 => "AI 服务端错误：请检查网关或模型服务日志",
+        _ => "AI 服务返回错误",
+    };
+    let detail = summarize_with_secret(body, secret);
+    if detail.is_empty() {
+        format!("{reason}（HTTP {}，请求 {path}）", status.as_u16())
+    } else {
+        format!(
+            "{reason}（HTTP {}，请求 {path}）：{detail}",
+            status.as_u16()
+        )
+    }
+}
+
+fn format_invalid_models_response(body: &str, secret: &str) -> String {
+    let detail = summarize_with_secret(body, secret);
+    if detail.is_empty() {
+        "模型列表响应格式无效：服务未返回 OpenAI 兼容的 data 数组".to_owned()
+    } else {
+        format!("模型列表响应格式无效：服务未返回 OpenAI 兼容的 data 数组。服务返回：{detail}")
+    }
+}
+
 pub(crate) fn summarize(body: &str) -> String {
+    summarize_with_secret(body, "")
+}
+
+fn summarize_with_secret(body: &str, secret: &str) -> String {
     let clean = body.replace(['\r', '\n'], " ");
-    clean.chars().take(512).collect()
+    let clean = if secret.is_empty() {
+        clean
+    } else {
+        clean.replace(secret, "***")
+    };
+    redact_api_key(&clean).chars().take(512).collect()
+}
+
+fn redact_api_key(value: &str) -> String {
+    value
+        .split_whitespace()
+        .map(|token| {
+            let Some(start) = token.find("sk-") else {
+                return token.to_owned();
+            };
+            let prefix = &token[..start];
+            format!("{prefix}sk-***")
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{endpoint, summarize, with_auth, SseDecoder};
+    use super::{
+        endpoint, format_http_failure, format_invalid_models_response, redact_api_key, summarize,
+        with_auth, SseDecoder,
+    };
     use crate::types::{AiAuthMode, AiProfile};
 
     #[test]
@@ -390,7 +476,35 @@ mod tests {
         );
         assert_eq!(summarize("line one\nline two"), "line one line two");
         assert_eq!(summarize(&"x".repeat(600)).len(), 512);
+        assert_eq!(
+            redact_api_key("message: invalid sk-secret-value"),
+            "message: invalid sk-***"
+        );
         Ok(())
+    }
+
+    #[test]
+    fn connection_failures_explain_http_and_response_errors() {
+        let unauthorized = format_http_failure(
+            reqwest::StatusCode::UNAUTHORIZED,
+            r#"{"error":"invalid api key sk-secret-value"}"#,
+            "/v1/models",
+            "sk-secret-value",
+        );
+        assert!(unauthorized.contains("认证失败"));
+        assert!(unauthorized.contains("HTTP 401"));
+        assert!(!unauthorized.contains("sk-secret-value"));
+        assert!(format_http_failure(
+            reqwest::StatusCode::NOT_FOUND,
+            "",
+            "/custom/models",
+            "sk-test"
+        )
+        .contains("/custom/models"));
+        assert!(
+            format_invalid_models_response("<html>gateway</html>", "sk-test")
+                .contains("响应格式无效")
+        );
     }
 
     #[test]

@@ -36,7 +36,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo>({
-    version: "0.6.7",
+    version: "0.6.8",
     commitHash: "unknown",
     startupProfile: null,
     portable: false,

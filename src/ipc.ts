@@ -107,6 +107,16 @@ export interface AiTestResult {
   error?: string;
 }
 
+export function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  return fallback;
+}
+
 export interface AiChatResult {
   finishReason: "stop" | "aborted";
   attachedContext?: string;
@@ -259,7 +269,7 @@ export function createChannel<T>(): MessageChannel<T> {
 export async function getAppInfo(): Promise<AppInfo> {
   if (!isDesktopRuntime) {
     return {
-      version: "0.6.7",
+      version: "0.6.8",
       commitHash: "browser-demo",
       startupProfile: null,
       portable: false,
