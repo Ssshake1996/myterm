@@ -40,6 +40,9 @@ import { AiSettings } from "./AiSettings";
 import { MarkdownContent } from "./MarkdownContent";
 
 const DEFAULT_AGENT_SETTINGS: AgentSettingsValue = {
+  profile: "desktop",
+  bundles: ["core.desktop", "ssh.operations"],
+  enabled_plugins: [],
   permission_mode: "confirm",
   max_steps: 8,
   skill_directories: [],
@@ -79,6 +82,7 @@ type TraceEntry =
       kind: "tool";
       callId: string;
       toolName: string;
+      pluginId?: string;
       arguments?: unknown;
       result?: string;
       stdout?: string;
@@ -124,6 +128,7 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
         kind: "tool",
         callId: event.callId,
         toolName: event.toolName,
+        pluginId: event.pluginId,
         arguments: event.arguments,
         step: event.step,
         status: "requested",
@@ -735,7 +740,9 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
                 </span>
                 <span>
                   <strong>{toolLabel(entry.toolName)}</strong>
-                  <code>{entry.toolName}</code>
+                  <code>
+                    {entry.pluginId ? `${entry.pluginId} · ${entry.toolName}` : entry.toolName}
+                  </code>
                 </span>
                 {entry.step ? <small>STEP {entry.step}</small> : null}
               </header>

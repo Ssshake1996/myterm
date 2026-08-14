@@ -15,7 +15,9 @@ use super::{
     domain::{now_ms, AgentTask, AgentTaskState, ExecutionJob},
     hooks::{self, HookAction},
     mcp,
+    plugin::{PluginRegistry, ToolContext},
     policy::{self, PolicyAction, PolicyContext},
+    runtime::AgentRuntime,
     skills,
     store::AgentStore,
 };
@@ -395,7 +397,8 @@ impl AgentService {
                 ))?,
             }
         }
-        let tools = tool_definitions(&mcp_tools);
+        let runtime = AgentRuntime::new(self, &settings);
+        let tools = runtime.tool_schemas(&mcp_tools);
         let system_prompt = build_system_prompt(&profile, &settings, &skill_context);
         let mut messages = vec![
             json!({ "role": "system", "content": system_prompt }),
@@ -497,7 +500,11 @@ impl AgentService {
                 requested.step = Some(step);
                 requested.call_id = Some(call.id.clone());
                 requested.tool_name = Some(call.function.name.clone());
+                requested.plugin_id = runtime
+                    .plugins
+                    .plugin_id_for_tool(&call.function.name, &mcp_tools);
                 requested.arguments = Some(arguments.clone());
+                let plugin_id = requested.plugin_id.clone();
                 sink.send(requested)?;
 
                 let policy_context =
@@ -543,6 +550,7 @@ impl AgentService {
                 policy_event.step = Some(step);
                 policy_event.call_id = Some(call.id.clone());
                 policy_event.tool_name = Some(call.function.name.clone());
+                policy_event.plugin_id = plugin_id.clone();
                 policy_event.arguments = Some(serde_json::to_value(&decision)?);
                 sink.send(policy_event)?;
 
@@ -567,18 +575,18 @@ impl AgentService {
                         true,
                     )
                 } else if approved {
-                    match self
-                        .execute_tool(
+                    match runtime
+                        .execute(
+                            &call.function.name,
                             run_id,
                             &call.id,
-                            &call.function.name,
-                            arguments,
                             session_id.as_deref(),
                             &settings,
                             &mcp_tools,
                             &mcp_clients,
                             sink.clone(),
                             abort.clone(),
+                            arguments,
                         )
                         .await
                     {
@@ -597,6 +605,7 @@ impl AgentService {
                 result_event.step = Some(step);
                 result_event.call_id = Some(call.id.clone());
                 result_event.tool_name = Some(call.function.name.clone());
+                result_event.plugin_id = plugin_id;
                 result_event.content = Some(output.clone());
                 result_event.is_error = Some(is_error);
                 sink.send(result_event)?;
@@ -766,7 +775,7 @@ impl AgentService {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn execute_tool(
+    pub(crate) async fn execute_builtin_tool(
         &self,
         run_id: &str,
         call_id: &str,
@@ -1105,6 +1114,73 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
         }
     }
 
+    pub(crate) async fn execute_mcp_tool(
+        &self,
+        name: &str,
+        context: ToolContext<'_>,
+        arguments: Value,
+    ) -> Result<String, AppError> {
+        match name {
+            "mcp_tool_search" => {
+                let query = argument_str(&arguments, "query")?.to_ascii_lowercase();
+                let matches = context
+                    .mcp_tools
+                    .iter()
+                    .filter(|tool| {
+                        tool.original_name.to_ascii_lowercase().contains(&query)
+                            || tool.description.to_ascii_lowercase().contains(&query)
+                    })
+                    .take(20)
+                    .map(|tool| {
+                        json!({
+                            "serverId": tool.server_id,
+                            "name": tool.original_name,
+                            "description": tool.description,
+                            "inputSchema": tool.input_schema,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                Ok(serde_json::to_string(&matches)?)
+            }
+            "mcp_tool_call" => {
+                let server_id = argument_str(&arguments, "server_id")?;
+                let tool_name = argument_str(&arguments, "tool_name")?;
+                let tool_arguments = arguments
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                let tool = context
+                    .mcp_tools
+                    .iter()
+                    .find(|tool| tool.server_id == server_id && tool.original_name == tool_name)
+                    .ok_or_else(|| {
+                        AppError::NotFound(format!("MCP tool '{server_id}/{tool_name}'"))
+                    })?;
+                let client = context.mcp_clients.get(&tool.server_id).ok_or_else(|| {
+                    AppError::NotFound(format!("MCP server '{}'", tool.server_id))
+                })?;
+                client.call_tool(&tool.original_name, tool_arguments).await
+            }
+            _ => {
+                let tool = context
+                    .mcp_tools
+                    .iter()
+                    .find(|tool| tool.internal_name == name)
+                    .ok_or_else(|| AppError::NotFound(format!("agent tool '{name}'")))?;
+                let client = context.mcp_clients.get(&tool.server_id).ok_or_else(|| {
+                    AppError::NotFound(format!("MCP server '{}'", tool.server_id))
+                })?;
+                client.call_tool(&tool.original_name, arguments).await
+            }
+        }
+    }
+
+    pub(crate) fn plugin_infos(&self) -> Result<Vec<crate::types::AgentPluginInfo>, AppError> {
+        Ok(PluginRegistry::infos_for_settings(
+            &self.config.agent_settings()?,
+        ))
+    }
+
     fn ai_profile(&self, profile_id: &str) -> Result<AiProfile, AppError> {
         self.config
             .ai_profile_list()?
@@ -1376,7 +1452,7 @@ struct ModelFunctionCall {
     arguments: String,
 }
 
-fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Value> {
+pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Value> {
     let mut tools = vec![
         function_tool(
             "remote_exec",
@@ -1628,7 +1704,7 @@ fn require_session(session_id: Option<&str>) -> Result<&str, AppError> {
     session_id.ok_or_else(|| AppError::InvalidInput("an active session is required".to_owned()))
 }
 
-fn argument_str<'a>(arguments: &'a Value, name: &str) -> Result<&'a str, AppError> {
+pub(crate) fn argument_str<'a>(arguments: &'a Value, name: &str) -> Result<&'a str, AppError> {
     arguments
         .get(name)
         .and_then(Value::as_str)
@@ -1958,6 +2034,7 @@ fn event(run_id: &str, event_type: &str, message: Option<String>) -> AgentEvent 
         step: None,
         call_id: None,
         tool_name: None,
+        plugin_id: None,
         message,
         content: None,
         arguments: None,

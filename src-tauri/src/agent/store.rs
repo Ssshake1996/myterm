@@ -682,6 +682,7 @@ mod tests {
             step: None,
             call_id: None,
             tool_name: None,
+            plugin_id: None,
             message: Some("running".to_owned()),
             content: None,
             arguments: None,

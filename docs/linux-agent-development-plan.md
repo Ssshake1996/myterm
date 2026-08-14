@@ -41,6 +41,14 @@ myterm 保持轻量桌面 SSH 终端定位，在已经交付的单主机 Linux A
 
 ## 4. 当前基线
 
+### 4.0 插件化内核（0.7.0 已交付）
+
+Agent Loop 已收敛为轻量运行时：模型请求、循环保护、权限、审批、取消、审计和事件流留在内核，工具和扩展能力通过 `PluginRegistry` 挂载。当前注册的插件为 `builtin.tools`、`builtin.skills`、`builtin.mcp`、`builtin.hooks` 和 `builtin.model.openai`。
+
+插件采用 manifest + descriptor + execute 三段契约。工具事件包含 `pluginId`，Agent 设置持久化 `profile`、`bundles` 和 `enabled_plugins`；空列表表示桌面默认 profile，非空列表用于缩小能力集合。Skill 和 MCP 仍然经过统一权限管线，不能通过插件边界提升权限。
+
+本阶段选择进程内注册表的原因是延迟、内存和取消路径最小，适合桌面第一版；代价是尚未提供第三方进程隔离。`agent/protocol.rs` 已提供版本化 JSONL 消息契约，但在签名、信任、命令路径、环境过滤、超时和崩溃回收明确前，不自动运行外部插件。
+
 ### 4.1 已交付
 
 - 保存服务器新增、修改、删除、凭据持久化、点击连接和自动登录。
@@ -48,7 +56,7 @@ myterm 保持轻量桌面 SSH 终端定位，在已经交付的单主机 Linux A
 - 三套主题、紧凑工作区、离线帮助与中英文 README。
 - Claude Code 风格的单 Agent 循环、持久 Task/Event/Approval/Audit、取消和历史。
 - `remote_exec`、后台 Job、主机事实、远端文件读写、tree-sitter Bash 权限策略和证据式完成。
-- 本地 `SKILL.md`、stdio MCP、Hooks、上下文压缩和工具时间线。
+- 本地 `SKILL.md`、stdio MCP、Hooks、上下文压缩、工具时间线和 0.7.0 插件运行时。
 - Agent 输入框 `Enter` 提交、`Shift+Enter` 换行、IME 组合保护，以及向上拖至面板一半的可调高度。
 
 ### 4.2 `0.6.3` 删除项

@@ -217,6 +217,12 @@ fn enabled_by_default() -> bool {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AgentSettings {
+    #[serde(default = "default_agent_profile")]
+    pub profile: String,
+    #[serde(default)]
+    pub bundles: Vec<String>,
+    #[serde(default)]
+    pub enabled_plugins: Vec<String>,
     pub permission_mode: AgentPermissionMode,
     pub max_steps: u8,
     #[serde(default)]
@@ -227,6 +233,10 @@ pub struct AgentSettings {
     pub mcp_servers: Vec<McpServerConfig>,
     #[serde(default)]
     pub hooks: Vec<AgentHookConfig>,
+}
+
+fn default_agent_profile() -> String {
+    "desktop".to_owned()
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -244,6 +254,9 @@ pub struct AgentHookConfig {
 impl Default for AgentSettings {
     fn default() -> Self {
         Self {
+            profile: default_agent_profile(),
+            bundles: vec!["core.desktop".to_owned(), "ssh.operations".to_owned()],
+            enabled_plugins: Vec::new(),
             permission_mode: AgentPermissionMode::Confirm,
             max_steps: 8,
             skill_directories: Vec::new(),
@@ -278,6 +291,18 @@ pub struct McpToolInfo {
     pub description: String,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentPluginInfo {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub kind: String,
+    pub description: String,
+    pub requires: Vec<String>,
+    pub enabled: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentEvent {
@@ -292,6 +317,8 @@ pub struct AgentEvent {
     pub call_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

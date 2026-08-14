@@ -121,6 +121,9 @@ function parseDemoQuickCommands(fileName: string, bytes: number[]): ParsedQuickC
 }
 
 const DEFAULT_AGENT_SETTINGS: AgentSettings = {
+  profile: "desktop",
+  bundles: ["core.desktop", "ssh.operations"],
+  enabled_plugins: [],
   permission_mode: "confirm",
   max_steps: 8,
   skill_directories: [],
@@ -656,6 +659,56 @@ class DemoBackend {
 
   async agentSettingsGet() {
     return structuredClone(this.agentSettings);
+  }
+
+  async agentPluginList() {
+    return [
+      {
+        id: "builtin.tools",
+        name: "Built-in Operations",
+        version: "browser-demo",
+        kind: "tool",
+        description: "SSH, terminal, file, host-facts, runbook, and background-job tools.",
+        requires: ["core.session", "core.policy"],
+        enabled: true,
+      },
+      {
+        id: "builtin.skills",
+        name: "Local Skills",
+        version: "browser-demo",
+        kind: "capability",
+        description: "Loads enabled local SKILL.md workflows on demand.",
+        requires: ["core.prompt", "core.policy"],
+        enabled: true,
+      },
+      {
+        id: "builtin.mcp",
+        name: "MCP Bridge",
+        version: "browser-demo",
+        kind: "capability",
+        description: "Discovers and calls task-scoped stdio MCP tools.",
+        requires: ["core.tools", "core.policy"],
+        enabled: true,
+      },
+      {
+        id: "builtin.hooks",
+        name: "Agent Hooks",
+        version: "browser-demo",
+        kind: "lifecycle",
+        description: "Runs configured lifecycle hooks through the shared event pipeline.",
+        requires: ["core.events", "core.policy"],
+        enabled: true,
+      },
+      {
+        id: "builtin.model.openai",
+        name: "OpenAI Compatible Model",
+        version: "browser-demo",
+        kind: "model",
+        description: "OpenAI-compatible chat completion adapter used by the default loop.",
+        requires: ["core.agent-loop", "core.secrets"],
+        enabled: true,
+      },
+    ];
   }
 
   async agentSettingsSave(settings: AgentSettings) {

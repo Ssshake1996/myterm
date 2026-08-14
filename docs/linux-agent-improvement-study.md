@@ -9,7 +9,7 @@
 
 `myterm` 下一阶段最重要的工作不是增加多 Agent，而是把已经可验证、可中止、可审计的单主机执行层扩展为显式多目标协同，并为 OS 安装增加独立于目标 OS 的 provisioning 控制面。
 
-当前 `0.6.8` 已具备持久 Task、结构化 `remote_exec`、后台 Job、权限策略、证据、审计、文件工具、Skill、stdio MCP、Hooks 和可观察时间线。PTY 只保留给交互式命令，普通命令已经能够返回退出码、标准错误、超时、取消和完成边界。
+当前 `0.7.0` 已具备插件化 Agent 内核，以及持久 Task、结构化 `remote_exec`、后台 Job、权限策略、证据、审计、文件工具、Skill、stdio MCP、Hooks 和可观察时间线。PTY 只保留给交互式命令，普通命令已经能够返回退出码、标准错误、超时、取消和完成边界。
 
 对于远程 Linux，尤其是 `root` 会话，本地应用沙箱不能限制已经通过 SSH 发到服务器的命令。真正有效的防线必须同时覆盖：应用侧权限策略、命令语义分析、服务器侧最小权限账号、受限 `sudo` 和完整审计。OS 安装进一步要求 Redfish/BMC、MAAS、虚拟化或云 API 等独立控制面；SSH 不能跨越系统盘重装继续充当主控制链路。
 
@@ -26,7 +26,7 @@
 
 ## 3. myterm 当前基线
 
-基于 `0.6.8` 当前代码和验收记录：
+基于 `0.7.0` 当前代码和验收记录：
 
 - Agent Task、Event、Approval、Audit 和 Artifact 已持久化，模型循环、取消和崩溃恢复有明确终态。
 - `remote_exec` 通过独立 SSH exec channel 返回 stdout、stderr、exit code、timeout、cancel 和 disconnect；`terminal_send` 仅用于 PTY 交互。

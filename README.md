@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.6.8`
+当前版本：`0.7.0`
 
 ## 核心功能
 
@@ -75,6 +75,14 @@ Agent 使用类似 Claude Code 的循环：
 - 支持配置和测试常用 stdio MCP 服务器，连接后列出工具并由 Agent 调用。
 - MCP 工具较多时使用搜索和显式调用，避免一次性占满模型上下文。
 - 支持有界、确定性的任务生命周期 Hooks；Hooks 不能降低核心权限策略。
+
+### 插件化 Agent 内核
+
+- Agent Loop 只负责任务生命周期、模型决策、工具调度、结果回填和循环保护，能力通过插件注册表挂载。
+- 桌面默认配置挂载内置 SSH/会话工具、本地 Skill、stdio MCP、生命周期 Hooks 和 OpenAI 兼容模型适配器。
+- 每个插件都提供 manifest、版本、依赖提示和工具描述；工具事件和审计记录会携带插件 id。
+- Agent 设置页展示插件清单，可缩小当前运行时启用的插件集合；留空表示使用桌面默认配置。
+- `src-tauri/src/agent/protocol.rs` 定义了未来进程外插件使用的版本化 JSONL 协议；0.7.0 不会自动安装或执行未知第三方插件代码。
 
 ### 远端 CLI、REST 与多 SSH 规划
 
@@ -160,7 +168,8 @@ npm run check:dist
 - [Linux Agent 规范](docs/linux-agent-specification.md)
 - [多 SSH 协同与 Skill 驱动 OS 安装方案](docs/multi-ssh-os-installation-plan.md)
 - [开发经验记录](docs/development-experience.md)
+- [Agent 插件架构说明](docs/agent-plugin-architecture.md)
 
 ## 当前边界
 
-当前 `0.6.8` 尚未实现多 SSH Task、结构化远端 HTTP 工具或 Skill 驱动的 OS 安装；这些能力按专项方案分阶段开发。第一版仍不实现复杂多 Agent、长期记忆、云端 Skill 市场和远程 MCP 传输。Xshell 导入仅映射可安全表达为终端文本的“发送字符串”命令，菜单、脚本、程序和文本文件动作会在预览中标记为不支持。聚合 WebView2 进程组内存仍高于项目的 80 MiB 目标，原生 Agent 内核保持轻量，完整浏览器运行时优化继续作为后续工作。
+当前 `0.7.0` 已交付插件化 Agent 内核；多 SSH Task、结构化远端 HTTP 工具和 Skill 驱动的 OS 安装仍按专项方案分阶段开发。第一版仍不实现复杂多 Agent、长期记忆、云端 Skill 市场和远程 MCP 传输。Xshell 导入仅映射可安全表达为终端文本的“发送字符串”命令，菜单、脚本、程序和文本文件动作会在预览中标记为不支持。聚合 WebView2 进程组内存仍高于项目的 80 MiB 目标，原生 Agent 内核保持轻量，完整浏览器运行时优化继续作为后续工作。

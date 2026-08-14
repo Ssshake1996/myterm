@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.6.8。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.7.0。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和插件化 Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 

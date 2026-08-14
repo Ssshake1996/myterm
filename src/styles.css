@@ -3165,6 +3165,58 @@ input:checked + .toggle-track > span {
   margin-bottom: 8px;
 }
 
+.plugin-list {
+  display: grid;
+  gap: 8px;
+}
+
+.plugin-profile-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px;
+}
+
+.plugin-profile-summary code {
+  color: var(--text-primary);
+}
+
+.plugin-row {
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+}
+
+.plugin-row-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plugin-row-heading code,
+.plugin-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.plugin-kind {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.plugin-row small {
+  color: var(--text-secondary);
+}
+
 .compact-toggle {
   min-height: 28px;
   padding: 3px 0;

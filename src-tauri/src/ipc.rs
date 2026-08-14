@@ -15,9 +15,9 @@ use crate::{
     session::{local::detect_shells, manager::OutputSink, profile},
     sftp::service::local_entries,
     types::{
-        AgentEvent, AgentRunResult, AgentSettings, AiMessage, AiProfile, AppFontScale, AppTheme,
-        McpServerConfig, McpToolInfo, QuickCommand, RemoteEntry, SessionInfo, SessionProfile,
-        SkillInfo, TransferId,
+        AgentEvent, AgentPluginInfo, AgentRunResult, AgentSettings, AiMessage, AiProfile,
+        AppFontScale, AppTheme, McpServerConfig, McpToolInfo, QuickCommand, RemoteEntry,
+        SessionInfo, SessionProfile, SkillInfo, TransferId,
     },
     AppError, AppState, IpcError,
 };
@@ -442,6 +442,11 @@ pub async fn ai_abort(state: State<'_, AppState>) -> Result<(), IpcError> {
 #[tauri::command]
 pub fn agent_settings_get(state: State<'_, AppState>) -> Result<AgentSettings, IpcError> {
     state.config.agent_settings().map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn agent_plugin_list(state: State<'_, AppState>) -> Result<Vec<AgentPluginInfo>, IpcError> {
+    state.agent.plugin_infos().map_err(Into::into)
 }
 
 #[tauri::command]

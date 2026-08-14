@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.6.8`
+Current version: `0.7.0`
 
 ## Core Features
 
@@ -75,6 +75,14 @@ Hard-deny commands, production/root escalation, output limits, audit records, an
 - Configure and test common stdio MCP servers, list their tools, and let the Agent call them through the same policy gate.
 - Large MCP catalogs use search plus explicit invocation to protect model context.
 - Bounded deterministic lifecycle Hooks are supported and cannot lower core permissions.
+
+### Plugin Agent Kernel
+
+- The Agent loop is a small runtime that mounts capability plugins instead of hard-coding a growing tool list.
+- The desktop profile currently mounts built-in SSH/session tools, local Skills, stdio MCP, lifecycle Hooks, and the OpenAI-compatible model adapter.
+- Each plugin exposes a manifest, version, dependency hints, and tool descriptors. Tool calls carry the plugin id into the event timeline and audit record.
+- The Agent settings panel lists mounted plugins and lets the user narrow the enabled set. An empty enabled list means the default desktop profile.
+- `src-tauri/src/agent/protocol.rs` defines a versioned line-delimited JSON contract for future out-of-process plugins. This release does not install or execute unknown third-party plugin code automatically.
 
 ### Remote CLI, REST, and Multi-SSH Plan
 
@@ -160,7 +168,8 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 - [Linux Agent Specification](docs/linux-agent-specification.md)
 - [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-installation-plan.md)
 - [Development Experience Record](docs/development-experience.md)
+- [Agent Plugin Architecture](docs/agent-plugin-architecture.md)
 
 ## Current Boundaries
 
-Version `0.6.8` does not yet implement multi-SSH Tasks, structured remote HTTP, or Skill-driven OS installation; these follow the staged plan. The first release still excludes complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports. Xshell import maps only Send String entries that can be represented safely as terminal text; menu, script, application, and text-file actions are reported as unsupported in the preview. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.
+Version `0.7.0` adds the plugin kernel and keeps multi-SSH Tasks, structured remote HTTP, and Skill-driven OS installation on the staged roadmap. The first release still excludes complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports. Xshell import maps only Send String entries that can be represented safely as terminal text; menu, script, application, and text-file actions are reported as unsupported in the preview. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.

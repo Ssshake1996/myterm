@@ -134,6 +134,9 @@ export interface McpServerConfig {
 }
 
 export interface AgentSettings {
+  profile: string;
+  bundles: string[];
+  enabled_plugins: string[];
   permission_mode: AgentPermissionMode;
   max_steps: number;
   skill_directories: string[];
@@ -171,6 +174,16 @@ export interface McpToolInfo {
   description: string;
 }
 
+export interface AgentPluginInfo {
+  id: string;
+  name: string;
+  version: string;
+  kind: string;
+  description: string;
+  requires: string[];
+  enabled: boolean;
+}
+
 export interface AgentEvent {
   schemaVersion: number;
   sequence: number;
@@ -193,6 +206,7 @@ export interface AgentEvent {
   step?: number;
   callId?: string;
   toolName?: string;
+  pluginId?: string;
   message?: string;
   content?: string;
   arguments?: unknown;
@@ -269,7 +283,7 @@ export function createChannel<T>(): MessageChannel<T> {
 export async function getAppInfo(): Promise<AppInfo> {
   if (!isDesktopRuntime) {
     return {
-      version: "0.6.8",
+      version: "0.7.0",
       commitHash: "browser-demo",
       startupProfile: null,
       portable: false,
@@ -514,6 +528,11 @@ export async function aiAbort(): Promise<void> {
 export async function agentSettingsGet(): Promise<AgentSettings> {
   if (!isDesktopRuntime) return demoBackend.agentSettingsGet();
   return invoke<AgentSettings>("agent_settings_get");
+}
+
+export async function agentPluginList(): Promise<AgentPluginInfo[]> {
+  if (!isDesktopRuntime) return demoBackend.agentPluginList();
+  return invoke<AgentPluginInfo[]>("agent_plugin_list");
 }
 
 export async function agentSettingsSave(settings: AgentSettings): Promise<AgentSettings> {

@@ -10,8 +10,10 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
+  type AgentPluginInfo,
   type AgentSettings as AgentSettingsValue,
   agentMcpTest,
+  agentPluginList,
   agentSettingsSave,
   agentSkillList,
   type McpServerConfig,
@@ -21,7 +23,7 @@ import {
 import { useUiStore } from "../../store/ui";
 import { Modal } from "../shell/Modal";
 
-type SettingsTab = "execution" | "skills" | "mcp";
+type SettingsTab = "execution" | "plugins" | "skills" | "mcp";
 type McpTestState =
   | { status: "testing" }
   | { status: "success"; tools: McpToolInfo[] }
@@ -53,6 +55,15 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
   const [skillLoading, setSkillLoading] = useState(false);
   const [mcpTests, setMcpTests] = useState<Record<string, McpTestState>>({});
   const [saving, setSaving] = useState(false);
+  const [plugins, setPlugins] = useState<AgentPluginInfo[]>([]);
+
+  useEffect(() => {
+    void agentPluginList()
+      .then(setPlugins)
+      .catch((error) =>
+        notify(error instanceof Error ? error.message : "插件清单读取失败", "error"),
+      );
+  }, [notify]);
 
   const refreshSkills = async (directories = normalizedLines(directoryText)) => {
     setSkillLoading(true);
@@ -157,6 +168,13 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
             取消
           </button>
           <button
+            className={tab === "plugins" ? "is-active" : ""}
+            onClick={() => setTab("plugins")}
+            type="button"
+          >
+            <Plug size={14} /> 插件
+          </button>
+          <button
             className="button button-primary"
             disabled={saving}
             onClick={() => void save()}
@@ -194,6 +212,13 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
             <Plug size={14} /> MCP
           </button>
         </nav>
+
+        <div className="plugin-profile-summary">
+          <span>Profile</span>
+          <code>{draft.profile}</code>
+          <span>Bundles</span>
+          <code>{draft.bundles.join(" · ") || "无"}</code>
+        </div>
 
         {tab === "execution" ? (
           <section className="settings-pane">
@@ -251,6 +276,54 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
             <div className="permission-note">
               <ShieldCheck size={15} />
               <span>Skill 只会补充 Agent 上下文，不能绕过工具权限和执行边界。</span>
+            </div>
+          </section>
+        ) : null}
+
+        {tab === "plugins" ? (
+          <section className="settings-pane">
+            <div className="settings-toolbar">
+              <span>当前 Profile 已加载 {plugins.length} 个插件</span>
+            </div>
+            <div className="plugin-list">
+              {plugins.map((plugin) => (
+                <article className="plugin-row" key={plugin.id}>
+                  <div className="plugin-row-heading">
+                    <label className="toggle-field compact-toggle">
+                      <input
+                        checked={
+                          draft.enabled_plugins.length === 0 ||
+                          draft.enabled_plugins.includes(plugin.id)
+                        }
+                        onChange={(event) =>
+                          setDraft((current) => {
+                            const currentEnabled = current.enabled_plugins.length
+                              ? current.enabled_plugins
+                              : plugins.map((candidate) => candidate.id);
+                            const enabled = event.target.checked
+                              ? [...new Set([...currentEnabled, plugin.id])]
+                              : currentEnabled.filter((id) => id !== plugin.id);
+                            return { ...current, enabled_plugins: enabled };
+                          })
+                        }
+                        type="checkbox"
+                      />
+                      <span className="toggle-track">
+                        <span />
+                      </span>
+                    </label>
+                    <strong>{plugin.name}</strong>
+                    <code>{plugin.id}</code>
+                    <span className="plugin-kind">{plugin.kind}</span>
+                  </div>
+                  <small>{plugin.description}</small>
+                  <span className="plugin-meta">
+                    v{plugin.version} · 依赖：
+                    {plugin.requires.length ? plugin.requires.join(", ") : "无"}
+                  </span>
+                </article>
+              ))}
+              {!plugins.length ? <div className="settings-empty">没有加载插件</div> : null}
             </div>
           </section>
         ) : null}

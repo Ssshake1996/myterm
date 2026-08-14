@@ -101,6 +101,14 @@ Version 0.6.8 makes AI connection failures diagnosable without exposing credenti
 - The model-list response must contain an OpenAI-compatible `data` array; otherwise the UI reports an invalid response shape and includes only a bounded, redacted summary.
 - Tauri's serialized `{ code, message }` errors are normalized in the typed frontend IPC adapter, so the settings dialog no longer collapses native failures to a generic “连接失败”.
 
+Version 0.7.0 moves the Agent extension boundary into an in-process plugin kernel:
+
+- `AgentRuntime` owns the run-scoped registry. The model loop no longer selects concrete Rust methods; it consumes schemas supplied by mounted plugins and routes every call through one policy, approval, cancellation, redaction, and audit path.
+- Built-in operations, local Skills, stdio MCP, lifecycle Hooks, and the OpenAI-compatible model adapter each expose a manifest. Tool events now carry `pluginId`, which makes UI traces and persisted audit records explain where a capability came from.
+- Agent settings persist `profile`, `bundles`, and `enabled_plugins`. An empty plugin list is intentionally the default desktop profile so older settings remain compatible; a non-empty list narrows the mounted registry.
+- `agent/protocol.rs` defines a bounded version-1 JSONL contract for future out-of-process plugins. It is a message contract only in this release: no unknown executable is downloaded, installed, or launched automatically.
+- Tradeoff: the registry gives low latency and one security boundary, while third-party process isolation is deferred until trust, signing, command-path, environment, timeout, crash-recovery, and resource-limit contracts are specified.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.
@@ -337,6 +345,8 @@ Update this table with the exact outcome rather than an optimistic status.
 | 0.6.7 release build | `npm run build:release` and `npm run check:dist` | Pass; installer is 7.63 MB, portable ZIP is 8.41 MB, required portable files are present, and no runtime dependency was added |
 | 0.6.7 upgrade install | Silently install over 0.6.6, then inspect file metadata, registry, shortcut, configuration hash, saved data, process response, and Agent | Pass; installer exits 0, one 0.6.7 uninstall entry and desktop shortcut remain, configuration SHA-256 plus server/AI/quick-command counts are unchanged, the installed process responds, and the saved legacy AI profile completes the five-tool Bearer Agent loop with `stop` |
 | 0.6.8 release and upgrade | `npm run build:release`, `npm run check:dist`, then silently install over 0.6.7 | Pass; installer is 7.66 MB, portable ZIP is 8.46 MB, required portable files are present, 0.6.8 replaced the legacy executable, an uninstall entry and `uninstall.exe` are present, configuration data was retained, and the desktop shortcut was repaired to the active install path |
+| 0.7.0 plugin kernel | Rust plugin/runtime/protocol tests, frontend Agent settings tests, typecheck, lint, and release build | Pass; the default desktop profile mounts built-in tools, Skills, MCP, Hooks, and model metadata; explicit plugin selection is scoped; plugin ids reach Agent events; JSONL protocol validation rejects malformed and unsupported messages |
+| 0.7.0 release and upgrade | `npm run build:release`, `npm run check:dist`, then silently install over 0.6.8 | Pass; installer is 7.68 MB, portable ZIP is 8.46 MB, installed EXE/registry report 0.7.0, one uninstall entry and `uninstall.exe` remain, configuration SHA-256 is unchanged, the desktop shortcut targets the new executable, and the installed process responds |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
 The browser screenshots and console logs are generated under ignored `output/playwright/` paths. They are verification artifacts rather than shipped product files.

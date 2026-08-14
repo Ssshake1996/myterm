@@ -221,6 +221,7 @@ pub fn run() {
             ipc::ai_chat,
             ipc::ai_abort,
             ipc::agent_settings_get,
+            ipc::agent_plugin_list,
             ipc::agent_settings_save,
             ipc::agent_skill_list,
             ipc::agent_mcp_test,
