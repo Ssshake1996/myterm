@@ -598,6 +598,8 @@ SQLite 表：
 
 错误必须包含稳定 code、人类 message、target/provider、retryable 和 details；不包含 secret。
 
+桌面 IPC 使用 `{ code, message }` 传输错误。`message` 必须保留底层可验证详情，不能被“连接失败”或推测性的状态解释覆盖；Agent 事件使用 `errorCode` 和 `content` 携带同一份信息。测试连接结果使用 `stage`、`code`、`summary`、`detail` 和可选 `stack`；概括显示失败位置和错误码，详情交互显示原始请求诊断和调用堆栈。允许的处理只有凭据脱敏和有界截断，且截断必须有明确标记。HTTP 诊断至少保留状态、Endpoint 和响应体，远端命令至少保留退出码、stdout/stderr、超时/取消状态，MCP 至少保留启动或调用错误。
+
 ## 18. 非功能要求
 
 ### 18.1 安全

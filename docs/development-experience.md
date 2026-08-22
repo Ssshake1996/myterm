@@ -97,8 +97,8 @@ Version 0.6.7 adds high-DPI readability and explicit AI authentication semantics
 
 Version 0.6.8 makes AI connection failures diagnosable without exposing credentials:
 
-- Rust validates that a saved API Key exists before sending the model-list request, classifies transport failures, and maps HTTP 401/403/404/429/5xx responses to actionable Chinese messages.
-- The model-list response must contain an OpenAI-compatible `data` array; otherwise the UI reports an invalid response shape and includes only a bounded, redacted summary.
+- Rust validates that a saved API Key exists before sending the model-list request and returns a structured diagnostic with `stage`, stable `code`, `summary`, raw `detail`, and a bounded call stack. The UI shows the stage/code summary first and expands detail on demand.
+- The model-list response must contain an OpenAI-compatible `data` array; otherwise the UI reports the exact JSON parser or schema failure and includes the bounded, redacted response body.
 - Tauri's serialized `{ code, message }` errors are normalized in the typed frontend IPC adapter, so the settings dialog no longer collapses native failures to a generic “连接失败”.
 
 Version 0.7.0 moves the Agent extension boundary into an in-process plugin kernel:
@@ -108,6 +108,15 @@ Version 0.7.0 moves the Agent extension boundary into an in-process plugin kerne
 - Agent settings persist `profile`, `bundles`, and `enabled_plugins`. An empty plugin list is intentionally the default desktop profile so older settings remain compatible; a non-empty list narrows the mounted registry.
 - `agent/protocol.rs` defines a bounded version-1 JSONL contract for future out-of-process plugins. It is a message contract only in this release: no unknown executable is downloaded, installed, or launched automatically.
 - Tradeoff: the registry gives low latency and one security boundary, while third-party process isolation is deferred until trust, signing, command-path, environment, timeout, crash-recovery, and resource-limit contracts are specified.
+
+Version 0.7.1 makes Agent diagnostics lossless across the Rust, IPC, event, and UI boundaries:
+
+- `AppError` now exposes a stable `code` and an unwrapped `detail`. Serialized IPC errors retain the actual provider, transport, JSON, tool, MCP, and storage text instead of adding a category prefix that hides the useful part.
+- AI HTTP failures keep the status, endpoint, and response body; transport failures keep the reqwest detail; invalid model/tool responses keep the parser or JSON-path failure. A shared redaction pass masks configured secrets and `sk-...` tokens while preserving line breaks, with a 16,000-character bound and explicit truncation marker.
+- Agent events use schema version 2 and carry `errorCode`; failed completion, tool results, MCP events, approval rejection, and policy denial reach the execution timeline with their exact detail. Settings and Agent catches use the serialized IPC error object rather than `instanceof Error` fallbacks.
+- Tradeoff: the UI shows more raw text and may require scrolling, but this is preferable for operations work; semantic explanations belong in a later evidence/recovery layer and must never replace the original failure.
+
+The prioritized optimization options and their pros/cons are recorded in [`docs/agent-optimization-roadmap.md`](agent-optimization-roadmap.md). The immediate next boundary is typed tool outcomes, followed by a provider trait and MCP stderr/timeout supervision; multi-SSH and provisioning remain separate milestones.
 
 ## 2. Reusable Delivery Workflow
 
@@ -315,7 +324,7 @@ Update this table with the exact outcome rather than an optimistic status.
 | Quick-command interchange QA | Import a real-shape Xshell 8.2 `.qbl`, export all commands, and inspect desktop plus 900 x 650 layouts | Pass; preview reports 4 total, 3 importable, and 1 unsupported; downloaded JSON is schema v1 with 6 portable entries and no runtime IDs; narrow scroll width equals 900 px |
 | Font settings | `TerminalView.test.tsx`, config unit test, and browser QA | Pass; four UI scale levels and terminal `12-22px` persistence are covered, terminal options update without reconnect, and 900 x 650 has no horizontal overflow |
 | AI auth headers | `ai::service` unit test, `AiSettings.test.tsx`, and `live_check verify-agent` | Pass; Bearer and raw API Key headers are exact, legacy profiles default to Bearer, the settings UI persists the explicit mode, and the saved legacy profile completes the live Bearer Agent loop |
-| AI connection failure diagnostics | `ai::service` error-classification tests, `AiSettings.test.tsx`, and live HTTP probe | Pass; the 401 response is reported as authentication failure with the endpoint path, the API key is redacted, and serialized IPC errors render in the dialog |
+| AI connection failure diagnostics | `ai::service` diagnostic tests, `AiSettings.test.tsx`, and live HTTP probe | Pass; the 401 response reports `models_request` + `http_401`, the endpoint/body and captured stack appear after clicking details, the API key is redacted, and serialized IPC errors render in the dialog |
 | Windows release build | `npm run build:release` | Pass for 0.6.0; optimized native EXE, NSIS installer, and portable ZIP produced |
 | Distribution audit | `npm run check:dist` | Pass; 0.6.0 installer 8.00 MB, portable ZIP 8.98 MB, and required portable files are present |
 | Native startup smoke | Start installed 0.6.0 with `--profile yuxiaservers` | Pass; process opens and remains responsive; separate fresh-config live check authenticates as `root` with the saved vault credential |
@@ -346,6 +355,7 @@ Update this table with the exact outcome rather than an optimistic status.
 | 0.6.7 upgrade install | Silently install over 0.6.6, then inspect file metadata, registry, shortcut, configuration hash, saved data, process response, and Agent | Pass; installer exits 0, one 0.6.7 uninstall entry and desktop shortcut remain, configuration SHA-256 plus server/AI/quick-command counts are unchanged, the installed process responds, and the saved legacy AI profile completes the five-tool Bearer Agent loop with `stop` |
 | 0.6.8 release and upgrade | `npm run build:release`, `npm run check:dist`, then silently install over 0.6.7 | Pass; installer is 7.66 MB, portable ZIP is 8.46 MB, required portable files are present, 0.6.8 replaced the legacy executable, an uninstall entry and `uninstall.exe` are present, configuration data was retained, and the desktop shortcut was repaired to the active install path |
 | 0.7.0 plugin kernel | Rust plugin/runtime/protocol tests, frontend Agent settings tests, typecheck, lint, and release build | Pass; the default desktop profile mounts built-in tools, Skills, MCP, Hooks, and model metadata; explicit plugin selection is scoped; plugin ids reach Agent events; JSONL protocol validation rejects malformed and unsupported messages |
+| 0.7.1 raw Agent diagnostics | Rust AI/AppError tests, frontend settings/Agent trace tests, typecheck, lint | Pass; HTTP status/endpoint/body, multiline redacted detail, MCP process errors, error codes, and complete-event failures remain visible without generic replacement; 45 Rust library tests and 41 frontend tests pass |
 | 0.7.0 release and upgrade | `npm run build:release`, `npm run check:dist`, then silently install over 0.6.8 | Pass; installer is 7.68 MB, portable ZIP is 8.46 MB, installed EXE/registry report 0.7.0, one uninstall entry and `uninstall.exe` remain, configuration SHA-256 is unchanged, the desktop shortcut targets the new executable, and the installed process responds |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 

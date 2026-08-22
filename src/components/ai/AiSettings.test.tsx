@@ -56,7 +56,8 @@ describe("AiSettings", () => {
     ipcMocks.aiProfileSave.mockResolvedValue(undefined);
     ipcMocks.aiTestConnection.mockRejectedValue({
       code: "ai",
-      message: "AI service error: 认证失败（HTTP 401）：API Key 无效",
+      message:
+        'HTTP 401 Unauthorized\nEndpoint: https://gateway.example/v1/models\nResponse body:\n{"error":"invalid key"}',
     });
     const user = userEvent.setup();
     render(
@@ -78,7 +79,65 @@ describe("AiSettings", () => {
 
     await user.click(screen.getByRole("button", { name: "测试连接" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("HTTP 401");
-    expect(screen.getByRole("alert")).not.toHaveTextContent("连接失败");
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("测试连接 · ai");
+    expect(error).not.toHaveTextContent("认证失败");
+    expect(screen.queryByText("HTTP 401 Unauthorized")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "查看详情" }));
+
+    expect(error).toHaveTextContent("HTTP 401 Unauthorized");
+    expect(error).toHaveTextContent('{"error":"invalid key"}');
+    expect(error.querySelector("pre")?.textContent).toBe(
+      'HTTP 401 Unauthorized\nEndpoint: https://gateway.example/v1/models\nResponse body:\n{"error":"invalid key"}',
+    );
+    expect(screen.getByRole("button", { name: "收起详情" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("shows backend summary and stack only after opening details", async () => {
+    ipcMocks.aiProfileSave.mockResolvedValue(undefined);
+    ipcMocks.aiTestConnection.mockResolvedValue({
+      ok: false,
+      error: {
+        stage: "models_request",
+        code: "http_401",
+        summary: "请求模型列表 · HTTP 401 Unauthorized",
+        detail:
+          'HTTP 401 Unauthorized\nEndpoint: https://gateway.example/v1/models\nResponse body:\n{"error":"invalid key"}',
+        stack: "stack frame A\nstack frame B",
+      },
+    });
+    const user = userEvent.setup();
+    render(
+      <AiSettings
+        profile={{
+          id: "ai-test",
+          name: "Gateway",
+          base_url: "https://gateway.example/v1",
+          api_key_ref: "ai.ai-test.key",
+          auth_mode: "bearer",
+          model: "model",
+          system_prompt: "",
+          context_lines: 80,
+        }}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "测试连接" }));
+
+    expect(await screen.findByText("请求模型列表 · HTTP 401 Unauthorized")).toBeInTheDocument();
+    expect(screen.queryByText("stack frame A")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "查看详情" }));
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.tagName === "PRE" && element.textContent?.includes("stack frame A") === true,
+      ),
+    ).toBeInTheDocument();
   });
 });

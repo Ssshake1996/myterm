@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub const AGENT_EVENT_SCHEMA_VERSION: u16 = 2;
+
 // ── Session profiles ─────────────────────────────────────
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -327,6 +329,8 @@ pub struct AgentEvent {
     pub arguments: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
 }
 
 #[derive(Serialize)]

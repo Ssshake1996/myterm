@@ -47,6 +47,42 @@ pub enum AppError {
     Database(#[from] rusqlite::Error),
 }
 
+impl AppError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Config(_) => "config",
+            Self::Vault(_) => "vault",
+            Self::Session(_) => "session",
+            Self::Sftp(_) => "sftp",
+            Self::Ai(_) => "ai",
+            Self::Agent(_) => "agent",
+            Self::Storage(_) => "storage",
+            Self::NotFound(_) => "not_found",
+            Self::InvalidInput(_) => "invalid_input",
+            Self::Io(_) => "io",
+            Self::Json(_) => "json",
+            Self::Database(_) => "database",
+        }
+    }
+
+    pub fn detail(&self) -> String {
+        match self {
+            Self::Config(detail)
+            | Self::Vault(detail)
+            | Self::Session(detail)
+            | Self::Sftp(detail)
+            | Self::Ai(detail)
+            | Self::Agent(detail)
+            | Self::Storage(detail)
+            | Self::NotFound(detail)
+            | Self::InvalidInput(detail) => detail.clone(),
+            Self::Io(error) => error.to_string(),
+            Self::Json(error) => error.to_string(),
+            Self::Database(error) => error.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct IpcError {
     pub code: String,
@@ -55,24 +91,26 @@ pub struct IpcError {
 
 impl From<AppError> for IpcError {
     fn from(error: AppError) -> Self {
-        let code = match &error {
-            AppError::Config(_) => "config",
-            AppError::Vault(_) => "vault",
-            AppError::Session(_) => "session",
-            AppError::Sftp(_) => "sftp",
-            AppError::Ai(_) => "ai",
-            AppError::Agent(_) => "agent",
-            AppError::Storage(_) => "storage",
-            AppError::NotFound(_) => "not_found",
-            AppError::InvalidInput(_) => "invalid_input",
-            AppError::Io(_) => "io",
-            AppError::Json(_) => "json",
-            AppError::Database(_) => "database",
-        };
         Self {
-            code: code.to_owned(),
-            message: error.to_string(),
+            code: error.code().to_owned(),
+            message: error.detail(),
         }
+    }
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::{AppError, IpcError};
+
+    #[test]
+    fn ipc_error_preserves_original_detail_without_category_summary() {
+        let error = AppError::Ai("HTTP 502 Bad Gateway\nResponse body:\nupstream reset".to_owned());
+        let ipc: IpcError = error.into();
+        assert_eq!(ipc.code, "ai");
+        assert_eq!(
+            ipc.message,
+            "HTTP 502 Bad Gateway\nResponse body:\nupstream reset"
+        );
     }
 }
 

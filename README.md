@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.7.0`
+当前版本：`0.7.1`
 
 ## 核心功能
 
@@ -98,7 +98,7 @@ Agent 使用类似 Claude Code 的循环：
 - 白色、护眼色和深色三套主题，设置会持久化并同步到终端画布。
 - 支持界面字号“小/标准/大/特大”四档，另可独立设置终端 `12-22px` 字号；修改即时生效并持久化。
 - AI 配置支持 `Bearer Token`（`Authorization: Bearer sk-...`）和 `API Key`（`Authorization: sk-...`）两种认证头格式。
-- 测试连接失败会显示 HTTP 状态、认证、地址、超时、限流或服务端错误的明确原因，并对返回摘要中的 API Key 脱敏。
+- 测试连接和 Agent 失败先显示失败位置与稳定错误码，点击详情后展开 HTTP 状态、Endpoint、响应体、传输错误、stderr、退出码、超时和调用堆栈；仅对密钥脱敏并限制诊断长度，不用推测性文字替换服务端结果。
 - 紧凑的 34px 会话标签栏和全高侧栏，适配桌面及窄窗口。
 - 标题栏右侧帮助按钮可在应用内打开离线使用说明书。
 
@@ -169,7 +169,8 @@ npm run check:dist
 - [多 SSH 协同与 Skill 驱动 OS 安装方案](docs/multi-ssh-os-installation-plan.md)
 - [开发经验记录](docs/development-experience.md)
 - [Agent 插件架构说明](docs/agent-plugin-architecture.md)
+- [Agent 优化路线与取舍](docs/agent-optimization-roadmap.md)
 
 ## 当前边界
 
-当前 `0.7.0` 已交付插件化 Agent 内核；多 SSH Task、结构化远端 HTTP 工具和 Skill 驱动的 OS 安装仍按专项方案分阶段开发。第一版仍不实现复杂多 Agent、长期记忆、云端 Skill 市场和远程 MCP 传输。Xshell 导入仅映射可安全表达为终端文本的“发送字符串”命令，菜单、脚本、程序和文本文件动作会在预览中标记为不支持。聚合 WebView2 进程组内存仍高于项目的 80 MiB 目标，原生 Agent 内核保持轻量，完整浏览器运行时优化继续作为后续工作。
+当前 `0.7.1` 已交付插件化 Agent 内核和统一原始错误诊断；多 SSH Task、结构化远端 HTTP 工具和 Skill 驱动的 OS 安装仍按专项方案分阶段开发。第一版仍不实现复杂多 Agent、长期记忆、云端 Skill 市场和远程 MCP 传输。Xshell 导入仅映射可安全表达为终端文本的“发送字符串”命令，菜单、脚本、程序和文本文件动作会在预览中标记为不支持。聚合 WebView2 进程组内存仍高于项目的 80 MiB 目标，原生 Agent 内核保持轻量，完整浏览器运行时优化继续作为后续工作。

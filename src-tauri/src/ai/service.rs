@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{backtrace::Backtrace, sync::Arc, time::Duration};
 
 use reqwest::RequestBuilder;
 use serde::{Deserialize, Serialize};
@@ -10,6 +10,8 @@ use crate::{
     types::{AiAuthMode, AiMessage, AiProfile, AiRole},
     AppError,
 };
+
+const MAX_DIAGNOSTIC_CHARS: usize = 16_000;
 
 pub trait DeltaSink: Send + Sync {
     fn send(&self, delta: &str) -> Result<(), AppError>;
@@ -24,12 +26,24 @@ pub struct AiChatResult {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiErrorDiagnostic {
+    pub stage: String,
+    pub code: String,
+    pub summary: String,
+    pub detail: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AiTestResult {
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+    pub error: Option<AiErrorDiagnostic>,
 }
 
 pub struct AiService {
@@ -61,47 +75,124 @@ impl AiService {
     }
 
     pub async fn test_connection(&self, profile_id: &str) -> Result<AiTestResult, AppError> {
-        let profile = self.profile(profile_id)?;
-        let key = self
-            .vault
-            .get(&profile.api_key_ref)?
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| AppError::Ai("API Key 未配置：请填写 API Key 并保存配置".to_owned()))?;
-        let models_endpoint = endpoint(&profile.base_url, "models")?;
+        let profile = match self.profile(profile_id) {
+            Ok(profile) => profile,
+            Err(error) => {
+                return Ok(failed_test(
+                    "load_profile",
+                    error.code(),
+                    format!("读取 AI 配置 · {}", error.code()),
+                    error.detail(),
+                    "",
+                ));
+            }
+        };
+        let key = match self.vault.get(&profile.api_key_ref) {
+            Ok(Some(value)) if !value.trim().is_empty() => value,
+            Ok(_) => {
+                return Ok(failed_test(
+                    "read_api_key",
+                    "api_key_missing",
+                    "读取 API Key · api_key_missing",
+                    "API Key 未配置：请填写 API Key 并保存配置".to_owned(),
+                    "",
+                ));
+            }
+            Err(error) => {
+                return Ok(failed_test(
+                    "read_api_key",
+                    error.code(),
+                    format!("读取 API Key · {}", error.code()),
+                    error.detail(),
+                    "",
+                ));
+            }
+        };
+        let models_endpoint = match endpoint(&profile.base_url, "models") {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                return Ok(failed_test(
+                    "build_models_request",
+                    error.code(),
+                    format!("构造模型列表请求 · {}", error.code()),
+                    error.detail(),
+                    &key,
+                ));
+            }
+        };
         let response = with_auth(self.client.get(models_endpoint.clone()), &profile, &key)
             .send()
             .await
-            .map_err(|error| AppError::Ai(format_transport_error(error, &models_endpoint)))?;
+            .map_err(|error| {
+                failed_test(
+                    "models_request",
+                    transport_error_code(&error),
+                    format!("请求模型列表 · {}", transport_error_code(&error)),
+                    format_transport_failure(error, &models_endpoint),
+                    &key,
+                )
+            });
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => return Ok(error),
+        };
         let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|error| AppError::Ai(format_transport_error(error, &models_endpoint)))?;
+        let body = response.text().await.map_err(|error| {
+            failed_test(
+                "read_models_response",
+                transport_error_code(&error),
+                format!("读取模型列表响应 · {}", transport_error_code(&error)),
+                format_transport_failure(error, &models_endpoint),
+                &key,
+            )
+        });
+        let body = match body {
+            Ok(body) => body,
+            Err(error) => return Ok(error),
+        };
         if !status.is_success() {
             return Ok(AiTestResult {
                 ok: false,
                 models: None,
-                error: Some(format_http_failure(
+                error: Some(http_failure_diagnostic(
+                    "models_request",
                     status,
                     &body,
-                    models_endpoint.path(),
+                    &models_endpoint,
                     &key,
                 )),
             });
         }
-        let models = serde_json::from_str::<serde_json::Value>(&body)
-            .ok()
-            .and_then(|value| value.get("data")?.as_array().map(Vec::len));
-        let Some(models) = models else {
-            return Ok(AiTestResult {
-                ok: false,
-                models: None,
-                error: Some(format_invalid_models_response(&body, &key)),
-            });
+        let value = match serde_json::from_str::<serde_json::Value>(&body) {
+            Ok(value) => value,
+            Err(error) => {
+                return Ok(failed_test(
+                    "parse_models_response",
+                    "json_parse",
+                    "解析模型列表响应 · json_parse",
+                    format!(
+                        "JSON parse error: {error}\nResponse body:\n{}",
+                        redact_and_bound(&body, &key)
+                    ),
+                    &key,
+                ));
+            }
+        };
+        let Some(models) = value.get("data").and_then(serde_json::Value::as_array) else {
+            return Ok(failed_test(
+                "validate_models_response",
+                "json_schema",
+                "校验模型列表响应 · json_schema",
+                format!(
+                    "JSON validation error: $.data is not an array\nResponse body:\n{}",
+                    redact_and_bound(&body, &key)
+                ),
+                &key,
+            ));
         };
         Ok(AiTestResult {
             ok: true,
-            models: Some(models),
+            models: Some(models.len()),
             error: None,
         })
     }
@@ -179,26 +270,23 @@ impl AiService {
             .get(&profile.api_key_ref)?
             .ok_or_else(|| AppError::Ai("API key is not configured".to_owned()))?;
         let started = std::time::Instant::now();
-        let mut response = with_auth(
-            self.client
-                .post(endpoint(&profile.base_url, "chat/completions")?),
-            &profile,
-            &key,
-        )
-        .json(&request)
-        .send()
-        .await
-        .map_err(|error| AppError::Ai(error.to_string()))?;
+        let chat_endpoint = endpoint(&profile.base_url, "chat/completions")?;
+        let mut response = with_auth(self.client.post(chat_endpoint.clone()), &profile, &key)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|error| AppError::Ai(format_transport_failure(error, &chat_endpoint)))?;
         let status = response.status();
         if !status.is_success() {
             let body = response
                 .text()
                 .await
-                .map_err(|error| AppError::Ai(error.to_string()))?;
-            return Err(AppError::Ai(format!(
-                "HTTP {}: {}",
-                status.as_u16(),
-                summarize(&body)
+                .map_err(|error| AppError::Ai(format_transport_failure(error, &chat_endpoint)))?;
+            return Err(AppError::Ai(format_http_failure(
+                status,
+                &body,
+                &chat_endpoint,
+                &key,
             )));
         }
         let mut decoder = SseDecoder::default();
@@ -211,7 +299,7 @@ impl AiService {
                     }
                     continue;
                 }
-                chunk = response.chunk() => chunk.map_err(|error| AppError::Ai(error.to_string()))?,
+                chunk = response.chunk() => chunk.map_err(|error| AppError::Ai(format_transport_failure(error, &chat_endpoint)))?,
             };
             let Some(chunk) = chunk else {
                 break;
@@ -369,86 +457,146 @@ pub(crate) fn with_auth(request: RequestBuilder, profile: &AiProfile, key: &str)
     }
 }
 
-fn format_transport_error(error: reqwest::Error, endpoint: &reqwest::Url) -> String {
-    let path = endpoint.path();
-    if error.is_timeout() {
-        return format!(
-            "请求超时：请求 {path} 未在规定时间内完成。请检查服务是否可达或 Base URL 是否正确"
-        );
-    }
-    if error.is_connect() {
-        return format!("无法连接 AI 服务：请求 {path} 失败。请检查 Base URL、端口和网络连通性");
-    }
-    format!("AI 请求失败：{}（请求 {path}）", error.without_url())
+pub(crate) fn format_transport_failure(error: reqwest::Error, endpoint: &reqwest::Url) -> String {
+    format!(
+        "Endpoint: {endpoint}\nTransport error: {}",
+        error.without_url()
+    )
 }
 
-fn format_http_failure(
+pub(crate) fn format_http_failure(
     status: reqwest::StatusCode,
     body: &str,
-    path: &str,
+    endpoint: &reqwest::Url,
     secret: &str,
 ) -> String {
-    let reason = match status.as_u16() {
-        401 => "认证失败：API Key 无效、已过期，或认证方式与网关要求不匹配",
-        403 => "访问被拒绝：当前 API Key 没有访问模型列表的权限",
-        404 => "接口不存在：请确认 Base URL 和 API 路径",
-        429 => "请求被限流或额度不足：请检查服务商配额和请求频率",
-        500..=599 => "AI 服务端错误：请检查网关或模型服务日志",
-        _ => "AI 服务返回错误",
-    };
-    let detail = summarize_with_secret(body, secret);
-    if detail.is_empty() {
-        format!("{reason}（HTTP {}，请求 {path}）", status.as_u16())
+    let detail = redact_and_bound(body, secret);
+    let detail = if detail.is_empty() {
+        "<empty>".to_owned()
     } else {
+        detail
+    };
+    format!("HTTP {status}\nEndpoint: {endpoint}\nResponse body:\n{detail}")
+}
+
+fn failed_test(
+    stage: &str,
+    code: impl Into<String>,
+    summary: impl Into<String>,
+    detail: String,
+    secret: &str,
+) -> AiTestResult {
+    AiTestResult {
+        ok: false,
+        models: None,
+        error: Some(AiErrorDiagnostic {
+            stage: stage.to_owned(),
+            code: code.into(),
+            summary: summary.into(),
+            detail: redact_and_bound(&detail, secret),
+            stack: Some(redact_and_bound(
+                &Backtrace::force_capture().to_string(),
+                secret,
+            )),
+        }),
+    }
+}
+
+fn http_failure_diagnostic(
+    stage: &str,
+    status: reqwest::StatusCode,
+    body: &str,
+    endpoint: &reqwest::Url,
+    secret: &str,
+) -> AiErrorDiagnostic {
+    failed_test(
+        stage,
+        format!("http_{}", status.as_u16()),
+        format!("请求模型列表 · HTTP {status}"),
+        format_http_failure(status, body, endpoint, secret),
+        secret,
+    )
+    .error
+    .expect("failed_test always contains a diagnostic")
+}
+
+fn transport_error_code(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "transport_timeout"
+    } else if error.is_connect() {
+        "transport_connect"
+    } else if error.is_request() {
+        "transport_request"
+    } else {
+        "transport_error"
+    }
+}
+
+#[cfg(test)]
+fn parse_model_count(body: &str, secret: &str) -> Result<usize, String> {
+    let value = serde_json::from_str::<serde_json::Value>(body).map_err(|error| {
         format!(
-            "{reason}（HTTP {}，请求 {path}）：{detail}",
-            status.as_u16()
+            "JSON parse error: {error}\nResponse body:\n{}",
+            redact_and_bound(body, secret)
         )
-    }
+    })?;
+    value
+        .get("data")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::len)
+        .ok_or_else(|| {
+            format!(
+                "JSON validation error: $.data is not an array\nResponse body:\n{}",
+                redact_and_bound(body, secret)
+            )
+        })
 }
 
-fn format_invalid_models_response(body: &str, secret: &str) -> String {
-    let detail = summarize_with_secret(body, secret);
-    if detail.is_empty() {
-        "模型列表响应格式无效：服务未返回 OpenAI 兼容的 data 数组".to_owned()
+pub(crate) fn redact_and_bound(value: &str, secret: &str) -> String {
+    let redacted = if secret.is_empty() {
+        value.to_owned()
     } else {
-        format!("模型列表响应格式无效：服务未返回 OpenAI 兼容的 data 数组。服务返回：{detail}")
-    }
-}
-
-pub(crate) fn summarize(body: &str) -> String {
-    summarize_with_secret(body, "")
-}
-
-fn summarize_with_secret(body: &str, secret: &str) -> String {
-    let clean = body.replace(['\r', '\n'], " ");
-    let clean = if secret.is_empty() {
-        clean
-    } else {
-        clean.replace(secret, "***")
+        value.replace(secret, "[REDACTED]")
     };
-    redact_api_key(&clean).chars().take(512).collect()
+    bound_diagnostic(&redact_api_key(&redacted))
+}
+
+fn bound_diagnostic(value: &str) -> String {
+    const MARKER: &str = "\n[diagnostic truncated]";
+    if value.chars().count() <= MAX_DIAGNOSTIC_CHARS {
+        return value.to_owned();
+    }
+    let keep = MAX_DIAGNOSTIC_CHARS.saturating_sub(MARKER.chars().count());
+    let mut bounded = value.chars().take(keep).collect::<String>();
+    bounded.push_str(MARKER);
+    bounded
 }
 
 fn redact_api_key(value: &str) -> String {
-    value
-        .split_whitespace()
-        .map(|token| {
-            let Some(start) = token.find("sk-") else {
-                return token.to_owned();
-            };
-            let prefix = &token[..start];
-            format!("{prefix}sk-***")
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    let mut redacted = String::with_capacity(value.len());
+    let mut cursor = 0;
+    while let Some(offset) = value[cursor..].find("sk-") {
+        let start = cursor + offset;
+        redacted.push_str(&value[cursor..start]);
+        redacted.push_str("sk-***");
+        let token = &value[start + 3..];
+        let end = token
+            .char_indices()
+            .find(|(_, character)| {
+                !(character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
+            })
+            .map_or(value.len(), |(index, _)| start + 3 + index);
+        cursor = end;
+    }
+    redacted.push_str(&value[cursor..]);
+    redacted
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        endpoint, format_http_failure, format_invalid_models_response, redact_api_key, summarize,
-        with_auth, SseDecoder,
+        endpoint, failed_test, format_http_failure, parse_model_count, redact_and_bound,
+        redact_api_key, with_auth, SseDecoder, MAX_DIAGNOSTIC_CHARS,
     };
     use crate::types::{AiAuthMode, AiProfile};
 
@@ -465,7 +613,7 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_and_error_summary_are_bounded() -> Result<(), Box<dyn std::error::Error>> {
+    fn endpoint_and_diagnostics_are_bounded() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(
             endpoint("http://localhost:11434/v1/", "models")?.as_str(),
             "http://localhost:11434/v1/models"
@@ -474,8 +622,11 @@ mod tests {
             endpoint("http://localhost:11434", "chat/completions")?.as_str(),
             "http://localhost:11434/v1/chat/completions"
         );
-        assert_eq!(summarize("line one\nline two"), "line one line two");
-        assert_eq!(summarize(&"x".repeat(600)).len(), 512);
+        assert_eq!(
+            redact_and_bound("line one\nline two", ""),
+            "line one\nline two"
+        );
+        assert!(redact_and_bound(&"x".repeat(20_000), "").chars().count() <= MAX_DIAGNOSTIC_CHARS);
         assert_eq!(
             redact_api_key("message: invalid sk-secret-value"),
             "message: invalid sk-***"
@@ -484,27 +635,47 @@ mod tests {
     }
 
     #[test]
-    fn connection_failures_explain_http_and_response_errors() {
+    fn connection_failures_preserve_http_and_response_details() {
+        let endpoint = reqwest::Url::parse("https://gateway.example/v1/models").unwrap();
         let unauthorized = format_http_failure(
             reqwest::StatusCode::UNAUTHORIZED,
-            r#"{"error":"invalid api key sk-secret-value"}"#,
-            "/v1/models",
+            "{\n  \"error\": \"invalid api key sk-secret-value\"\n}",
+            &endpoint,
             "sk-secret-value",
         );
-        assert!(unauthorized.contains("认证失败"));
-        assert!(unauthorized.contains("HTTP 401"));
+        assert!(unauthorized.contains("HTTP 401 Unauthorized"));
+        assert!(unauthorized.contains("Endpoint: https://gateway.example/v1/models"));
+        assert!(unauthorized.contains("Response body:\n{\n  \"error\""));
         assert!(!unauthorized.contains("sk-secret-value"));
+        assert!(!unauthorized.contains("认证失败"));
         assert!(format_http_failure(
             reqwest::StatusCode::NOT_FOUND,
             "",
-            "/custom/models",
+            &reqwest::Url::parse("https://gateway.example/custom/models").unwrap(),
             "sk-test"
         )
         .contains("/custom/models"));
-        assert!(
-            format_invalid_models_response("<html>gateway</html>", "sk-test")
-                .contains("响应格式无效")
+        let invalid = parse_model_count("<html>gateway</html>", "sk-test").unwrap_err();
+        assert!(invalid.contains("JSON parse error:"));
+        assert!(invalid.contains("Response body:\n<html>gateway</html>"));
+    }
+
+    #[test]
+    fn structured_test_diagnostic_keeps_stage_code_detail_and_stack() {
+        let result = failed_test(
+            "models_request",
+            "http_401",
+            "请求模型列表 · HTTP 401 Unauthorized",
+            "HTTP 401 Unauthorized\nResponse body:\ninvalid key sk-secret-value".to_owned(),
+            "sk-secret-value",
         );
+        let diagnostic = result.error.expect("diagnostic should be present");
+        assert_eq!(diagnostic.stage, "models_request");
+        assert_eq!(diagnostic.code, "http_401");
+        assert_eq!(diagnostic.summary, "请求模型列表 · HTTP 401 Unauthorized");
+        assert!(diagnostic.detail.contains("HTTP 401 Unauthorized"));
+        assert!(!diagnostic.detail.contains("sk-secret-value"));
+        assert!(diagnostic.stack.is_some());
     }
 
     #[test]

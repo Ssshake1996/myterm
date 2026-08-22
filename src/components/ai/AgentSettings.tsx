@@ -16,6 +16,7 @@ import {
   agentPluginList,
   agentSettingsSave,
   agentSkillList,
+  errorMessage,
   type McpServerConfig,
   type McpToolInfo,
   type SkillInfo,
@@ -61,7 +62,7 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
     void agentPluginList()
       .then(setPlugins)
       .catch((error) =>
-        notify(error instanceof Error ? error.message : "插件清单读取失败", "error"),
+        notify(errorMessage(error, "插件清单读取失败：未返回可读的错误信息"), "error"),
       );
   }, [notify]);
 
@@ -70,7 +71,7 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
     try {
       setSkills(await agentSkillList(directories));
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Skill 扫描失败", "error");
+      notify(errorMessage(error, "Skill 扫描失败：未返回可读的错误信息"), "error");
     } finally {
       setSkillLoading(false);
     }
@@ -81,7 +82,9 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
     setSkillLoading(true);
     void agentSkillList(settings.skill_directories)
       .then(setSkills)
-      .catch((error) => notify(error instanceof Error ? error.message : "Skill 扫描失败", "error"))
+      .catch((error) =>
+        notify(errorMessage(error, "Skill 扫描失败：未返回可读的错误信息"), "error"),
+      )
       .finally(() => setSkillLoading(false));
   }, [notify, settings.skill_directories]);
 
@@ -116,7 +119,7 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
         ...current,
         [server.id]: {
           status: "error",
-          message: error instanceof Error ? error.message : "连接失败",
+          message: errorMessage(error, "MCP 连接失败：未返回可读的错误信息"),
         },
       }));
     }
@@ -154,7 +157,7 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
       notify("Agent 设置已保存", "success");
       onClose();
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Agent 设置保存失败", "error");
+      notify(errorMessage(error, "Agent 设置保存失败：未返回可读的错误信息"), "error");
     } finally {
       setSaving(false);
     }
@@ -501,9 +504,12 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
                         </span>
                       ) : null}
                       {test?.status === "error" ? (
-                        <span className="test-error">
-                          <AlertCircle size={13} /> {test.message}
-                        </span>
+                        <div className="test-error mcp-test-error" role="alert">
+                          <strong>
+                            <AlertCircle size={13} /> MCP 连接失败
+                          </strong>
+                          <pre>{test.message}</pre>
+                        </div>
                       ) : null}
                     </footer>
                   </section>

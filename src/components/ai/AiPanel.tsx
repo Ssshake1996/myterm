@@ -31,6 +31,8 @@ import {
   agentTaskList,
   aiProfileList,
   createChannel,
+  errorMessage,
+  ipcErrorCode,
 } from "../../ipc";
 import { getActivePane, useLayoutStore } from "../../store/layout";
 import { useUiStore } from "../../store/ui";
@@ -75,7 +77,15 @@ interface PolicySummary {
 
 type TraceEntry =
   | { id: string; kind: "task"; content: string; session?: string }
-  | { id: string; kind: "status"; content: string; step?: number; error?: boolean }
+  | {
+      id: string;
+      kind: "status";
+      content: string;
+      detail?: string;
+      errorCode?: string;
+      step?: number;
+      error?: boolean;
+    }
   | { id: string; kind: "assistant"; content: string; step?: number }
   | {
       id: string;
@@ -92,6 +102,7 @@ type TraceEntry =
       status: ToolStatus;
       jobId?: string;
       jobState?: string;
+      errorCode?: string;
     };
 
 interface AiPanelProps {
@@ -167,6 +178,7 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
     const jobStillRunning = tool?.jobState === "running" || tool?.jobState === "canceling";
     return updateTool(current, event.callId, {
       result: event.content ?? "",
+      errorCode: event.errorCode,
       status: event.isError ? "error" : jobStillRunning ? "running" : "success",
     });
   }
@@ -205,8 +217,9 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
       {
         id: eventId,
         kind: "status",
-        content:
-          event.message ?? (event.eventType === "mcp_error" ? "MCP 连接失败" : "Agent 运行中"),
+        content: event.message ?? (event.eventType === "mcp_error" ? "MCP" : "Agent 运行中"),
+        detail: event.eventType === "mcp_error" ? event.content : undefined,
+        errorCode: event.errorCode,
         step: event.step,
         error: event.eventType === "mcp_error",
       },
@@ -226,6 +239,8 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
         id: eventId,
         kind: "status",
         content: labels[event.message ?? ""] ?? "任务完成",
+        detail: event.isError ? event.content : undefined,
+        errorCode: event.errorCode,
         step: event.step,
         error: !["stop", "aborted"].includes(event.message ?? ""),
       },
@@ -284,7 +299,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         setTasks(savedTasks);
       })
       .catch((error) =>
-        notify(error instanceof Error ? error.message : "Agent 配置读取失败", "error"),
+        notify(errorMessage(error, "Agent 配置读取失败：未返回可读的错误信息"), "error"),
       );
   }, [notify]);
 
@@ -357,7 +372,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
       setHistoryOpen(false);
       scrollToBottom();
     } catch (error) {
-      notify(error instanceof Error ? error.message : "任务历史读取失败", "error");
+      notify(errorMessage(error, "任务历史读取失败：未返回可读的错误信息"), "error");
     }
   };
 
@@ -370,7 +385,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         setEntries([]);
       }
     } catch (error) {
-      notify(error instanceof Error ? error.message : "任务删除失败", "error");
+      notify(errorMessage(error, "任务删除失败：未返回可读的错误信息"), "error");
     }
   };
 
@@ -406,11 +421,24 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         .catch(() => undefined);
       if (result.finishReason === "limit") notify("Agent 已达到最大循环步数", "error");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Agent 运行失败";
-      setEntries((current) => [
-        ...current,
-        { id: crypto.randomUUID(), kind: "status", content: message, error: true },
-      ]);
+      const message = errorMessage(error, "Agent 运行失败：未返回可读的错误信息");
+      setEntries((current) => {
+        const alreadyRendered = current.some(
+          (entry) => entry.kind === "status" && entry.error && entry.detail === message,
+        );
+        if (alreadyRendered) return current;
+        return [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            kind: "status",
+            content: "Agent 运行失败",
+            detail: message,
+            errorCode: ipcErrorCode(error),
+            error: true,
+          },
+        ];
+      });
       notify(message, "error");
     } finally {
       setRunning(false);
@@ -425,7 +453,8 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     } catch (error) {
       setEntries((current) =>
         updateTool(current, callId, {
-          result: error instanceof Error ? error.message : "审批请求已失效",
+          result: errorMessage(error, "审批请求失败：未返回可读的错误信息"),
+          errorCode: ipcErrorCode(error),
           status: "error",
         }),
       );
@@ -440,7 +469,8 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     } catch (error) {
       setEntries((current) =>
         updateTool(current, callId, {
-          result: error instanceof Error ? error.message : "Job cancel failed",
+          result: errorMessage(error, "Job 取消失败：未返回可读的错误信息"),
+          errorCode: ipcErrorCode(error),
           status: "error",
         }),
       );
@@ -455,7 +485,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
       setAgentSettings(await agentSettingsSave(next));
     } catch (error) {
       setAgentSettings(previous);
-      notify(error instanceof Error ? error.message : "权限模式保存失败", "error");
+      notify(errorMessage(error, "权限模式保存失败：未返回可读的错误信息"), "error");
     }
   };
 
@@ -706,14 +736,19 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
           }
           if (entry.kind === "status") {
             return (
-              <div
-                className={entry.error ? "trace-status is-error" : "trace-status"}
+              <article
+                className={`trace-status${entry.error ? " is-error" : ""}${entry.detail ? " has-detail" : ""}`}
                 key={entry.id}
+                role={entry.error ? "alert" : undefined}
               >
-                {entry.error ? <AlertTriangle size={12} /> : <CircleDot size={12} />}
-                <span>{entry.content}</span>
-                {entry.step ? <small>STEP {entry.step}</small> : null}
-              </div>
+                <div className="trace-status-line">
+                  {entry.error ? <AlertTriangle size={12} /> : <CircleDot size={12} />}
+                  <span>{entry.content}</span>
+                  {entry.errorCode ? <code>{entry.errorCode}</code> : null}
+                  {entry.step ? <small>STEP {entry.step}</small> : null}
+                </div>
+                {entry.detail ? <pre>{entry.detail}</pre> : null}
+              </article>
             );
           }
           if (entry.kind === "assistant") {
@@ -742,6 +777,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
                   <strong>{toolLabel(entry.toolName)}</strong>
                   <code>
                     {entry.pluginId ? `${entry.pluginId} · ${entry.toolName}` : entry.toolName}
+                    {entry.errorCode ? ` · ${entry.errorCode}` : ""}
                   </code>
                 </span>
                 {entry.step ? <small>STEP {entry.step}</small> : null}

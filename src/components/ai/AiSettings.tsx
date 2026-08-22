@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   type AiAuthMode,
+  type AiErrorDiagnostic,
   type AiProfile,
   type AiTestResult,
   aiProfileSave,
@@ -16,6 +17,25 @@ const PRESETS = [
   { name: "Ollama 本地", baseUrl: "http://localhost:11434/v1", model: "qwen2.5" },
   { name: "自定义", baseUrl: "https://gateway.example.com/v1", model: "" },
 ] as const;
+
+function diagnosticFromThrownError(
+  error: unknown,
+  stage: string,
+  label: string,
+): AiErrorDiagnostic {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? typeof (error as { code?: unknown }).code === "string"
+        ? (error as { code: string }).code
+        : "ipc_error"
+      : "ipc_error";
+  return {
+    stage,
+    code,
+    summary: `${label} · ${code}`,
+    detail: errorMessage(error, `${label}失败：未返回可读的错误信息`),
+  };
+}
 
 interface AiSettingsProps {
   profile: AiProfile | null;
@@ -34,6 +54,7 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
   const [apiKey, setApiKey] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<AiTestResult | null>(null);
+  const [testDetailsOpen, setTestDetailsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const id = profile?.id ?? crypto.randomUUID();
 
@@ -62,7 +83,7 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
       notify("AI 配置已保存", "success");
       onClose();
     } catch (error) {
-      notify(error instanceof Error ? error.message : "保存失败", "error");
+      notify(errorMessage(error, "保存失败：未返回可读的错误信息"), "error");
     } finally {
       setSaving(false);
     }
@@ -71,15 +92,26 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
   const test = async () => {
     setTesting(true);
     setTestResult(null);
+    setTestDetailsOpen(false);
     try {
       const next = currentProfile();
-      await aiProfileSave(next, apiKey || undefined);
-      setTestResult(await aiTestConnection(next.id));
-    } catch (error) {
-      setTestResult({
-        ok: false,
-        error: errorMessage(error, "测试连接失败：未返回可读的错误信息"),
-      });
+      try {
+        await aiProfileSave(next, apiKey || undefined);
+      } catch (error) {
+        setTestResult({
+          ok: false,
+          error: diagnosticFromThrownError(error, "save_profile", "保存 AI 配置"),
+        });
+        return;
+      }
+      try {
+        setTestResult(await aiTestConnection(next.id));
+      } catch (error) {
+        setTestResult({
+          ok: false,
+          error: diagnosticFromThrownError(error, "test_connection", "测试连接"),
+        });
+      }
     } finally {
       setTesting(false);
     }
@@ -119,6 +151,7 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
                   setBaseUrl(preset.baseUrl);
                   setModel(preset.model);
                   setTestResult(null);
+                  setTestDetailsOpen(false);
                 }}
                 type="button"
               >
@@ -192,14 +225,41 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
             {testing ? "测试中" : "测试连接"}
           </button>
           {testResult ? (
-            <span
-              className={testResult.ok ? "test-success" : "test-error"}
-              role={testResult.ok ? undefined : "alert"}
-            >
-              {testResult.ok
-                ? `连接成功 · ${testResult.models ?? 0} 个模型`
-                : `测试失败：${testResult.error}`}
-            </span>
+            testResult.ok ? (
+              <span className="test-success">连接成功 · {testResult.models ?? 0} 个模型</span>
+            ) : (
+              <div className="test-error connection-test-error" role="alert">
+                <div className="test-error-summary">
+                  <strong>{testResult.error?.summary ?? "测试连接 · unknown_error"}</strong>
+                  <code>{testResult.error?.code ?? "unknown_error"}</code>
+                  <button
+                    aria-expanded={testDetailsOpen}
+                    className="button button-ghost test-details-button"
+                    onClick={() => setTestDetailsOpen((open) => !open)}
+                    type="button"
+                  >
+                    {testDetailsOpen ? "收起详情" : "查看详情"}
+                  </button>
+                </div>
+                {testDetailsOpen ? (
+                  <div className="test-error-detail">
+                    <div className="test-error-meta">
+                      <span>失败位置</span>
+                      <code>{testResult.error?.stage ?? "test_connection"}</code>
+                    </div>
+                    <pre>{testResult.error?.detail ?? "未返回详细错误"}</pre>
+                    {testResult.error?.stack ? (
+                      <div className="test-error-stack">
+                        <div className="test-error-meta">
+                          <span>调用堆栈</span>
+                        </div>
+                        <pre>{testResult.error.stack}</pre>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            )
           ) : null}
         </div>
       </div>

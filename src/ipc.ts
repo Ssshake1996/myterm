@@ -104,7 +104,15 @@ export interface AiMessage {
 export interface AiTestResult {
   ok: boolean;
   models?: number;
-  error?: string;
+  error?: AiErrorDiagnostic;
+}
+
+export interface AiErrorDiagnostic {
+  stage: string;
+  code: string;
+  summary: string;
+  detail: string;
+  stack?: string;
 }
 
 export function errorMessage(error: unknown, fallback: string): string {
@@ -115,6 +123,12 @@ export function errorMessage(error: unknown, fallback: string): string {
     if (typeof message === "string" && message.trim()) return message;
   }
   return fallback;
+}
+
+export function ipcErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && code.trim() ? code : undefined;
 }
 
 export interface AiChatResult {
@@ -211,6 +225,7 @@ export interface AgentEvent {
   content?: string;
   arguments?: unknown;
   isError?: boolean;
+  errorCode?: string;
 }
 
 export interface AgentRunResult {
@@ -283,7 +298,7 @@ export function createChannel<T>(): MessageChannel<T> {
 export async function getAppInfo(): Promise<AppInfo> {
   if (!isDesktopRuntime) {
     return {
-      version: "0.7.0",
+      version: "0.7.1",
       commitHash: "browser-demo",
       startupProfile: null,
       portable: false,

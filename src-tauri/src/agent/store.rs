@@ -7,7 +7,10 @@ use std::{
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use super::domain::{now_ms, AgentTask, AgentTaskState, ExecutionJob};
-use crate::{types::AgentEvent, AppError};
+use crate::{
+    types::{AgentEvent, AGENT_EVENT_SCHEMA_VERSION},
+    AppError,
+};
 
 const SCHEMA_VERSION: i64 = 4;
 
@@ -114,7 +117,7 @@ impl AgentStore {
                 params![event.run_id, now_ms()],
                 |row| row.get(0),
             )?;
-            event.schema_version = 1;
+            event.schema_version = AGENT_EVENT_SCHEMA_VERSION;
             event.sequence = u64::try_from(sequence)
                 .map_err(|_| AppError::Storage("negative event sequence".to_owned()))?;
             event.created_at_ms = now_ms();
@@ -687,6 +690,7 @@ mod tests {
             content: None,
             arguments: None,
             is_error: None,
+            error_code: None,
         }
     }
 

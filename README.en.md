@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.7.0`
+Current version: `0.7.1`
 
 ## Core Features
 
@@ -98,7 +98,7 @@ See the [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-inst
 - Persistent light, eye-care, and dark themes also update the terminal canvas.
 - Four persistent UI scale levels are available, with an independent `12-22px` terminal font size for SSH and local shells; changes apply immediately.
 - AI profiles support `Bearer Token` (`Authorization: Bearer sk-...`) and raw `API Key` (`Authorization: sk-...`) header modes.
-- Failed connection tests show the HTTP, authentication, URL, timeout, rate-limit, or server-error reason with redacted response details.
+- Failed connection tests and Agent runs first show the failing stage and stable error code; opening details reveals the raw HTTP status, endpoint, response body, transport error, stderr, exit code, timeout, and call stack. Only secrets are redacted and diagnostics are bounded; provider responses are not replaced with guesses.
 - A compact 34px session strip and full-height sidebar work across desktop and narrow windows.
 - A help icon at the far right of the title strip opens the packaged offline user guide.
 
@@ -169,7 +169,8 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 - [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-installation-plan.md)
 - [Development Experience Record](docs/development-experience.md)
 - [Agent Plugin Architecture](docs/agent-plugin-architecture.md)
+- [Agent Optimization Roadmap](docs/agent-optimization-roadmap.md)
 
 ## Current Boundaries
 
-Version `0.7.0` adds the plugin kernel and keeps multi-SSH Tasks, structured remote HTTP, and Skill-driven OS installation on the staged roadmap. The first release still excludes complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports. Xshell import maps only Send String entries that can be represented safely as terminal text; menu, script, application, and text-file actions are reported as unsupported in the preview. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.
+Version `0.7.1` adds the plugin kernel and a unified raw-error diagnostic contract while keeping multi-SSH Tasks, structured remote HTTP, and Skill-driven OS installation on the staged roadmap. The first release still excludes complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports. Xshell import maps only Send String entries that can be represented safely as terminal text; menu, script, application, and text-file actions are reported as unsupported in the preview. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.

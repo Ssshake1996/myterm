@@ -14,6 +14,20 @@ const ipcMocks = vi.hoisted(() => ({
   agentTaskEvents: vi.fn(),
   agentTaskList: vi.fn(),
   aiProfileList: vi.fn(),
+  errorMessage: (error: unknown, fallback: string) => {
+    if (typeof error === "object" && error !== null && "message" in error) {
+      const message = (error as { message?: unknown }).message;
+      if (typeof message === "string" && message.trim()) return message;
+    }
+    return fallback;
+  },
+  ipcErrorCode: (error: unknown) => {
+    if (typeof error === "object" && error !== null && "code" in error) {
+      const code = (error as { code?: unknown }).code;
+      return typeof code === "string" ? code : undefined;
+    }
+    return undefined;
+  },
 }));
 
 vi.mock("../../ipc", () => ({
@@ -226,5 +240,42 @@ describe("AiPanel Agent trace", () => {
 
     fireEvent.keyDown(resizer, { key: "Home" });
     expect(composer).toHaveStyle({ height: "111px" });
+  });
+
+  it("renders the exact Agent failure detail and error code", async () => {
+    const detail =
+      'HTTP 502 Bad Gateway\nEndpoint: https://api.example.test/v1/chat/completions\nResponse body:\n{"error":"upstream reset"}';
+    ipcMocks.agentRun.mockImplementation(
+      async (
+        _profileId: string,
+        _prompt: string,
+        _sessionId: string,
+        channel: { onmessage: (event: Record<string, unknown>) => void },
+      ) => {
+        channel.onmessage({
+          schemaVersion: 2,
+          eventType: "complete",
+          runId: "run",
+          step: 1,
+          message: "failed",
+          content: detail,
+          isError: true,
+          errorCode: "ai",
+        });
+        throw { code: "ai", message: detail };
+      },
+    );
+    const user = userEvent.setup();
+    render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
+
+    await screen.findByRole("option", { name: "Ops AI · ops-model" });
+    await user.type(screen.getByRole("textbox", { name: "输入 Agent 任务" }), "检查模型网关");
+    await user.click(screen.getByRole("button", { name: "运行 Agent" }));
+
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("任务执行失败");
+    expect(error).toHaveTextContent("ai");
+    expect(error.querySelector("pre")?.textContent).toBe(detail);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 });

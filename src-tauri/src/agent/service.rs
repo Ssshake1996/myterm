@@ -22,14 +22,19 @@ use super::{
     store::AgentStore,
 };
 use crate::{
-    ai::service::{endpoint, summarize, with_auth},
+    ai::service::{
+        endpoint, format_http_failure, format_transport_failure, redact_and_bound, with_auth,
+    },
     config::{ConfigService, CredentialVault, DEFAULT_SYSTEM_PROMPT},
     session::{
         manager::SessionManager,
         ssh::{ExecOutputSink, ExecStream},
     },
     sftp::{service::local_entries, service::SftpService},
-    types::{AgentEvent, AgentRunResult, AgentSettings, AiProfile, SessionEnvironment},
+    types::{
+        AgentEvent, AgentRunResult, AgentSettings, AiProfile, SessionEnvironment,
+        AGENT_EVENT_SCHEMA_VERSION,
+    },
     AppError,
 };
 
@@ -265,16 +270,18 @@ impl AgentService {
                 )?;
             }
             Err(error) => {
+                let detail = error.detail();
                 let mut failed = event(&run_id, "complete", Some("failed".to_owned()));
-                failed.content = Some(error.to_string());
+                failed.content = Some(detail.clone());
                 failed.is_error = Some(true);
+                failed.error_code = Some(error.code().to_owned());
                 let _ = sink.send(failed);
                 self.store.transition_task(
                     &run_id,
                     AgentTaskState::Failed,
                     Some("error"),
                     0,
-                    Some(("agent_run_failed", &error.to_string())),
+                    Some(("agent_run_failed", &detail)),
                 )?;
             }
         }
@@ -384,17 +391,9 @@ impl AgentService {
                         mcp_tools.extend(tools);
                         mcp_clients.insert(server.id.clone(), client);
                     }
-                    Err(error) => sink.send(event(
-                        run_id,
-                        "mcp_error",
-                        Some(format!("{}: {error}", server.name)),
-                    ))?,
+                    Err(error) => sink.send(mcp_error_event(run_id, &server.name, &error))?,
                 },
-                Err(error) => sink.send(event(
-                    run_id,
-                    "mcp_error",
-                    Some(format!("{}: {error}", server.name)),
-                ))?,
+                Err(error) => sink.send(mcp_error_event(run_id, &server.name, &error))?,
             }
         }
         let runtime = AgentRuntime::new(self, &settings);
@@ -569,10 +568,11 @@ impl AgentService {
                         .await?
                     }
                 };
-                let (mut output, is_error) = if decision.action == PolicyAction::Deny {
+                let (mut output, is_error, error_code) = if decision.action == PolicyAction::Deny {
                     (
                         format!("Policy denied this call: {}", decision.reason),
                         true,
+                        Some("policy_denied".to_owned()),
                     )
                 } else if approved {
                     match runtime
@@ -590,11 +590,19 @@ impl AgentService {
                         )
                         .await
                     {
-                        Ok(output) => (truncate(&output), false),
-                        Err(error) => (truncate(&error.to_string()), true),
+                        Ok(output) => (truncate(&output), false, None),
+                        Err(error) => (
+                            truncate(&error.detail()),
+                            true,
+                            Some(error.code().to_owned()),
+                        ),
                     }
                 } else {
-                    ("用户拒绝了本次工具调用".to_owned(), true)
+                    (
+                        "用户拒绝了本次工具调用".to_owned(),
+                        true,
+                        Some("approval_rejected".to_owned()),
+                    )
                 };
                 if !hook_context.is_empty() {
                     output.push_str("\n\nHook context:\n");
@@ -608,6 +616,7 @@ impl AgentService {
                 result_event.plugin_id = plugin_id;
                 result_event.content = Some(output.clone());
                 result_event.is_error = Some(is_error);
+                result_event.error_code = error_code;
                 sink.send(result_event)?;
                 self.store.tool_completed(&call.id, &output, is_error)?;
                 let post_event = if is_error {
@@ -679,38 +688,35 @@ impl AgentService {
         messages: &[Value],
         tools: &[Value],
     ) -> Result<ChatResponse, AppError> {
-        let response = with_auth(
-            self.client
-                .post(endpoint(&profile.base_url, "chat/completions")?),
-            profile,
-            key,
-        )
-        .json(&json!({
-            "model": profile.model,
-            "messages": messages,
-            "tools": tools,
-            "tool_choice": "auto",
-            "stream": false,
-        }))
-        .send()
-        .await
-        .map_err(|error| AppError::Ai(error.to_string()))?;
+        let model_endpoint = endpoint(&profile.base_url, "chat/completions")?;
+        let response = with_auth(self.client.post(model_endpoint.clone()), profile, key)
+            .json(&json!({
+                "model": profile.model,
+                "messages": messages,
+                "tools": tools,
+                "tool_choice": "auto",
+                "stream": false,
+            }))
+            .send()
+            .await
+            .map_err(|error| AppError::Ai(format_transport_failure(error, &model_endpoint)))?;
         let status = response.status();
         let body = response
             .text()
             .await
-            .map_err(|error| AppError::Ai(error.to_string()))?;
+            .map_err(|error| AppError::Ai(format_transport_failure(error, &model_endpoint)))?;
         if !status.is_success() {
-            return Err(AppError::Ai(format!(
-                "HTTP {}: {}",
-                status.as_u16(),
-                summarize(&body)
+            return Err(AppError::Ai(format_http_failure(
+                status,
+                &body,
+                &model_endpoint,
+                key,
             )));
         }
         serde_json::from_str(&body).map_err(|error| {
             AppError::Ai(format!(
-                "invalid tool response: {error}; body: {}",
-                summarize(&body)
+                "JSON parse error: {error}\nResponse body:\n{}",
+                redact_and_bound(&body, key)
             ))
         })
     }
@@ -1333,7 +1339,12 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
                     "failed",
                     None,
                     None,
-                    json!({ "jobId": spawned_job_id, "state": "failed", "error": error.to_string() }),
+                    json!({
+                        "jobId": spawned_job_id,
+                        "state": "failed",
+                        "errorCode": error.code(),
+                        "error": error.detail()
+                    }),
                 ),
             };
             let _ = store.job_finished(&spawned_job_id, state, exit_code, signal.as_deref());
@@ -2026,7 +2037,7 @@ impl StreamCapture {
 
 fn event(run_id: &str, event_type: &str, message: Option<String>) -> AgentEvent {
     AgentEvent {
-        schema_version: 1,
+        schema_version: AGENT_EVENT_SCHEMA_VERSION,
         sequence: 0,
         created_at_ms: 0,
         event_type: event_type.to_owned(),
@@ -2039,7 +2050,16 @@ fn event(run_id: &str, event_type: &str, message: Option<String>) -> AgentEvent 
         content: None,
         arguments: None,
         is_error: None,
+        error_code: None,
     }
+}
+
+fn mcp_error_event(run_id: &str, server_name: &str, error: &AppError) -> AgentEvent {
+    let mut failure = event(run_id, "mcp_error", Some(format!("MCP · {server_name}")));
+    failure.content = Some(error.detail());
+    failure.is_error = Some(true);
+    failure.error_code = Some(error.code().to_owned());
+    failure
 }
 
 fn redact_event(mut event: AgentEvent, secrets: &[String]) -> AgentEvent {

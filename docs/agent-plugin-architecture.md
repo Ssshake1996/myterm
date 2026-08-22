@@ -2,7 +2,7 @@
 
 ## 目标
 
-0.7.0 将 Agent 从“循环里写死工具名称”的实现收敛为一个轻量插件内核。内核只保留任务生命周期、模型请求、权限判断、审批、取消、审计和事件流；具体能力由插件注册和挂载。这样可以继续保持桌面端启动快、依赖少，同时为后续多 SSH、远端 HTTP、provisioning 和外部 Skill 留出稳定扩展边界。
+0.7.1 将 Agent 从“循环里写死工具名称”的实现收敛为一个轻量插件内核，并统一了插件错误的诊断边界。内核只保留任务生命周期、模型请求、权限判断、审批、取消、审计和事件流；具体能力由插件注册和挂载。这样可以继续保持桌面端启动快、依赖少，同时为后续多 SSH、远端 HTTP、provisioning 和外部 Skill 留出稳定扩展边界。
 
 ## 当前边界
 
@@ -31,6 +31,10 @@
 ### Tool context
 
 插件只收到受限的 `ToolContext`：当前运行和调用 id、目标会话、Agent 设置、MCP 客户端、事件 sink 和取消 receiver。插件不能绕过 `AgentService` 的凭据库、权限策略、输出上限、脱敏或审计边界。
+
+### Error contract
+
+插件失败返回稳定的 `errorCode` 和原始 `detail`。`detail` 通过 `AppError::detail()`、IPC `{ code, message }` 和 Agent 事件 `content` 贯通；HTTP 状态/响应体、进程 stderr/退出码、MCP 启动错误和 JSON 解析位置不能被宿主改写成泛化提示。测试连接诊断额外包含 `stage`、`summary` 和可展开的 `stack`；UI 默认只展示 `summary + code`，点击详情后展示 `detail + stack`。宿主只负责密钥脱敏和 16,000 字符有界截断。
 
 ### JSONL protocol
 

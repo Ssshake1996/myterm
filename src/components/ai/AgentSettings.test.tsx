@@ -8,6 +8,13 @@ const ipcMocks = vi.hoisted(() => ({
   agentPluginList: vi.fn().mockResolvedValue([]),
   agentSettingsSave: vi.fn(),
   agentSkillList: vi.fn(),
+  errorMessage: (error: unknown, fallback: string) => {
+    if (typeof error === "object" && error !== null && "message" in error) {
+      const message = (error as { message?: unknown }).message;
+      if (typeof message === "string" && message.trim()) return message;
+    }
+    return fallback;
+  },
 }));
 
 vi.mock("../../ipc", () => ipcMocks);
@@ -84,5 +91,26 @@ describe("AgentSettings", () => {
       ),
     );
     expect(await screen.findByText(/发现 1 个工具/u)).toBeInTheDocument();
+  });
+
+  it("shows the serialized MCP process error without replacing it", async () => {
+    ipcMocks.agentMcpTest.mockRejectedValue({
+      code: "agent",
+      message: "process spawn error: program not found (os error 2)\nstderr:\nnode: bad option",
+    });
+    const user = userEvent.setup();
+    render(<AgentSettings onClose={vi.fn()} onSaved={vi.fn()} settings={settings} />);
+
+    await user.click(screen.getByRole("button", { name: "MCP" }));
+    await user.click(screen.getByRole("button", { name: /添加服务器/u }));
+    await user.type(screen.getByRole("textbox", { name: "MCP 名称" }), "broken-server");
+    await user.type(screen.getByRole("textbox", { name: "MCP 启动命令" }), "missing-mcp");
+    await user.click(screen.getByRole("button", { name: /测试连接/u }));
+
+    const error = await screen.findByRole("alert");
+    expect(error.querySelector("pre")?.textContent).toBe(
+      "process spawn error: program not found (os error 2)\nstderr:\nnode: bad option",
+    );
+    expect(error).not.toHaveTextContent("未返回可读的错误信息");
   });
 });
