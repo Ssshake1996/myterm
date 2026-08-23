@@ -6,8 +6,10 @@ import {
   type AiModelRole,
   type AiProfile,
   type AiTestResult,
+  aiConfigJson,
   aiProfileSave,
   aiTestConnection,
+  configOpenLocal,
   errorMessage,
 } from "../../ipc";
 import { useUiStore } from "../../store/ui";
@@ -72,7 +74,8 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
   const [testResult, setTestResult] = useState<AiTestResult | null>(null);
   const [testDetailsOpen, setTestDetailsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [jsonPreview, setJsonPreview] = useState<string>("");
+  const [savedJsonPreview, setSavedJsonPreview] = useState<string>("");
+  const [jsonLoading, setJsonLoading] = useState(false);
   const id = profile?.id ?? crypto.randomUUID();
 
   const currentProfile = (): AiProfile => ({
@@ -89,6 +92,16 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
     },
   });
 
+  const draftJson = JSON.stringify(
+    {
+      version: 2,
+      ai_profiles: [currentProfile()],
+      note: "API key is stored in the OS credential vault",
+    },
+    null,
+    2,
+  );
+
   const save = async () => {
     if (
       !name.trim() ||
@@ -102,17 +115,6 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
     try {
       const next = currentProfile();
       await aiProfileSave(next, apiKey || undefined);
-      setJsonPreview(
-        JSON.stringify(
-          {
-            schemaVersion: 2,
-            profiles: [next],
-            note: "API key is stored in the OS credential vault",
-          },
-          null,
-          2,
-        ),
-      );
       setApiKey("");
       onSaved(next);
       notify("AI 配置已保存", "success");
@@ -121,6 +123,28 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
       notify(errorMessage(error, "保存失败：未返回可读的错误信息"), "error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const refreshSavedJson = async () => {
+    setJsonLoading(true);
+    try {
+      const value = await aiConfigJson();
+      setSavedJsonPreview(JSON.stringify(value, null, 2));
+      notify("已刷新后端 JSON 配置", "success");
+    } catch (error) {
+      notify(errorMessage(error, "读取后端 JSON 失败：未返回可读的错误信息"), "error");
+    } finally {
+      setJsonLoading(false);
+    }
+  };
+
+  const openLocalConfig = async () => {
+    try {
+      const path = await configOpenLocal();
+      notify(`已打开本地配置：${path}`, "success");
+    } catch (error) {
+      notify(errorMessage(error, "打开本地配置失败：未返回可读的错误信息"), "error");
     }
   };
 
@@ -355,7 +379,41 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
           </button>
           {testResult ? (
             testResult.ok ? (
-              <span className="test-success">连接成功 · {testResult.models ?? 0} 个模型</span>
+              <div className="test-success connection-test-success">
+                <div className="test-success-summary">
+                  <span>连接成功 · {testResult.models ?? 0} 个模型</span>
+                  <button
+                    aria-expanded={testDetailsOpen}
+                    className="button button-ghost test-details-button"
+                    onClick={() => setTestDetailsOpen((open) => !open)}
+                    type="button"
+                  >
+                    {testDetailsOpen ? "收起模型详情" : "查看模型详情"}
+                  </button>
+                </div>
+                {testDetailsOpen ? (
+                  <div className="model-test-details">
+                    <div className="test-error-meta">
+                      <span>请求地址</span>
+                      <code>{testResult.endpoint ?? "未返回"}</code>
+                    </div>
+                    <div className="model-test-list">
+                      {(testResult.modelDetails ?? []).map((model, index) => (
+                        <div className="model-test-item" key={JSON.stringify(model)}>
+                          <strong>{String(model.id ?? `模型 ${index + 1}`)}</strong>
+                          <pre>{JSON.stringify(model, null, 2)}</pre>
+                        </div>
+                      ))}
+                    </div>
+                    {testResult.rawResponse ? (
+                      <details className="model-test-raw" open>
+                        <summary>原始返回 JSON</summary>
+                        <pre>{testResult.rawResponse}</pre>
+                      </details>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <div className="test-error connection-test-error" role="alert">
                 <div className="test-error-summary">
@@ -391,9 +449,35 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
             )
           ) : null}
         </div>
-        <details className="ai-json-preview">
-          <summary>查看后端 JSON 配置（密钥仅保存为凭据引用）</summary>
-          <pre>{jsonPreview || "保存后生成规范化 JSON"}</pre>
+        <details className="ai-json-preview" open>
+          <summary>JSON 配置预览（密钥仅保存为凭据引用）</summary>
+          <div className="ai-json-actions">
+            <button
+              className="button button-ghost"
+              disabled={jsonLoading}
+              onClick={() => void refreshSavedJson()}
+              type="button"
+            >
+              {jsonLoading ? "读取中" : "刷新后端 JSON"}
+            </button>
+            <button
+              className="button button-ghost"
+              onClick={() => void openLocalConfig()}
+              type="button"
+            >
+              在本地打开
+            </button>
+          </div>
+          <div className="ai-json-columns">
+            <div>
+              <div className="ai-json-caption">当前编辑内容（实时）</div>
+              <pre>{draftJson}</pre>
+            </div>
+            <div>
+              <div className="ai-json-caption">后端已保存内容</div>
+              <pre>{savedJsonPreview || "点击“刷新后端 JSON”读取实际配置文件"}</pre>
+            </div>
+          </div>
         </details>
       </div>
     </Modal>

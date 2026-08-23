@@ -6,6 +6,8 @@ import { AiSettings } from "./AiSettings";
 const ipcMocks = vi.hoisted(() => ({
   aiProfileSave: vi.fn(),
   aiTestConnection: vi.fn(),
+  aiConfigJson: vi.fn(),
+  configOpenLocal: vi.fn(),
   errorMessage: (error: unknown, fallback: string) => {
     if (typeof error === "object" && error !== null && "message" in error) {
       const message = (error as { message?: unknown }).message;
@@ -139,5 +141,43 @@ describe("AiSettings", () => {
           element?.tagName === "PRE" && element.textContent?.includes("stack frame A") === true,
       ),
     ).toBeInTheDocument();
+  });
+
+  it("shows returned model identities and raw response details", async () => {
+    ipcMocks.aiProfileSave.mockResolvedValue(undefined);
+    ipcMocks.aiTestConnection.mockResolvedValue({
+      ok: true,
+      models: 2,
+      endpoint: "https://gateway.example/v1/models",
+      modelDetails: [
+        { id: "model-a", object: "model", owned_by: "gateway" },
+        { id: "model-b", object: "model", owned_by: "gateway" },
+      ],
+      rawResponse: '{"object":"list","data":[{"id":"model-a"},{"id":"model-b"}]}',
+    });
+    const user = userEvent.setup();
+    render(<AiSettings profile={null} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "测试连接" }));
+    expect(await screen.findByText("连接成功 · 2 个模型")).toBeInTheDocument();
+    expect(screen.queryByText("model-a")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "查看模型详情" }));
+    expect(screen.getByText("model-a")).toBeInTheDocument();
+    expect(screen.getByText("model-b")).toBeInTheDocument();
+    expect(screen.getByText("原始返回 JSON")).toBeInTheDocument();
+  });
+
+  it("previews current JSON edits and can refresh/open the local config", async () => {
+    ipcMocks.aiConfigJson.mockResolvedValue({ version: 2, ai_profiles: [] });
+    ipcMocks.configOpenLocal.mockResolvedValue("C:\\Users\\test\\config.json");
+    const user = userEvent.setup();
+    render(<AiSettings profile={null} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    expect(screen.getByText("当前编辑内容（实时）")).toBeInTheDocument();
+    expect(screen.getByText(/"ai_profiles"/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "刷新后端 JSON" }));
+    expect((await screen.findAllByText(/"version": 2/)).length).toBeGreaterThanOrEqual(2);
+    await user.click(screen.getByRole("button", { name: "在本地打开" }));
+    expect(ipcMocks.configOpenLocal).toHaveBeenCalledTimes(1);
   });
 });

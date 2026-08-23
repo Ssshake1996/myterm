@@ -123,6 +123,12 @@ Version 0.8.0 removes the fixed terminal-context line contract and introduces JS
 - `AppConfig` schema version 2 migrates legacy `model` fields into `models.primary`, writes atomically, and keeps secrets out of JSON. The frontend settings form is a view over this JSON contract rather than a second persistence format.
 - Tradeoff: sequential failover adds latency only when the preferred model is unhealthy and does not provide ensemble voting. That keeps the native core small and makes error behavior deterministic enough for operations audit.
 
+Version 0.8.1 closes the observability gap in the AI settings surface:
+
+- The `/models` connection test now returns the count, endpoint, structured model objects, and a bounded redacted copy of the raw response. The UI keeps the success summary compact and expands model identities and raw JSON on demand.
+- JSON configuration preview is split into a live draft generated from the current form and the backend-saved JSON returned through typed IPC. A separate local-open action delegates the canonical config path to the operating system without exposing credentials.
+- The demo adapter and frontend tests cover both success-detail expansion and the refresh/open workflow, so browser verification does not depend on a running gateway.
+
 The prioritized optimization options and their pros/cons are recorded in [`docs/agent-optimization-roadmap.md`](agent-optimization-roadmap.md). The immediate next boundary is typed tool outcomes, followed by a provider trait and MCP stderr/timeout supervision; multi-SSH and provisioning remain separate milestones.
 
 ## 2. Reusable Delivery Workflow

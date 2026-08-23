@@ -3530,6 +3530,30 @@ input:checked + .toggle-track > span {
   overflow-wrap: anywhere;
 }
 
+.ai-json-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ai-json-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ai-json-caption {
+  margin-top: 8px;
+  color: var(--text-soft);
+  font-size: 9px;
+}
+
+@media (max-width: 760px) {
+  .ai-json-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .connection-test {
   grid-column: 1 / -1;
   min-height: 36px;
@@ -3542,6 +3566,64 @@ input:checked + .toggle-track > span {
 .test-success {
   color: var(--green-strong);
   font-size: 10px;
+}
+
+.connection-test-success {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: min(620px, 100%);
+}
+
+.test-success-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.model-test-details {
+  display: grid;
+  gap: 8px;
+  max-height: 330px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface-low);
+  color: var(--text-muted);
+}
+
+.model-test-list {
+  display: grid;
+  gap: 6px;
+}
+
+.model-test-item {
+  padding: 6px;
+  border: 1px solid var(--border-soft);
+  background: var(--panel-raised);
+}
+
+.model-test-item strong {
+  color: var(--text-soft);
+  font-size: 9px;
+}
+
+.model-test-item pre,
+.model-test-raw pre {
+  max-height: 120px;
+  margin: 5px 0 0;
+  overflow: auto;
+  color: var(--text-muted);
+  font: 8px/1.4 "Cascadia Mono", Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.model-test-raw summary {
+  cursor: pointer;
+  color: var(--text-soft);
+  font-size: 9px;
 }
 
 .test-error {

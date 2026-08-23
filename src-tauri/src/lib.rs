@@ -254,6 +254,7 @@ pub fn run() {
             ipc::local_read_dir,
             ipc::ai_profile_list,
             ipc::ai_config_json,
+            ipc::config_open_local,
             ipc::ai_profile_save,
             ipc::ai_profile_delete,
             ipc::ai_test_connection,

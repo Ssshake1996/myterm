@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, process::Command, sync::Arc};
 
 use serde::Serialize;
 use tauri::{
@@ -383,6 +383,36 @@ pub fn ai_profile_list(state: State<'_, AppState>) -> Result<Vec<AiProfile>, Ipc
 #[tauri::command]
 pub fn ai_config_json(state: State<'_, AppState>) -> Result<serde_json::Value, IpcError> {
     state.config.ai_config_json().map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn config_open_local(state: State<'_, AppState>) -> Result<String, IpcError> {
+    let path = state.config.path().to_path_buf();
+    let target = if path.exists() {
+        path.clone()
+    } else {
+        path.parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| path.clone())
+    };
+    let target_string = target.to_string_lossy().into_owned();
+    let result = if cfg!(windows) {
+        Command::new("cmd")
+            .args(["/C", "start", "", &target_string])
+            .spawn()
+            .map(|_| ())
+    } else if cfg!(target_os = "macos") {
+        Command::new("open").arg(&target).spawn().map(|_| ())
+    } else {
+        Command::new("xdg-open").arg(&target).spawn().map(|_| ())
+    };
+    result.map_err(|error| {
+        AppError::Config(format!(
+            "无法打开本地配置文件 '{}': {error}",
+            target.display()
+        ))
+    })?;
+    Ok(target_string)
 }
 
 #[tauri::command]

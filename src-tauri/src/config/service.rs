@@ -183,11 +183,7 @@ impl ConfigService {
 
     pub fn ai_config_json(&self) -> Result<Value, AppError> {
         let value = self.read()?;
-        Ok(serde_json::json!({
-            "schemaVersion": CONFIG_SCHEMA_VERSION,
-            "profiles": value.ai_profiles.clone(),
-            "agent": value.agent.clone(),
-        }))
+        serde_json::to_value(&*value).map_err(Into::into)
     }
 
     pub fn ai_profile_delete(&self, id: &str) -> Result<Option<AiProfile>, AppError> {

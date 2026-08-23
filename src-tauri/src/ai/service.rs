@@ -43,6 +43,12 @@ pub struct AiTestResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_details: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_response: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<AiErrorDiagnostic>,
 }
 
@@ -154,6 +160,9 @@ impl AiService {
             return Ok(AiTestResult {
                 ok: false,
                 models: None,
+                model_details: None,
+                raw_response: Some(redact_and_bound(&body, &key)),
+                endpoint: Some(models_endpoint.to_string()),
                 error: Some(http_failure_diagnostic(
                     "models_request",
                     status,
@@ -193,6 +202,9 @@ impl AiService {
         Ok(AiTestResult {
             ok: true,
             models: Some(models.len()),
+            model_details: Some(models.clone()),
+            raw_response: Some(redact_and_bound(&body, &key)),
+            endpoint: Some(models_endpoint.to_string()),
             error: None,
         })
     }
@@ -511,6 +523,9 @@ fn failed_test(
     AiTestResult {
         ok: false,
         models: None,
+        model_details: None,
+        raw_response: None,
+        endpoint: None,
         error: Some(AiErrorDiagnostic {
             stage: stage.to_owned(),
             code: code.into(),

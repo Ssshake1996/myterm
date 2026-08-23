@@ -632,10 +632,15 @@ class DemoBackend {
 
   async aiConfigJson() {
     return {
-      schemaVersion: 2,
+      version: 2,
+      quick_commands: structuredClone(this.commands),
       profiles: structuredClone(this.aiProfiles),
       agent: structuredClone(this.agentSettings),
     };
+  }
+
+  async configOpenLocal() {
+    return "浏览器演示模式没有本地配置文件";
   }
 
   async aiProfileSave(profile: AiProfile, _apiKey?: string) {
@@ -652,7 +657,18 @@ class DemoBackend {
 
   async aiTestConnection(_profileId: string): Promise<AiTestResult> {
     await new Promise((resolve) => window.setTimeout(resolve, 650));
-    return { ok: true, models: 34 };
+    const modelDetails = [
+      { id: "deepseek-chat", object: "model", owned_by: "deepseek" },
+      { id: "deepseek-reasoner", object: "model", owned_by: "deepseek" },
+      { id: "deepseek-coder", object: "model", owned_by: "deepseek" },
+    ];
+    return {
+      ok: true,
+      models: 34,
+      modelDetails,
+      endpoint: "https://api.deepseek.com/v1/models",
+      rawResponse: JSON.stringify({ object: "list", data: modelDetails }, null, 2),
+    };
   }
 
   async aiChat(

@@ -123,6 +123,9 @@ export interface AiMessage {
 export interface AiTestResult {
   ok: boolean;
   models?: number;
+  modelDetails?: Array<Record<string, unknown>>;
+  rawResponse?: string;
+  endpoint?: string;
   error?: AiErrorDiagnostic;
 }
 
@@ -530,6 +533,11 @@ export async function aiProfileList(): Promise<AiProfile[]> {
 export async function aiConfigJson(): Promise<Record<string, unknown>> {
   if (!isDesktopRuntime) return demoBackend.aiConfigJson();
   return invoke<Record<string, unknown>>("ai_config_json");
+}
+
+export async function configOpenLocal(): Promise<string> {
+  if (!isDesktopRuntime) return demoBackend.configOpenLocal();
+  return invoke<string>("config_open_local");
 }
 
 export async function aiProfileSave(profile: AiProfile, apiKey?: string): Promise<void> {
