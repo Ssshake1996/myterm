@@ -135,6 +135,12 @@ Version 0.8.2 records the layout refactor for the same surface:
 - The connection-test result uses a two-column layout with a non-shrinking action button; model details and raw response remain inside an independently scrollable panel.
 - JSON previews default to a single readable column at narrow widths and switch to two columns only when the dialog has enough space. Long JSON wraps and scrolls inside its own pane instead of creating a page-level horizontal scrollbar.
 
+Version 0.8.3 records a layout-flow correction for the main workspace:
+
+- The no-session placeholder now participates in the main-stage flex layout instead of using absolute positioning outside the flow.
+- This keeps the quick-command dock at the bottom consistently, whether there are no sessions, one session, or multiple connected sessions.
+- The change is CSS-only at the layout boundary, preserving terminal, SFTP, and quick-command behavior while fixing the state-dependent jump.
+
 The prioritized optimization options and their pros/cons are recorded in [`docs/agent-optimization-roadmap.md`](agent-optimization-roadmap.md). The immediate next boundary is typed tool outcomes, followed by a provider trait and MCP stderr/timeout supervision; multi-SSH and provisioning remain separate milestones.
 
 ## 2. Reusable Delivery Workflow
