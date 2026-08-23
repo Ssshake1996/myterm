@@ -11,11 +11,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    types::{AgentSettings, AiProfile, AppFontScale, AppTheme, QuickCommand, SessionProfile},
+    types::{
+        AgentSettings, AiModelConfig, AiModelRole, AiProfile, AppFontScale, AppTheme,
+        QuickCommand, SessionProfile,
+    },
     AppError,
 };
 
 pub const DEFAULT_SYSTEM_PROMPT: &str = "You are a senior Linux operations assistant embedded in an SSH terminal client.\nRules:\n- Answer based on the terminal output provided by the user. Do not invent output.\n- When suggesting a fix, give the exact command in a fenced code block, one command per block.\n- Never suggest destructive commands (rm -rf, dd, mkfs...) without an explicit warning.\n- Reply in the language the user writes in.";
+pub const CONFIG_SCHEMA_VERSION: u32 = 2;
 const THEME_SETTING_KEY: &str = "theme";
 const FONT_SCALE_SETTING_KEY: &str = "font_scale";
 const TERMINAL_FONT_SIZE_SETTING_KEY: &str = "terminal_font_size";
@@ -53,7 +57,7 @@ impl Default for AppConfig {
         })
         .collect();
         Self {
-            version: 1,
+            version: CONFIG_SCHEMA_VERSION,
             profiles: Vec::new(),
             quick_commands: commands,
             ai_profiles: Vec::new(),
@@ -71,11 +75,12 @@ pub struct ConfigService {
 impl ConfigService {
     pub fn open(path: PathBuf) -> Result<Self, AppError> {
         let mut value = load_config(&path)?;
-        if value
+        let migrated = migrate_config(&mut value);
+        let removed_legacy_rest = value
             .settings
             .remove(REMOVED_REST_TOKEN_SETTING_KEY)
-            .is_some()
-        {
+            .is_some();
+        if migrated || removed_legacy_rest {
             write_atomic(&path, &value)?;
         }
         Ok(Self {
@@ -169,7 +174,20 @@ impl ConfigService {
     }
 
     pub fn ai_profile_save(&self, profile: AiProfile) -> Result<(), AppError> {
-        self.update(|config| upsert(&mut config.ai_profiles, profile, |item| &item.id))
+        self.update(|config| {
+            let mut profile = profile;
+            normalize_ai_profile(&mut profile);
+            upsert(&mut config.ai_profiles, profile, |item| &item.id)
+        })
+    }
+
+    pub fn ai_config_json(&self) -> Result<Value, AppError> {
+        let value = self.read()?;
+        Ok(serde_json::json!({
+            "schemaVersion": CONFIG_SCHEMA_VERSION,
+            "profiles": value.ai_profiles.clone(),
+            "agent": value.agent.clone(),
+        }))
     }
 
     pub fn ai_profile_delete(&self, id: &str) -> Result<Option<AiProfile>, AppError> {
@@ -253,6 +271,32 @@ fn load_config(path: &Path) -> Result<AppConfig, AppError> {
             Ok(AppConfig::default())
         }
     }
+}
+
+fn migrate_config(config: &mut AppConfig) -> bool {
+    let mut changed = config.version < CONFIG_SCHEMA_VERSION;
+    config.version = CONFIG_SCHEMA_VERSION;
+    for profile in &mut config.ai_profiles {
+        changed |= normalize_ai_profile(profile);
+    }
+    changed
+}
+
+fn normalize_ai_profile(profile: &mut AiProfile) -> bool {
+    if !profile.models.is_empty() {
+        return false;
+    }
+    if profile.model.trim().is_empty() {
+        return false;
+    }
+    profile.models.push(AiModelConfig {
+        id: "primary".to_owned(),
+        name: "主模型".to_owned(),
+        model: profile.model.trim().to_owned(),
+        role: AiModelRole::Primary,
+        enabled: true,
+    });
+    true
 }
 
 fn write_atomic(path: &Path, value: &AppConfig) -> Result<(), AppError> {
@@ -462,6 +506,45 @@ mod tests {
         assert!(reloaded.setting_get("rest_token_hash")?.is_none());
         assert!(!fs::read_to_string(path)?.contains("rest_token_hash"));
 
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_ai_model_is_migrated_to_json_model_roles() -> Result<(), Box<dyn std::error::Error>> {
+        let root = test_root();
+        fs::create_dir_all(&root)?;
+        let path = root.join("config.json");
+        fs::write(
+            &path,
+            r#"{
+              "version": 1,
+              "profiles": [],
+              "quick_commands": [],
+              "ai_profiles": [{
+                "id": "legacy",
+                "name": "Legacy",
+                "base_url": "https://example.test/v1",
+                "api_key_ref": "ai.legacy.key",
+                "auth_mode": "bearer",
+                "model": "legacy-model",
+                "system_prompt": "",
+                "context_lines": 80
+              }],
+              "settings": {},
+              "agent": {
+                "profile": "desktop",
+                "permission_mode": "confirm",
+                "max_steps": 8
+              }
+            }"#,
+        )?;
+        let service = ConfigService::open(path.clone())?;
+        let profile = service.ai_profile_list()?.remove(0);
+        assert_eq!(profile.models.len(), 1);
+        assert_eq!(profile.models[0].role, crate::types::AiModelRole::Primary);
+        assert_eq!(profile.models[0].model, "legacy-model");
+        assert_eq!(serde_json::from_str::<Value>(&fs::read_to_string(path)?)?["version"], 2);
         fs::remove_dir_all(root)?;
         Ok(())
     }

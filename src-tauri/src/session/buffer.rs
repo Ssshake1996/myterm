@@ -30,17 +30,50 @@ impl TerminalBuffer {
     }
 
     pub fn snapshot_lines(&self, count: usize) -> Result<String, AppError> {
+        let text = self.snapshot()?;
+        let lines: Vec<&str> = text.lines().collect();
+        let start = lines.len().saturating_sub(count);
+        Ok(lines[start..].join("\n"))
+    }
+
+    pub fn snapshot(&self) -> Result<String, AppError> {
         let bytes = self
             .bytes
             .lock()
             .map_err(|_| AppError::Session("terminal buffer lock is poisoned".to_owned()))?;
         let raw: Vec<u8> = bytes.iter().copied().collect();
         let clean = strip_escape_sequences(&raw);
-        let text = String::from_utf8_lossy(&clean).replace('\r', "");
-        let lines: Vec<&str> = text.lines().collect();
-        let start = lines.len().saturating_sub(count);
-        Ok(lines[start..].join("\n"))
+        Ok(String::from_utf8_lossy(&clean).replace('\r', ""))
     }
+
+    pub fn snapshot_range(&self, offset: usize, limit: usize) -> Result<TerminalRange, AppError> {
+        let text = self.snapshot()?;
+        let bytes = text.as_bytes();
+        let start = offset.min(bytes.len());
+        let end = start.saturating_add(limit).min(bytes.len());
+        let mut safe_end = end;
+        while safe_end > start && std::str::from_utf8(&bytes[start..safe_end]).is_err() {
+            safe_end = safe_end.saturating_sub(1);
+        }
+        let content = String::from_utf8_lossy(&bytes[start..safe_end]).into_owned();
+        Ok(TerminalRange {
+            offset: start,
+            next_offset: safe_end,
+            total_bytes: bytes.len(),
+            total_lines: text.lines().count(),
+            eof: safe_end >= bytes.len(),
+            content,
+        })
+    }
+}
+
+pub struct TerminalRange {
+    pub offset: usize,
+    pub next_offset: usize,
+    pub total_bytes: usize,
+    pub total_lines: usize,
+    pub eof: bool,
+    pub content: String,
 }
 
 fn strip_escape_sequences(input: &[u8]) -> Vec<u8> {
@@ -96,6 +129,21 @@ mod tests {
         let snapshot = buffer.snapshot_lines(4)?;
         assert_eq!(snapshot, "plain\nred\ndone\ntail");
         assert!(!snapshot.as_bytes().contains(&0x1b));
+        Ok(())
+    }
+
+    #[test]
+    fn reads_transcript_ranges_until_eof() -> Result<(), Box<dyn std::error::Error>> {
+        let buffer = TerminalBuffer::default();
+        buffer.push("line-1\nline-2\nline-3".as_bytes())?;
+        let first = buffer.snapshot_range(0, 7)?;
+        assert_eq!(first.offset, 0);
+        assert_eq!(first.content, "line-1\n");
+        assert!(!first.eof);
+        let second = buffer.snapshot_range(first.next_offset, 100)?;
+        assert_eq!(second.content, "line-2\nline-3");
+        assert!(second.eof);
+        assert_eq!(second.total_lines, 3);
         Ok(())
     }
 }

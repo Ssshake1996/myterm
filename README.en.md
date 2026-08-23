@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.7.1`
+Current version: `0.8.0`
 
 ## Core Features
 
@@ -58,6 +58,8 @@ task input -> model decision -> tool call -> result -> continue -> final answer
 - Structured execution records stdout/stderr separately with exit code, signal, timeout, cancellation, and disconnect outcomes.
 - Long operations can become background jobs with status, paged output, and cancellation tools.
 - Diagnostic runbooks, context compaction, loop detection, and pre-persistence secret redaction are built in.
+- Terminal context is an unbounded-by-line transcript reader: the Agent follows `offset`, `nextOffset`, and `eof` ranges until a complete `cat`, log, or command output has been read. Long remote stdout/stderr stays in artifacts and remains page-readable.
+- AI profiles persist as versioned JSON. A profile can define primary, analysis, and fallback models; when enabled, failed model requests fail over in role order and the Agent timeline records the selected model.
 
 ### Permissions and Safety
 
@@ -101,6 +103,7 @@ See the [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-inst
 - Failed connection tests and Agent runs first show the failing stage and stable error code; opening details reveals the raw HTTP status, endpoint, response body, transport error, stderr, exit code, timeout, and call stack. Only secrets are redacted and diagnostics are bounded; provider responses are not replaced with guesses.
 - A compact 34px session strip and full-height sidebar work across desktop and narrow windows.
 - A help icon at the far right of the title strip opens the packaged offline user guide.
+- The AI settings editor converts the frontend form into the backend JSON schema; only `api_key_ref` is persisted while API keys remain in the OS credential vault.
 
 ## Architecture
 
@@ -173,4 +176,4 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 
 ## Current Boundaries
 
-Version `0.7.1` adds the plugin kernel and a unified raw-error diagnostic contract while keeping multi-SSH Tasks, structured remote HTTP, and Skill-driven OS installation on the staged roadmap. The first release still excludes complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports. Xshell import maps only Send String entries that can be represented safely as terminal text; menu, script, application, and text-file actions are reported as unsupported in the preview. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.
+Version `0.8.0` adds the plugin kernel follow-up: line-limit-free terminal transcript ranges, a versioned JSON configuration schema, and multi-model failover on top of the raw-error diagnostic contract. Multi-SSH Tasks, structured remote HTTP, and Skill-driven OS installation remain staged roadmap work. Complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports remain out of scope. Xshell import maps only Send String entries that can be represented safely as terminal text; menu, script, application, and text-file actions are reported as unsupported in the preview. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.

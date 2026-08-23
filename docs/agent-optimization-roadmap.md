@@ -1,6 +1,14 @@
 # myterm Agent 优化路线与取舍
 
-本文记录 0.7.1 对 Agent 的直接改进，以及后续保持轻量内核时最值得投入的优化。路线按风险、收益和对现有插件边界的影响排序；它不是把 myterm 扩展成通用编排平台的清单。
+本文记录 0.8.0 对 Agent 的直接改进，以及后续保持轻量内核时最值得投入的优化。路线按风险、收益和对现有插件边界的影响排序；它不是把 myterm 扩展成通用编排平台的清单。
+
+## 0.8.0 已落地：完整输出与 JSON 多模型路由
+
+- `TerminalBuffer` 继续只保留轻量的 256 KiB 内存窗口，但 Agent 不再把窗口解释成“最近 N 行”。`terminal_context` 以 `offset/limit/nextOffset/eof` 返回 transcript range，模型可以按需读取完整长输出；远程执行 artifact 使用同样的分页思想。
+- `AiProfile` 增加 `models[]` 和 `routing`。主模型、分析模型和备用模型按角色排序，传输、HTTP、JSON 失败时只重试模型请求，不重放终端写入或远程副作用。
+- `AppConfig.version` 升至 2。旧配置的 `model` 自动迁移为 `models.primary`；前端通过 typed IPC 编辑结构化表单，后端以原子 JSON 文件作为唯一事实来源，API Key 仍只保存凭据引用。
+
+取舍：不把整个终端历史无限堆入模型上下文，避免内存和 token 成本失控；完整内容通过小范围读取工具获得。多模型先做确定性的顺序故障切换，不做并行投票、复杂仲裁和多 Agent 编排，以保持 Agent 内核低延迟、少依赖。
 
 ## 0.7.1 已落地：可诊断的错误契约
 
@@ -47,4 +55,3 @@
 `结构化工具结果 -> Provider trait -> MCP stderr/超时 -> 上下文预算 -> 证据完成判定 -> 多 SSH target -> checkpoint/resume -> provisioning -> 进程外插件`。
 
 每个阶段都必须通过 Rust/前端单测、错误原文回归、取消与权限回归、release 构建和覆盖安装检查。性能门槛保持不变：Agent 内核不增加常驻进程；工具输出有界或落盘引用；记录启动时间、工具首事件延迟、空闲 CPU、峰值内存和安装包体积。
-

@@ -83,15 +83,34 @@ export type AppFontScale = "small" | "standard" | "large" | "extra_large";
 
 export type AiAuthMode = "bearer" | "api_key";
 
+export type AiModelRole = "primary" | "analysis" | "fallback";
+
+export interface AiModelConfig {
+  id: string;
+  name: string;
+  model: string;
+  role: AiModelRole;
+  enabled: boolean;
+}
+
+export interface AiRoutingConfig {
+  fallback_on_error: boolean;
+  analysis_threshold_chars: number;
+}
+
 export interface AiProfile {
   id: string;
   name: string;
   base_url: string;
   api_key_ref: string;
   auth_mode: AiAuthMode;
-  model: string;
+  /** Legacy field; new configuration is stored in models. */
+  model?: string;
   system_prompt: string;
-  context_lines: number;
+  /** Legacy field retained for config migration only. */
+  context_lines?: number;
+  models?: AiModelConfig[];
+  routing?: AiRoutingConfig;
 }
 
 export type AiRole = "system" | "user" | "assistant";
@@ -506,6 +525,11 @@ export async function localDefaultDirectory(): Promise<string> {
 export async function aiProfileList(): Promise<AiProfile[]> {
   if (!isDesktopRuntime) return demoBackend.aiProfileList();
   return invoke<AiProfile[]>("ai_profile_list");
+}
+
+export async function aiConfigJson(): Promise<Record<string, unknown>> {
+  if (!isDesktopRuntime) return demoBackend.aiConfigJson();
+  return invoke<Record<string, unknown>>("ai_config_json");
 }
 
 export async function aiProfileSave(profile: AiProfile, apiKey?: string): Promise<void> {

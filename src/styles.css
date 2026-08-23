@@ -3451,6 +3451,85 @@ input:checked + .toggle-track > span {
   text-align: right;
 }
 
+.ai-model-routing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-label-row,
+.ai-model-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field-label-row small {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.ai-model-list {
+  display: grid;
+  gap: 6px;
+}
+
+.ai-model-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-model-row input[type="text"],
+.ai-model-row input:not([type]),
+.ai-model-row select {
+  min-width: 0;
+}
+
+.ai-model-enabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.ai-model-actions {
+  justify-content: space-between;
+}
+
+.ai-model-routing > small {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.ai-json-preview {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 8px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.ai-json-preview summary {
+  cursor: pointer;
+  color: var(--text-soft);
+}
+
+.ai-json-preview pre {
+  max-height: 180px;
+  margin: 8px 0 0;
+  padding: 8px;
+  overflow: auto;
+  background: var(--surface-low);
+  color: var(--text-muted);
+  font: 8px/1.45 "Cascadia Mono", Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .connection-test {
   grid-column: 1 / -1;
   min-height: 36px;

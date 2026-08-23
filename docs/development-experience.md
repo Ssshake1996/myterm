@@ -116,6 +116,13 @@ Version 0.7.1 makes Agent diagnostics lossless across the Rust, IPC, event, and 
 - Agent events use schema version 2 and carry `errorCode`; failed completion, tool results, MCP events, approval rejection, and policy denial reach the execution timeline with their exact detail. Settings and Agent catches use the serialized IPC error object rather than `instanceof Error` fallbacks.
 - Tradeoff: the UI shows more raw text and may require scrolling, but this is preferable for operations work; semantic explanations belong in a later evidence/recovery layer and must never replace the original failure.
 
+Version 0.8.0 removes the fixed terminal-context line contract and introduces JSON-first multi-model routing:
+
+- `terminal_context` returns a bounded byte range plus `offset`, `nextOffset`, `totalBytes`, `totalLines`, and `eof`. Large `cat`/log output is therefore read on demand rather than silently losing lines; remote execution artifacts remain paged through `job_output`.
+- `AiProfile.models[]` stores primary, analysis, and fallback candidates. The backend sorts candidates by role and retries only the model HTTP request on transport/HTTP/JSON failure; terminal writes, file writes, and other side effects are never replayed by this routing layer.
+- `AppConfig` schema version 2 migrates legacy `model` fields into `models.primary`, writes atomically, and keeps secrets out of JSON. The frontend settings form is a view over this JSON contract rather than a second persistence format.
+- Tradeoff: sequential failover adds latency only when the preferred model is unhealthy and does not provide ensemble voting. That keeps the native core small and makes error behavior deterministic enough for operations audit.
+
 The prioritized optimization options and their pros/cons are recorded in [`docs/agent-optimization-roadmap.md`](agent-optimization-roadmap.md). The immediate next boundary is typed tool outcomes, followed by a provider trait and MCP stderr/timeout supervision; multi-SSH and provisioning remain separate milestones.
 
 ## 2. Reusable Delivery Workflow

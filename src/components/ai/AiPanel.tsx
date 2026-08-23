@@ -600,7 +600,10 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         >
           {profiles.map((profile) => (
             <option key={profile.id} value={profile.id}>
-              {profile.name} · {profile.model}
+              {profile.name} ·{" "}
+              {profile.models?.find((model) => model.role === "primary")?.model ??
+                profile.model ??
+                "未配置模型"}
             </option>
           ))}
         </select>

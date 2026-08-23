@@ -227,9 +227,25 @@ const DEFAULT_AI_PROFILES: AiProfile[] = [
     base_url: "https://api.deepseek.com/v1",
     api_key_ref: "ai.ai-deepseek.key",
     auth_mode: "bearer",
-    model: "deepseek-chat",
+    models: [
+      { id: "primary", name: "主模型", model: "deepseek-chat", role: "primary", enabled: true },
+      {
+        id: "analysis",
+        name: "分析模型",
+        model: "deepseek-reasoner",
+        role: "analysis",
+        enabled: true,
+      },
+      {
+        id: "fallback",
+        name: "备用模型",
+        model: "deepseek-chat",
+        role: "fallback",
+        enabled: false,
+      },
+    ],
+    routing: { fallback_on_error: true, analysis_threshold_chars: 32000 },
     system_prompt: "",
-    context_lines: 80,
   },
   {
     id: "ai-ollama",
@@ -237,9 +253,9 @@ const DEFAULT_AI_PROFILES: AiProfile[] = [
     base_url: "http://localhost:11434/v1",
     api_key_ref: "ai.ai-ollama.key",
     auth_mode: "bearer",
-    model: "qwen2.5",
+    models: [{ id: "primary", name: "主模型", model: "qwen2.5", role: "primary", enabled: true }],
+    routing: { fallback_on_error: true, analysis_threshold_chars: 32000 },
     system_prompt: "",
-    context_lines: 80,
   },
 ];
 
@@ -614,6 +630,14 @@ class DemoBackend {
     return structuredClone(this.aiProfiles);
   }
 
+  async aiConfigJson() {
+    return {
+      schemaVersion: 2,
+      profiles: structuredClone(this.aiProfiles),
+      agent: structuredClone(this.agentSettings),
+    };
+  }
+
   async aiProfileSave(profile: AiProfile, _apiKey?: string) {
     const index = this.aiProfiles.findIndex((candidate) => candidate.id === profile.id);
     if (index >= 0) this.aiProfiles[index] = profile;
@@ -643,7 +667,7 @@ class DemoBackend {
       ? "可以先确认当前目录的磁盘占用：\n\n```bash\ndu -xh --max-depth=1 / 2>/dev/null | sort -rh | head -10\n```\n\n命令只会回填到终端，不会自动执行。"
       : "从终端输出看，根分区使用率已达到 93%，这很可能是服务异常的直接诱因。建议先定位占用最大的目录：\n\n```bash\ndu -xh --max-depth=1 / 2>/dev/null | sort -rh | head -10\n```\n\n确认结果后再清理滚动日志或临时文件。";
     const context = attachSessionId
-      ? '[Terminal output of session "prod-web-01" (last 80 lines)]\n```\nActive: failed\n/dev/vda1  99G  87G  6.9G  93% /\n```'
+      ? '[Terminal transcript of session "prod-web-01" (on-demand ranges)]\n```\nActive: failed\n/dev/vda1  99G  87G  6.9G  93% /\n```'
       : undefined;
     for (const piece of response.match(/.{1,3}/gu) ?? []) {
       if (this.aborted) return { finishReason: "aborted", attachedContext: context };

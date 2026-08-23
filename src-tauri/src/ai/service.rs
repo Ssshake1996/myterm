@@ -250,51 +250,75 @@ impl AiService {
             },
         });
         request_messages.extend(messages);
-        let request = ChatRequest {
-            model: &profile.model,
-            messages: request_messages
-                .iter()
-                .map(|message| RequestMessage {
-                    role: match message.role {
-                        AiRole::System => "system",
-                        AiRole::User => "user",
-                        AiRole::Assistant => "assistant",
-                    },
-                    content: &message.content,
-                })
-                .collect(),
-            stream: true,
-        };
         let key = self
             .vault
             .get(&profile.api_key_ref)?
             .ok_or_else(|| AppError::Ai("API key is not configured".to_owned()))?;
         let started = std::time::Instant::now();
         let chat_endpoint = endpoint(&profile.base_url, "chat/completions")?;
-        let mut response = with_auth(self.client.post(chat_endpoint.clone()), &profile, &key)
-            .json(&request)
-            .send()
-            .await
-            .map_err(|error| AppError::Ai(format_transport_failure(error, &chat_endpoint)))?;
-        let status = response.status();
-        if !status.is_success() {
-            let body = response
-                .text()
-                .await
-                .map_err(|error| AppError::Ai(format_transport_failure(error, &chat_endpoint)))?;
-            return Err(AppError::Ai(format_http_failure(
-                status,
-                &body,
-                &chat_endpoint,
-                &key,
-            )));
+        let candidates = profile.effective_models();
+        if candidates.is_empty() {
+            return Err(AppError::Ai("没有启用任何 AI 模型，请在配置中添加主模型".to_owned()));
         }
+        let mut failures = Vec::new();
+        let mut selected_model = String::new();
+        let mut response = None;
+        for (index, candidate) in candidates.iter().enumerate() {
+            if index > 0 && !profile.routing.fallback_on_error {
+                break;
+            }
+            let request = ChatRequest {
+                model: &candidate.model,
+                messages: request_messages
+                    .iter()
+                    .map(|message| RequestMessage {
+                        role: match message.role {
+                            AiRole::System => "system",
+                            AiRole::User => "user",
+                            AiRole::Assistant => "assistant",
+                        },
+                        content: &message.content,
+                    })
+                    .collect(),
+                stream: true,
+            };
+            let attempt = with_auth(self.client.post(chat_endpoint.clone()), &profile, &key)
+                .json(&request)
+                .send()
+                .await;
+            let candidate_response = match attempt {
+                Ok(value) => value,
+                Err(error) => {
+                    failures.push(format!("{}: {}", candidate.model, format_transport_failure(error, &chat_endpoint)));
+                    continue;
+                }
+            };
+            let status = candidate_response.status();
+            if !status.is_success() {
+                let body = candidate_response
+                    .text()
+                    .await
+                    .map_err(|error| AppError::Ai(format_transport_failure(error, &chat_endpoint)))?;
+                failures.push(format!(
+                    "{}: {}",
+                    candidate.model,
+                    format_http_failure(status, &body, &chat_endpoint, &key)
+                ));
+                continue;
+            }
+            selected_model = candidate.model.clone();
+            response = Some(candidate_response);
+            break;
+        }
+        let mut response = response.ok_or_else(|| {
+            AppError::Ai(format!("所有启用模型均请求失败:\n{}", failures.join("\n")))
+        })?;
         let mut decoder = SseDecoder::default();
         loop {
             let chunk = tokio::select! {
                 changed = abort.changed() => {
                     if changed.is_ok() && *abort.borrow() {
-                        tracing::info!(profile_id, model = %profile.model, elapsed_ms = started.elapsed().as_millis(), "AI response aborted");
+                        tracing::info!(profile_id, model = %selected_model, elapsed_ms = started.elapsed().as_millis(), "AI response aborted");
                         return Ok(AiChatResult { finish_reason: "aborted", attached_context });
                     }
                     continue;
@@ -311,7 +335,7 @@ impl AiService {
                 break;
             }
         }
-        tracing::info!(profile_id, model = %profile.model, elapsed_ms = started.elapsed().as_millis(), "AI response completed");
+        tracing::info!(profile_id, model = %selected_model, elapsed_ms = started.elapsed().as_millis(), "AI response completed");
         Ok(AiChatResult {
             finish_reason: "stop",
             attached_context,
@@ -320,13 +344,11 @@ impl AiService {
 
     fn attach_context(
         &self,
-        profile: &AiProfile,
+        _profile: &AiProfile,
         session_id: &str,
         messages: &mut [AiMessage],
     ) -> Result<String, AppError> {
-        let snapshot = self
-            .sessions
-            .buffer_lines(session_id, profile.context_lines as usize)?;
+        let snapshot = self.sessions.buffer_snapshot(session_id)?;
         let session = self
             .sessions
             .list()?
@@ -340,8 +362,8 @@ impl AiService {
             .find(|candidate| candidate.id == session.profile_id)
             .map_or(session.profile_id, |candidate| candidate.name);
         let context = format!(
-            "[Terminal output of session \"{profile_name}\" (last {} lines)]\n```\n{snapshot}\n```",
-            profile.context_lines
+            "[Terminal transcript of session \"{profile_name}\" (captured bytes: {})]\n```\n{snapshot}\n```",
+            snapshot.len()
         );
         let last_user = messages
             .iter_mut()
@@ -598,7 +620,7 @@ mod tests {
         endpoint, failed_test, format_http_failure, parse_model_count, redact_and_bound,
         redact_api_key, with_auth, SseDecoder, MAX_DIAGNOSTIC_CHARS,
     };
-    use crate::types::{AiAuthMode, AiProfile};
+    use crate::types::{AiAuthMode, AiModelConfig, AiModelRole, AiProfile, AiRoutingConfig};
 
     #[test]
     fn parses_split_sse_and_ignores_unknown_lines() -> Result<(), Box<dyn std::error::Error>> {
@@ -690,6 +712,14 @@ mod tests {
             model: "model".to_owned(),
             system_prompt: String::new(),
             context_lines: 80,
+            models: vec![AiModelConfig {
+                id: "primary".to_owned(),
+                name: "主模型".to_owned(),
+                model: "model".to_owned(),
+                role: AiModelRole::Primary,
+                enabled: true,
+            }],
+            routing: AiRoutingConfig::default(),
         };
         let request = with_auth(
             reqwest::Client::new().get("http://localhost"),

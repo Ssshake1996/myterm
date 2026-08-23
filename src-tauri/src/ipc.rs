@@ -381,6 +381,11 @@ pub fn ai_profile_list(state: State<'_, AppState>) -> Result<Vec<AiProfile>, Ipc
 }
 
 #[tauri::command]
+pub fn ai_config_json(state: State<'_, AppState>) -> Result<serde_json::Value, IpcError> {
+    state.config.ai_config_json().map_err(Into::into)
+}
+
+#[tauri::command]
 pub fn ai_profile_save(
     state: State<'_, AppState>,
     mut profile: AiProfile,

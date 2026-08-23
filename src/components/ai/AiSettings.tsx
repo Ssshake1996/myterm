@@ -2,6 +2,8 @@ import { useState } from "react";
 import {
   type AiAuthMode,
   type AiErrorDiagnostic,
+  type AiModelConfig,
+  type AiModelRole,
   type AiProfile,
   type AiTestResult,
   aiProfileSave,
@@ -17,6 +19,16 @@ const PRESETS = [
   { name: "Ollama 本地", baseUrl: "http://localhost:11434/v1", model: "qwen2.5" },
   { name: "自定义", baseUrl: "https://gateway.example.com/v1", model: "" },
 ] as const;
+
+const DEFAULT_ROUTING = { fallback_on_error: true, analysis_threshold_chars: 32000 };
+
+function defaultModels(model: string): AiModelConfig[] {
+  return [
+    { id: "primary", name: "主模型", model, role: "primary", enabled: true },
+    { id: "analysis", name: "分析模型", model: "", role: "analysis", enabled: false },
+    { id: "fallback", name: "备用模型", model: "", role: "fallback", enabled: false },
+  ];
+}
 
 function diagnosticFromThrownError(
   error: unknown,
@@ -47,15 +59,20 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
   const notify = useUiStore((state) => state.notify);
   const [name, setName] = useState(profile?.name ?? "DeepSeek");
   const [baseUrl, setBaseUrl] = useState(profile?.base_url ?? "https://api.deepseek.com/v1");
-  const [model, setModel] = useState(profile?.model ?? "deepseek-chat");
+  const [models, setModels] = useState<AiModelConfig[]>(
+    profile?.models?.length ? profile.models : defaultModels(profile?.model ?? "deepseek-chat"),
+  );
+  const [fallbackOnError, setFallbackOnError] = useState(
+    profile?.routing?.fallback_on_error ?? true,
+  );
   const [authMode, setAuthMode] = useState<AiAuthMode>(profile?.auth_mode ?? "bearer");
   const [systemPrompt, setSystemPrompt] = useState(profile?.system_prompt ?? "");
-  const [contextLines, setContextLines] = useState(profile?.context_lines ?? 80);
   const [apiKey, setApiKey] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<AiTestResult | null>(null);
   const [testDetailsOpen, setTestDetailsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [jsonPreview, setJsonPreview] = useState<string>("");
   const id = profile?.id ?? crypto.randomUUID();
 
   const currentProfile = (): AiProfile => ({
@@ -64,20 +81,38 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
     base_url: baseUrl.trim().replace(/\/$/, ""),
     api_key_ref: profile?.api_key_ref ?? `ai.${id}.key`,
     auth_mode: authMode,
-    model: model.trim(),
     system_prompt: systemPrompt,
-    context_lines: contextLines,
+    models: models.map((item) => ({ ...item, model: item.model.trim() })),
+    routing: {
+      ...DEFAULT_ROUTING,
+      fallback_on_error: fallbackOnError,
+    },
   });
 
   const save = async () => {
-    if (!name.trim() || !baseUrl.trim() || !model.trim()) {
-      notify("名称、Base URL 和模型不能为空", "error");
+    if (
+      !name.trim() ||
+      !baseUrl.trim() ||
+      !models.some((item) => item.enabled && item.model.trim())
+    ) {
+      notify("名称、Base URL 和至少一个启用模型不能为空", "error");
       return;
     }
     setSaving(true);
     try {
       const next = currentProfile();
       await aiProfileSave(next, apiKey || undefined);
+      setJsonPreview(
+        JSON.stringify(
+          {
+            schemaVersion: 2,
+            profiles: [next],
+            note: "API key is stored in the OS credential vault",
+          },
+          null,
+          2,
+        ),
+      );
       setApiKey("");
       onSaved(next);
       notify("AI 配置已保存", "success");
@@ -149,7 +184,12 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
                 onClick={() => {
                   setName(preset.name === "自定义" ? "公司网关" : preset.name);
                   setBaseUrl(preset.baseUrl);
-                  setModel(preset.model);
+                  setModels((current) => {
+                    const next = current.length ? [...current] : defaultModels(preset.model);
+                    const primary = next.find((item) => item.role === "primary") ?? next[0];
+                    if (primary) primary.model = preset.model;
+                    return next;
+                  });
                   setTestResult(null);
                   setTestDetailsOpen(false);
                 }}
@@ -163,10 +203,6 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
         <label className="field">
           <span>配置名称</span>
           <input onChange={(event) => setName(event.target.value)} value={name} />
-        </label>
-        <label className="field">
-          <span>模型</span>
-          <input onChange={(event) => setModel(event.target.value)} value={model} />
         </label>
         <label className="field field-span">
           <span>Base URL</span>
@@ -204,17 +240,110 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
             value={systemPrompt}
           />
         </label>
-        <label className="field range-field">
-          <span>终端上下文行数</span>
-          <input
-            max={500}
-            min={20}
-            onChange={(event) => setContextLines(Number(event.target.value))}
-            type="range"
-            value={contextLines}
-          />
-          <output>{contextLines} 行</output>
-        </label>
+        <div className="field field-span ai-model-routing">
+          <div className="field-label-row">
+            <span>模型路由</span>
+            <small>主模型优先；请求失败时按分析模型、备用模型顺序切换。</small>
+          </div>
+          <div className="ai-model-list">
+            {models.map((item, index) => (
+              <div className="ai-model-row" key={item.id}>
+                <select
+                  aria-label={`${item.name}角色`}
+                  onChange={(event) =>
+                    setModels((current) =>
+                      current.map((candidate, candidateIndex) =>
+                        candidateIndex === index
+                          ? { ...candidate, role: event.target.value as AiModelRole }
+                          : candidate,
+                      ),
+                    )
+                  }
+                  value={item.role}
+                >
+                  <option value="primary">主模型</option>
+                  <option value="analysis">分析模型</option>
+                  <option value="fallback">备用模型</option>
+                </select>
+                <input
+                  aria-label={`${item.name}模型名称`}
+                  onChange={(event) =>
+                    setModels((current) =>
+                      current.map((candidate, candidateIndex) =>
+                        candidateIndex === index
+                          ? { ...candidate, model: event.target.value }
+                          : candidate,
+                      ),
+                    )
+                  }
+                  placeholder="模型 ID"
+                  value={item.model}
+                />
+                <label className="ai-model-enabled">
+                  <input
+                    checked={item.enabled}
+                    onChange={(event) =>
+                      setModels((current) =>
+                        current.map((candidate, candidateIndex) =>
+                          candidateIndex === index
+                            ? { ...candidate, enabled: event.target.checked }
+                            : candidate,
+                        ),
+                      )
+                    }
+                    type="checkbox"
+                  />
+                  启用
+                </label>
+                {models.length > 1 ? (
+                  <button
+                    aria-label={`删除${item.name}`}
+                    className="button button-ghost"
+                    onClick={() =>
+                      setModels((current) =>
+                        current.filter((_, candidateIndex) => candidateIndex !== index),
+                      )
+                    }
+                    type="button"
+                  >
+                    删除
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          <div className="ai-model-actions">
+            <button
+              className="button button-ghost"
+              onClick={() =>
+                setModels((current) => [
+                  ...current,
+                  {
+                    id: crypto.randomUUID(),
+                    name: "备用模型",
+                    model: "",
+                    role: "fallback",
+                    enabled: false,
+                  },
+                ])
+              }
+              type="button"
+            >
+              + 添加模型
+            </button>
+            <label className="ai-model-enabled">
+              <input
+                checked={fallbackOnError}
+                onChange={(event) => setFallbackOnError(event.target.checked)}
+                type="checkbox"
+              />
+              失败时自动切换
+            </label>
+          </div>
+          <small>
+            终端上下文不再按固定行数截断；Agent 会按 offset/nextOffset 分段读取完整输出。
+          </small>
+        </div>
         <div className="connection-test">
           <button
             className="button button-secondary"
@@ -262,6 +391,10 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
             )
           ) : null}
         </div>
+        <details className="ai-json-preview">
+          <summary>查看后端 JSON 配置（密钥仅保存为凭据引用）</summary>
+          <pre>{jsonPreview || "保存后生成规范化 JSON"}</pre>
+        </details>
       </div>
     </Modal>
   );

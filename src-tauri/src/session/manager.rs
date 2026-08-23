@@ -189,6 +189,19 @@ impl SessionManager {
         self.get(session_id)?.buffer.snapshot_lines(count)
     }
 
+    pub fn buffer_snapshot(&self, session_id: &str) -> Result<String, AppError> {
+        self.get(session_id)?.buffer.snapshot()
+    }
+
+    pub fn buffer_range(
+        &self,
+        session_id: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<crate::session::buffer::TerminalRange, AppError> {
+        self.get(session_id)?.buffer.snapshot_range(offset, limit)
+    }
+
     pub async fn remote_exec(
         &self,
         session_id: &str,

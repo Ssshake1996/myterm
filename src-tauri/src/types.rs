@@ -178,6 +178,47 @@ pub enum AiAuthMode {
     ApiKey,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AiModelRole {
+    #[default]
+    Primary,
+    Analysis,
+    Fallback,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct AiModelConfig {
+    pub id: String,
+    pub name: String,
+    pub model: String,
+    #[serde(default)]
+    pub role: AiModelRole,
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct AiRoutingConfig {
+    #[serde(default = "enabled_by_default")]
+    pub fallback_on_error: bool,
+    #[serde(default = "default_analysis_threshold")]
+    pub analysis_threshold_chars: u32,
+}
+
+fn default_analysis_threshold() -> u32 {
+    32_000
+}
+
+impl Default for AiRoutingConfig {
+    fn default() -> Self {
+        Self {
+            fallback_on_error: true,
+            analysis_threshold_chars: default_analysis_threshold(),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AiProfile {
     pub id: String,
@@ -186,9 +227,43 @@ pub struct AiProfile {
     pub api_key_ref: String,
     #[serde(default)]
     pub auth_mode: AiAuthMode,
+    /// Legacy single-model field. It is migrated into `models.primary` and is
+    /// retained only so existing config.json files remain readable.
+    #[serde(default, skip_serializing)]
     pub model: String,
     pub system_prompt: String,
+    /// Legacy fixed line limit. Agent and chat no longer use this field.
+    #[serde(default, skip_serializing)]
     pub context_lines: u32,
+    #[serde(default)]
+    pub models: Vec<AiModelConfig>,
+    #[serde(default)]
+    pub routing: AiRoutingConfig,
+}
+
+impl AiProfile {
+    pub fn effective_models(&self) -> Vec<AiModelConfig> {
+        if self.models.is_empty() && !self.model.trim().is_empty() {
+            return vec![AiModelConfig {
+                id: "primary".to_owned(),
+                name: "主模型".to_owned(),
+                model: self.model.clone(),
+                role: AiModelRole::Primary,
+                enabled: true,
+            }];
+        }
+        let mut models = self.models
+            .iter()
+            .filter(|model| model.enabled && !model.model.trim().is_empty())
+            .cloned()
+            .collect::<Vec<_>>();
+        models.sort_by_key(|model| match model.role {
+            AiModelRole::Primary => 0,
+            AiModelRole::Analysis => 1,
+            AiModelRole::Fallback => 2,
+        });
+        models
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
