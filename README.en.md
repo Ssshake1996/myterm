@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.8.1`
+Current version: `0.8.2`
 
 ## Core Features
 
@@ -176,4 +176,4 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 
 ## Current Boundaries
 
-Version `0.8.1` adds model-list detail, raw-response inspection, live JSON draft preview, backend JSON refresh, and a local-config open action on top of the 0.8.0 plugin-kernel follow-up. Multi-SSH Tasks, structured remote HTTP, and Skill-driven OS installation remain staged roadmap work. Complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports remain out of scope. Xshell import maps only Send String entries that can be represented safely as terminal text; menu, script, application, and text-file actions are reported as unsupported in the preview. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.
+Version `0.8.2` restructures the AI settings dialog on top of 0.8.1: fixed header/footer, an independently scrolling content area, and non-collapsing model-detail and JSON-preview sections. Multi-SSH Tasks, structured remote HTTP, and Skill-driven OS installation remain staged roadmap work. Complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports remain out of scope. Xshell import maps only Send String entries that can be represented safely as terminal text; menu, script, application, and text-file actions are reported as unsupported in the preview. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.

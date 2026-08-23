@@ -2379,7 +2379,7 @@ dependencies = [
 
 [[package]]
 name = "myterm"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "dirs",
  "keyring",

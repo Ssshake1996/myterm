@@ -7,13 +7,26 @@ interface ModalProps extends PropsWithChildren {
   onClose: () => void;
   footer?: ReactNode;
   size?: "small" | "medium" | "large" | "document";
+  className?: string;
 }
 
-export function Modal({ title, onClose, footer, size = "medium", children }: ModalProps) {
+export function Modal({
+  title,
+  onClose,
+  footer,
+  size = "medium",
+  className = "",
+  children,
+}: ModalProps) {
   return createPortal(
     <div className="modal-mask">
       <button aria-label="关闭弹窗" className="modal-backdrop" onClick={onClose} type="button" />
-      <section aria-label={title} aria-modal="true" className={`modal modal-${size}`} role="dialog">
+      <section
+        aria-label={title}
+        aria-modal="true"
+        className={`modal modal-${size} ${className}`.trim()}
+        role="dialog"
+      >
         <header className="modal-header">
           <h2>{title}</h2>
           <button aria-label="关闭" className="icon-button" onClick={onClose} type="button">

@@ -129,6 +129,12 @@ Version 0.8.1 closes the observability gap in the AI settings surface:
 - JSON configuration preview is split into a live draft generated from the current form and the backend-saved JSON returned through typed IPC. A separate local-open action delegates the canonical config path to the operating system without exposing credentials.
 - The demo adapter and frontend tests cover both success-detail expansion and the refresh/open workflow, so browser verification does not depend on a running gateway.
 
+Version 0.8.2 records the layout refactor for the same surface:
+
+- The AI settings modal now uses a bounded dialog with fixed header/footer and a dedicated scroll container for the form. This prevents the modal body from competing with the footer for height.
+- The connection-test result uses a two-column layout with a non-shrinking action button; model details and raw response remain inside an independently scrollable panel.
+- JSON previews default to a single readable column at narrow widths and switch to two columns only when the dialog has enough space. Long JSON wraps and scrolls inside its own pane instead of creating a page-level horizontal scrollbar.
+
 The prioritized optimization options and their pros/cons are recorded in [`docs/agent-optimization-roadmap.md`](agent-optimization-roadmap.md). The immediate next boundary is typed tool outcomes, followed by a provider trait and MCP stderr/timeout supervision; multi-SSH and provisioning remain separate milestones.
 
 ## 2. Reusable Delivery Workflow
