@@ -1,6 +1,6 @@
 [package]
 name = "myterm"
-version = "0.8.3"
+version = "0.8.4"
 description = "A lightweight SSH terminal with a native AI assistant"
 authors = ["myterm contributors"]
 edition = "2021"
@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 dirs = "6"
 keyring = "3"
 portable-pty = "0.9"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots", "stream"] }
 rmcp = { version = "3.1.2", default-features = false, features = ["client", "transport-child-process"] }
 rusqlite = { version = "0.40.0", default-features = false, features = ["bundled"] }
 russh = "0.54"

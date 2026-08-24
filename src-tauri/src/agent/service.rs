@@ -90,6 +90,7 @@ impl AgentService {
         sftp: Arc<SftpService>,
     ) -> Result<Self, AppError> {
         let client = reqwest::Client::builder()
+            .tls_built_in_native_certs(true)
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(120))
             .build()

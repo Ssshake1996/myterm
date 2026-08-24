@@ -141,6 +141,12 @@ Version 0.8.3 records a layout-flow correction for the main workspace:
 - This keeps the quick-command dock at the bottom consistently, whether there are no sessions, one session, or multiple connected sessions.
 - The change is CSS-only at the layout boundary, preserving terminal, SFTP, and quick-command behavior while fixing the state-dependent jump.
 
+Version 0.8.4 records the TLS trust-store correction for outbound AI traffic:
+
+- The direct `reqwest` dependency now enables `rustls-tls-native-roots` instead of the `rustls-tls` alias, which resolves to Mozilla `webpki-roots` in reqwest 0.12.
+- Both the AI settings/test client and the Agent execution client explicitly enable native built-in certificates, so the build fails if the required reqwest feature is removed accidentally.
+- The application keeps Rustls as its TLS implementation while loading roots from the operating-system certificate store. This supports enterprise and intranet CAs without disabling certificate verification or adding private CA material to application configuration.
+
 The prioritized optimization options and their pros/cons are recorded in [`docs/agent-optimization-roadmap.md`](agent-optimization-roadmap.md). The immediate next boundary is typed tool outcomes, followed by a provider trait and MCP stderr/timeout supervision; multi-SSH and provisioning remain separate milestones.
 
 ## 2. Reusable Delivery Workflow
