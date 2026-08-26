@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.9.1`
+Current version: `0.9.2`
 
 ## Core Features
 
@@ -180,4 +180,4 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 
 ## Current Boundaries
 
-Version `0.9.1` makes `dsh-codex-agent` the desktop application's single built-in Agent. Codex Core exclusively owns thread history, the tool loop, context compaction, the Subagent Graph, and cancellation semantics; myterm supplies the SSH/SFTP host bridge, permission approvals, Skill/MCP loading, audit events, and UI projection. The legacy Agent Loop, plugin selection, bundles, and user-configurable maximum step count are removed and migrated away at startup. The JSON configuration remains the single backend contract behind the frontend form. Compaction retries up to three times after the initial attempt; only four total failures terminate a Turn while preserving the original history. Skill-driven OS installation, complex long-running orchestration, and aggregate WebView2 memory reduction remain future work.
+Version `0.9.2` builds on `0.9.1` by fixing the Agent lifecycle after a normal Codex Core turn. The cancel watcher is explicitly drained when the turn completes, so the terminal event reaches the UI and the composer becomes available again without requiring a manual stop. The dsh-codex-agent, Skill/MCP, permission, and multi-model boundaries remain unchanged.

@@ -144,7 +144,11 @@ pub(crate) async fn run(
     let result = runtime
         .run_turn(&run_id, prompt.trim(), tool_definitions(&mcp_tools), host)
         .await;
-    let _ = cancel_task.await;
+    // The watcher is intentionally long-lived while the turn is running. On a
+    // normal turn completion no abort signal is sent, so awaiting it directly
+    // would keep the task in `running` forever. Stop and drain it explicitly
+    // before publishing the terminal event.
+    stop_and_drain_cancel_task(cancel_task).await;
     runtime.dispose().await.map_err(core_error)?;
 
     match result {
@@ -179,6 +183,11 @@ pub(crate) async fn run(
             Err(core_error(error))
         }
     }
+}
+
+async fn stop_and_drain_cancel_task(task: tokio::task::JoinHandle<()>) {
+    task.abort();
+    let _ = task.await;
 }
 
 struct FallbackTransport {
@@ -550,5 +559,22 @@ fn app_error(error: AppError) -> CoreError {
     CoreError::Tool {
         tool: "myterm_host".to_owned(),
         detail: error.detail(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stop_and_drain_cancel_task;
+    use std::{future::pending, time::Duration};
+
+    #[tokio::test]
+    async fn normal_completion_does_not_wait_for_abort_signal() {
+        let watcher = tokio::spawn(async {
+            pending::<()>().await;
+        });
+
+        tokio::time::timeout(Duration::from_secs(1), stop_and_drain_cancel_task(watcher))
+            .await
+            .expect("cancel watcher should be stopped after the turn completes");
     }
 }
