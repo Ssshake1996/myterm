@@ -1,16 +1,19 @@
 {
   "name": "myterm",
   "private": true,
-  "version": "0.8.4",
+  "version": "0.9.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "build:release": "tauri build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-portable.ps1",
+    "build:codex-harness": "npm --prefix integrations/dsh-codex-agent run build",
     "check:dist": "node --experimental-strip-types scripts/check-dist.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src scripts",
     "test": "vitest run --passWithNoTests",
+    "test:codex-harness": "npm --prefix integrations/dsh-codex-agent test",
+    "audit:codex-network": "node --experimental-strip-types scripts/audit-codex-network.ts",
     "test:watch": "vitest",
     "tauri": "tauri"
   },

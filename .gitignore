@@ -3,7 +3,10 @@ node_modules/
 dist/
 coverage/
 dist-release/
+.build-tools/
 *.tsbuildinfo
+/integrations/dsh-codex-agent/lib/
+/integrations/dsh-codex-agent/native-dist/
 
 # Rust and Tauri
 target/

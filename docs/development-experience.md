@@ -147,6 +147,14 @@ Version 0.8.4 records the TLS trust-store correction for outbound AI traffic:
 - Both the AI settings/test client and the Agent execution client explicitly enable native built-in certificates, so the build fails if the required reqwest feature is removed accidentally.
 - The application keeps Rustls as its TLS implementation while loading roots from the operating-system certificate store. This supports enterprise and intranet CAs without disabling certificate verification or adding private CA material to application configuration.
 
+Version 0.9.0 records the first in-process Codex Core integration for DeepSeek Harness:
+
+- A single Harness `AgentFactory` owns the TypeScript lifecycle boundary while the native Core exclusively owns Agent Loop, Thread/Turn, compaction, tool ordering, Subagents, and Agent Graph state.
+- Chat Completions, explicit Streamable HTTP MCP, and fixed-endpoint Web Search are the only classified network exits. The repeatable source/dependency/artifact scan fails on unknown clients or prohibited remote capabilities.
+- Compaction performs an initial attempt plus at most three retries with 100/250/500 ms backoff. No summary boundary is committed before strict validation succeeds, and four failures terminate the Turn without truncating history.
+- Root and Subagent state is durable in one SQLite store. Tests cover concurrency, timeouts, cancellation, graph recovery, structured failure propagation, and background-task drainage during plugin unload.
+- The native plugin remains a separately distributed Harness package in this release. The desktop application's existing Agent runtime is not silently replaced, preventing two loops from owning one session.
+
 The prioritized optimization options and their pros/cons are recorded in [`docs/agent-optimization-roadmap.md`](agent-optimization-roadmap.md). The immediate next boundary is typed tool outcomes, followed by a provider trait and MCP stderr/timeout supervision; multi-SSH and provisioning remain separate milestones.
 
 ## 2. Reusable Delivery Workflow

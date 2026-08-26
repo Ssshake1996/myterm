@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.8.4`
+当前版本：`0.9.0`
 
 ## 核心功能
 
@@ -174,7 +174,10 @@ npm run check:dist
 - [开发经验记录](docs/development-experience.md)
 - [Agent 插件架构说明](docs/agent-plugin-architecture.md)
 - [Agent 优化路线与取舍](docs/agent-optimization-roadmap.md)
+- [Codex × Harness 架构审计](docs/architecture/codex-harness-audit.md)
+- [dsh-codex-agent 实现说明](docs/architecture/dsh-codex-agent-implementation.md)
+- [Codex 网络出口审计](docs/architecture/codex-network-audit.md)
 
 ## 当前边界
 
-当前 `0.8.4` 在 0.8.3 的稳定工作区布局基础上，将 AI 与 Agent 的 HTTPS 客户端切换为 Rustls 系统根证书模式。Windows 企业根证书、内网 CA 和安全代理证书安装到系统受信任根证书库后，可直接参与服务端证书验证。多 SSH Task、结构化远端 HTTP 工具和 Skill 驱动的 OS 安装仍按专项方案分阶段开发；本版仍不实现复杂多 Agent、长期记忆、云端 Skill 市场和远程 MCP 传输。Xshell 导入仅映射可安全表达为终端文本的“发送字符串”命令，菜单、脚本、程序和文本文件动作会在预览中标记为不支持。聚合 WebView2 进程组内存仍高于项目的 80 MiB 目标，原生 Agent 内核保持轻量，完整浏览器运行时优化继续作为后续工作。
+当前 `0.9.0` 新增独立发布的 `dsh-codex-agent`：它以同进程 N-API 插件把裁剪后的 Codex Core 接入 DeepSeek Harness，支持内网 Chat Completions、自动压缩、多 Agent、Agent Graph、显式 HTTP MCP、固定地址 Web Search 和本地审计。压缩首次失败后最多重试 3 次，总计 4 次失败才终止 Turn，并完整保留原始历史。桌面端内置 Agent 仍保持原有运行路径；接入 Harness 插件时不能同时启用两套 Agent Loop。Skill 驱动 OS 安装和复杂长期任务编排仍按专项方案推进，聚合 WebView2 进程组内存优化也继续作为后续工作。

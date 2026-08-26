@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.8.4`
+Current version: `0.9.0`
 
 ## Core Features
 
@@ -174,7 +174,10 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 - [Development Experience Record](docs/development-experience.md)
 - [Agent Plugin Architecture](docs/agent-plugin-architecture.md)
 - [Agent Optimization Roadmap](docs/agent-optimization-roadmap.md)
+- [Codex × Harness Architecture Audit](docs/architecture/codex-harness-audit.md)
+- [dsh-codex-agent Implementation](docs/architecture/dsh-codex-agent-implementation.md)
+- [Codex Network Egress Audit](docs/architecture/codex-network-audit.md)
 
 ## Current Boundaries
 
-Version `0.8.4` keeps the stable workspace layout from 0.8.3 and switches the AI and Agent HTTPS clients to Rustls with native system roots. Enterprise roots, intranet CAs, and security-proxy certificates installed in the operating-system trust store can now participate in server-certificate validation. Multi-SSH Tasks, structured remote HTTP, and Skill-driven OS installation remain staged roadmap work. Complex multi-Agent orchestration, long-term memory, a cloud Skill marketplace, and remote MCP transports remain out of scope. Xshell import maps only Send String entries that can be represented safely as terminal text; menu, script, application, and text-file actions are reported as unsupported in the preview. Aggregate WebView2 process memory remains above the project's 80 MiB target; the native Agent core stays lean while browser-runtime optimization remains open work.
+Version `0.9.0` adds the separately distributed `dsh-codex-agent`. It integrates a trimmed Codex Core into DeepSeek Harness as an in-process N-API plugin with intranet Chat Completions, automatic compaction, multi-Agent execution, Agent Graph persistence, explicit HTTP MCP, fixed-endpoint Web Search, and local audit records. A failed compaction is retried three times after the initial attempt; only four total failures terminate the Turn, with the original history preserved. The desktop application's built-in Agent remains on its existing runtime path, and deployments must not enable both Agent Loops for one Agent. Skill-driven OS installation, complex long-running orchestration, and aggregate WebView2 memory reduction remain future work.
