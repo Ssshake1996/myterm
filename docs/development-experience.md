@@ -162,6 +162,13 @@ Version 0.9.1 completes the desktop replacement boundary:
 - The Agent panel identifies the runtime as `Codex Harness Agent · dsh-codex-agent` and projects Core status, tool calls, compaction retries, Subagent status, exact error codes, and final output. This keeps the UI operational without exposing obsolete loop controls.
 - Tradeoff: the first desktop release supports one configured primary model per dsh Core turn; existing multi-model profile routing remains available to the AI connection/test path, and a provider-pool transport can be added later without reintroducing a second Agent loop.
 
+The 0.9.4 Agent prompt boundary keeps the system contract separate from user configuration:
+
+- `DEFAULT_AGENT_SYSTEM_PROMPT` is versioned independently from the normal chat prompt and is always present for dsh-codex-agent runs.
+- An AI profile's `system_prompt` is appended as lower-priority additional guidance instead of replacing evidence, permission, session-target, Skill, MCP, and error-fidelity rules.
+- Enabled MCP tools are listed at task startup and their names, descriptions, and JSON Schemas are passed through the model-facing tool catalog. The prompt teaches the Agent to trust only that runtime catalog, search large catalogs through `mcp_tool_search`, and never invent unavailable MCP capabilities.
+- Tests lock both a populated and an empty MCP catalog so a future refactor cannot silently remove the discovery contract.
+
 The prioritized optimization options and their pros/cons are recorded in [`docs/agent-optimization-roadmap.md`](agent-optimization-roadmap.md). The immediate next boundary is typed tool outcomes, followed by a provider trait and MCP stderr/timeout supervision; multi-SSH and provisioning remain separate milestones.
 
 ## 2. Reusable Delivery Workflow

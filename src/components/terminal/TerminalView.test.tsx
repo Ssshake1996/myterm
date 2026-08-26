@@ -14,6 +14,7 @@ const terminalMocks = vi.hoisted(() => ({
 }));
 
 const ipcMocks = vi.hoisted(() => ({
+  publishTerminalOutput: vi.fn(),
   sessionConnect: vi.fn(),
   sessionDisconnect: vi.fn(),
   terminalResize: vi.fn(),
@@ -26,6 +27,8 @@ vi.mock("@xterm/xterm", () => ({
     rows = 24;
     hasSelection = () => false;
     getSelection = () => "";
+    selectAll = vi.fn();
+    clearSelection = vi.fn();
     paste = vi.fn();
     options = terminalMocks.options;
     loadAddon = vi.fn();
@@ -231,6 +234,21 @@ describe("TerminalView", () => {
 
     await waitFor(() => expect(terminalMocks.options.fontSize).toBe(18));
     expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a terminal context menu with clipboard actions", async () => {
+    const { container } = render(<TerminalView pane={pane} profile={profile} />);
+    await waitFor(() => expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1));
+
+    const host = container.querySelector(".terminal-host");
+    expect(host).not.toBeNull();
+    if (!host) throw new Error("terminal host was not rendered");
+    fireEvent.contextMenu(host, { clientX: 120, clientY: 80 });
+
+    expect(screen.getByRole("menu", { name: "终端上下文菜单" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "复制" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("menuitem", { name: "全选" }));
+    expect(screen.queryByRole("menu", { name: "终端上下文菜单" })).not.toBeInTheDocument();
   });
 
   it("reclaims a session that finishes connecting after its pane was closed", async () => {

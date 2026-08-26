@@ -4,9 +4,11 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ITheme, Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   type AppTheme,
   createChannel,
+  publishTerminalOutput,
   type SessionProfile,
   sessionConnect,
   sessionDisconnect,
@@ -127,6 +129,28 @@ interface TerminalRenderState {
 }
 
 const MAX_PROMPT_TAIL = 256;
+
+async function copyTextToClipboard(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand?.("copy") ?? false;
+  textarea.remove();
+  if (!copied) throw new Error("当前运行环境不允许写入系统剪贴板");
+}
+
+async function readTextFromClipboard(): Promise<string> {
+  if (navigator.clipboard?.readText) return navigator.clipboard.readText();
+  throw new Error("当前运行环境不允许读取系统剪贴板");
+}
 
 function buildTerminalTheme(theme: AppTheme, palette: TerminalPalette): ITheme {
   return {
@@ -282,6 +306,12 @@ interface TerminalViewProps {
   profile: SessionProfile;
 }
 
+interface TerminalContextMenu {
+  x: number;
+  y: number;
+  hasSelection: boolean;
+}
+
 export function TerminalView({ pane, profile }: TerminalViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -311,6 +341,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
   });
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
+  const [contextMenu, setContextMenu] = useState<TerminalContextMenu | null>(null);
 
   const connect = useCallback(async () => {
     const terminal = terminalRef.current;
@@ -324,8 +355,17 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       lastVisibleCharacter: "",
     };
     const channel = createChannel<ArrayBuffer>();
-    channel.onmessage = (buffer) =>
-      writeTerminalChunk(terminal, new Uint8Array(buffer), renderStateRef.current);
+    channel.onmessage = (buffer) => {
+      const bytes = new Uint8Array(buffer);
+      writeTerminalChunk(terminal, bytes, renderStateRef.current);
+      const sessionId = sessionRef.current;
+      if (sessionId) {
+        publishTerminalOutput({
+          sessionId,
+          dataUtf8: new TextDecoder().decode(bytes),
+        });
+      }
+    };
     try {
       const session = await sessionConnect(profile.id, terminal.cols, terminal.rows, channel);
       const paneExists = useLayoutStore
@@ -397,6 +437,15 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       );
     };
     window.addEventListener("myterm:terminal-input", handleTerminalInput);
+    const closeContextMenu = (event: Event) => {
+      if ((event.target as Element | null)?.closest(".terminal-context-menu")) return;
+      setContextMenu(null);
+    };
+    const closeContextMenuOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setContextMenu(null);
+    };
+    window.addEventListener("pointerdown", closeContextMenu);
+    window.addEventListener("keydown", closeContextMenuOnEscape);
     terminal.attachCustomKeyEventHandler((event) => {
       if (!event.ctrlKey || !event.shiftKey) return true;
       if (event.code === "KeyC" && terminal.hasSelection()) {
@@ -424,6 +473,8 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
     return () => {
       observer.disconnect();
       window.removeEventListener("myterm:terminal-input", handleTerminalInput);
+      window.removeEventListener("pointerdown", closeContextMenu);
+      window.removeEventListener("keydown", closeContextMenuOnEscape);
       input.dispose();
       terminal.dispose();
       terminalRef.current = null;
@@ -470,7 +521,84 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
           </button>
         </div>
       ) : null}
-      <div className="terminal-host" ref={hostRef} />
+      <div
+        aria-label="终端会话"
+        className="terminal-host"
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setContextMenu({
+            x: event.clientX,
+            y: event.clientY,
+            hasSelection: terminalRef.current?.hasSelection() ?? false,
+          });
+        }}
+        ref={hostRef}
+        role="application"
+      />
+      {contextMenu
+        ? createPortal(
+            <div
+              aria-label="终端上下文菜单"
+              className="terminal-context-menu"
+              onContextMenu={(event) => event.preventDefault()}
+              role="menu"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+            >
+              <button
+                disabled={!contextMenu.hasSelection}
+                onClick={() => {
+                  const terminal = terminalRef.current;
+                  const selection = terminal?.getSelection() ?? "";
+                  if (!selection) return;
+                  void copyTextToClipboard(selection)
+                    .then(() => setContextMenu(null))
+                    .catch(() => notify("复制终端内容失败", "error"));
+                }}
+                role="menuitem"
+                type="button"
+              >
+                复制
+              </button>
+              <button
+                onClick={() => {
+                  void readTextFromClipboard()
+                    .then((text) => {
+                      terminalRef.current?.paste(text);
+                      setContextMenu(null);
+                    })
+                    .catch(() => notify("读取剪贴板失败", "error"));
+                }}
+                role="menuitem"
+                type="button"
+              >
+                粘贴
+              </button>
+              <button
+                onClick={() => {
+                  terminalRef.current?.selectAll();
+                  setContextMenu(null);
+                }}
+                role="menuitem"
+                type="button"
+              >
+                全选
+              </button>
+              <button
+                disabled={!contextMenu.hasSelection}
+                onClick={() => {
+                  terminalRef.current?.clearSelection();
+                  setContextMenu(null);
+                }}
+                role="menuitem"
+                type="button"
+              >
+                清除选择
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
       {disconnected ? (
         <button className="disconnect-overlay" onClick={() => void connect()} type="button">
           <span className="disconnect-icon">↻</span>

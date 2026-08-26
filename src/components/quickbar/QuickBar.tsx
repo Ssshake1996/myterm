@@ -19,6 +19,7 @@ import {
   quickCommandImportPreview,
   quickCommandList,
   quickCommandSave,
+  type TerminalOutputEventDetail,
   terminalWrite,
 } from "../../ipc";
 import { getActivePane, useLayoutStore } from "../../store/layout";
@@ -34,9 +35,63 @@ const MIN_PANEL_HEIGHT = 168;
 const DEFAULT_PANEL_HEIGHT = 224;
 const MAX_PANEL_HEIGHT = 420;
 
-function commandInput(command: QuickCommand) {
-  const lines = command.command.replace(/\r\n?/g, "\n").replace(/\n/g, "\r");
-  return command.send_newline && !lines.endsWith("\r") ? `${lines}\r` : lines;
+const COMMAND_PROMPT_WAIT_MS = 750;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI control sequence parser intentionally matches ESC bytes.
+const ANSI_ESCAPE_PATTERN = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI control sequence parser intentionally matches ESC bytes.
+const ANSI_SINGLE_ESCAPE_PATTERN = /\x1b./g;
+
+function commandLines(command: string): string[] {
+  return command
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .filter((line) => line.trim().length > 0);
+}
+
+function stripTerminalAnsi(value: string): string {
+  return value.replace(ANSI_ESCAPE_PATTERN, "").replace(ANSI_SINGLE_ESCAPE_PATTERN, "");
+}
+
+function hasTerminalPrompt(value: string): boolean {
+  const clean = stripTerminalAnsi(value).replace(/\r/g, "");
+  return /(?:^|\n)[^\n]{0,160}(?:[$#>])\s*$/u.test(clean);
+}
+
+function waitForTerminalPrompt(sessionId: string): Promise<void> {
+  return new Promise((resolve) => {
+    let transcript = "";
+    let settled = false;
+    const timer = window.setTimeout(finish, COMMAND_PROMPT_WAIT_MS);
+
+    function finish() {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      window.removeEventListener("myterm:terminal-output", handleOutput);
+      resolve();
+    }
+
+    function handleOutput(event: Event) {
+      const detail = (event as CustomEvent<TerminalOutputEventDetail>).detail;
+      if (!detail || detail.sessionId !== sessionId) return;
+      transcript = `${transcript}${detail.dataUtf8}`.slice(-4096);
+      if (hasTerminalPrompt(transcript)) finish();
+    }
+
+    window.addEventListener("myterm:terminal-output", handleOutput);
+  });
+}
+
+async function dispatchCommand(sessionId: string, command: QuickCommand): Promise<void> {
+  if (!command.send_newline) {
+    await terminalWrite(sessionId, command.command.replace(/\r\n?/g, "\n"));
+    return;
+  }
+  for (const line of commandLines(command.command)) {
+    const prompt = waitForTerminalPrompt(sessionId);
+    await terminalWrite(sessionId, `${line}\r`);
+    await prompt;
+  }
 }
 
 export function QuickBar() {
@@ -50,6 +105,8 @@ export function QuickBar() {
   const [editing, setEditing] = useState<QuickCommand | null | undefined>(undefined);
   const [importState, setImportState] = useState<QuickCommandImportState>();
   const [exportOpen, setExportOpen] = useState(false);
+  const [sendingCommandId, setSendingCommandId] = useState<string | null>(null);
+  const sendingCommandRef = useRef(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
@@ -84,11 +141,16 @@ export function QuickBar() {
   const groupCommandCount = commands.filter((command) => command.group === group).length;
 
   const send = async (command: QuickCommand) => {
-    if (!activePane?.sessionId) return;
+    if (!activePane?.sessionId || sendingCommandRef.current) return;
+    sendingCommandRef.current = true;
+    setSendingCommandId(command.id);
     try {
-      await terminalWrite(activePane.sessionId, commandInput(command));
+      await dispatchCommand(activePane.sessionId, command);
     } catch (error) {
       notify(error instanceof Error ? error.message : "命令发送失败", "error");
+    } finally {
+      sendingCommandRef.current = false;
+      setSendingCommandId(null);
     }
   };
 
@@ -282,7 +344,11 @@ export function QuickBar() {
                   >
                     <button
                       className="quick-command-main"
-                      disabled={!activePane?.sessionId || activePane.state !== "connected"}
+                      disabled={
+                        !activePane?.sessionId ||
+                        activePane.state !== "connected" ||
+                        sendingCommandId !== null
+                      }
                       onClick={() => void send(command)}
                       title={`${command.send_newline ? "执行" : "回填"} ${command.label}`}
                       type="button"

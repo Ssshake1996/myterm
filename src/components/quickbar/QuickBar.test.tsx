@@ -53,7 +53,13 @@ describe("QuickBar", () => {
       skipped: 1,
     });
     ipcMocks.quickCommandExport.mockResolvedValue('{"format":"myterm.quick-commands"}');
-    ipcMocks.terminalWrite.mockResolvedValue(undefined);
+    ipcMocks.terminalWrite.mockImplementation(async (sessionId: string) => {
+      window.dispatchEvent(
+        new CustomEvent("myterm:terminal-output", {
+          detail: { sessionId, dataUtf8: "\r\nhost# " },
+        }),
+      );
+    });
     useLayoutStore.setState({
       activeTabId: "tab",
       tabs: [
@@ -114,12 +120,32 @@ describe("QuickBar", () => {
 
     await user.click(await screen.findByRole("button", { name: "部署核对" }));
 
-    expect(ipcMocks.terminalWrite).toHaveBeenCalledWith(
+    expect(ipcMocks.terminalWrite).toHaveBeenNthCalledWith(1, "session-active", "cd /srv/app\r");
+    expect(ipcMocks.terminalWrite).toHaveBeenNthCalledWith(2, "session-active", "pwd\r");
+    expect(ipcMocks.terminalWrite).toHaveBeenNthCalledWith(
+      3,
       "session-active",
-      "cd /srv/app\rpwd\rsystemctl status app\r",
+      "systemctl status app\r",
     );
     expect(screen.queryByText("df -h")).not.toBeInTheDocument();
     expect(screen.queryByText("systemctl status app")).not.toBeInTheDocument();
+  });
+
+  it("prevents overlapping quick command dispatches", async () => {
+    ipcMocks.terminalWrite.mockImplementationOnce(() => new Promise<void>(() => undefined));
+    const user = userEvent.setup();
+    render(<QuickBar />);
+
+    const disk = await screen.findByRole("button", { name: /^磁盘/ });
+    const restart = screen.getByRole("button", { name: /^重启/ });
+    await user.click(disk);
+
+    await waitFor(() => {
+      expect(disk).toBeDisabled();
+      expect(restart).toBeDisabled();
+    });
+    await user.click(restart);
+    expect(ipcMocks.terminalWrite).toHaveBeenCalledTimes(1);
   });
 
   it("preserves multiline command whitespace when saving", async () => {

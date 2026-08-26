@@ -306,6 +306,8 @@ export interface AppInfo {
 
 export const isDesktopRuntime = isTauri();
 
+let localShellListPromise: Promise<string[]> | null = null;
+
 export interface MessageChannel<T> {
   onmessage: (message: T) => void;
 }
@@ -392,9 +394,20 @@ export interface TerminalInputEventDetail {
   dataUtf8: string;
 }
 
+export interface TerminalOutputEventDetail {
+  sessionId: string;
+  dataUtf8: string;
+}
+
 function publishTerminalInput(detail: TerminalInputEventDetail): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("myterm:terminal-input", { detail }));
+  }
+}
+
+export function publishTerminalOutput(detail: TerminalOutputEventDetail): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("myterm:terminal-output", { detail }));
   }
 }
 
@@ -442,7 +455,13 @@ export async function vaultDelete(ref: string): Promise<void> {
 
 export async function localShellList(): Promise<string[]> {
   if (!isDesktopRuntime) return ["powershell.exe", "cmd.exe", "wsl.exe"];
-  return invoke<string[]>("local_shell_list");
+  if (!localShellListPromise) {
+    localShellListPromise = invoke<string[]>("local_shell_list").catch((error) => {
+      localShellListPromise = null;
+      throw error;
+    });
+  }
+  return localShellListPromise;
 }
 
 export async function quickCommandList(): Promise<QuickCommand[]> {

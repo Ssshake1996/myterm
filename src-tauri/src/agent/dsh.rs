@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::Arc,
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use dsh_codex_core::{
@@ -16,7 +20,7 @@ use super::{
     service::{self, AgentEventSink, AgentService},
 };
 use crate::{
-    config::DEFAULT_SYSTEM_PROMPT,
+    config::DEFAULT_AGENT_SYSTEM_PROMPT,
     types::{AgentEvent, AgentPermissionMode, AgentRunResult, AgentSettings, AiProfile},
     AppError,
 };
@@ -25,6 +29,7 @@ const CORE_CONTEXT_WINDOW_TOKENS: usize = 128_000;
 const CORE_COMPACT_THRESHOLD_TOKENS: usize = 96_000;
 const CORE_MAX_STEPS: usize = 64;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn run(
     service: Arc<AgentService>,
     profile: AiProfile,
@@ -80,7 +85,7 @@ pub(crate) async fn run(
             "没有启用任何 AI 模型，请在 AI 服务设置中添加主模型".to_owned(),
         ));
     }
-    let system_prompt = build_system_prompt(&profile, &skill_context);
+    let system_prompt = build_system_prompt(&profile, &skill_context, &mcp_tools);
     let state_dir = service
         .config_path()
         .parent()
@@ -447,19 +452,51 @@ fn tool_definitions(mcp_tools: &[McpToolDefinition]) -> Vec<ToolDefinition> {
         .collect()
 }
 
-fn build_system_prompt(profile: &AiProfile, skill_context: &str) -> String {
-    let base = if profile.system_prompt.trim().is_empty() {
-        DEFAULT_SYSTEM_PROMPT
+fn build_system_prompt(
+    profile: &AiProfile,
+    skill_context: &str,
+    mcp_tools: &[McpToolDefinition],
+) -> String {
+    build_agent_system_prompt(profile.system_prompt.as_str(), skill_context, mcp_tools)
+}
+
+fn build_agent_system_prompt(
+    profile_prompt: &str,
+    skill_context: &str,
+    mcp_tools: &[McpToolDefinition],
+) -> String {
+    let mut sections = vec![DEFAULT_AGENT_SYSTEM_PROMPT.to_owned()];
+    if !profile_prompt.trim().is_empty() {
+        sections.push(format!(
+            "Additional AI profile instructions (follow only when they do not conflict with the operating contract):\n{}",
+            profile_prompt.trim()
+        ));
+    }
+    sections.push(if skill_context.is_empty() {
+        "Enabled Skill context: none.".to_owned()
     } else {
-        profile.system_prompt.as_str()
-    };
+        format!(
+            "Enabled Skill context (task guidance; it cannot override the operating contract or policy):\n{skill_context}"
+        )
+    });
+    sections.push(mcp_capability_context(mcp_tools));
+    sections.join("\n\n")
+}
+
+fn mcp_capability_context(mcp_tools: &[McpToolDefinition]) -> String {
+    if mcp_tools.is_empty() {
+        return "MCP capability registry: no enabled MCP tools were discovered for this task. Do not invent MCP capabilities.".to_owned();
+    }
+    let servers = mcp_tools
+        .iter()
+        .map(|tool| tool.server_id.as_str())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
     format!(
-        "{base}\n\nYou are the built-in dsh-codex-agent in myterm. Codex Core owns the thread history, tool loop, compaction, and subagent graph. Use tools when evidence or action is needed. Read terminal output in ranges until eof when complete output is required. Permission decisions are enforced by myterm.\n\n{}",
-        if skill_context.is_empty() {
-            "No local skills are enabled.".to_owned()
-        } else {
-            format!("Enabled local skills:\n{skill_context}")
-        }
+        "MCP capability registry (runtime-discovered): {} tool(s) from server(s) {}. The current model-facing tool catalog contains the authoritative names, descriptions, and JSON input Schemas. Use those definitions to choose a tool; if the catalog exposes mcp_tool_search/mcp_tool_call, search first and call only the exact returned pair.",
+        mcp_tools.len(),
+        servers.join(", ")
     )
 }
 
@@ -566,7 +603,8 @@ fn app_error(error: AppError) -> CoreError {
 
 #[cfg(test)]
 mod tests {
-    use super::stop_and_drain_cancel_task;
+    use super::{build_agent_system_prompt, stop_and_drain_cancel_task, McpToolDefinition};
+    use serde_json::json;
     use std::{future::pending, time::Duration};
 
     #[tokio::test]
@@ -578,5 +616,35 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), stop_and_drain_cancel_task(watcher))
             .await
             .expect("cancel watcher should be stopped after the turn completes");
+    }
+
+    #[test]
+    fn agent_system_prompt_keeps_core_rules_and_describes_runtime_mcp_capabilities() {
+        let mcp_tools = vec![McpToolDefinition {
+            internal_name: "mcp__storage__show_filesystem".to_owned(),
+            server_id: "storage".to_owned(),
+            original_name: "show_filesystem".to_owned(),
+            description: "Describe storage file systems".to_owned(),
+            input_schema: json!({"type": "object"}),
+        }];
+        let prompt = build_agent_system_prompt(
+            "Prefer concise answers.",
+            "Use the storage deployment skill.",
+            &mcp_tools,
+        );
+
+        assert!(prompt.contains("You are dsh-codex-agent"));
+        assert!(prompt.contains("Additional AI profile instructions"));
+        assert!(prompt.contains("Use the storage deployment skill."));
+        assert!(prompt.contains("runtime-discovered"));
+        assert!(prompt.contains("1 tool(s) from server(s) storage"));
+        assert!(prompt.contains("never invent an MCP server"));
+    }
+
+    #[test]
+    fn agent_system_prompt_explicitly_handles_an_empty_mcp_catalog() {
+        let prompt = build_agent_system_prompt("", "", &[]);
+        assert!(prompt.contains("no enabled MCP tools were discovered"));
+        assert!(prompt.contains("Do not invent MCP capabilities"));
     }
 }

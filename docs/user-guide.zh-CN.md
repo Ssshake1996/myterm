@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.9.3。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.9.4。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -268,6 +268,12 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 - Agent 调用 MCP 工具时仍经过统一权限、取消、输出限制和审计管线。
 - 工具超过 48 个时，Agent 先搜索目录再显式调用，避免上下文膨胀。
 - 不要在普通命令参数中直接写密钥；优先使用受控环境或系统凭据方案。
+
+### Agent 系统 Prompt 与 MCP 能力发现
+
+`dsh-codex-agent` 使用内置版本化系统 Prompt。AI 服务设置里的 System Prompt 会作为附加任务指令，不会替换 Agent 的核心规则。核心规则包括证据优先、完整读取长输出、目标会话确认、权限边界、Skill/MCP 不得绕过策略，以及不确定时不能猜测。
+
+MCP 能力不是写死在 Prompt 中。每次 Agent 任务启动时，myterm 会连接已启用的 MCP 服务器并发现工具；工具名称、说明和 JSON Schema 会作为当前运行时工具目录提供给模型。工具目录为空时，Agent 不得虚构 MCP 能力；工具目录较大时，Agent 先使用 `mcp_tool_search`，再用搜索结果中的准确服务器和工具调用 `mcp_tool_call`。当前运行时不默认假设 MCP Resources 或 Prompts 存在，只有实际暴露并注册的能力才可使用。
 
 ## 远端 CLI 与 REST 操作
 

@@ -33,16 +33,28 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
     profile?.target.kind === "local" ? profile.target.shell : "powershell.exe",
   );
   const [shells, setShells] = useState<string[]>([]);
+  const [shellsLoading, setShellsLoading] = useState(true);
   const [savingAction, setSavingAction] = useState<"save" | "connect" | null>(null);
 
   useEffect(() => {
+    let active = true;
     void localShellList()
       .then((values) => {
+        if (!active) return;
         setShells(values);
-        if (!shell && values[0]) setShell(values[0]);
+        setShellsLoading(false);
+        setShell((current) => current || values[0] || "powershell.exe");
       })
-      .catch(() => setShells([]));
-  }, [shell]);
+      .catch(() => {
+        if (!active) return;
+        setShellsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const shellOptions = shells.includes(shell) || !shell ? shells : [shell, ...shells];
 
   const save = async (connect: boolean) => {
     if (!name.trim()) {
@@ -184,11 +196,17 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
         {targetKind === "local" ? (
           <label className="field field-span">
             <span>Shell</span>
-            <select onChange={(event) => setShell(event.target.value)} value={shell}>
-              {shells.map((value) => (
+            <select
+              aria-label="Shell"
+              aria-busy={shellsLoading}
+              onChange={(event) => setShell(event.target.value)}
+              value={shell}
+            >
+              {shellOptions.map((value) => (
                 <option key={value}>{value}</option>
               ))}
             </select>
+            {shellsLoading ? <small>正在读取可用 Shell，当前表单仍可继续编辑。</small> : null}
           </label>
         ) : (
           <>

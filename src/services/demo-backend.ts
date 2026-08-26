@@ -267,6 +267,14 @@ const commandReplies: Record<string, string> = {
     '\r\nLISTEN 0 4096 0.0.0.0:22  0.0.0.0:* users:(("sshd",pid=704,fd=3))\r\nroot@prod-web-01:~# ',
 };
 
+function publishDemoTerminalOutput(sessionId: string, dataUtf8: string) {
+  window.dispatchEvent(
+    new CustomEvent("myterm:terminal-output", {
+      detail: { sessionId, dataUtf8 },
+    }),
+  );
+}
+
 function readStored<T>(key: string, fallback: T): T {
   try {
     const value = localStorage.getItem(key);
@@ -391,10 +399,14 @@ class DemoBackend {
     if (!sink) return;
     const echoedInput = data.replace(/\r(?!\n)/g, "\r\n");
     sink.onmessage(new TextEncoder().encode(echoedInput).buffer);
+    publishDemoTerminalOutput(sessionId, echoedInput);
     const command = data.replace(/[\r\n]+$/g, "");
     const reply = commandReplies[command];
     if (reply && data.includes("\r")) {
-      window.setTimeout(() => sink.onmessage(new TextEncoder().encode(reply).buffer), 90);
+      window.setTimeout(() => {
+        sink.onmessage(new TextEncoder().encode(reply).buffer);
+        publishDemoTerminalOutput(sessionId, reply);
+      }, 90);
     }
   }
 

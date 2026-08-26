@@ -114,6 +114,22 @@ Thread、Graph edge、状态、结果、结构化错误和压缩 revision 均写
 测试包含拒绝未配置工具、白名单执行，以及真实本地 Streamable HTTP MCP Server 的连接、
 Header 注入、工具过滤和调用。
 
+### 7.1 Agent 系统 Prompt 与运行时能力目录
+
+桌面端 dsh-codex-agent 使用独立的 `DEFAULT_AGENT_SYSTEM_PROMPT`，不复用普通 AI 对话的
+默认提示词。Prompt 由四层按固定顺序组成：
+
+1. 内置 Agent 核心契约：证据、工具循环、长输出分页、目标会话、权限、Skill/MCP 边界和错误事实；
+2. AI Profile 的附加指令：只在不冲突时生效，不能替换核心契约；
+3. 已启用 Skill 的任务上下文：作为指导文本加载，不能提升权限；
+4. 任务级 MCP 能力目录：由实际连接并列出的工具动态生成。
+
+MCP 工具的名称、描述和 JSON Schema 已经通过模型请求的 Tool Definitions 提供给模型；系统
+Prompt 只说明如何信任和使用这份动态目录，不硬编码某个厂商或服务器的工具名。工具数量较大
+时，目录改由 `mcp_tool_search` 和 `mcp_tool_call` 两个受控入口访问。没有发现 MCP 工具时，
+Prompt 会明确要求 Agent 不得猜测 MCP 能力。Resources/Prompts 未进入当前注册目录时，Agent
+也不得假设它们存在。
+
 ## 8. 删除或不编译的模块
 
 目标生产依赖图没有链接完整 `codex-core`，因此以下能力没有进入裁剪 crate：

@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.9.3`
+Current version: `0.9.4`
 
 ## Core Features
 
@@ -181,4 +181,4 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 
 ## Current Boundaries
 
-Version `0.9.3` builds on `0.9.2` with explicit full-access permission semantics, selectable terminal command-color templates, and a fix for shell prompts sticking to output that has no trailing newline. The dsh-codex-agent, Skill/MCP, and multi-model boundaries remain compatible.
+Version `0.9.4` builds on `0.9.3` with a versioned dsh-codex-agent system prompt, runtime MCP capability guidance, serialized multiline quick-command dispatch, faster session editing, and a terminal text context menu. The dsh-codex-agent, Skill/MCP, and multi-model boundaries remain compatible.

@@ -1,7 +1,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { profileSave, type SessionProfile } from "../../ipc";
+import { localShellList, profileSave, type SessionProfile } from "../../ipc";
 import { ProfileModal } from "./ProfileModal";
 
 vi.mock("../../ipc", () => ({
@@ -74,5 +74,29 @@ describe("ProfileModal", () => {
       undefined,
     );
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ name: "新名称" }), false);
+  });
+
+  it("renders the edit form before local shell discovery completes", async () => {
+    const user = userEvent.setup();
+    let resolveShells: ((values: string[]) => void) | undefined;
+    vi.mocked(localShellList).mockImplementationOnce(
+      () =>
+        new Promise<string[]>((resolve) => {
+          resolveShells = resolve;
+        }),
+    );
+
+    render(<ProfileModal onClose={vi.fn()} onSaved={vi.fn()} profile={null} />);
+
+    expect(screen.getByLabelText("名称")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "本地终端" }));
+    expect(screen.getByRole("combobox", { name: "Shell" })).toHaveAttribute("aria-busy", "true");
+
+    resolveShells?.(["powershell.exe", "wsl.exe"]);
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Shell" })).toHaveAttribute("aria-busy", "false"),
+    );
+    expect(screen.getByRole("option", { name: "wsl.exe" })).toBeInTheDocument();
   });
 });
