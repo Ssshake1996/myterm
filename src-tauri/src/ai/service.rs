@@ -271,7 +271,9 @@ impl AiService {
         let chat_endpoint = endpoint(&profile.base_url, "chat/completions")?;
         let candidates = profile.effective_models();
         if candidates.is_empty() {
-            return Err(AppError::Ai("没有启用任何 AI 模型，请在配置中添加主模型".to_owned()));
+            return Err(AppError::Ai(
+                "没有启用任何 AI 模型，请在配置中添加主模型".to_owned(),
+            ));
         }
         let mut failures = Vec::new();
         let mut selected_model = String::new();
@@ -302,16 +304,19 @@ impl AiService {
             let candidate_response = match attempt {
                 Ok(value) => value,
                 Err(error) => {
-                    failures.push(format!("{}: {}", candidate.model, format_transport_failure(error, &chat_endpoint)));
+                    failures.push(format!(
+                        "{}: {}",
+                        candidate.model,
+                        format_transport_failure(error, &chat_endpoint)
+                    ));
                     continue;
                 }
             };
             let status = candidate_response.status();
             if !status.is_success() {
-                let body = candidate_response
-                    .text()
-                    .await
-                    .map_err(|error| AppError::Ai(format_transport_failure(error, &chat_endpoint)))?;
+                let body = candidate_response.text().await.map_err(|error| {
+                    AppError::Ai(format_transport_failure(error, &chat_endpoint))
+                })?;
                 failures.push(format!(
                     "{}: {}",
                     candidate.model,

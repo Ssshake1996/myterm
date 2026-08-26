@@ -155,6 +155,13 @@ Version 0.9.0 records the first in-process Codex Core integration for DeepSeek H
 - Root and Subagent state is durable in one SQLite store. Tests cover concurrency, timeouts, cancellation, graph recovery, structured failure propagation, and background-task drainage during plugin unload.
 - The native plugin remains a separately distributed Harness package in this release. The desktop application's existing Agent runtime is not silently replaced, preventing two loops from owning one session.
 
+Version 0.9.1 completes the desktop replacement boundary:
+
+- `src-tauri/src/agent/dsh.rs` adapts the embedded `dsh-codex-core` runtime to the existing SSH/SFTP host tools. The desktop service no longer calls the legacy model loop; Core owns Thread/Turn state, tool ordering, compaction, Subagents, and cancellation.
+- Agent settings no longer persist `profile`, `bundles`, `enabled_plugins`, or a user-facing `max_steps`. Startup migration rewrites legacy JSON without those fields, while the internal Core safety bound remains fixed at 64 steps.
+- The Agent panel identifies the runtime as `Codex Harness Agent · dsh-codex-agent` and projects Core status, tool calls, compaction retries, Subagent status, exact error codes, and final output. This keeps the UI operational without exposing obsolete loop controls.
+- Tradeoff: the first desktop release supports one configured primary model per dsh Core turn; existing multi-model profile routing remains available to the AI connection/test path, and a provider-pool transport can be added later without reintroducing a second Agent loop.
+
 The prioritized optimization options and their pros/cons are recorded in [`docs/agent-optimization-roadmap.md`](agent-optimization-roadmap.md). The immediate next boundary is typed tool outcomes, followed by a provider trait and MCP stderr/timeout supervision; multi-SSH and provisioning remain separate milestones.
 
 ## 2. Reusable Delivery Workflow

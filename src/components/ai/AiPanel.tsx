@@ -42,11 +42,7 @@ import { AiSettings } from "./AiSettings";
 import { MarkdownContent } from "./MarkdownContent";
 
 const DEFAULT_AGENT_SETTINGS: AgentSettingsValue = {
-  profile: "desktop",
-  bundles: ["core.desktop", "ssh.operations"],
-  enabled_plugins: [],
   permission_mode: "confirm",
-  max_steps: 8,
   skill_directories: [],
   enabled_skills: [],
   mcp_servers: [],
@@ -217,7 +213,7 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
       {
         id: eventId,
         kind: "status",
-        content: event.message ?? (event.eventType === "mcp_error" ? "MCP" : "Agent 运行中"),
+        content: event.message ?? (event.eventType === "mcp_error" ? "MCP" : "Codex Core 运行中"),
         detail: event.eventType === "mcp_error" ? event.content : undefined,
         errorCode: event.errorCode,
         step: event.step,
@@ -227,9 +223,9 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
   }
   if (event.eventType === "complete") {
     const labels: Record<string, string> = {
-      limit: "已达到最大循环步数",
+      limit: "已达到 Codex Core 内部安全边界",
       aborted: "任务已停止",
-      loop_detected: "检测到重复工具调用，任务已停止",
+      loop_detected: "Codex Core 检测到重复工具调用，任务已停止",
       failed: "任务执行失败",
       stop: "任务完成",
     };
@@ -419,7 +415,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
       void agentTaskList()
         .then(setTasks)
         .catch(() => undefined);
-      if (result.finishReason === "limit") notify("Agent 已达到最大循环步数", "error");
+      if (result.finishReason === "limit") notify("Codex Core 已达到内部安全边界", "error");
     } catch (error) {
       const message = errorMessage(error, "Agent 运行失败：未返回可读的错误信息");
       setEntries((current) => {
@@ -556,8 +552,8 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             <Bot size={15} />
           </span>
           <div>
-            <strong>myterm Agent</strong>
-            <small>{activePane?.title ?? "未绑定活动会话"}</small>
+            <strong>Codex Harness Agent</strong>
+            <small>dsh-codex-agent · {activePane?.title ?? "未绑定活动会话"}</small>
           </div>
         </div>
         <div className="ai-header-actions">
@@ -693,8 +689,8 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             <span>
               <Bot size={17} />
             </span>
-            <h3>把排查任务交给 Agent</h3>
-            <p>Agent 会显示模型决策、工具参数、执行结果和最终答复。</p>
+            <h3>把排查任务交给 dsh-codex-agent</h3>
+            <p>Codex Core 会展示模型决策、工具调用、执行结果、上下文压缩和最终答复。</p>
             <div className="agent-capabilities">
               <span>
                 <Wrench size={11} /> 终端与文件工具
@@ -858,7 +854,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         {running &&
         !entries.some((entry) => entry.kind === "tool" && entry.status === "approval") ? (
           <div className="trace-running">
-            <LoaderCircle className="spin" size={13} /> Agent 正在运行
+            <LoaderCircle className="spin" size={13} /> dsh-codex-agent 正在运行
           </div>
         ) : null}
       </div>
@@ -922,7 +918,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
                 void send();
               }
             }}
-            placeholder="描述目标，Agent 会决定并调用工具"
+            placeholder="描述目标，dsh-codex-agent 会决定并调用工具"
             ref={inputRef}
             rows={3}
             value={input}

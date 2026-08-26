@@ -170,11 +170,7 @@ export interface McpServerConfig {
 }
 
 export interface AgentSettings {
-  profile: string;
-  bundles: string[];
-  enabled_plugins: string[];
   permission_mode: AgentPermissionMode;
-  max_steps: number;
   skill_directories: string[];
   enabled_skills: string[];
   mcp_servers: McpServerConfig[];

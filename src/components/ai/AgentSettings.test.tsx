@@ -5,7 +5,6 @@ import { AgentSettings } from "./AgentSettings";
 
 const ipcMocks = vi.hoisted(() => ({
   agentMcpTest: vi.fn(),
-  agentPluginList: vi.fn().mockResolvedValue([]),
   agentSettingsSave: vi.fn(),
   agentSkillList: vi.fn(),
   errorMessage: (error: unknown, fallback: string) => {
@@ -20,11 +19,7 @@ const ipcMocks = vi.hoisted(() => ({
 vi.mock("../../ipc", () => ipcMocks);
 
 const settings = {
-  profile: "desktop",
-  bundles: ["core.desktop", "ssh.operations"],
-  enabled_plugins: [],
   permission_mode: "confirm" as const,
-  max_steps: 8,
   skill_directories: [],
   enabled_skills: [],
   mcp_servers: [],

@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.9.0`
+当前版本：`0.9.1`
 
 ## 核心功能
 
@@ -180,4 +180,4 @@ npm run check:dist
 
 ## 当前边界
 
-当前 `0.9.0` 新增独立发布的 `dsh-codex-agent`：它以同进程 N-API 插件把裁剪后的 Codex Core 接入 DeepSeek Harness，支持内网 Chat Completions、自动压缩、多 Agent、Agent Graph、显式 HTTP MCP、固定地址 Web Search 和本地审计。压缩首次失败后最多重试 3 次，总计 4 次失败才终止 Turn，并完整保留原始历史。桌面端内置 Agent 仍保持原有运行路径；接入 Harness 插件时不能同时启用两套 Agent Loop。Skill 驱动 OS 安装和复杂长期任务编排仍按专项方案推进，聚合 WebView2 进程组内存优化也继续作为后续工作。
+当前 `0.9.1` 将 `dsh-codex-agent` 正式作为桌面端唯一内置 Agent：Codex Core 独占线程历史、工具循环、上下文压缩、Subagent Graph 和取消语义，myterm 只提供 SSH/SFTP 工具桥接、权限审批、Skill/MCP 装载、事件审计和 UI 投影。旧版 Agent Loop、插件选择、bundles 和最大循环步数配置已移除并在启动时迁移清理；配置文件仍是前端表单的唯一 JSON 后端契约。压缩首次失败后最多重试 3 次，总计 4 次失败才终止 Turn，并完整保留原始历史。Skill 驱动 OS 安装和复杂长期任务编排仍按专项方案推进，聚合 WebView2 进程组内存优化也继续作为后续工作。

@@ -48,7 +48,6 @@ const aiProfile = {
 
 const settings = {
   permission_mode: "task_grant" as const,
-  max_steps: 8,
   skill_directories: [],
   enabled_skills: [],
   mcp_servers: [],

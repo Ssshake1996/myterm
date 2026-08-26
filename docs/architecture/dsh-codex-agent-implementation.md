@@ -1,5 +1,7 @@
 # dsh-codex-agent 第一版实现说明
 
+> v0.9.1 起，该运行时已嵌入 myterm 桌面端并作为唯一内置 Agent；本文早期的独立 Harness 包边界仍适用于插件包，但桌面端不再保留第二套 Agent Loop。
+
 - 完成日期：2026-08-26
 - DeepSeek Harness 审计基线：`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`
 - Codex 审计基线：`2764e83626efe55f64e04d153fc99a157327f3c2`

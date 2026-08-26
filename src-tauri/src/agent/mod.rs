@@ -1,10 +1,9 @@
 pub mod domain;
+pub mod dsh;
 pub mod hooks;
 pub mod mcp;
-pub mod plugin;
 pub mod policy;
 pub mod protocol;
-pub mod runtime;
 pub mod service;
 pub mod skills;
 pub mod store;

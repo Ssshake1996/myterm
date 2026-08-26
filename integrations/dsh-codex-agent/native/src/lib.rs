@@ -18,6 +18,7 @@ use napi_derive::napi;
 
 pub use chat_completions_transport::ChatCompletionsTransport;
 pub use error::CoreError;
+pub use model_transport::ModelTransport;
 pub use runtime::{CodexRuntime, HostBridge};
 pub use types::*;
 

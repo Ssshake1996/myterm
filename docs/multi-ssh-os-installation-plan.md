@@ -1,5 +1,7 @@
 # myterm 多 SSH 协同与 Skill 驱动 OS 安装方案
 
+> 当前实现使用 `dsh-codex-agent` 的 Core 工具循环；OS 安装仍以 Skill 任务方案推进，不恢复旧版 Agent 的循环步数配置。
+
 > 文档状态：调研结论与目标设计，尚未实现
 > 研究日期：2026-08-09
 > 适用范围：远端 CLI/REST 运维、多 SSH 协同、Linux/Windows OS 安装与重装

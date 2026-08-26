@@ -1,5 +1,7 @@
 # myterm Linux Agent 开发计划
 
+> v0.9.1 实施边界：桌面端已切换到唯一内置运行时 `dsh-codex-agent`。本文早期关于 `profile`、`bundles`、`enabled_plugins` 和用户可调 `max_steps` 的描述属于历史方案，不再是桌面端配置契约；Skill/MCP/权限和多 SSH 工具边界继续有效。
+
 > 文档状态：`0.6.3` 删除 myterm 自身 CLI/REST 后的后续实施计划
 > 当前产品基线：`0.6.3`
 > 对应说明书：[`linux-agent-specification.md`](linux-agent-specification.md)

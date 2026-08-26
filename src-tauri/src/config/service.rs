@@ -12,8 +12,8 @@ use serde_json::Value;
 
 use crate::{
     types::{
-        AgentSettings, AiModelConfig, AiModelRole, AiProfile, AppFontScale, AppTheme,
-        QuickCommand, SessionProfile,
+        AgentSettings, AiModelConfig, AiModelRole, AiProfile, AppFontScale, AppTheme, QuickCommand,
+        SessionProfile,
     },
     AppError,
 };
@@ -74,13 +74,14 @@ pub struct ConfigService {
 
 impl ConfigService {
     pub fn open(path: PathBuf) -> Result<Self, AppError> {
+        let legacy_agent_fields = legacy_agent_fields_present(&path);
         let mut value = load_config(&path)?;
         let migrated = migrate_config(&mut value);
         let removed_legacy_rest = value
             .settings
             .remove(REMOVED_REST_TOKEN_SETTING_KEY)
             .is_some();
-        if migrated || removed_legacy_rest {
+        if migrated || removed_legacy_rest || legacy_agent_fields {
             write_atomic(&path, &value)?;
         }
         Ok(Self {
@@ -205,7 +206,10 @@ impl ConfigService {
     }
 
     pub fn agent_settings_save(&self, mut settings: AgentSettings) -> Result<(), AppError> {
-        settings.max_steps = settings.max_steps.clamp(1, 32);
+        settings.profile = "dsh-codex-agent".to_owned();
+        settings.bundles.clear();
+        settings.enabled_plugins.clear();
+        settings.max_steps = 64;
         settings
             .skill_directories
             .retain(|directory| !directory.trim().is_empty());
@@ -267,6 +271,21 @@ fn load_config(path: &Path) -> Result<AppConfig, AppError> {
             Ok(AppConfig::default())
         }
     }
+}
+
+fn legacy_agent_fields_present(path: &Path) -> bool {
+    let Ok(source) = fs::read(path) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_slice::<Value>(&source) else {
+        return false;
+    };
+    let Some(agent) = value.get("agent").and_then(Value::as_object) else {
+        return false;
+    };
+    ["profile", "bundles", "enabled_plugins", "max_steps"]
+        .iter()
+        .any(|key| agent.contains_key(*key))
 }
 
 fn migrate_config(config: &mut AppConfig) -> bool {
@@ -540,7 +559,21 @@ mod tests {
         assert_eq!(profile.models.len(), 1);
         assert_eq!(profile.models[0].role, crate::types::AiModelRole::Primary);
         assert_eq!(profile.models[0].model, "legacy-model");
-        assert_eq!(serde_json::from_str::<Value>(&fs::read_to_string(path)?)?["version"], 2);
+        assert_eq!(
+            serde_json::from_str::<Value>(&fs::read_to_string(&path)?)?["version"],
+            2
+        );
+        let raw = serde_json::from_str::<Value>(&fs::read_to_string(path)?)?;
+        let agent = raw
+            .get("agent")
+            .and_then(Value::as_object)
+            .expect("agent settings are persisted");
+        assert!(!agent.contains_key("profile"));
+        assert!(!agent.contains_key("bundles"));
+        assert!(!agent.contains_key("enabled_plugins"));
+        assert!(!agent.contains_key("max_steps"));
+        assert_eq!(service.agent_settings()?.profile, "dsh-codex-agent");
+        assert_eq!(service.agent_settings()?.max_steps, 64);
         fs::remove_dir_all(root)?;
         Ok(())
     }

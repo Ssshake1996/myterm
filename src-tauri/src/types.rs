@@ -252,7 +252,8 @@ impl AiProfile {
                 enabled: true,
             }];
         }
-        let mut models = self.models
+        let mut models = self
+            .models
             .iter()
             .filter(|model| model.enabled && !model.model.trim().is_empty())
             .cloned()
@@ -294,13 +295,15 @@ fn enabled_by_default() -> bool {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AgentSettings {
-    #[serde(default = "default_agent_profile")]
+    #[serde(skip, default = "default_agent_profile")]
     pub profile: String,
-    #[serde(default)]
+    #[serde(skip)]
     pub bundles: Vec<String>,
-    #[serde(default)]
+    #[serde(skip)]
     pub enabled_plugins: Vec<String>,
+    #[serde(default)]
     pub permission_mode: AgentPermissionMode,
+    #[serde(skip, default = "default_agent_max_steps")]
     pub max_steps: u8,
     #[serde(default)]
     pub skill_directories: Vec<String>,
@@ -313,7 +316,11 @@ pub struct AgentSettings {
 }
 
 fn default_agent_profile() -> String {
-    "desktop".to_owned()
+    "dsh-codex-agent".to_owned()
+}
+
+fn default_agent_max_steps() -> u8 {
+    64
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -332,10 +339,10 @@ impl Default for AgentSettings {
     fn default() -> Self {
         Self {
             profile: default_agent_profile(),
-            bundles: vec!["core.desktop".to_owned(), "ssh.operations".to_owned()],
+            bundles: Vec::new(),
             enabled_plugins: Vec::new(),
             permission_mode: AgentPermissionMode::Confirm,
-            max_steps: 8,
+            max_steps: default_agent_max_steps(),
             skill_directories: Vec::new(),
             enabled_skills: Vec::new(),
             mcp_servers: Vec::new(),

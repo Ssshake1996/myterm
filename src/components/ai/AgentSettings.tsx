@@ -10,10 +10,8 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
-  type AgentPluginInfo,
   type AgentSettings as AgentSettingsValue,
   agentMcpTest,
-  agentPluginList,
   agentSettingsSave,
   agentSkillList,
   errorMessage,
@@ -24,7 +22,7 @@ import {
 import { useUiStore } from "../../store/ui";
 import { Modal } from "../shell/Modal";
 
-type SettingsTab = "execution" | "plugins" | "skills" | "mcp";
+type SettingsTab = "execution" | "skills" | "mcp";
 type McpTestState =
   | { status: "testing" }
   | { status: "success"; tools: McpToolInfo[] }
@@ -56,16 +54,6 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
   const [skillLoading, setSkillLoading] = useState(false);
   const [mcpTests, setMcpTests] = useState<Record<string, McpTestState>>({});
   const [saving, setSaving] = useState(false);
-  const [plugins, setPlugins] = useState<AgentPluginInfo[]>([]);
-
-  useEffect(() => {
-    void agentPluginList()
-      .then(setPlugins)
-      .catch((error) =>
-        notify(errorMessage(error, "插件清单读取失败：未返回可读的错误信息"), "error"),
-      );
-  }, [notify]);
-
   const refreshSkills = async (directories = normalizedLines(directoryText)) => {
     setSkillLoading(true);
     try {
@@ -149,7 +137,6 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
     try {
       const saved = await agentSettingsSave({
         ...draft,
-        max_steps: Math.min(32, Math.max(1, draft.max_steps)),
         skill_directories: directories,
         mcp_servers: servers,
       });
@@ -169,13 +156,6 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
         <>
           <button className="button button-ghost" onClick={onClose} type="button">
             取消
-          </button>
-          <button
-            className={tab === "plugins" ? "is-active" : ""}
-            onClick={() => setTab("plugins")}
-            type="button"
-          >
-            <Plug size={14} /> 插件
           </button>
           <button
             className="button button-primary"
@@ -217,10 +197,9 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
         </nav>
 
         <div className="plugin-profile-summary">
-          <span>Profile</span>
-          <code>{draft.profile}</code>
-          <span>Bundles</span>
-          <code>{draft.bundles.join(" · ") || "无"}</code>
+          <span className="agent-runtime-badge">内置运行时</span>
+          <strong>dsh-codex-agent</strong>
+          <small>Codex Core · Agent Loop · Compaction · Subagent Graph</small>
         </div>
 
         {tab === "execution" ? (
@@ -260,73 +239,12 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
                 </button>
               </fieldset>
             </div>
-            <label className="setting-row">
-              <span>
-                <strong>最大循环步数</strong>
-                <small>限制一次任务中的模型决策轮次，范围 1 到 32。</small>
-              </span>
-              <input
-                aria-label="最大循环步数"
-                max={32}
-                min={1}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, max_steps: Number(event.target.value) }))
-                }
-                type="number"
-                value={draft.max_steps}
-              />
-            </label>
             <div className="permission-note">
               <ShieldCheck size={15} />
-              <span>Skill 只会补充 Agent 上下文，不能绕过工具权限和执行边界。</span>
-            </div>
-          </section>
-        ) : null}
-
-        {tab === "plugins" ? (
-          <section className="settings-pane">
-            <div className="settings-toolbar">
-              <span>当前 Profile 已加载 {plugins.length} 个插件</span>
-            </div>
-            <div className="plugin-list">
-              {plugins.map((plugin) => (
-                <article className="plugin-row" key={plugin.id}>
-                  <div className="plugin-row-heading">
-                    <label className="toggle-field compact-toggle">
-                      <input
-                        checked={
-                          draft.enabled_plugins.length === 0 ||
-                          draft.enabled_plugins.includes(plugin.id)
-                        }
-                        onChange={(event) =>
-                          setDraft((current) => {
-                            const currentEnabled = current.enabled_plugins.length
-                              ? current.enabled_plugins
-                              : plugins.map((candidate) => candidate.id);
-                            const enabled = event.target.checked
-                              ? [...new Set([...currentEnabled, plugin.id])]
-                              : currentEnabled.filter((id) => id !== plugin.id);
-                            return { ...current, enabled_plugins: enabled };
-                          })
-                        }
-                        type="checkbox"
-                      />
-                      <span className="toggle-track">
-                        <span />
-                      </span>
-                    </label>
-                    <strong>{plugin.name}</strong>
-                    <code>{plugin.id}</code>
-                    <span className="plugin-kind">{plugin.kind}</span>
-                  </div>
-                  <small>{plugin.description}</small>
-                  <span className="plugin-meta">
-                    v{plugin.version} · 依赖：
-                    {plugin.requires.length ? plugin.requires.join(", ") : "无"}
-                  </span>
-                </article>
-              ))}
-              {!plugins.length ? <div className="settings-empty">没有加载插件</div> : null}
+              <span>
+                循环、上下文压缩、工具顺序和 Subagent 调度由 dsh-codex-agent
+                统一管理，不再提供旧版循环步数配置。
+              </span>
             </div>
           </section>
         ) : null}

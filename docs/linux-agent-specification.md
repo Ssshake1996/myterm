@@ -1,5 +1,7 @@
 # myterm Linux Agent 功能与技术说明书
 
+> v0.9.1 实现说明：桌面端 Agent Loop、Thread/Turn、上下文压缩和 Subagent Graph 由 `dsh-codex-agent`/Codex Core 独占。下文涉及旧循环步数或插件挂载字段的示例用于协议研究，不代表当前桌面配置项。
+
 > 文档状态：`0.6.3` 当前契约与后续目标单一事实源
 > 当前产品入口：Desktop only
 > 开发计划：[`linux-agent-development-plan.md`](linux-agent-development-plan.md)
