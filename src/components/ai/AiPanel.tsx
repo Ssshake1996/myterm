@@ -620,16 +620,16 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             title="每次工具调用前确认"
             type="button"
           >
-            确认
+            用户确认
           </button>
           <button
-            className={agentSettings.permission_mode === "task_grant" ? "is-active" : ""}
+            className={agentSettings.permission_mode === "full_access" ? "is-active" : ""}
             disabled={running}
-            onClick={() => void changePermission("task_grant")}
-            title="自动执行工具"
+            onClick={() => void changePermission("full_access")}
+            title="硬拒绝规则之外不再确认"
             type="button"
           >
-            任务授权
+            完全授权
           </button>
         </fieldset>
       </div>
@@ -700,8 +700,8 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
                 {agentSettings.permission_mode === "read_only"
                   ? "只读"
                   : agentSettings.permission_mode === "confirm"
-                    ? "逐次确认"
-                    : "任务授权"}
+                    ? "用户确认"
+                    : "完全授权"}
               </span>
             </div>
             <div className="prompt-suggestions">

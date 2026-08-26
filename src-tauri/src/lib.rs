@@ -242,6 +242,8 @@ pub fn run() {
             ipc::app_font_scale_save,
             ipc::terminal_font_size_get,
             ipc::terminal_font_size_save,
+            ipc::terminal_palette_get,
+            ipc::terminal_palette_save,
             ipc::sftp_default_directory,
             ipc::sftp_read_dir,
             ipc::sftp_mkdir,

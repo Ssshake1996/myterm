@@ -2964,6 +2964,10 @@ input:checked + .toggle-track > span {
   font-size: 10px;
 }
 
+.terminal-palette-setting select {
+  min-width: 190px;
+}
+
 .about-details div {
   display: grid;
   grid-template-columns: 86px minmax(0, 1fr);

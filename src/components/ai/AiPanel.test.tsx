@@ -47,7 +47,7 @@ const aiProfile = {
 };
 
 const settings = {
-  permission_mode: "task_grant" as const,
+  permission_mode: "full_access" as const,
   skill_directories: [],
   enabled_skills: [],
   mcp_servers: [],

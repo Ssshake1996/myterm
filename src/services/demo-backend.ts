@@ -18,6 +18,7 @@ import type {
   RemoteEntry,
   SessionInfo,
   SessionProfile,
+  TerminalPalette,
   TransferProgress,
 } from "../ipc";
 
@@ -279,14 +280,27 @@ function writeStored(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function normalizeAgentSettings(settings: AgentSettings): AgentSettings {
+  if ((settings.permission_mode as string) === "task_grant") {
+    return { ...settings, permission_mode: "full_access" };
+  }
+  return settings;
+}
+
 class DemoBackend {
   private profiles = readStored("myterm.demo.profiles", DEFAULT_PROFILES);
   private commands = readStored("myterm.demo.commands", DEFAULT_COMMANDS);
   private aiProfiles = readStored("myterm.demo.ai-profiles", DEFAULT_AI_PROFILES);
-  private agentSettings = readStored("myterm.demo.agent-settings", DEFAULT_AGENT_SETTINGS);
+  private agentSettings = normalizeAgentSettings(
+    readStored("myterm.demo.agent-settings", DEFAULT_AGENT_SETTINGS),
+  );
   private theme = readStored<AppTheme>("myterm.demo.theme", "dark");
   private fontScale = readStored<AppFontScale>("myterm.demo.font-scale", "standard");
   private terminalFontSize = readStored<number>("myterm.demo.terminal-font-size", 13);
+  private terminalPalette = readStored<TerminalPalette>(
+    "myterm.demo.terminal-palette",
+    "graphite_gold",
+  );
   private sessions = new Map<string, SessionInfo>();
   private sinks = new Map<string, MessageChannel<ArrayBuffer>>();
   private sessionHandlers = new Set<(payload: SessionInfo) => void>();
@@ -324,6 +338,16 @@ class DemoBackend {
     this.terminalFontSize = Math.max(12, Math.min(22, Math.round(size)));
     writeStored("myterm.demo.terminal-font-size", this.terminalFontSize);
     return this.terminalFontSize;
+  }
+
+  async terminalPaletteGet() {
+    return this.terminalPalette;
+  }
+
+  async terminalPaletteSave(palette: TerminalPalette) {
+    this.terminalPalette = palette;
+    writeStored("myterm.demo.terminal-palette", palette);
+    return palette;
   }
 
   async sessionConnect(

@@ -207,7 +207,7 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
             <div className="setting-row setting-row-stack">
               <div>
                 <strong>工具执行权限</strong>
-                <small>只读禁止变更；确认模式逐次询问；任务授权仅在当前任务中生效。</small>
+                <small>只读禁止变更；用户确认逐次询问；完全授权在硬拒绝规则之外不再弹窗。</small>
               </div>
               <fieldset aria-label="工具执行权限" className="segmented">
                 <button
@@ -229,13 +229,13 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
                   用户确认
                 </button>
                 <button
-                  className={draft.permission_mode === "task_grant" ? "is-active" : ""}
+                  className={draft.permission_mode === "full_access" ? "is-active" : ""}
                   onClick={() =>
-                    setDraft((current) => ({ ...current, permission_mode: "task_grant" }))
+                    setDraft((current) => ({ ...current, permission_mode: "full_access" }))
                   }
                   type="button"
                 >
-                  任务授权
+                  完全授权
                 </button>
               </fieldset>
             </div>

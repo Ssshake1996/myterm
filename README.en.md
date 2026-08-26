@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.9.2`
+Current version: `0.9.3`
 
 ## Core Features
 
@@ -66,8 +66,8 @@ task input -> model decision -> tool call -> result -> continue -> final answer
 | Mode | Behavior |
 |---|---|
 | Read only | Automatically runs only operations classified as reads |
-| Confirm | Requires per-operation approval for side effects; the default |
-| Task grant | Allows low/medium-risk operations within a task on non-production, non-root sessions |
+| User confirmation | Requires per-operation approval for side effects; the default |
+| Full access | Runs everything except hard-denied rules without prompts |
 
 Hard-deny commands, production/root escalation, output limits, audit records, and redaction cannot be bypassed by prompts, Skills, Hooks, or MCP. Bash is parsed with tree-sitter; incomplete or unclassified syntax is never auto-executed.
 
@@ -98,6 +98,7 @@ See the [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-inst
 ### Appearance and Help
 
 - Persistent light, eye-care, and dark themes also update the terminal canvas.
+- The terminal offers three command-color templates—Graphite Gold (stable contrast), Forest Amber (low blue light), and Midnight Contrast (strong separation). Typed commands use the accent color while command output keeps the body color.
 - Four persistent UI scale levels are available, with an independent `12-22px` terminal font size for SSH and local shells; changes apply immediately.
 - AI profiles support `Bearer Token` (`Authorization: Bearer sk-...`) and raw `API Key` (`Authorization: sk-...`) header modes.
 - AI and Agent HTTPS traffic uses Rustls with native operating-system roots, including enterprise, intranet, and security-proxy CAs installed in the system trust store.
@@ -180,4 +181,4 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 
 ## Current Boundaries
 
-Version `0.9.2` builds on `0.9.1` by fixing the Agent lifecycle after a normal Codex Core turn. The cancel watcher is explicitly drained when the turn completes, so the terminal event reaches the UI and the composer becomes available again without requiring a manual stop. The dsh-codex-agent, Skill/MCP, permission, and multi-model boundaries remain unchanged.
+Version `0.9.3` builds on `0.9.2` with explicit full-access permission semantics, selectable terminal command-color templates, and a fix for shell prompts sticking to output that has no trailing newline. The dsh-codex-agent, Skill/MCP, and multi-model boundaries remain compatible.

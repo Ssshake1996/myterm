@@ -81,6 +81,8 @@ export type AppTheme = "light" | "eye_care" | "dark";
 
 export type AppFontScale = "small" | "standard" | "large" | "extra_large";
 
+export type TerminalPalette = "graphite_gold" | "forest_amber" | "midnight_contrast";
+
 export type AiAuthMode = "bearer" | "api_key";
 
 export type AiModelRole = "primary" | "analysis" | "fallback";
@@ -158,7 +160,7 @@ export interface AiChatResult {
   attachedContext?: string;
 }
 
-export type AgentPermissionMode = "read_only" | "confirm" | "task_grant";
+export type AgentPermissionMode = "read_only" | "confirm" | "full_access";
 
 export interface McpServerConfig {
   id: string;
@@ -355,6 +357,16 @@ export async function terminalFontSizeSave(size: number): Promise<number> {
   return invoke<number>("terminal_font_size_save", { size });
 }
 
+export async function terminalPaletteGet(): Promise<TerminalPalette> {
+  if (!isDesktopRuntime) return demoBackend.terminalPaletteGet();
+  return invoke<TerminalPalette>("terminal_palette_get");
+}
+
+export async function terminalPaletteSave(palette: TerminalPalette): Promise<TerminalPalette> {
+  if (!isDesktopRuntime) return demoBackend.terminalPaletteSave(palette);
+  return invoke<TerminalPalette>("terminal_palette_save", { palette });
+}
+
 export async function sessionConnect(
   profileId: string,
   cols: number,
@@ -375,9 +387,24 @@ export async function sessionList(): Promise<SessionInfo[]> {
   return invoke<SessionInfo[]>("session_list");
 }
 
+export interface TerminalInputEventDetail {
+  sessionId: string;
+  dataUtf8: string;
+}
+
+function publishTerminalInput(detail: TerminalInputEventDetail): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("myterm:terminal-input", { detail }));
+  }
+}
+
 export async function terminalWrite(sessionId: string, dataUtf8: string): Promise<void> {
-  if (!isDesktopRuntime) return demoBackend.terminalWrite(sessionId, dataUtf8);
-  return invoke("terminal_write", { sessionId, dataUtf8 });
+  if (!isDesktopRuntime) {
+    await demoBackend.terminalWrite(sessionId, dataUtf8);
+  } else {
+    await invoke("terminal_write", { sessionId, dataUtf8 });
+  }
+  publishTerminalInput({ sessionId, dataUtf8 });
 }
 
 export async function terminalResize(sessionId: string, cols: number, rows: number): Promise<void> {

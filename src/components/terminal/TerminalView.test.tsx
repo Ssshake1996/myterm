@@ -9,6 +9,7 @@ import { TerminalView } from "./TerminalView";
 const terminalMocks = vi.hoisted(() => ({
   write: vi.fn(),
   fit: vi.fn(),
+  dataHandler: undefined as ((data: string) => void) | undefined,
   options: { theme: {} as Record<string, string>, fontSize: 13 },
 }));
 
@@ -30,7 +31,10 @@ vi.mock("@xterm/xterm", () => ({
     loadAddon = vi.fn();
     open = vi.fn();
     write = terminalMocks.write;
-    onData = vi.fn(() => ({ dispose: vi.fn() }));
+    onData = vi.fn((callback: (data: string) => void) => {
+      terminalMocks.dataHandler = callback;
+      return { dispose: vi.fn() };
+    });
     attachCustomKeyEventHandler = vi.fn();
     dispose = vi.fn();
   },
@@ -102,8 +106,10 @@ describe("TerminalView", () => {
       error: null,
     });
     ipcMocks.terminalResize.mockResolvedValue(undefined);
+    ipcMocks.terminalWrite.mockResolvedValue(undefined);
     ipcMocks.sessionDisconnect.mockResolvedValue(undefined);
     useUiStore.getState().setTheme("dark");
+    useUiStore.getState().setTerminalPalette("graphite_gold");
     useUiStore.getState().setFontScale("standard");
     useUiStore.getState().setTerminalFontSize(13);
     useLayoutStore.setState({
@@ -122,6 +128,7 @@ describe("TerminalView", () => {
 
   afterEach(() => {
     cleanup();
+    terminalMocks.dataHandler = undefined;
     vi.clearAllMocks();
   });
 
@@ -166,6 +173,54 @@ describe("TerminalView", () => {
 
     await waitFor(() => expect(terminalMocks.options.theme.background).toBe("#f2f6eb"));
     expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("colors typed commands and separates an inline prompt after output without a newline", async () => {
+    render(<TerminalView pane={pane} profile={profile} />);
+    await waitFor(() => expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      terminalMocks.dataHandler?.("cat /etc/hosts");
+      terminalMocks.dataHandler?.("\r");
+    });
+
+    expect(terminalMocks.write).toHaveBeenCalledWith("\x1b[38;2;244;210;122m");
+    const channel = ipcMocks.sessionConnect.mock.calls[0]?.[3] as {
+      onmessage: (message: ArrayBuffer) => void;
+    };
+    act(() => {
+      channel.onmessage(new TextEncoder().encode("cat /etc/hosts\r\nlast line[root@ho").buffer);
+      channel.onmessage(new TextEncoder().encode("st]# ").buffer);
+    });
+
+    const writes = terminalMocks.write.mock.calls.map(([value]) => value);
+    expect(writes).toContain("\r\n");
+    expect(writes[writes.length - 1]).toBe("[root@host]# ");
+  });
+
+  it("updates the selected terminal palette without reconnecting", async () => {
+    render(<TerminalView pane={pane} profile={profile} />);
+    await waitFor(() => expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1));
+
+    act(() => useUiStore.getState().setTerminalPalette("midnight_contrast"));
+
+    await waitFor(() => expect(terminalMocks.options.theme.cursor).toBe("#6dd7ff"));
+    expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("colors commands sent by quick actions through the terminal input event", async () => {
+    render(<TerminalView pane={pane} profile={profile} />);
+    await waitFor(() => expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("myterm:terminal-input", {
+          detail: { sessionId: "session-terminal", dataUtf8: "systemctl status nginx\r" },
+        }),
+      );
+    });
+
+    expect(terminalMocks.write).toHaveBeenCalledWith("\x1b[38;2;244;210;122m");
   });
 
   it("updates terminal font size without reconnecting", async () => {

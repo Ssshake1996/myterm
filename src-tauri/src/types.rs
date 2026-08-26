@@ -156,6 +156,15 @@ pub enum AppFontScale {
     ExtraLarge,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalPalette {
+    #[default]
+    GraphiteGold,
+    ForestAmber,
+    MidnightContrast,
+}
+
 // ── Quick commands ───────────────────────────────────────
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -272,9 +281,9 @@ impl AiProfile {
 pub enum AgentPermissionMode {
     ReadOnly,
     #[default]
-    #[serde(alias = "full_access")]
     Confirm,
-    TaskGrant,
+    #[serde(alias = "task_grant")]
+    FullAccess,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

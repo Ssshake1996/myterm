@@ -17,7 +17,7 @@ use crate::{
     types::{
         AgentEvent, AgentPluginInfo, AgentRunResult, AgentSettings, AiMessage, AiProfile,
         AppFontScale, AppTheme, McpServerConfig, McpToolInfo, QuickCommand, RemoteEntry,
-        SessionInfo, SessionProfile, SkillInfo, TransferId,
+        SessionInfo, SessionProfile, SkillInfo, TerminalPalette, TransferId,
     },
     AppError, AppState, IpcError,
 };
@@ -256,6 +256,20 @@ pub fn terminal_font_size_save(state: State<'_, AppState>, size: u32) -> Result<
         .config
         .terminal_font_size_save(size)
         .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn terminal_palette_get(state: State<'_, AppState>) -> Result<TerminalPalette, IpcError> {
+    state.config.terminal_palette().map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn terminal_palette_save(
+    state: State<'_, AppState>,
+    palette: TerminalPalette,
+) -> Result<TerminalPalette, IpcError> {
+    state.config.terminal_palette_save(palette)?;
+    state.config.terminal_palette().map_err(Into::into)
 }
 
 #[tauri::command]

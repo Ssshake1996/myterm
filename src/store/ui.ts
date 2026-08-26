@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AppFontScale, AppTheme } from "../ipc";
+import type { AppFontScale, AppTheme, TerminalPalette } from "../ipc";
 
 interface Toast {
   id: string;
@@ -12,10 +12,12 @@ interface UiState {
   theme: AppTheme;
   fontScale: AppFontScale;
   terminalFontSize: number;
+  terminalPalette: TerminalPalette;
   workspaceView: "terminal" | "files";
   setTheme: (theme: AppTheme) => void;
   setFontScale: (scale: AppFontScale) => void;
   setTerminalFontSize: (size: number) => void;
+  setTerminalPalette: (palette: TerminalPalette) => void;
   setWorkspaceView: (view: "terminal" | "files") => void;
   notify: (message: string, tone?: Toast["tone"]) => void;
   dismiss: (id: string) => void;
@@ -33,6 +35,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   theme: "dark",
   fontScale: "standard",
   terminalFontSize: 13,
+  terminalPalette: "graphite_gold",
   workspaceView: "terminal",
   setTheme: (theme) => {
     document.documentElement.dataset.theme = theme;
@@ -43,6 +46,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     set({ fontScale });
   },
   setTerminalFontSize: (terminalFontSize) => set({ terminalFontSize }),
+  setTerminalPalette: (terminalPalette) => set({ terminalPalette }),
   setWorkspaceView: (workspaceView) => set({ workspaceView }),
   notify: (message, tone = "info") => {
     const id = crypto.randomUUID();

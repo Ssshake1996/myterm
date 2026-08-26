@@ -17,7 +17,7 @@ use super::{
 };
 use crate::{
     config::DEFAULT_SYSTEM_PROMPT,
-    types::{AgentEvent, AgentRunResult, AgentSettings, AiProfile},
+    types::{AgentEvent, AgentPermissionMode, AgentRunResult, AgentSettings, AiProfile},
     AppError,
 };
 
@@ -277,7 +277,9 @@ impl HostBridge for DshHostBridge {
             match hook.action {
                 HookAction::Deny => decision.action = PolicyAction::Deny,
                 HookAction::Ask | HookAction::Verify => {
-                    if decision.action == PolicyAction::Allow {
+                    if self.settings.permission_mode != AgentPermissionMode::FullAccess
+                        && decision.action == PolicyAction::Allow
+                    {
                         decision.action = PolicyAction::Ask;
                     }
                 }

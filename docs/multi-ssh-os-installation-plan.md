@@ -365,7 +365,7 @@ MAAS 官方部署链路覆盖 BMC 开机、DHCP/PXE、临时环境、curtin 写�
 
 ### 9.1 强制审批
 
-下列条件不能由 `full_access`、任务授权、Skill、Hook 或 MCP 自动放行：
+下列条件不能由 `full_access`、完全授权、Skill、Hook 或 MCP 自动放行：
 
 - 写入或清空系统盘、修改分区表、RAID、LVM 或 bootloader。
 - 设置一次性启动项、挂载安装介质、关机、重启和 BMC 电源操作。

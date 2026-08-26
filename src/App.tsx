@@ -22,8 +22,11 @@ import {
   onSessionState,
   profileList,
   type SessionProfile,
+  type TerminalPalette,
   terminalFontSizeGet,
   terminalFontSizeSave,
+  terminalPaletteGet,
+  terminalPaletteSave,
 } from "./ipc";
 import { getActivePane, useLayoutStore } from "./store/layout";
 import { useUiStore } from "./store/ui";
@@ -49,9 +52,11 @@ export function App() {
   const theme = useUiStore((state) => state.theme);
   const fontScale = useUiStore((state) => state.fontScale);
   const terminalFontSize = useUiStore((state) => state.terminalFontSize);
+  const terminalPalette = useUiStore((state) => state.terminalPalette);
   const setTheme = useUiStore((state) => state.setTheme);
   const setFontScale = useUiStore((state) => state.setFontScale);
   const setTerminalFontSize = useUiStore((state) => state.setTerminalFontSize);
+  const setTerminalPalette = useUiStore((state) => state.setTerminalPalette);
   const setWorkspaceView = useUiStore((state) => state.setWorkspaceView);
 
   useEffect(() => {
@@ -61,29 +66,40 @@ export function App() {
       appThemeGet(),
       appFontScaleGet(),
       terminalFontSizeGet(),
+      terminalPaletteGet(),
     ])
-      .then(([items, info, savedTheme, savedFontScale, savedTerminalFontSize]) => {
-        setProfiles(items);
-        setAppInfo(info);
-        setTheme(savedTheme);
-        setFontScale(savedFontScale);
-        setTerminalFontSize(savedTerminalFontSize);
-        const startup = info.startupProfile
-          ? items.find((profile) => profile.name === info.startupProfile)
-          : !isDesktopRuntime
-            ? items[0]
-            : undefined;
-        if (startup && !initialized.current) {
-          initialized.current = true;
-          openProfile(startup);
-        } else if (info.startupProfile && !startup) {
-          notify(`未找到启动配置：${info.startupProfile}`, "error");
-        }
-      })
+      .then(
+        ([
+          items,
+          info,
+          savedTheme,
+          savedFontScale,
+          savedTerminalFontSize,
+          savedTerminalPalette,
+        ]) => {
+          setProfiles(items);
+          setAppInfo(info);
+          setTheme(savedTheme);
+          setFontScale(savedFontScale);
+          setTerminalFontSize(savedTerminalFontSize);
+          setTerminalPalette(savedTerminalPalette);
+          const startup = info.startupProfile
+            ? items.find((profile) => profile.name === info.startupProfile)
+            : !isDesktopRuntime
+              ? items[0]
+              : undefined;
+          if (startup && !initialized.current) {
+            initialized.current = true;
+            openProfile(startup);
+          } else if (info.startupProfile && !startup) {
+            notify(`未找到启动配置：${info.startupProfile}`, "error");
+          }
+        },
+      )
       .catch((error) =>
         notify(error instanceof Error ? error.message : "会话配置读取失败", "error"),
       );
-  }, [notify, openProfile, setFontScale, setTerminalFontSize, setTheme]);
+  }, [notify, openProfile, setFontScale, setTerminalFontSize, setTerminalPalette, setTheme]);
 
   const selectTheme = async (nextTheme: AppTheme) => {
     const previousTheme = theme;
@@ -116,6 +132,18 @@ export function App() {
     } catch (error) {
       setTerminalFontSize(previousSize);
       notify(error instanceof Error ? error.message : "终端字号保存失败", "error");
+    }
+  };
+
+  const selectTerminalPalette = async (nextPalette: TerminalPalette) => {
+    const previousPalette = terminalPalette;
+    setTerminalPalette(nextPalette);
+    try {
+      const saved = await terminalPaletteSave(nextPalette);
+      setTerminalPalette(saved);
+    } catch (error) {
+      setTerminalPalette(previousPalette);
+      notify(error instanceof Error ? error.message : "终端配色保存失败", "error");
     }
   };
 
@@ -322,6 +350,24 @@ export function App() {
                 </select>
               </label>
             </div>
+            <h3>终端配色</h3>
+            <label className="font-setting-row terminal-palette-setting">
+              <span>
+                <strong>命令与回显</strong>
+                <small>命令使用高亮色，回显保持正文色；不修改服务器配置</small>
+              </span>
+              <select
+                aria-label="终端配色"
+                onChange={(event) =>
+                  void selectTerminalPalette(event.target.value as TerminalPalette)
+                }
+                value={terminalPalette}
+              >
+                <option value="graphite_gold">石墨青金 · 稳定对比</option>
+                <option value="forest_amber">森林护眼 · 低蓝光</option>
+                <option value="midnight_contrast">午夜高对比 · 强区分</option>
+              </select>
+            </label>
           </section>
           <h3 className="settings-section-title">关于</h3>
           <dl className="about-details">

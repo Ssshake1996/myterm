@@ -5,10 +5,13 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { type ITheme, Terminal } from "@xterm/xterm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  type AppTheme,
   createChannel,
   type SessionProfile,
   sessionConnect,
   sessionDisconnect,
+  type TerminalInputEventDetail,
+  type TerminalPalette,
   terminalResize,
   terminalWrite,
 } from "../../ipc";
@@ -17,7 +20,7 @@ import { useLayoutStore } from "../../store/layout";
 import { fontScaleFactor, useUiStore } from "../../store/ui";
 import { Icon } from "../shell/Icon";
 
-const terminalThemes: Record<"light" | "eye_care" | "dark", ITheme> = {
+const terminalThemes: Record<AppTheme, ITheme> = {
   dark: {
     background: "#151817",
     foreground: "#d7dad7",
@@ -89,6 +92,191 @@ const terminalThemes: Record<"light" | "eye_care" | "dark", ITheme> = {
   },
 };
 
+const terminalPaletteColors: Record<TerminalPalette, Record<AppTheme, string>> = {
+  graphite_gold: {
+    dark: "#f4d27a",
+    eye_care: "#8a6321",
+    light: "#8b5f16",
+  },
+  forest_amber: {
+    dark: "#a9d99b",
+    eye_care: "#3f744b",
+    light: "#2f6f45",
+  },
+  midnight_contrast: {
+    dark: "#6dd7ff",
+    eye_care: "#2f6e85",
+    light: "#165e81",
+  },
+};
+
+const ANSI_RESET = "\x1b[0m";
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI control sequence parser intentionally matches ESC bytes.
+const ANSI_ESCAPE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g;
+const PROMPT_PATTERNS = [
+  /\[[^\]\r\n]{1,200}\](?=[#$>:\s]|$)/u,
+  /\b[\w.-]+@[\w.-]+(?:[:~/][^$#>\r\n]{0,80})?[$#>]\s?/u,
+];
+
+interface TerminalRenderState {
+  commandColorActive: boolean;
+  awaitingCommandEcho: boolean;
+  promptBoundaryPending: boolean;
+  promptTail: string;
+  lastVisibleCharacter: string;
+}
+
+const MAX_PROMPT_TAIL = 256;
+
+function buildTerminalTheme(theme: AppTheme, palette: TerminalPalette): ITheme {
+  return {
+    ...terminalThemes[theme],
+    cursor: terminalPaletteColors[palette][theme],
+  };
+}
+
+function ansiForeground(color: string): string {
+  const hex = color.replace("#", "");
+  const red = Number.parseInt(hex.slice(0, 2), 16);
+  const green = Number.parseInt(hex.slice(2, 4), 16);
+  const blue = Number.parseInt(hex.slice(4, 6), 16);
+  return `\x1b[38;2;${red};${green};${blue}m`;
+}
+
+function markTerminalInput(
+  terminal: Terminal,
+  theme: AppTheme,
+  palette: TerminalPalette,
+  state: TerminalRenderState,
+  data: string,
+): void {
+  const hasPrintableInput =
+    [...data].some((character) => character >= " " && character !== "\u007f") ||
+    data.includes("\t");
+  if (hasPrintableInput && !state.commandColorActive) {
+    terminal.write(ansiForeground(terminalPaletteColors[palette][theme]));
+    state.commandColorActive = true;
+  }
+  if (data.includes("\r") || data.includes("\n")) {
+    state.awaitingCommandEcho = true;
+  }
+  if (data.includes("\u0003") || data.includes("\u001b")) {
+    terminal.write(ANSI_RESET);
+    state.commandColorActive = false;
+    state.awaitingCommandEcho = false;
+    state.promptBoundaryPending = false;
+    state.promptTail = "";
+  }
+}
+
+function cleanTerminalText(value: string): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: fallback for incomplete ANSI sequences.
+  return value.replace(ANSI_ESCAPE, "").replace(/\x1b./gu, "");
+}
+
+function updateLastVisibleCharacter(state: TerminalRenderState, value: string): void {
+  const clean = cleanTerminalText(value);
+  for (const character of clean) {
+    if (character === "\n" || character === "\r" || character >= " ") {
+      state.lastVisibleCharacter = character;
+    }
+  }
+}
+
+function promptIndex(value: string): number {
+  return PROMPT_PATTERNS.reduce((current, pattern) => {
+    const match = pattern.exec(value);
+    return match && match.index < current ? match.index : current;
+  }, Number.POSITIVE_INFINITY);
+}
+
+function promptBoundary(value: string): { index: number; originalIndex: number } {
+  const visibleCharacters: string[] = [];
+  const originalIndices: number[] = [];
+  let offset = 0;
+  while (offset < value.length) {
+    if (value[offset] === "\u001b") {
+      const escapeSequence = value.slice(offset).match(ANSI_ESCAPE)?.[0];
+      if (escapeSequence) {
+        offset += escapeSequence.length;
+        continue;
+      }
+    }
+    originalIndices.push(offset);
+    visibleCharacters.push(value[offset]);
+    offset += 1;
+  }
+  const index = promptIndex(visibleCharacters.join(""));
+  return {
+    index,
+    originalIndex: Number.isFinite(index) ? (originalIndices[index] ?? value.length) : value.length,
+  };
+}
+
+function firstByte(value: Uint8Array, byte: number): number {
+  return value.indexOf(byte);
+}
+
+function writeTerminalChunk(
+  terminal: Terminal,
+  bytes: Uint8Array,
+  state: TerminalRenderState,
+): void {
+  let remaining = bytes;
+  if (state.awaitingCommandEcho) {
+    const newline = firstByte(remaining, 10);
+    if (newline < 0) {
+      terminal.write(remaining);
+      updateLastVisibleCharacter(state, new TextDecoder().decode(remaining));
+      return;
+    }
+    const echo = remaining.slice(0, newline + 1);
+    terminal.write(echo);
+    terminal.write(ANSI_RESET);
+    updateLastVisibleCharacter(state, new TextDecoder().decode(echo));
+    remaining = remaining.slice(newline + 1);
+    state.commandColorActive = false;
+    state.awaitingCommandEcho = false;
+    state.promptTail = "";
+    state.promptBoundaryPending = true;
+  }
+
+  if (!remaining.length) return;
+  if (state.promptBoundaryPending) {
+    const text = state.promptTail + new TextDecoder().decode(remaining);
+    const boundary = promptBoundary(text);
+    if (Number.isFinite(boundary.index)) {
+      const before = text.slice(0, boundary.originalIndex);
+      const after = text.slice(boundary.originalIndex);
+      if (before) {
+        terminal.write(before);
+        updateLastVisibleCharacter(state, before);
+      }
+      if (state.lastVisibleCharacter !== "\n" && state.lastVisibleCharacter !== "\r") {
+        terminal.write("\r\n");
+      }
+      terminal.write(after);
+      updateLastVisibleCharacter(state, after);
+      state.promptTail = "";
+      state.promptBoundaryPending = false;
+      return;
+    }
+    if (text.length > MAX_PROMPT_TAIL) {
+      const safeEnd = text.length - MAX_PROMPT_TAIL;
+      const safe = text.slice(0, safeEnd);
+      terminal.write(safe);
+      updateLastVisibleCharacter(state, safe);
+      state.promptTail = text.slice(safeEnd);
+    } else {
+      state.promptTail = text;
+    }
+    return;
+  }
+
+  terminal.write(remaining);
+  updateLastVisibleCharacter(state, new TextDecoder().decode(remaining));
+}
+
 interface TerminalViewProps {
   pane: PaneModel;
   profile: SessionProfile;
@@ -104,11 +292,23 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
   const failConnection = useLayoutStore((state) => state.failConnection);
   const notify = useUiStore((state) => state.notify);
   const theme = useUiStore((state) => state.theme);
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+  const terminalPalette = useUiStore((state) => state.terminalPalette);
   const fontScale = useUiStore((state) => state.fontScale);
   const terminalFontSize = useUiStore((state) => state.terminalFontSize);
   const xtermFontSize = terminalFontSize / fontScaleFactor[fontScale];
   const xtermFontSizeRef = useRef(xtermFontSize);
   xtermFontSizeRef.current = xtermFontSize;
+  const terminalPaletteRef = useRef(terminalPalette);
+  terminalPaletteRef.current = terminalPalette;
+  const renderStateRef = useRef<TerminalRenderState>({
+    commandColorActive: false,
+    awaitingCommandEcho: false,
+    promptBoundaryPending: false,
+    promptTail: "",
+    lastVisibleCharacter: "",
+  });
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
 
@@ -116,8 +316,16 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
     const terminal = terminalRef.current;
     const fit = fitRef.current;
     if (!terminal || !fit) return;
+    renderStateRef.current = {
+      commandColorActive: false,
+      awaitingCommandEcho: false,
+      promptBoundaryPending: false,
+      promptTail: "",
+      lastVisibleCharacter: "",
+    };
     const channel = createChannel<ArrayBuffer>();
-    channel.onmessage = (buffer) => terminal.write(new Uint8Array(buffer));
+    channel.onmessage = (buffer) =>
+      writeTerminalChunk(terminal, new Uint8Array(buffer), renderStateRef.current);
     try {
       const session = await sessionConnect(profile.id, terminal.cols, terminal.rows, channel);
       const paneExists = useLayoutStore
@@ -147,7 +355,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       fontSize: xtermFontSizeRef.current,
       lineHeight: 1.22,
       scrollback: 10_000,
-      theme: terminalThemes.dark,
+      theme: buildTerminalTheme(themeRef.current, terminalPaletteRef.current),
     });
     const fit = new FitAddon();
     const search = new SearchAddon();
@@ -166,10 +374,29 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
     fit.fit();
 
     const input = terminal.onData((data) => {
+      markTerminalInput(
+        terminal,
+        themeRef.current,
+        terminalPaletteRef.current,
+        renderStateRef.current,
+        data,
+      );
       const sessionId = sessionRef.current;
       if (sessionId)
         void terminalWrite(sessionId, data).catch(() => notify("终端写入失败", "error"));
     });
+    const handleTerminalInput = (event: Event) => {
+      const detail = (event as CustomEvent<TerminalInputEventDetail>).detail;
+      if (!detail || detail.sessionId !== sessionRef.current) return;
+      markTerminalInput(
+        terminal,
+        themeRef.current,
+        terminalPaletteRef.current,
+        renderStateRef.current,
+        detail.dataUtf8,
+      );
+    };
+    window.addEventListener("myterm:terminal-input", handleTerminalInput);
     terminal.attachCustomKeyEventHandler((event) => {
       if (!event.ctrlKey || !event.shiftKey) return true;
       if (event.code === "KeyC" && terminal.hasSelection()) {
@@ -196,6 +423,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
 
     return () => {
       observer.disconnect();
+      window.removeEventListener("myterm:terminal-input", handleTerminalInput);
       input.dispose();
       terminal.dispose();
       terminalRef.current = null;
@@ -203,8 +431,9 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
   }, [connect, notify]);
 
   useEffect(() => {
-    if (terminalRef.current) terminalRef.current.options.theme = terminalThemes[theme];
-  }, [theme]);
+    if (terminalRef.current)
+      terminalRef.current.options.theme = buildTerminalTheme(theme, terminalPalette);
+  }, [terminalPalette, theme]);
 
   useEffect(() => {
     if (!terminalRef.current) return;

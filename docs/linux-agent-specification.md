@@ -158,11 +158,11 @@ Agent 只有桌面入口：
 
 | ID | 需求 |
 |---|---|
-| FR-POL-001 | 权限模式为 `read_only`、`confirm`、`task_grant`。 |
+| FR-POL-001 | 权限模式为 `read_only`、`confirm`、`full_access`。 |
 | FR-POL-002 | 策略结果为 `deny > ask > allow`，模型不能改写。 |
 | FR-POL-003 | 判定同时检查工具、解析命令、Target、用户、环境、资源和 effect。 |
 | FR-POL-004 | 无法解析或分类的 shell 表达式不得自动执行。 |
-| FR-POL-005 | root/production 不允许 task grant 自动放行副作用。 |
+| FR-POL-005 | `full_access` 在 root/production 也不再逐次确认，但 hard deny 仍然优先拒绝。 |
 | FR-POL-006 | 审批绑定规范化参数、目标身份和过期时间。 |
 | FR-POL-007 | 系统变更最终答复前必须有验证 Evidence 或明确 verification_failed。 |
 | FR-POL-008 | Prompt、Skill、Hook 和 MCP 不能降低 hard deny。 |
@@ -440,7 +440,7 @@ Event 先持久化再通知 UI。高频输出按 50ms 或 64KiB 合并，条件�
 |---|---|
 | `read_only` | 仅允许策略明确识别的读取操作 |
 | `confirm` | 读取自动执行，副作用逐次确认；默认 |
-| `task_grant` | 仅非生产、非 root 的低/中风险精确规则在当前 Task 自动执行 |
+| `full_access` | 硬拒绝规则之外自动执行，不再弹窗确认 |
 
 ### 12.2 Hard deny 与强制审批
 
@@ -457,7 +457,7 @@ Provisioning 专用强制审批：
 - 虚拟介质、一次性启动、电源、重启和 BMC 操作。
 - 管理网络、认证、SSH 信任和旧启动盘/备份删除。
 
-上述 provisioning 操作只有类型化工具可执行，且必须经过 plan 与破坏两阶段审批。Task grant 不能覆盖。
+上述 provisioning 操作只有类型化工具可执行，且必须经过 plan 与破坏两阶段审批。`full_access` 不能覆盖硬拒绝规则。
 
 ## 13. Skill、MCP 与 Hooks
 

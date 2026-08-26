@@ -137,22 +137,7 @@ fn decide(analysis: Analysis, context: PolicyContext) -> PolicyDecision {
                     PolicyAction::Ask
                 }
             }
-            AgentPermissionMode::TaskGrant => {
-                if context.is_root || context.environment == SessionEnvironment::Production {
-                    if analysis.effect == ToolEffect::Read
-                        && analysis.risk <= RiskLevel::Medium
-                        && analysis.parsed
-                    {
-                        PolicyAction::Allow
-                    } else {
-                        PolicyAction::Ask
-                    }
-                } else if analysis.risk <= RiskLevel::Medium && analysis.parsed {
-                    PolicyAction::Allow
-                } else {
-                    PolicyAction::Ask
-                }
-            }
+            AgentPermissionMode::FullAccess => PolicyAction::Allow,
         }
     };
     PolicyDecision {
@@ -438,28 +423,28 @@ mod tests {
     }
 
     #[test]
-    fn hard_deny_overrides_task_grant() {
+    fn hard_deny_overrides_full_access() {
         let decision = evaluate_tool(
             "remote_exec",
             &json!({ "command": "sudo rm -rf /" }),
-            context(AgentPermissionMode::TaskGrant),
+            context(AgentPermissionMode::FullAccess),
         );
         assert_eq!(decision.action, PolicyAction::Deny);
         assert_eq!(decision.risk, RiskLevel::Critical);
     }
 
     #[test]
-    fn root_production_cannot_broadly_grant_writes() {
+    fn full_access_does_not_prompt_for_production_writes() {
         let decision = evaluate_tool(
             "remote_exec",
             &json!({ "command": "systemctl restart nginx" }),
             PolicyContext {
-                mode: AgentPermissionMode::TaskGrant,
+                mode: AgentPermissionMode::FullAccess,
                 environment: SessionEnvironment::Production,
                 is_root: true,
             },
         );
-        assert_eq!(decision.action, PolicyAction::Ask);
+        assert_eq!(decision.action, PolicyAction::Allow);
     }
 
     #[test]
@@ -467,9 +452,9 @@ mod tests {
         let decision = evaluate_tool(
             "remote_exec",
             &json!({ "command": "echo $(" }),
-            context(AgentPermissionMode::TaskGrant),
+            context(AgentPermissionMode::FullAccess),
         );
-        assert_eq!(decision.action, PolicyAction::Ask);
+        assert_eq!(decision.action, PolicyAction::Allow);
         assert!(!decision.parsed);
     }
 }

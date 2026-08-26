@@ -13,7 +13,7 @@ use serde_json::Value;
 use crate::{
     types::{
         AgentSettings, AiModelConfig, AiModelRole, AiProfile, AppFontScale, AppTheme, QuickCommand,
-        SessionProfile,
+        SessionProfile, TerminalPalette,
     },
     AppError,
 };
@@ -23,6 +23,7 @@ pub const CONFIG_SCHEMA_VERSION: u32 = 2;
 const THEME_SETTING_KEY: &str = "theme";
 const FONT_SCALE_SETTING_KEY: &str = "font_scale";
 const TERMINAL_FONT_SIZE_SETTING_KEY: &str = "terminal_font_size";
+const TERMINAL_PALETTE_SETTING_KEY: &str = "terminal_palette";
 const REMOVED_REST_TOKEN_SETTING_KEY: &str = "rest_token_hash";
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -168,6 +169,20 @@ impl ConfigService {
             serde_json::json!(size),
         )?;
         Ok(size)
+    }
+
+    pub fn terminal_palette(&self) -> Result<TerminalPalette, AppError> {
+        Ok(self
+            .setting_get(TERMINAL_PALETTE_SETTING_KEY)?
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default())
+    }
+
+    pub fn terminal_palette_save(&self, palette: TerminalPalette) -> Result<(), AppError> {
+        self.setting_set(
+            TERMINAL_PALETTE_SETTING_KEY.to_owned(),
+            serde_json::to_value(palette)?,
+        )
     }
 
     pub fn ai_profile_list(&self) -> Result<Vec<AiProfile>, AppError> {
@@ -401,7 +416,9 @@ pub fn default_config_path(portable: bool) -> Result<PathBuf, AppError> {
 #[cfg(test)]
 mod tests {
     use super::{AppConfig, ConfigService};
-    use crate::types::{AppFontScale, AppTheme, AuthMethod, SessionProfile, SessionTarget};
+    use crate::types::{
+        AppFontScale, AppTheme, AuthMethod, SessionProfile, SessionTarget, TerminalPalette,
+    };
     use serde_json::Value;
     use std::fs;
 
@@ -498,9 +515,14 @@ mod tests {
 
         service.app_font_scale_save(AppFontScale::ExtraLarge)?;
         assert_eq!(service.terminal_font_size_save(99)?, 22);
+        service.terminal_palette_save(TerminalPalette::MidnightContrast)?;
         let reloaded = ConfigService::open(path)?;
         assert_eq!(reloaded.app_font_scale()?, AppFontScale::ExtraLarge);
         assert_eq!(reloaded.terminal_font_size()?, 22);
+        assert_eq!(
+            reloaded.terminal_palette()?,
+            TerminalPalette::MidnightContrast
+        );
 
         fs::remove_dir_all(root)?;
         Ok(())
