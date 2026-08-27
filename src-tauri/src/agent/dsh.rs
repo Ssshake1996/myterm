@@ -7,10 +7,11 @@ use std::{
 use async_trait::async_trait;
 use dsh_codex_core::{
     ChatCompletionsTransport, CodexRuntime, CoreConfig, CoreError, HostBridge, ModelRequest,
-    ModelTransport, RuntimeEvent, ToolDefinition, ToolExecutionResult, ToolInvocation,
+    ModelTransport, ProviderContextMode, ProviderContextUpdate, ResponsesTransport, RuntimeEvent,
+    ToolDefinition, ToolExecutionResult, ToolInvocation,
 };
 use serde_json::{json, Value};
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{mpsc, watch, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -23,12 +24,14 @@ use super::{
 };
 use crate::{
     config::DEFAULT_AGENT_SYSTEM_PROMPT,
-    types::{AgentEvent, AgentPermissionMode, AgentRunResult, AgentSettings, AiProfile},
+    types::{
+        AgentEvent, AgentPermissionMode, AgentRunResult, AgentSettings, AiAuthMode, AiContextMode,
+        AiProfile,
+    },
     AppError,
 };
 
 const CORE_CONTEXT_WINDOW_TOKENS: usize = 128_000;
-const CORE_COMPACT_THRESHOLD_TOKENS: usize = 96_000;
 const CORE_MAX_STEPS: usize = 64;
 
 #[allow(clippy::too_many_arguments)]
@@ -42,6 +45,8 @@ pub(crate) async fn run(
     abort: watch::Receiver<bool>,
     api_key: String,
     run_id: String,
+    conversation_id: String,
+    mut steering: mpsc::Receiver<String>,
 ) -> Result<AgentRunResult, AppError> {
     sink.send(service::event(
         &run_id,
@@ -150,13 +155,26 @@ pub(crate) async fn run(
         .unwrap_or_else(|| std::path::Path::new("."))
         .join("dsh-codex-agent");
     std::fs::create_dir_all(&state_dir)?;
+    let context_window_tokens = models[0]
+        .context_window_tokens
+        .map_or(CORE_CONTEXT_WINDOW_TOKENS, |value| value as usize);
+    let compact_threshold_tokens = models[0].compact_threshold_tokens.map_or_else(
+        || context_window_tokens.saturating_mul(3) / 4,
+        |value| value as usize,
+    );
+    if compact_threshold_tokens == 0 || compact_threshold_tokens >= context_window_tokens {
+        return Err(AppError::InvalidInput(format!(
+            "AI 模型 '{}' 的压缩阈值 {} 必须小于上下文窗口 {}",
+            models[0].model, compact_threshold_tokens, context_window_tokens
+        )));
+    }
     let core_config = CoreConfig {
         base_url: profile.base_url.clone(),
         model: models[0].model.clone(),
         state_dir: state_dir.to_string_lossy().into_owned(),
         request_timeout_ms: 120_000,
-        context_window_tokens: CORE_CONTEXT_WINDOW_TOKENS,
-        compact_threshold_tokens: CORE_COMPACT_THRESHOLD_TOKENS,
+        context_window_tokens,
+        compact_threshold_tokens,
         max_steps: CORE_MAX_STEPS,
         system_prompt,
     };
@@ -164,20 +182,55 @@ pub(crate) async fn run(
         .iter()
         .filter(|candidate| candidate.enabled)
         .map(|candidate| {
-            ChatCompletionsTransport::new(
+            let provider_id = format!("{}:{}:{}", profile.id, candidate.id, candidate.model);
+            let authorization = match profile.auth_mode {
+                AiAuthMode::Bearer => format!("Bearer {api_key}"),
+                AiAuthMode::ApiKey => api_key.clone(),
+            };
+            let chat = ChatCompletionsTransport::new_with_authorization(
                 &profile.base_url,
-                api_key.clone(),
+                authorization.clone(),
                 candidate.model.clone(),
                 Duration::from_millis(core_config.request_timeout_ms),
             )
-            .map_err(core_error)
+            .map_err(core_error)?;
+            let responses = ResponsesTransport::new_with_authorization(
+                &profile.base_url,
+                authorization,
+                candidate.model.clone(),
+                provider_id.clone(),
+                Duration::from_millis(core_config.request_timeout_ms),
+            )
+            .map_err(core_error)?;
+            Ok(ProviderTransport {
+                provider_id,
+                context_mode: profile.context_mode,
+                chat,
+                responses,
+            })
         })
-        .collect::<Result<Vec<_>, _>>()?;
-    let runtime = CodexRuntime::new(core_config, Arc::new(FallbackTransport { transports }))
+        .collect::<Result<Vec<_>, AppError>>()?;
+    let runtime = CodexRuntime::new(core_config, Arc::new(ProviderContextAdapter { transports }))
         .map_err(core_error)?;
-    runtime
-        .create_thread(&run_id, None, None, "root")
-        .map_err(core_error)?;
+    let context_state = match runtime.resume_thread(&conversation_id) {
+        Ok(snapshot) => format!(
+            "复用对话上下文 · {} 条消息 · 压缩版本 {}",
+            snapshot.message_count, snapshot.summary_revision
+        ),
+        Err(CoreError::ThreadNotFound(_)) => {
+            runtime
+                .create_thread(&conversation_id, None, None, "root")
+                .map_err(core_error)?;
+            "创建新的对话上下文".to_owned()
+        }
+        Err(error) => return Err(core_error(error)),
+    };
+    let mut context_event = service::event(&run_id, "context_state", Some(context_state));
+    context_event.arguments = Some(json!({
+        "conversationId": conversation_id,
+        "mode": "pending",
+    }));
+    sink.send(context_event)?;
 
     let host: Arc<dyn HostBridge> = Arc::new(DshHostBridge {
         service: service.clone(),
@@ -192,7 +245,7 @@ pub(crate) async fn run(
         abort: abort.clone(),
     });
     let cancel_runtime = runtime.clone();
-    let cancel_thread_id = run_id.clone();
+    let cancel_thread_id = conversation_id.clone();
     let mut cancel_watch = abort.clone();
     let cancel_task = tokio::spawn(async move {
         loop {
@@ -205,10 +258,23 @@ pub(crate) async fn run(
             }
         }
     });
+    let steer_runtime = runtime.clone();
+    let steer_thread_id = conversation_id.clone();
+    let steer_task = tokio::spawn(async move {
+        while let Some(input) = steering.recv().await {
+            if steer_runtime
+                .steer_thread(&steer_thread_id, input)
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
 
     let result = runtime
         .run_turn(
-            &run_id,
+            &conversation_id,
             prompt.trim(),
             tool_definitions(&registry, prompt.trim()),
             host,
@@ -219,6 +285,7 @@ pub(crate) async fn run(
     // would keep the task in `running` forever. Stop and drain it explicitly
     // before publishing the terminal event.
     stop_and_drain_cancel_task(cancel_task).await;
+    stop_and_drain_cancel_task(steer_task).await;
     runtime.dispose().await.map_err(core_error)?;
 
     match result {
@@ -251,7 +318,9 @@ pub(crate) async fn run(
             complete.step = Some(turn.steps.min(u8::MAX as usize) as u8);
             sink.send(complete)?;
             Ok(AgentRunResult {
-                run_id,
+                run_id: run_id.clone(),
+                conversation_id: conversation_id.clone(),
+                turn_id: run_id,
                 finish_reason: turn.finish_reason,
                 steps: turn.steps.min(u8::MAX as usize) as u8,
                 model_requests: turn.model_requests.min(u32::MAX as usize) as u32,
@@ -262,7 +331,9 @@ pub(crate) async fn run(
             })
         }
         Err(CoreError::Cancelled(_detail)) if *abort.borrow() => Ok(AgentRunResult {
-            run_id,
+            run_id: run_id.clone(),
+            conversation_id: conversation_id.clone(),
+            turn_id: run_id,
             finish_reason: "aborted".to_owned(),
             steps: 0,
             model_requests: 0,
@@ -287,12 +358,12 @@ async fn stop_and_drain_cancel_task(task: tokio::task::JoinHandle<()>) {
     let _ = task.await;
 }
 
-struct FallbackTransport {
-    transports: Vec<ChatCompletionsTransport>,
+struct ProviderContextAdapter {
+    transports: Vec<ProviderTransport>,
 }
 
 #[async_trait]
-impl ModelTransport for FallbackTransport {
+impl ModelTransport for ProviderContextAdapter {
     async fn stream(
         &self,
         request: ModelRequest,
@@ -306,9 +377,7 @@ impl ModelTransport for FallbackTransport {
                 .await
             {
                 Ok(response) => return Ok(response),
-                Err(CoreError::Cancelled(detail)) => {
-                    return Err(CoreError::Cancelled(detail));
-                }
+                Err(CoreError::Cancelled(detail)) => return Err(CoreError::Cancelled(detail)),
                 Err(error) => failures.push(error.to_json()),
             }
         }
@@ -319,6 +388,104 @@ impl ModelTransport for FallbackTransport {
             detail: format!("all configured models failed:\n{}", failures.join("\n")),
             response_body: None,
         })
+    }
+}
+
+struct ProviderTransport {
+    provider_id: String,
+    context_mode: AiContextMode,
+    chat: ChatCompletionsTransport,
+    responses: ResponsesTransport,
+}
+
+impl ProviderTransport {
+    async fn stream(
+        &self,
+        request: ModelRequest,
+        cancellation: CancellationToken,
+        on_text_delta: Option<Arc<dyn Fn(String) + Send + Sync>>,
+    ) -> Result<dsh_codex_core::ModelResponse, CoreError> {
+        let checkpoint = request
+            .provider_contexts
+            .iter()
+            .find(|context| context.provider_id == self.provider_id);
+        let previously_unsupported = checkpoint.is_some_and(|context| context.unsupported);
+        let try_responses = request.provider_context_enabled
+            && self.context_mode != AiContextMode::LocalRollout
+            && !previously_unsupported;
+        let mut responses_error = None;
+        let mut unsupported = previously_unsupported;
+        if try_responses {
+            match self
+                .responses
+                .stream(request.clone(), cancellation.clone(), on_text_delta.clone())
+                .await
+            {
+                Ok(response) => return Ok(response),
+                Err(CoreError::Cancelled(detail)) => return Err(CoreError::Cancelled(detail)),
+                Err(error) => {
+                    unsupported = responses_unsupported(&error);
+                    if self.context_mode == AiContextMode::Responses {
+                        return Err(error);
+                    }
+                    responses_error = Some(error.to_json());
+                }
+            }
+        }
+        match self
+            .chat
+            .stream(request.clone(), cancellation, on_text_delta)
+            .await
+        {
+            Ok(mut response) => {
+                if request.provider_context_enabled {
+                    response.provider_context = Some(ProviderContextUpdate {
+                        provider_id: self.provider_id.clone(),
+                        mode: ProviderContextMode::LocalRollout,
+                        cursor: None,
+                        unsupported,
+                    });
+                }
+                Ok(response)
+            }
+            Err(error) => {
+                if let Some(responses_error) = responses_error {
+                    Err(CoreError::Model {
+                        phase: "provider_context_fallback",
+                        code: "RESPONSES_AND_CHAT_FAILED".to_owned(),
+                        status: None,
+                        detail: format!(
+                            "Responses request failed:\n{responses_error}\nChat Completions fallback failed:\n{}",
+                            error.to_json()
+                        ),
+                        response_body: None,
+                    })
+                } else {
+                    Err(error)
+                }
+            }
+        }
+    }
+}
+
+fn responses_unsupported(error: &CoreError) -> bool {
+    match error {
+        CoreError::Model {
+            status,
+            response_body,
+            ..
+        } => {
+            matches!(status, Some(404 | 405 | 501))
+                || (*status == Some(400)
+                    && response_body.as_deref().is_some_and(|body| {
+                        let body = body.to_ascii_lowercase();
+                        body.contains("responses")
+                            || body.contains("context_management")
+                            || body.contains("unknown endpoint")
+                            || body.contains("not supported")
+                    }))
+        }
+        _ => false,
     }
 }
 
@@ -922,6 +1089,11 @@ fn map_runtime_event(run_id: &str, event: RuntimeEvent) -> Option<AgentEvent> {
             "status",
             Some("Codex Core 已开始执行任务".to_owned()),
         ),
+        RuntimeEvent::SteeringApplied { input_count, .. } => service::event(
+            run_id,
+            "steering_applied",
+            Some(format!("Codex Core 已接收 {input_count} 条追加要求")),
+        ),
         RuntimeEvent::TextDelta { .. } => return None,
         RuntimeEvent::ToolRequested {
             call_id,
@@ -972,6 +1144,36 @@ fn map_runtime_event(run_id: &str, event: RuntimeEvent) -> Option<AgentEvent> {
             event.content = Some(detail);
             event.error_code = Some(code);
             event.is_error = Some(true);
+            event
+        }
+        RuntimeEvent::ProviderContextUpdated {
+            provider_id,
+            mode,
+            reused,
+            unsupported,
+            ..
+        } => {
+            let mode = match mode {
+                ProviderContextMode::Responses => "responses",
+                ProviderContextMode::LocalRollout => "local_rollout",
+            };
+            let mut event = service::event(
+                run_id,
+                "context_state",
+                Some(if reused {
+                    format!("复用 {mode} provider 上下文")
+                } else if unsupported {
+                    "Provider 不支持 Responses，已持久回退本地上下文".to_owned()
+                } else {
+                    format!("使用 {mode} provider 上下文")
+                }),
+            );
+            event.arguments = Some(json!({
+                "providerId": provider_id,
+                "mode": mode,
+                "reused": reused,
+                "unsupported": unsupported,
+            }));
             event
         }
         RuntimeEvent::SubagentStatus {

@@ -125,8 +125,48 @@ pub struct ChatCompletionsRequest {
 
 #[derive(Clone, Debug)]
 pub struct ModelRequest {
+    pub provider_context_enabled: bool,
+    pub thread_id: String,
+    pub system_prompt: String,
     pub messages: Vec<ChatMessage>,
+    pub sequenced_messages: Vec<SequencedMessage>,
     pub tools: Vec<ToolDefinition>,
+    pub provider_contexts: Vec<ProviderContext>,
+    pub compact_threshold_tokens: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct SequencedMessage {
+    pub seq: i64,
+    pub message: ChatMessage,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderContextMode {
+    Responses,
+    LocalRollout,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderContext {
+    pub provider_id: String,
+    pub mode: ProviderContextMode,
+    pub cursor: Option<String>,
+    pub through_seq: i64,
+    #[serde(default)]
+    pub unsupported: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderContextUpdate {
+    pub provider_id: String,
+    pub mode: ProviderContextMode,
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub unsupported: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -178,6 +218,7 @@ pub struct ModelResponse {
     pub tool_calls: Vec<ToolCall>,
     pub finish_reason: String,
     pub usage: Option<TokenUsage>,
+    pub provider_context: Option<ProviderContextUpdate>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -210,6 +251,10 @@ pub enum RuntimeEvent {
     },
     TurnStarted {
         thread_id: String,
+    },
+    SteeringApplied {
+        thread_id: String,
+        input_count: usize,
     },
     TextDelta {
         thread_id: String,
@@ -246,6 +291,13 @@ pub enum RuntimeEvent {
         thread_id: String,
         code: String,
         detail: String,
+    },
+    ProviderContextUpdated {
+        thread_id: String,
+        provider_id: String,
+        mode: ProviderContextMode,
+        reused: bool,
+        unsupported: bool,
     },
     SubagentStatus {
         root_thread_id: String,

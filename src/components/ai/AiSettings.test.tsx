@@ -54,6 +54,38 @@ describe("AiSettings", () => {
     );
   });
 
+  it("persists the provider context mode and model token limits", async () => {
+    ipcMocks.aiProfileSave.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<AiSettings profile={null} onClose={vi.fn()} onSaved={vi.fn()} />);
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Agent 上下文协议" }),
+      "local_rollout",
+    );
+    const windowInput = screen.getByRole("spinbutton", { name: "主模型上下文窗口 Token" });
+    const thresholdInput = screen.getByRole("spinbutton", { name: "主模型压缩阈值 Token" });
+    await user.clear(windowInput);
+    await user.type(windowInput, "64000");
+    await user.clear(thresholdInput);
+    await user.type(thresholdInput, "48000");
+    await user.click(screen.getByRole("button", { name: "保存配置" }));
+
+    expect(ipcMocks.aiProfileSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context_mode: "local_rollout",
+        models: expect.arrayContaining([
+          expect.objectContaining({
+            role: "primary",
+            context_window_tokens: 64000,
+            compact_threshold_tokens: 48000,
+          }),
+        ]),
+      }),
+      undefined,
+    );
+  });
+
   it("renders the serialized IPC error instead of collapsing it to a generic failure", async () => {
     ipcMocks.aiProfileSave.mockResolvedValue(undefined);
     ipcMocks.aiTestConnection.mockRejectedValue({

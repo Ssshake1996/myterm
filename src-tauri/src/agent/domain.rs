@@ -67,8 +67,21 @@ impl TryFrom<&str> for AgentTaskState {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentConversation {
+    pub id: String,
+    pub title: String,
+    pub profile_id: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub turn_count: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentTask {
     pub id: String,
+    pub conversation_id: String,
+    pub turn_index: u32,
     pub profile_id: String,
     pub session_id: Option<String>,
     pub prompt: String,

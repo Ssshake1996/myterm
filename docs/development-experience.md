@@ -525,3 +525,35 @@ This is source material only. The actual `SKILL.md` should be created later with
 - UI 焦点是环境事实，不是用户意图。候选上下文可以提供给模型，但不能在执行层静默生效。
 - 全局无障碍倍率必须覆盖最难阅读的内容区域；“为避免双重缩放而抵消终端字号”会破坏用户对全局倍率的直觉，基础字号应作为相对密度而不是逃逸口。
 - 外部工具的健康信息和调用结果必须同时对模型可见。只在设置页给人看错误，或只保存原始 artifact 而不给稳定摘要结构，都会让 Agent 无法自行诊断。
+
+## 17. 稳定对话与 Provider Context（0.9.11）
+
+### 问题确认
+
+旧实现虽然在 `dsh-codex-core` 内有 thread/message/compaction 存储，但 myterm 每次用户发送都用新 `run_id` 创建 core thread，所以“参数之间是有空格的”这类纠正不会自动进入下一轮。前端“新对话”只清空时间线，也没有真正的上下文边界。这是数据模型和 runtime 生命周期的系统性缺陷，不是一条 Prompt 能修复的问题。
+
+同时，所有 Chat Completions 决策在本地压缩前都会重发有效历史；若只改成固定续接 Responses，又会排除大量仅支持 Chat Completions 的内网网关。因此必须把本地对话事实与 provider 续接游标分层。
+
+### 方案比较
+
+| 方案 | 优点 | 缺点 | 结论 |
+|---|---|---|---|
+| 只复用本地 thread | 改动小，Chat 网关全兼容 | 长对话仍重发历史，后续接 Responses 需再重构 | 不采用 |
+| 只使用 Responses | 增量续接和原生压缩简洁 | 内网 Chat-only 网关无法使用，远端状态不能代替本地审计 | 不作唯一路径 |
+| 稳定 Conversation/Turn + Provider Context Adapter | 本地事实可审计，Responses 增量高效，Chat 可回退 | 数据迁移、provider 能力探测和跨模型状态更复杂 | 采用 |
+| 嵌入完整 Codex App Server | 协议语义完整 | 引入更重进程和重复 SSH/权限/审计边界 | 不符合轻量目标 |
+
+### 实现决定
+
+1. Agent DB schema v5 增加 `agent_conversations`、`conversation_id` 和 `turn_index`；迁移时不合并旧任务，避免把无关历史错误串联。
+2. Core thread 稳定使用 `conversation_id`，runtime 可每 Turn 重建，但 SQLite 中的消息、压缩和 provider checkpoint 继续恢复；不引入常驻 sidecar。
+3. Steering 队列上限 32 条。追加事件先持久化，core 在请求模型前和即将返回最终答案前都检查队列，防止“用户刚追加，Turn 却已结束”。
+4. Auto 模式优先 Responses；明确不支持才保存 `unsupported`，瞬时错误只在本轮回退 Chat。Provider id 由 profile/model 组成，避免把一个模型的 cursor 交给另一模型。
+5. Responses 保存 `previous_response_id` 和已覆盖的本地消息序号，仅发 tail；Chat 使用严格 JSON checkpoint。本地压缩还会从工具调用原文反向补入 CLI 命令，不信任模型摘要能完美保真空格。
+6. 切换 AI profile 会退出当前 Conversation，后端也校验 Conversation 归属；这比在同一对话中无声替换 provider 更容易审计。
+
+### 验证与可复用经验
+
+- Core 测试覆盖重启后的跨 Turn 纠正、Responses 只发增量、provider checkpoint 恢复、steering 在结束前被消费、严格 checkpoint 与 CLI 空格保真。
+- Agent Store 测试从旧表结构直接打开，确认旧 task 不丢失；前端测试覆盖真正的新对话、历史恢复、运行中追加和 provider 配置持久化。
+- 经验：“上下文”不是一个大字符串，而是三类不同寿命的状态——本地审计事实、模型可读 checkpoint 和 provider 不透明游标。把它们混成一层，不是丢历史，就是重复发送或无法跨 provider 恢复。

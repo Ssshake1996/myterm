@@ -17,19 +17,22 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
+  type AgentConversation,
   type AgentEvent,
   type AgentSettings as AgentSettingsValue,
-  type AgentTask,
   type AiProfile,
   agentAbort,
   agentApprove,
+  agentConversationCreate,
+  agentConversationDelete,
+  agentConversationList,
+  agentConversationTasks,
   agentJobCancel,
   agentRun,
   agentSettingsGet,
   agentSettingsSave,
-  agentTaskDelete,
+  agentSteer,
   agentTaskEvents,
-  agentTaskList,
   aiProfileList,
   createChannel,
   errorMessage,
@@ -73,7 +76,14 @@ interface PolicySummary {
 }
 
 type TraceEntry =
-  | { id: string; kind: "task"; content: string; session?: string }
+  | {
+      id: string;
+      kind: "task";
+      content: string;
+      session?: string;
+      turnIndex?: number;
+      steering?: boolean;
+    }
   | {
       id: string;
       kind: "status";
@@ -229,12 +239,25 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
       { id: eventId, kind: "assistant", content: event.content ?? "", step: event.step },
     ];
   }
+  if (event.eventType === "user_steer") {
+    return [
+      ...current,
+      {
+        id: eventId,
+        kind: "task",
+        content: event.content ?? "",
+        steering: true,
+      },
+    ];
+  }
   if (
     event.eventType === "mcp_error" ||
     event.eventType === "runtime_metrics" ||
     event.eventType === "status" ||
     event.eventType === "hook" ||
     event.eventType === "context_compacted" ||
+    event.eventType === "context_state" ||
+    event.eventType === "steering_applied" ||
     event.eventType === "target_connecting" ||
     event.eventType === "target_connected"
   ) {
@@ -302,9 +325,9 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   const [profiles, setProfiles] = useState<AiProfile[]>([]);
   const [profileId, setProfileId] = useState("");
   const [agentSettings, setAgentSettings] = useState(DEFAULT_AGENT_SETTINGS);
-  const [tasks, setTasks] = useState<AgentTask[]>([]);
+  const [conversations, setConversations] = useState<AgentConversation[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [entries, setEntries] = useState<TraceEntry[]>([]);
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
@@ -318,12 +341,12 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    void Promise.all([aiProfileList(), agentSettingsGet(), agentTaskList()])
-      .then(([items, settings, savedTasks]) => {
+    void Promise.all([aiProfileList(), agentSettingsGet(), agentConversationList()])
+      .then(([items, settings, savedConversations]) => {
         setProfiles(items);
         setProfileId((current) => current || items[0]?.id || "");
         setAgentSettings(settings);
-        setTasks(savedTasks);
+        setConversations(savedConversations);
       })
       .catch((error) =>
         notify(errorMessage(error, "Agent 配置读取失败：未返回可读的错误信息"), "error"),
@@ -365,6 +388,8 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   }, [collapsed]);
 
   const currentProfile = profiles.find((profile) => profile.id === profileId) ?? null;
+  const currentConversation =
+    conversations.find((conversation) => conversation.id === selectedConversationId) ?? null;
 
   const scrollToBottom = () => {
     window.requestAnimationFrame(() =>
@@ -373,29 +398,36 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   };
 
   const onAgentEvent = (event: AgentEvent) => {
-    setSelectedTaskId(event.runId);
     setEntries((current) => reduceAgentEvent(current, event));
     if (event.eventType === "complete") {
-      void agentTaskList()
-        .then(setTasks)
+      void agentConversationList()
+        .then(setConversations)
         .catch(() => undefined);
     }
     scrollToBottom();
   };
 
-  const loadTask = async (task: AgentTask) => {
+  const loadConversation = async (conversation: AgentConversation) => {
     try {
-      const events = await agentTaskEvents(task.id, 0, 1_000);
-      const initial: TraceEntry[] = [
-        {
-          id: `task:${task.id}`,
-          kind: "task",
-          content: task.prompt,
-          session: task.sessionId ?? undefined,
-        },
-      ];
-      setEntries(events.reduce(reduceAgentEvent, initial));
-      setSelectedTaskId(task.id);
+      const conversationTasks = await agentConversationTasks(conversation.id);
+      const eventGroups = await Promise.all(
+        conversationTasks.map((task) => agentTaskEvents(task.id, 0, 1_000)),
+      );
+      const restored = conversationTasks.flatMap((task, index) => {
+        const initial: TraceEntry[] = [
+          {
+            id: `task:${task.id}`,
+            kind: "task",
+            content: task.prompt,
+            session: task.sessionId ?? undefined,
+            turnIndex: task.turnIndex,
+          },
+        ];
+        return eventGroups[index].reduce(reduceAgentEvent, initial);
+      });
+      setEntries(restored);
+      setProfileId(conversation.profileId);
+      setSelectedConversationId(conversation.id);
       setHistoryOpen(false);
       scrollToBottom();
     } catch (error) {
@@ -403,12 +435,14 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     }
   };
 
-  const removeTask = async (taskId: string) => {
+  const removeConversation = async (conversationId: string) => {
     try {
-      await agentTaskDelete(taskId);
-      setTasks((current) => current.filter((task) => task.id !== taskId));
-      if (selectedTaskId === taskId) {
-        setSelectedTaskId(null);
+      await agentConversationDelete(conversationId);
+      setConversations((current) =>
+        current.filter((conversation) => conversation.id !== conversationId),
+      );
+      if (selectedConversationId === conversationId) {
+        setSelectedConversationId(null);
         setEntries([]);
       }
     } catch (error) {
@@ -416,20 +450,56 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     }
   };
 
-  const startNewConversation = () => {
+  const startNewConversation = async () => {
     if (running) return;
-    setSelectedTaskId(null);
-    setEntries([]);
-    setInput("");
-    setHistoryOpen(false);
-    window.setTimeout(() => inputRef.current?.focus(), 0);
+    if (!profileId) {
+      setAiSettingsOpen(true);
+      return;
+    }
+    try {
+      const conversation = await agentConversationCreate(profileId);
+      setConversations((current) => [conversation, ...current]);
+      setSelectedConversationId(conversation.id);
+      setEntries([]);
+      setInput("");
+      setHistoryOpen(false);
+      window.setTimeout(() => inputRef.current?.focus(), 0);
+    } catch (error) {
+      notify(errorMessage(error, "新建对话失败：未返回可读的错误信息"), "error");
+    }
   };
 
   const send = async () => {
     const task = input.trim();
-    if (!task || !profileId || running) {
+    if (!task || !profileId) {
       if (!profileId) setAiSettingsOpen(true);
       return;
+    }
+    if (running) {
+      if (!selectedConversationId) {
+        notify("当前运行任务没有可追加的对话标识", "error");
+        return;
+      }
+      try {
+        await agentSteer(selectedConversationId, task);
+        setInput("");
+        scrollToBottom();
+      } catch (error) {
+        notify(errorMessage(error, "追加要求失败：未返回可读的错误信息"), "error");
+      }
+      return;
+    }
+    let conversationId = selectedConversationId;
+    if (!conversationId) {
+      try {
+        const conversation = await agentConversationCreate(profileId, task);
+        conversationId = conversation.id;
+        setSelectedConversationId(conversation.id);
+        setConversations((current) => [conversation, ...current]);
+      } catch (error) {
+        notify(errorMessage(error, "创建对话失败：未返回可读的错误信息"), "error");
+        return;
+      }
     }
     setEntries((current) => [
       ...current,
@@ -444,10 +514,16 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     const channel = createChannel<AgentEvent>();
     channel.onmessage = onAgentEvent;
     try {
-      const result = await agentRun(profileId, task, activePane?.sessionId ?? null, channel);
-      setSelectedTaskId(result.runId);
-      void agentTaskList()
-        .then(setTasks)
+      const result = await agentRun(
+        profileId,
+        conversationId,
+        task,
+        activePane?.sessionId ?? null,
+        channel,
+      );
+      setSelectedConversationId(result.conversationId);
+      void agentConversationList()
+        .then(setConversations)
         .catch(() => undefined);
       if (result.finishReason === "limit") notify("Codex Core 已达到内部安全边界", "error");
     } catch (error) {
@@ -595,7 +671,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             aria-label="新建对话"
             className="new-conversation-button"
             disabled={running}
-            onClick={startNewConversation}
+            onClick={() => void startNewConversation()}
             title={running ? "任务运行中，停止后可新建对话" : "新建对话"}
             type="button"
           >
@@ -636,7 +712,12 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         <select
           aria-label="AI 配置"
           disabled={running}
-          onChange={(event) => setProfileId(event.target.value)}
+          onChange={(event) => {
+            setProfileId(event.target.value);
+            setSelectedConversationId(null);
+            setEntries([]);
+            setHistoryOpen(false);
+          }}
           value={profileId}
         >
           {profiles.map((profile) => (
@@ -683,19 +764,19 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         <button
           className={historyOpen ? "is-active" : ""}
           onClick={() => setHistoryOpen((value) => !value)}
-          title="任务历史"
+          title="对话历史"
           type="button"
         >
           <History size={12} />
-          <span>任务历史</span>
-          <small>{tasks.length}</small>
+          <span>对话历史</span>
+          <small>{conversations.length}</small>
         </button>
-        <span>{selectedTaskId ? selectedTaskId.slice(0, 8) : "当前任务"}</span>
+        <span title={currentConversation?.title}>{currentConversation?.title ?? "未选择对话"}</span>
         <button
-          aria-label="刷新任务历史"
+          aria-label="刷新对话历史"
           className="icon-button"
-          onClick={() => void agentTaskList().then(setTasks)}
-          title="刷新任务历史"
+          onClick={() => void agentConversationList().then(setConversations)}
+          title="刷新对话历史"
           type="button"
         >
           <RefreshCw size={12} />
@@ -704,21 +785,29 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
 
       {historyOpen ? (
         <div className="agent-history-list">
-          {!tasks.length ? <p>暂无已保存任务</p> : null}
-          {tasks.map((task) => (
-            <div className={task.id === selectedTaskId ? "is-selected" : ""} key={task.id}>
-              <button onClick={() => void loadTask(task)} type="button">
-                <span>{task.prompt}</span>
+          {!conversations.length ? <p>暂无已保存对话</p> : null}
+          {conversations.map((conversation) => (
+            <div
+              className={conversation.id === selectedConversationId ? "is-selected" : ""}
+              key={conversation.id}
+            >
+              <button
+                disabled={running && conversation.id !== selectedConversationId}
+                onClick={() => void loadConversation(conversation)}
+                type="button"
+              >
+                <span>{conversation.title}</span>
                 <small>
-                  {task.state.replace("_", " ")} · {new Date(task.updatedAtMs).toLocaleString()}
+                  {conversation.turnCount} 个回合 ·{" "}
+                  {new Date(conversation.updatedAtMs).toLocaleString()}
                 </small>
               </button>
               <button
-                aria-label="删除任务"
+                aria-label="删除对话"
                 className="icon-button"
-                disabled={!(["succeeded", "failed", "canceled"] as string[]).includes(task.state)}
-                onClick={() => void removeTask(task.id)}
-                title="删除任务"
+                disabled={running}
+                onClick={() => void removeConversation(conversation.id)}
+                title="删除对话及其全部回合"
                 type="button"
               >
                 <Trash2 size={12} />
@@ -767,7 +856,13 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             return (
               <article className="trace-task" key={entry.id}>
                 <header>
-                  <span>任务</span>
+                  <span>
+                    {entry.steering
+                      ? "追加要求"
+                      : entry.turnIndex
+                        ? `回合 ${entry.turnIndex}`
+                        : "任务"}
+                  </span>
                   {entry.session ? (
                     <small>会话 · {entry.session}</small>
                   ) : (
@@ -953,7 +1048,6 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         <div className="composer-box">
           <textarea
             aria-label="输入 Agent 任务"
-            disabled={running}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -961,19 +1055,35 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
                 void send();
               }
             }}
-            placeholder="描述目标，dsh-codex-agent 会决定并调用工具"
+            placeholder={
+              running
+                ? "继续输入要求；Enter 追加到当前回合，Shift+Enter 换行"
+                : "描述目标，dsh-codex-agent 会决定并调用工具"
+            }
             ref={inputRef}
             rows={3}
             value={input}
           />
           <button
-            aria-label={running ? "停止 Agent" : "运行 Agent"}
-            className={running ? "composer-send is-stop" : "composer-send"}
-            onClick={() => (running ? void agentAbort() : void send())}
+            aria-label={running ? "追加要求" : "运行 Agent"}
+            className={running ? "composer-send is-steer" : "composer-send"}
+            disabled={!input.trim()}
+            onClick={() => void send()}
             type="button"
           >
-            <Icon name={running ? "stop" : "send"} />
+            <Icon name="send" />
           </button>
+          {running ? (
+            <button
+              aria-label="停止 Agent"
+              className="composer-stop"
+              onClick={() => void agentAbort()}
+              title="停止当前回合"
+              type="button"
+            >
+              <Icon name="stop" />
+            </button>
+          ) : null}
         </div>
       </div>
       {aiSettingsOpen ? (

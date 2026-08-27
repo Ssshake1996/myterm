@@ -7,7 +7,12 @@ use tauri::{
 };
 
 use crate::{
-    agent::{domain::AgentTask, mcp, service::AgentEventSink, skills},
+    agent::{
+        domain::{AgentConversation, AgentTask},
+        mcp,
+        service::AgentEventSink,
+        skills,
+    },
     ai::service::{AiChatResult, AiTestResult, DeltaSink},
     quick_commands::{
         self, QuickCommandImportPreview, QuickCommandImportResult, QuickCommandImportStrategy,
@@ -542,17 +547,78 @@ pub async fn agent_run(
     state: State<'_, AppState>,
     profile_id: String,
     prompt: String,
+    conversation_id: Option<String>,
     session_id: Option<String>,
     on_event: Channel<AgentEvent>,
 ) -> Result<AgentRunResult, IpcError> {
     state
         .agent
-        .run(
+        .run_in_conversation(
             &profile_id,
+            conversation_id,
             prompt,
             session_id,
             Arc::new(AgentChannel(on_event)),
+            None,
         )
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn agent_conversation_create(
+    state: State<'_, AppState>,
+    profile_id: String,
+    title: Option<String>,
+) -> Result<AgentConversation, IpcError> {
+    state
+        .agent
+        .create_conversation(&profile_id, title.as_deref())
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn agent_conversation_list(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<AgentConversation>, IpcError> {
+    state
+        .agent
+        .conversations(limit.unwrap_or(50))
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn agent_conversation_tasks(
+    state: State<'_, AppState>,
+    conversation_id: String,
+) -> Result<Vec<AgentTask>, IpcError> {
+    state
+        .agent
+        .conversation_tasks(&conversation_id)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn agent_conversation_delete(
+    state: State<'_, AppState>,
+    conversation_id: String,
+) -> Result<bool, IpcError> {
+    state
+        .agent
+        .conversation_delete(&conversation_id)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn agent_steer(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    input: String,
+) -> Result<crate::types::AgentSteerResult, IpcError> {
+    state
+        .agent
+        .steer(&conversation_id, input)
         .await
         .map_err(Into::into)
 }

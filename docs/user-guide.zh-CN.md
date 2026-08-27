@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.9.10。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.9.11。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -64,7 +64,7 @@
 
 ### 终端输入
 
-终端支持常用控制序列、颜色、UTF-8 和窗口自适应。粘贴或执行未知命令前应先检查内容；使用 root 或生产服务器时应优先采用只读排查。
+终端支持常用控制序列、颜色、UTF-8 和窗口自适应。每个终端窗格右侧始终保留可见的纵向滚动条；即使当前没有历史输出，轨道也不会消失，产生滚动内容后可拖动滑块查看 scrollback。粘贴或执行未知命令前应先检查内容；使用 root 或生产服务器时应优先采用只读排查。
 
 ## 快捷命令
 
@@ -163,6 +163,16 @@ AI 服务设置支持多个模型角色：
 
 启用“失败时自动切换”后，后端会按主模型、分析模型、备用模型顺序尝试；每次 Agent 运行会在时间线显示实际选中的模型。前端保存的表单会转换为版本化 JSON，配置文件只保存模型、路由、提示词和凭据引用，不保存 API Key 原文。旧版本只有 `model` 字段的配置会在首次打开时自动迁移为 `models.primary`。
 
+### Agent 上下文协议
+
+AI 服务设置的“Agent 上下文协议”提供三种模式：
+
+- 自动：首选 Responses API，持久化 `previous_response_id` 并只发送新增消息。当网关明确返回 404、405、501，或返回表明 Responses/原生压缩不支持的 400 时，该 provider 的结果会持久化，后续 Turn 直接使用 Chat Completions 本地上下文。瞬时网络错误不会被记为永久不支持。
+- Responses：强制使用 Responses 增量续接与服务端压缩；网关不支持时显示原始请求错误，不自动降级。
+- 本地上下文：使用 Chat Completions，达到阈值时生成版本化 JSON checkpoint，之后只提交 checkpoint 和它之后的消息。
+
+每个模型可单独设置“上下文窗口”和“压缩阈值”，阈值必须小于窗口。未填写时默认为 128000 Token 窗口和 75% 压缩阈值。Responses 上下文可用时不再重复运行本地压缩；本地 checkpoint 会保留目标、约束、用户纠正、精确 CLI 命令和空格、工具事实、Evidence 引用、未解决项和权限状态。压缩失败初次请求后最多再重试 3 次，仍失败才以原始错误终止当前 Turn。
+
 ### 完整终端输出
 
 Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 `offset`、`nextOffset`、`totalBytes`、`totalLines` 和 `eof`，模型可以连续读取直到 `eof=true`，因此大文件 `cat`、长日志和部署输出不会因为固定行数而读不全。远程命令的超长 stdout/stderr 会保存为 artifact，后台 Job 使用 `job_output` 按 offset 分页读取。
@@ -201,8 +211,9 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 - `Enter` 提交任务，`Shift+Enter` 在任务中插入换行；中文输入法正在组词时按 `Enter` 不会误提交。
 - 输入区顶部有水平拖柄。向上拖动可扩大输入区，向下拖动可恢复，最大不超过 Agent 面板高度的一半。
 - 聚焦拖柄后可用 `↑`/`↓` 逐级调整，`Home` 恢复最小高度，`End` 扩大到允许的最大高度。
-- Agent 标题栏的“新对话”会清空当前时间线和输入框，但不会删除已经持久化的任务历史；任务运行期间该按钮禁用，避免把活动 Turn 与新会话混合。
-- “任务历史”展开后使用独立边框、背景和阴影。选择历史任务只切换查看内容；需要继续新的排查时，先点击“新对话”。
+- Agent 标题栏的“新对话”会在后端创建独立 Conversation，不再只清空前端。同一 Conversation 中的后续发送会创建新 Turn，上一轮的要求、用户纠正、工具结果和精确命令会按上下文策略恢复。
+- “对话历史”展开后使用独立边框、背景和阴影，按 Conversation 显示标题、Turn 数和更新时间；选中后会恢复该对话的全部 Turn 时间线。
+- Turn 运行期间输入框仍可使用，发送按钮会变为“追加要求”。追加内容先写入当前 Turn 的审计事件，再在下一次模型决策边界生效；“停止”为独立按钮。
 
 ### 推荐任务写法
 
@@ -234,7 +245,7 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 - `session_catalog`：按名称、分组、主机或用户查找已保存服务器，返回每个服务器的实时状态和最近一次 SSH 连接诊断；不会返回凭据。
 - `session_info`：读取明确选择的会话和服务器信息。传入 `session_id`、`profile_id` 或 `profile_name` 可查询非活动会话或已保存服务器；只有用户明确指向当前终端时，Agent 才可设置 `use_active_session=true` 读取活动候选。
 - `terminal_context`：按 offset 读取终端 transcript，并返回活动 xterm 最近同步的可见屏幕、光标行、光标前内容和更新时间。单次最多读取 64 KiB，按 `nextOffset` 可继续读取。
-- `cli_execute`：执行一条完整的交互式 CLI 命令。宿主锁定该会话的输入，在同一事务内读取真实光标行、只发送缺失后缀，并等待提示符、交互、静默兜底或超时；返回本次命令的输出增量和完成原因。
+- `cli_execute`：执行一条完整的交互式 CLI 命令。Agent 必须传入包含原始空格的完整目标命令，宿主锁定该会话的输入，在同一事务内读取真实光标行并按字节只发送缺失后缀。例如目标是 `show system general`：当前输入为 `show` 时发送 ` system general`，当前输入为 `show ` 时发送 `system general`，当前输入为 `show system` 时发送 ` general`；前缀不兼容时不会发送。随后等待提示符、交互、静默兜底或超时，并返回本次命令的输出增量和完成原因。
 - `cli_execute_batch`：把 1-8 条互不依赖、无需根据前一条结果改写的已知命令串行执行在一次工具调用中；遇到交互或超时立即停止。
 - `terminal_send`：低层交互输入。`raw` 只用于确认、分页键、控制键或已经运行的 REPL；完整命令优先使用 `cli_execute`。
 - `remote_exec`：通过独立 SSH exec channel 运行结构化命令；可传入 `session_id` 指定目标会话。

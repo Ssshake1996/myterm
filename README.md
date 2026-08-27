@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.9.10`
+当前版本：`0.9.11`
 
 ## 核心功能
 
@@ -19,6 +19,7 @@ myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面�
 ### 终端工作区
 
 - 基于 xterm.js 的完整交互终端，支持 UTF-8、颜色、WebGL 渲染和自适应尺寸。
+- SSH 和本地终端都显示可见的纵向滚动条，便于定位长日志与大段回显。
 - 支持多个会话标签；关闭标签时会主动断开其全部连接。
 - 支持向右分屏、调整比例和独立关闭任一分屏，不保留隐藏连接。
 - SSH 连接失败会保留原始阶段、错误码和详情；错误文本可直接选择，也可一键复制后交给排查人员或 Agent。
@@ -52,10 +53,12 @@ Agent 使用类似 Claude Code 的循环：
 任务输入 -> 模型决策 -> 工具调用 -> 结果返回 -> 继续循环 -> 最终答复
 ```
 
+- 持久化 Conversation 与 Turn：只有点击“新对话”才切换上下文，同一对话的后续要求、用户纠正、工具事实和精确命令可跨回合恢复。
 - 持久化任务、事件、审批、工具审计、后台 Job、取消和崩溃恢复。
 - AI 面板按时间线展示模型决策、工具名称、参数摘要、stdout、stderr、结果和状态。
 - 任务输入支持 `Shift+Enter` 换行和输入法保护，顶部拖柄可将输入区向上扩大到 Agent 面板高度的一半。
-- Agent 标题栏提供明确的“新对话”按钮；任务历史使用有边框和阴影的独立浮层，避免与执行时间线混在一起。
+- Agent 标题栏提供真正的“新对话”操作；对话历史按 Conversation 聚合并恢复其全部 Turn，不再只清空当前界面。
+- Turn 运行期间输入框仍可编辑；“追加要求”会先持久化，再在下一次模型决策边界注入当前 Turn，“停止”保持为独立操作。
 - 基础工具覆盖会话信息、终端上下文、终端输入、结构化 SSH 命令、主机事实、目录和文件操作；非活动服务器可通过会话目录发现并自动建立 SSH，内置 Multi-SSH Coordinator 支持多个目标的串行协同。界面中的活动 SSH 只作为候选元数据：通用问答、MCP、Skill 和历史任务不会自动读取终端；只有模型判断用户明确指向当前终端时才会设置 `use_active_session=true`，命名服务器则必须解析并传入明确的 `session_id`。
 - 结构化命令执行分别记录 stdout/stderr、退出码、信号、超时、取消和断连结果。
 - 长任务可转入后台 Job，并通过状态、分页输出和取消工具继续管理。
@@ -64,6 +67,8 @@ Agent 使用类似 Claude Code 的循环：
 - 对交互式产品 CLI，`cli_execute` 在同一个后端事务中锁定输入、读取 xterm 真实光标行、只发送完整目标命令的缺失后缀，并等待提示符、交互、静默兜底或超时边界；`cli_execute_batch` 可把 1-8 条互不依赖的已知命令合并为一次工具调用，避免 `showshow system...` 和大量短请求。
 - Agent 会在任务时间线记录本轮模型请求数、工具调用数和 Token 用量；独立只读工具可在同一模型轮次并发执行，有副作用或存在依赖的步骤仍保持串行。
 - AI 配置以版本化 JSON 持久化。一个配置可定义主模型、分析模型和备用模型；启用自动切换后，模型请求失败会按角色顺序切换并在 Agent 时间线标出实际使用的模型。
+- Provider Context Adapter 统一支持 Responses 和 Chat Completions：自动模式优先复用 `previous_response_id` 与服务端原生压缩，确认网关不支持后持久回退到本地 checkpoint + tail，不会每轮重复探测。
+- AI 设置可按模型配置上下文窗口和压缩阈值；本地 checkpoint 以版本化 JSON 保留目标、约束、用户纠正、原样 CLI 命令、工具事实、Evidence 引用和未解决项。
 
 ### 权限与安全策略
 
@@ -182,10 +187,11 @@ npm run check:dist
 - [标准构建与发布流程](docs/build-and-release.md)
 - [Agent 插件架构说明](docs/agent-plugin-architecture.md)
 - [Agent 优化路线与取舍](docs/agent-optimization-roadmap.md)
+- [Codex 对话上下文实现说明](docs/agent-codex-context-plan.md)
 - [Codex × Harness 架构审计](docs/architecture/codex-harness-audit.md)
 - [dsh-codex-agent 实现说明](docs/architecture/dsh-codex-agent-implementation.md)
 - [Codex 网络出口审计](docs/architecture/codex-network-audit.md)
 
 ## 当前边界
 
-当前 `0.9.10` 在 Capability Registry、Evidence Ledger 与原子 CLI Executor 基础上加入动态 SSH 目标解析：活动会话只作候选、模型必须显式选中目标、无目标时闭合失败；同时修正终端对全局字号倍率的反向抵消，补齐 MCP 状态诊断和规范化结果解析，并减少编辑已保存会话时的浏览器自动填充干扰。
+当前 `0.9.11` 将 Agent 重构为稳定 Conversation/Turn 和 Provider Context Adapter：支持跨回合纠正、运行中追加要求、Responses 增量续接与 Chat 本地 checkpoint 回退。本版同时增加终端可见滚动条，并把产品 CLI 补全收敛为“完整目标命令 + 当前光标行 + 精确缺失后缀”，保留参数间空格。

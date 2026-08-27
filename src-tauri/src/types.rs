@@ -259,6 +259,15 @@ pub enum AiModelRole {
     Fallback,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AiContextMode {
+    #[default]
+    Auto,
+    Responses,
+    LocalRollout,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AiModelConfig {
     pub id: String,
@@ -268,6 +277,10 @@ pub struct AiModelConfig {
     pub role: AiModelRole,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
+    #[serde(default)]
+    pub context_window_tokens: Option<u32>,
+    #[serde(default)]
+    pub compact_threshold_tokens: Option<u32>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -299,6 +312,8 @@ pub struct AiProfile {
     pub api_key_ref: String,
     #[serde(default)]
     pub auth_mode: AiAuthMode,
+    #[serde(default)]
+    pub context_mode: AiContextMode,
     /// Legacy single-model field. It is migrated into `models.primary` and is
     /// retained only so existing config.json files remain readable.
     #[serde(default, skip_serializing)]
@@ -322,6 +337,8 @@ impl AiProfile {
                 model: self.model.clone(),
                 role: AiModelRole::Primary,
                 enabled: true,
+                context_window_tokens: None,
+                compact_threshold_tokens: None,
             }];
         }
         let mut models = self
@@ -524,6 +541,8 @@ pub struct AgentEvent {
 #[serde(rename_all = "camelCase")]
 pub struct AgentRunResult {
     pub run_id: String,
+    pub conversation_id: String,
+    pub turn_id: String,
     pub finish_reason: String,
     pub steps: u8,
     pub model_requests: u32,
@@ -531,6 +550,14 @@ pub struct AgentRunResult {
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
     pub total_tokens: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSteerResult {
+    pub conversation_id: String,
+    pub turn_id: String,
+    pub accepted: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]

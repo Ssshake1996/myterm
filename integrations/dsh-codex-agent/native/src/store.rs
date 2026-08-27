@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::{
     error::CoreError,
-    types::{ChatMessage, GraphEdge, ThreadSnapshot},
+    types::{ChatMessage, GraphEdge, ProviderContext, ProviderContextMode, ThreadSnapshot},
 };
 
 #[derive(Clone, Debug)]
@@ -111,6 +111,17 @@ impl ThreadStore {
                     event_type TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
                     created_at_ms INTEGER NOT NULL
+                 );
+                 CREATE TABLE IF NOT EXISTS provider_contexts (
+                    thread_id TEXT NOT NULL,
+                    provider_id TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    cursor TEXT,
+                    through_seq INTEGER NOT NULL DEFAULT -1,
+                    unsupported INTEGER NOT NULL DEFAULT 0,
+                    updated_at_ms INTEGER NOT NULL,
+                    PRIMARY KEY(thread_id, provider_id),
+                    FOREIGN KEY(thread_id) REFERENCES threads(id) ON DELETE CASCADE
                  );",
             )
             .map_err(store_error("migrate"))?;
@@ -271,6 +282,68 @@ impl ThreadStore {
             messages.push((seq, message));
         }
         Ok(messages)
+    }
+
+    pub fn provider_contexts(&self, thread_id: &str) -> Result<Vec<ProviderContext>, CoreError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT provider_id, mode, cursor, through_seq, unsupported
+                 FROM provider_contexts WHERE thread_id = ?1 ORDER BY provider_id",
+            )
+            .map_err(store_error("prepare_provider_contexts"))?;
+        let rows = statement
+            .query_map([thread_id], |row| {
+                let mode: String = row.get(1)?;
+                Ok(ProviderContext {
+                    provider_id: row.get(0)?,
+                    mode: if mode == "responses" {
+                        ProviderContextMode::Responses
+                    } else {
+                        ProviderContextMode::LocalRollout
+                    },
+                    cursor: row.get(2)?,
+                    through_seq: row.get(3)?,
+                    unsupported: row.get(4)?,
+                })
+            })
+            .map_err(store_error("provider_contexts"))?;
+        rows.map(|row| row.map_err(store_error("read_provider_context")))
+            .collect()
+    }
+
+    pub fn save_provider_context(
+        &self,
+        thread_id: &str,
+        context: &ProviderContext,
+    ) -> Result<(), CoreError> {
+        let mode = match context.mode {
+            ProviderContextMode::Responses => "responses",
+            ProviderContextMode::LocalRollout => "local_rollout",
+        };
+        self.connection()?
+            .execute(
+                "INSERT INTO provider_contexts(
+                    thread_id, provider_id, mode, cursor, through_seq, unsupported, updated_at_ms
+                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(thread_id, provider_id) DO UPDATE SET
+                    mode = excluded.mode,
+                    cursor = excluded.cursor,
+                    through_seq = excluded.through_seq,
+                    unsupported = excluded.unsupported,
+                    updated_at_ms = excluded.updated_at_ms",
+                params![
+                    thread_id,
+                    context.provider_id,
+                    mode,
+                    context.cursor,
+                    context.through_seq,
+                    context.unsupported,
+                    now_ms(),
+                ],
+            )
+            .map_err(store_error("save_provider_context"))?;
+        Ok(())
     }
 
     pub fn compaction_state(&self, thread_id: &str) -> Result<CompactionState, CoreError> {
@@ -536,7 +609,7 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::MessageRole;
+    use crate::types::{MessageRole, ProviderContext, ProviderContextMode};
     use tempfile::TempDir;
 
     #[test]
@@ -583,6 +656,35 @@ mod tests {
         let reopened = ThreadStore::open(temp.path()).unwrap();
         assert!(reopened.thread_exists("root").unwrap());
         assert_eq!(reopened.graph_edges("root").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn provider_context_checkpoint_survives_runtime_reopen() {
+        let temp = TempDir::new().unwrap();
+        {
+            let store = ThreadStore::open(temp.path()).unwrap();
+            store
+                .create_thread("conversation", None, "root", None)
+                .unwrap();
+            store
+                .save_provider_context(
+                    "conversation",
+                    &ProviderContext {
+                        provider_id: "profile:model".to_owned(),
+                        mode: ProviderContextMode::Responses,
+                        cursor: Some("resp_123".to_owned()),
+                        through_seq: 7,
+                        unsupported: false,
+                    },
+                )
+                .unwrap();
+        }
+        let reopened = ThreadStore::open(temp.path()).unwrap();
+        let contexts = reopened.provider_contexts("conversation").unwrap();
+        assert_eq!(contexts.len(), 1);
+        assert_eq!(contexts[0].cursor.as_deref(), Some("resp_123"));
+        assert_eq!(contexts[0].through_seq, 7);
+        assert_eq!(contexts[0].mode, ProviderContextMode::Responses);
     }
 
     #[test]

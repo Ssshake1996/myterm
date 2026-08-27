@@ -8,12 +8,12 @@ use std::{
 };
 
 use serde_json::{json, Value};
-use tokio::sync::{oneshot, watch, Mutex};
+use tokio::sync::{mpsc, oneshot, watch, Mutex};
 
 use super::{
     builtin,
     capability::{CapabilityRegistry, EvidenceRecord},
-    domain::{now_ms, AgentTask, AgentTaskState, ExecutionJob},
+    domain::{now_ms, AgentConversation, AgentTask, AgentTaskState, ExecutionJob},
     dsh, hooks,
     policy::PolicyContext,
     skills,
@@ -27,9 +27,9 @@ use crate::{
     },
     sftp::{service::local_entries, service::SftpService},
     types::{
-        AgentEvent, AgentRunResult, AgentSettings, AiProfile, SessionCatalogEntry,
-        SessionCatalogTarget, SessionEnvironment, SessionProfile, SessionState, SessionTarget,
-        TerminalScreenSnapshot, AGENT_EVENT_SCHEMA_VERSION,
+        AgentEvent, AgentRunResult, AgentSettings, AgentSteerResult, AiProfile,
+        SessionCatalogEntry, SessionCatalogTarget, SessionEnvironment, SessionProfile,
+        SessionState, SessionTarget, TerminalScreenSnapshot, AGENT_EVENT_SCHEMA_VERSION,
     },
     AppError,
 };
@@ -201,10 +201,18 @@ pub struct AgentService {
     sessions: Arc<SessionManager>,
     sftp: Arc<SftpService>,
     store: Arc<AgentStore>,
-    active: Mutex<Option<watch::Sender<bool>>>,
+    active: Mutex<Option<ActiveAgentRun>>,
     approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     host_facts: Mutex<HashMap<String, (Instant, Value)>>,
     jobs: Arc<Mutex<HashMap<String, JobRuntime>>>,
+}
+
+struct ActiveAgentRun {
+    conversation_id: String,
+    turn_id: String,
+    abort: watch::Sender<bool>,
+    steer: mpsc::Sender<String>,
+    sink: Arc<dyn AgentEventSink>,
 }
 
 struct JobRuntime {
@@ -248,7 +256,7 @@ impl AgentService {
         active_session_id: Option<String>,
         sink: Arc<dyn AgentEventSink>,
     ) -> Result<AgentRunResult, AppError> {
-        self.run_with_permission(profile_id, prompt, active_session_id, sink, None)
+        self.run_in_conversation(profile_id, None, prompt, active_session_id, sink, None)
             .await
     }
 
@@ -260,8 +268,70 @@ impl AgentService {
         sink: Arc<dyn AgentEventSink>,
         permission: Option<crate::types::AgentPermissionMode>,
     ) -> Result<AgentRunResult, AppError> {
+        self.run_in_conversation(
+            profile_id,
+            None,
+            prompt,
+            active_session_id,
+            sink,
+            permission,
+        )
+        .await
+    }
+
+    pub fn create_conversation(
+        &self,
+        profile_id: &str,
+        title: Option<&str>,
+    ) -> Result<AgentConversation, AppError> {
+        self.ai_profile(profile_id)?;
+        self.store.create_conversation(
+            &uuid::Uuid::new_v4().to_string(),
+            profile_id,
+            title.unwrap_or("新对话"),
+        )
+    }
+
+    pub fn conversations(&self, limit: usize) -> Result<Vec<AgentConversation>, AppError> {
+        self.store.conversations(limit)
+    }
+
+    pub fn conversation_tasks(&self, conversation_id: &str) -> Result<Vec<AgentTask>, AppError> {
+        self.store.conversation_tasks(conversation_id)
+    }
+
+    pub fn conversation_delete(&self, conversation_id: &str) -> Result<bool, AppError> {
+        self.store.delete_conversation(conversation_id)
+    }
+
+    pub async fn run_in_conversation(
+        self: &Arc<Self>,
+        profile_id: &str,
+        conversation_id: Option<String>,
+        prompt: String,
+        active_session_id: Option<String>,
+        sink: Arc<dyn AgentEventSink>,
+        permission: Option<crate::types::AgentPermissionMode>,
+    ) -> Result<AgentRunResult, AppError> {
+        let conversation_id = match conversation_id {
+            Some(id) => {
+                let conversation = self
+                    .store
+                    .conversation(&id)?
+                    .ok_or_else(|| AppError::NotFound(format!("agent conversation '{id}'")))?;
+                if conversation.profile_id != profile_id {
+                    return Err(AppError::InvalidInput(format!(
+                        "agent conversation '{}' belongs to AI profile '{}', not '{}'",
+                        conversation.id, conversation.profile_id, profile_id
+                    )));
+                }
+                conversation.id
+            }
+            None => self.create_conversation(profile_id, Some(&prompt))?.id,
+        };
         self.run_with_task_id(
             uuid::Uuid::new_v4().to_string(),
+            conversation_id,
             profile_id,
             prompt,
             active_session_id,
@@ -274,6 +344,7 @@ impl AgentService {
     pub async fn run_with_task_id(
         self: &Arc<Self>,
         run_id: String,
+        conversation_id: String,
         profile_id: &str,
         prompt: String,
         active_session_id: Option<String>,
@@ -293,6 +364,7 @@ impl AgentService {
         self.store
             .recover_stale_tasks(now_ms() - Duration::from_secs(300).as_millis() as i64)?;
         let (abort_tx, abort_rx) = watch::channel(false);
+        let (steer_tx, steer_rx) = mpsc::channel(32);
         let mut active = self.active.lock().await;
         if active.is_some() {
             return Err(AppError::Ai(
@@ -304,8 +376,11 @@ impl AgentService {
             .get(&profile.api_key_ref)?
             .ok_or_else(|| AppError::Ai("API key is not configured".to_owned()))?;
         let timestamp = now_ms();
+        let turn_index = self.store.next_turn_index(&conversation_id)?;
         self.store.create_task(&AgentTask {
             id: run_id.clone(),
+            conversation_id: conversation_id.clone(),
+            turn_index,
             profile_id: profile.id.clone(),
             // The active UI session is only a task-time candidate. Persisting it
             // here would incorrectly describe the whole conversation as bound
@@ -328,7 +403,13 @@ impl AgentService {
             downstream: sink,
             secrets: vec![api_key.clone()],
         });
-        *active = Some(abort_tx.clone());
+        *active = Some(ActiveAgentRun {
+            conversation_id: conversation_id.clone(),
+            turn_id: run_id.clone(),
+            abort: abort_tx.clone(),
+            steer: steer_tx,
+            sink: sink.clone(),
+        });
         drop(active);
         let store = self.store.clone();
         let polled_task_id = run_id.clone();
@@ -362,6 +443,8 @@ impl AgentService {
             abort_rx,
             api_key,
             run_id.clone(),
+            conversation_id.clone(),
+            steer_rx,
         )
         .await;
         if !matches!(&result, Ok(completed) if completed.finish_reason == "stop") {
@@ -417,6 +500,53 @@ impl AgentService {
             }
         }
         result
+    }
+
+    pub async fn steer(
+        &self,
+        conversation_id: &str,
+        input: String,
+    ) -> Result<AgentSteerResult, AppError> {
+        let input = input.trim().to_owned();
+        if input.is_empty() {
+            return Err(AppError::InvalidInput(
+                "agent steering input is required".to_owned(),
+            ));
+        }
+        let active = self.active.lock().await;
+        let active = active
+            .as_ref()
+            .ok_or_else(|| AppError::Ai("没有正在运行的 Agent 回合".to_owned()))?;
+        if active.conversation_id != conversation_id {
+            return Err(AppError::Ai(format!(
+                "当前运行中的对话是 '{}'，不能把追加要求发送到 '{}'",
+                active.conversation_id, conversation_id
+            )));
+        }
+        let mut event = event(
+            &active.turn_id,
+            "user_steer",
+            Some("追加要求已接收".to_owned()),
+        );
+        event.content = Some(input.clone());
+        event.arguments = Some(json!({
+            "conversationId": conversation_id,
+            "turnId": active.turn_id,
+        }));
+        active.sink.send(event)?;
+        active.steer.try_send(input).map_err(|error| match error {
+            mpsc::error::TrySendError::Full(_) => {
+                AppError::Ai("追加要求队列已满（上限 32 条），请等待 Agent 消费后重试".to_owned())
+            }
+            mpsc::error::TrySendError::Closed(_) => {
+                AppError::Ai("当前 Agent 回合已结束，追加要求未发送".to_owned())
+            }
+        })?;
+        Ok(AgentSteerResult {
+            conversation_id: conversation_id.to_owned(),
+            turn_id: active.turn_id.clone(),
+            accepted: true,
+        })
     }
 
     pub fn tasks(&self, limit: usize) -> Result<Vec<AgentTask>, AppError> {
@@ -475,8 +605,8 @@ impl AgentService {
     }
 
     pub async fn abort(&self) {
-        if let Some(sender) = self.active.lock().await.as_ref() {
-            let _ = sender.send(true);
+        if let Some(active) = self.active.lock().await.as_ref() {
+            let _ = active.abort.send(true);
         }
         self.reject_pending_approvals().await;
     }
@@ -1582,11 +1712,11 @@ pub(crate) fn tool_definitions(registry: &CapabilityRegistry, prompt: &str) -> V
         ),
         function_tool(
             "cli_execute",
-            "Execute one complete command in an interactive CLI using one atomic host transaction: inspect the actual xterm cursor line, send only the missing suffix, wait for a prompt/interaction/quiet/timeout boundary, and return only this execution's output delta. Include evidence_refs when the command was synthesized from MCP evidence.",
+            "Execute one exact, complete command line in an interactive CLI using one atomic host transaction. Always pass the full intended command with its original whitespace, never only a remaining fragment. The host compares the full command byte-for-byte with the editable xterm prefix and sends only the exact missing suffix: target 'show system general' with visible 'show' sends ' system general'; visible 'show ' sends 'system general'. An incompatible prefix sends nothing. The tool then waits for a prompt/interaction/quiet/timeout boundary and returns only this execution's output delta. Include evidence_refs when the command was synthesized from MCP evidence.",
             json!({
                 "type": "object",
                 "properties": {
-                    "command": { "type": "string", "description": "The complete desired CLI command line" },
+                    "command": { "type": "string", "description": "The exact complete desired CLI command line, preserving every space; do not pass only the missing suffix" },
                     "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" },
                     "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 300, "default": 30 },
                     "quiet_ms": { "type": "integer", "minimum": 500, "maximum": 5000, "default": 1200 },
@@ -2480,6 +2610,34 @@ mod tests {
         .expect("terminal send plan");
         assert_eq!(plan.matched_prefix, "show system");
         assert_eq!(plan.payload, " general\r");
+    }
+
+    #[test]
+    fn terminal_send_preserves_the_separator_after_a_partial_command() {
+        let snapshot = screen("switch>show");
+        let plan = terminal_send_plan(
+            "show system general",
+            true,
+            "complete_line",
+            Some(&snapshot),
+        )
+        .expect("terminal send plan");
+        assert_eq!(plan.matched_prefix, "show");
+        assert_eq!(plan.payload, " system general\r");
+    }
+
+    #[test]
+    fn terminal_send_does_not_duplicate_an_existing_separator() {
+        let snapshot = screen("switch>show ");
+        let plan = terminal_send_plan(
+            "show system general",
+            true,
+            "complete_line",
+            Some(&snapshot),
+        )
+        .expect("terminal send plan");
+        assert_eq!(plan.matched_prefix, "show ");
+        assert_eq!(plan.payload, "system general\r");
     }
 
     #[test]

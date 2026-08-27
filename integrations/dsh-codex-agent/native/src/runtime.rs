@@ -11,9 +11,12 @@ use std::{
 
 use async_trait::async_trait;
 use futures_util::future::try_join_all;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::{sync::Mutex, task::JoinHandle};
+use tokio::{
+    sync::{Mutex, mpsc},
+    task::JoinHandle,
+};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -25,8 +28,9 @@ use crate::{
     model_transport::{DeltaSink, ModelTransport},
     store::ThreadStore,
     types::{
-        ChatMessage, CoreConfig, GraphEdge, MessageRole, ModelRequest, RuntimeEvent,
-        ThreadSnapshot, ToolCall, ToolDefinition, ToolExecutionResult, ToolInvocation, TurnResult,
+        ChatMessage, CoreConfig, GraphEdge, MessageRole, ModelRequest, ProviderContext,
+        ProviderContextMode, RuntimeEvent, SequencedMessage, ThreadSnapshot, ToolCall,
+        ToolDefinition, ToolExecutionResult, ToolInvocation, TurnResult,
     },
 };
 
@@ -45,10 +49,15 @@ pub struct CodexRuntime {
     config: CoreConfig,
     transport: Arc<dyn ModelTransport>,
     store: Arc<ThreadStore>,
-    active_turns: Mutex<HashMap<String, CancellationToken>>,
+    active_turns: Mutex<HashMap<String, ActiveTurnControl>>,
     turn_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     subagents: Mutex<HashMap<String, SubagentTask>>,
     disposed: AtomicBool,
+}
+
+struct ActiveTurnControl {
+    cancellation: CancellationToken,
+    steering: mpsc::Sender<String>,
 }
 
 impl CodexRuntime {
@@ -127,10 +136,17 @@ impl CodexRuntime {
             .try_lock_owned()
             .map_err(|_| CoreError::ThreadBusy(thread_id.to_owned()))?;
         let cancellation = CancellationToken::new();
+        let (steering_tx, steering_rx) = mpsc::channel(32);
         {
             let mut active = self.active_turns.lock().await;
             if active
-                .insert(thread_id.to_owned(), cancellation.clone())
+                .insert(
+                    thread_id.to_owned(),
+                    ActiveTurnControl {
+                        cancellation: cancellation.clone(),
+                        steering: steering_tx,
+                    },
+                )
                 .is_some()
             {
                 return Err(CoreError::ThreadBusy(thread_id.to_owned()));
@@ -154,7 +170,13 @@ impl CodexRuntime {
         });
 
         let result = self
-            .drive_loop(thread_id, host_tools, host.clone(), cancellation.clone())
+            .drive_loop(
+                thread_id,
+                host_tools,
+                host.clone(),
+                cancellation.clone(),
+                steering_rx,
+            )
             .await;
 
         self.active_turns.lock().await.remove(thread_id);
@@ -218,6 +240,7 @@ impl CodexRuntime {
         host_tools: Vec<ToolDefinition>,
         host: Arc<dyn HostBridge>,
         cancellation: CancellationToken,
+        mut steering: mpsc::Receiver<String>,
     ) -> Result<TurnResult, CoreError> {
         let model_tools = merge_tools(host_tools.clone());
         let mut combined_text = String::new();
@@ -231,9 +254,17 @@ impl CodexRuntime {
                     "thread {thread_id} was cancelled"
                 )));
             }
+            self.apply_pending_steering(thread_id, &host, &mut steering, None)?;
             self.maybe_compact(thread_id, host.clone(), cancellation.clone())
                 .await?;
             let messages = self.effective_messages(thread_id)?;
+            let sequenced_messages = self
+                .store
+                .load_messages(thread_id)?
+                .into_iter()
+                .map(|(seq, message)| SequencedMessage { seq, message })
+                .collect();
+            let provider_contexts = self.store.provider_contexts(thread_id)?;
             let delta_host = host.clone();
             let delta_thread = thread_id.to_owned();
             let on_delta: DeltaSink = Arc::new(move |delta| {
@@ -246,8 +277,14 @@ impl CodexRuntime {
                 .transport
                 .stream(
                     ModelRequest {
+                        provider_context_enabled: true,
+                        thread_id: thread_id.to_owned(),
+                        system_prompt: self.config.system_prompt.clone(),
                         messages,
+                        sequenced_messages,
                         tools: model_tools.clone(),
+                        provider_contexts,
+                        compact_threshold_tokens: self.config.compact_threshold_tokens,
                     },
                     cancellation.clone(),
                     Some(on_delta),
@@ -268,7 +305,7 @@ impl CodexRuntime {
                 total_usage.total_tokens =
                     total_usage.total_tokens.saturating_add(usage.total_tokens);
             }
-            self.store.append_message(
+            let assistant_seq = self.store.append_message(
                 thread_id,
                 &ChatMessage {
                     role: MessageRole::Assistant,
@@ -277,7 +314,39 @@ impl CodexRuntime {
                     tool_call_id: None,
                 },
             )?;
+            if let Some(update) = response.provider_context.as_ref() {
+                let previous = self
+                    .store
+                    .provider_contexts(thread_id)?
+                    .into_iter()
+                    .find(|context| context.provider_id == update.provider_id);
+                let context = ProviderContext {
+                    provider_id: update.provider_id.clone(),
+                    mode: update.mode.clone(),
+                    cursor: update.cursor.clone(),
+                    through_seq: assistant_seq,
+                    unsupported: update.unsupported,
+                };
+                self.store.save_provider_context(thread_id, &context)?;
+                host.emit(RuntimeEvent::ProviderContextUpdated {
+                    thread_id: thread_id.to_owned(),
+                    provider_id: context.provider_id,
+                    mode: context.mode,
+                    reused: previous
+                        .as_ref()
+                        .and_then(|value| value.cursor.as_ref())
+                        .is_some(),
+                    unsupported: context.unsupported,
+                });
+            }
             if response.tool_calls.is_empty() {
+                let first = tokio::time::timeout(Duration::from_millis(25), steering.recv())
+                    .await
+                    .ok()
+                    .flatten();
+                if self.apply_pending_steering(thread_id, &host, &mut steering, first)? > 0 {
+                    continue;
+                }
                 return Ok(TurnResult {
                     thread_id: thread_id.to_owned(),
                     text: combined_text,
@@ -338,6 +407,40 @@ impl CodexRuntime {
             }
         }
         Err(CoreError::StepLimit(self.config.max_steps))
+    }
+
+    fn apply_pending_steering(
+        &self,
+        thread_id: &str,
+        host: &Arc<dyn HostBridge>,
+        steering: &mut mpsc::Receiver<String>,
+        first: Option<String>,
+    ) -> Result<usize, CoreError> {
+        let mut inputs = Vec::new();
+        if let Some(input) = first {
+            inputs.push(input);
+        }
+        while let Ok(input) = steering.try_recv() {
+            inputs.push(input);
+        }
+        for input in &inputs {
+            self.store.append_message(
+                thread_id,
+                &ChatMessage::text(MessageRole::User, input.clone()),
+            )?;
+        }
+        if !inputs.is_empty() {
+            self.store.audit(
+                Some(thread_id),
+                "turn_steered",
+                &json!({ "inputCount": inputs.len() }),
+            )?;
+            host.emit(RuntimeEvent::SteeringApplied {
+                thread_id: thread_id.to_owned(),
+                input_count: inputs.len(),
+            });
+        }
+        Ok(inputs.len())
     }
 
     async fn execute_tool_call(
@@ -590,12 +693,32 @@ impl CodexRuntime {
 
     pub async fn cancel_thread(&self, thread_id: &str) -> bool {
         let active = self.active_turns.lock().await;
-        if let Some(cancellation) = active.get(thread_id) {
-            cancellation.cancel();
+        if let Some(control) = active.get(thread_id) {
+            control.cancellation.cancel();
             true
         } else {
             false
         }
+    }
+
+    pub async fn steer_thread(&self, thread_id: &str, input: String) -> Result<(), CoreError> {
+        if input.trim().is_empty() {
+            return Err(CoreError::InvalidToolCall(
+                "steering input must not be empty".to_owned(),
+            ));
+        }
+        let steering = self
+            .active_turns
+            .lock()
+            .await
+            .get(thread_id)
+            .ok_or_else(|| CoreError::ThreadNotFound(thread_id.to_owned()))?
+            .steering
+            .clone();
+        steering
+            .send(input)
+            .await
+            .map_err(|_| CoreError::ThreadNotFound(thread_id.to_owned()))
     }
 
     async fn maybe_compact(
@@ -604,6 +727,18 @@ impl CodexRuntime {
         host: Arc<dyn HostBridge>,
         cancellation: CancellationToken,
     ) -> Result<(), CoreError> {
+        let has_native_responses_context = self
+            .store
+            .provider_contexts(thread_id)?
+            .into_iter()
+            .any(|context| {
+                context.mode == ProviderContextMode::Responses
+                    && context.cursor.is_some()
+                    && !context.unsupported
+            });
+        if has_native_responses_context {
+            return Ok(());
+        }
         let state = self.store.compaction_state(thread_id)?;
         let messages = self.store.load_messages(thread_id)?;
         let effective = messages
@@ -625,14 +760,20 @@ impl CodexRuntime {
                 detail: error.to_string(),
             })?;
         let compact_request = ModelRequest {
+            provider_context_enabled: false,
+            thread_id: thread_id.to_owned(),
+            system_prompt: String::new(),
             messages: vec![
                 ChatMessage::text(
                     MessageRole::System,
-                    "Summarize the supplied local thread. Return strict JSON only: {\"summary\":\"...\"}. Preserve goals, decisions, file paths, commands, tool results, failures, and unresolved work. Do not request tools.",
+                    "Create a versioned local conversation checkpoint. Return strict JSON only with these fields: {\"version\":1,\"summary\":\"...\",\"goals\":[],\"constraints\":[],\"userCorrections\":[],\"literalCommands\":[],\"toolFacts\":[],\"evidenceRefs\":[],\"unresolved\":[],\"permissionState\":null}. Preserve exact commands and whitespace as JSON strings; never rewrite or normalize them. Preserve goals, decisions, paths, tool facts, failures, permissions, evidence references, user corrections, and unresolved work. Do not request tools.",
                 ),
                 ChatMessage::text(MessageRole::User, transcript),
             ],
+            sequenced_messages: Vec::new(),
             tools: Vec::new(),
+            provider_contexts: Vec::new(),
+            compact_threshold_tokens: self.config.compact_threshold_tokens,
         };
         let mut last_error = None;
         let mut summary = None;
@@ -657,9 +798,11 @@ impl CodexRuntime {
                             detail: "compaction model returned a tool call".to_owned(),
                         });
                     }
-                    validate_summary(&response.text).map_err(|detail| CoreError::CompactionFailed {
-                        code: "SUMMARY_VALIDATION".to_owned(),
-                        detail,
+                    validate_checkpoint(&response.text, &messages).map_err(|detail| {
+                        CoreError::CompactionFailed {
+                            code: "SUMMARY_VALIDATION".to_owned(),
+                            detail,
+                        }
                     })
                 });
             match attempt_result {
@@ -740,7 +883,7 @@ impl CodexRuntime {
             effective.push(ChatMessage::text(
                 MessageRole::System,
                 format!(
-                    "Local thread summary (revision {}):\n{summary}",
+                    "Local conversation checkpoint (revision {}):\n{summary}",
                     state.revision
                 ),
             ));
@@ -761,8 +904,8 @@ impl CodexRuntime {
         }
         {
             let active = self.active_turns.lock().await;
-            for cancellation in active.values() {
-                cancellation.cancel();
+            for control in active.values() {
+                control.cancellation.cancel();
             }
         }
         let tasks = {
@@ -860,25 +1003,87 @@ fn estimate_tokens(messages: &[ChatMessage], summary: Option<&str>) -> usize {
     (message_bytes + summary.map(str::len).unwrap_or_default()).div_ceil(4)
 }
 
-fn validate_summary(raw: &str) -> Result<String, String> {
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LocalCheckpoint {
+    #[serde(default = "checkpoint_version")]
+    version: u8,
+    summary: String,
+    #[serde(default)]
+    goals: Vec<String>,
+    #[serde(default)]
+    constraints: Vec<String>,
+    #[serde(default)]
+    user_corrections: Vec<String>,
+    #[serde(default)]
+    literal_commands: Vec<String>,
+    #[serde(default)]
+    tool_facts: Vec<String>,
+    #[serde(default)]
+    evidence_refs: Vec<String>,
+    #[serde(default)]
+    unresolved: Vec<String>,
+    #[serde(default)]
+    permission_state: Option<String>,
+}
+
+fn checkpoint_version() -> u8 {
+    1
+}
+
+fn validate_checkpoint(raw: &str, messages: &[(i64, ChatMessage)]) -> Result<String, String> {
     if raw.trim().is_empty() {
         return Err("compaction response was empty".to_owned());
     }
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct SummaryEnvelope {
-        summary: String,
-    }
-    let envelope: SummaryEnvelope = serde_json::from_str(raw.trim())
-        .map_err(|error| format!("compaction response is not strict summary JSON: {error}"))?;
-    let summary = envelope.summary.trim();
+    let mut checkpoint: LocalCheckpoint = serde_json::from_str(raw.trim())
+        .map_err(|error| format!("compaction response is not strict checkpoint JSON: {error}"))?;
+    let summary = checkpoint.summary.trim();
     if summary.is_empty() {
         return Err("summary field is empty".to_owned());
     }
-    if summary.len() > 256_000 {
+    if raw.len() > 256_000 {
         return Err("summary exceeds 256000 bytes".to_owned());
     }
-    Ok(summary.to_owned())
+    checkpoint.version = 1;
+    checkpoint.summary = summary.to_owned();
+    for command in exact_cli_commands(messages) {
+        if !checkpoint.literal_commands.contains(&command) {
+            checkpoint.literal_commands.push(command);
+        }
+    }
+    serde_json::to_string(&checkpoint)
+        .map_err(|error| format!("unable to serialize validated checkpoint: {error}"))
+}
+
+fn exact_cli_commands(messages: &[(i64, ChatMessage)]) -> Vec<String> {
+    let mut commands = Vec::new();
+    for (_, message) in messages {
+        for call in &message.tool_calls {
+            let Ok(arguments) = serde_json::from_str::<Value>(&call.arguments) else {
+                continue;
+            };
+            match call.name.as_str() {
+                "cli_execute" => {
+                    if let Some(command) = arguments.get("command").and_then(Value::as_str) {
+                        commands.push(command.to_owned());
+                    }
+                }
+                "cli_execute_batch" => {
+                    commands.extend(
+                        arguments
+                            .get("commands")
+                            .and_then(Value::as_array)
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                            .map(str::to_owned),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+    commands
 }
 
 fn summarize_json(value: &Value, max_chars: usize) -> String {
@@ -920,6 +1125,7 @@ mod tests {
             atomic::{AtomicUsize, Ordering as AtomicOrdering},
         },
     };
+    use tokio::sync::Notify;
 
     use super::*;
     use crate::{
@@ -931,6 +1137,34 @@ mod tests {
     struct MockTransport {
         responses: StdMutex<VecDeque<Result<ModelResponse, CoreError>>>,
         requests: StdMutex<Vec<ModelRequest>>,
+    }
+
+    #[derive(Default)]
+    struct SteeringTransport {
+        first_started: Notify,
+        release_first: Notify,
+        calls: AtomicUsize,
+        requests: StdMutex<Vec<ModelRequest>>,
+    }
+
+    #[async_trait]
+    impl ModelTransport for SteeringTransport {
+        async fn stream(
+            &self,
+            request: ModelRequest,
+            _cancellation: CancellationToken,
+            _on_text_delta: Option<DeltaSink>,
+        ) -> Result<ModelResponse, CoreError> {
+            self.requests.lock().unwrap().push(request);
+            let call = self.calls.fetch_add(1, AtomicOrdering::AcqRel);
+            if call == 0 {
+                self.first_started.notify_one();
+                self.release_first.notified().await;
+                Ok(text_response("draft"))
+            } else {
+                Ok(text_response("revised with steering"))
+            }
+        }
     }
 
     struct MultiAgentTransport;
@@ -985,6 +1219,7 @@ mod tests {
                     }],
                     finish_reason: "tool_calls".to_owned(),
                     usage: None,
+                    provider_context: None,
                 });
             }
             if last.contains("child result") {
@@ -1004,6 +1239,7 @@ mod tests {
                 }],
                 finish_reason: "tool_calls".to_owned(),
                 usage: None,
+                provider_context: None,
             })
         }
     }
@@ -1066,6 +1302,7 @@ mod tests {
                         .collect(),
                     finish_reason: "tool_calls".to_owned(),
                     usage: None,
+                    provider_context: None,
                 });
             }
             Ok(ModelResponse {
@@ -1086,6 +1323,7 @@ mod tests {
                 ],
                 finish_reason: "tool_calls".to_owned(),
                 usage: None,
+                provider_context: None,
             })
         }
     }
@@ -1131,6 +1369,7 @@ mod tests {
                     }],
                     finish_reason: "tool_calls".to_owned(),
                     usage: None,
+                    provider_context: None,
                 });
             }
             Ok(ModelResponse {
@@ -1143,6 +1382,7 @@ mod tests {
                 }],
                 finish_reason: "tool_calls".to_owned(),
                 usage: None,
+                provider_context: None,
             })
         }
     }
@@ -1178,6 +1418,7 @@ mod tests {
                     }],
                     finish_reason: "tool_calls".to_owned(),
                     usage: None,
+                    provider_context: None,
                 });
             }
             let child_id = request.messages.iter().find_map(|message| {
@@ -1196,6 +1437,7 @@ mod tests {
                     }],
                     finish_reason: "tool_calls".to_owned(),
                     usage: None,
+                    provider_context: None,
                 });
             }
             Ok(ModelResponse {
@@ -1212,6 +1454,7 @@ mod tests {
                 }],
                 finish_reason: "tool_calls".to_owned(),
                 usage: None,
+                provider_context: None,
             })
         }
     }
@@ -1322,30 +1565,53 @@ mod tests {
                 completion_tokens: 1,
                 total_tokens: 2,
             }),
+            provider_context: None,
         }
     }
 
     #[test]
     fn compaction_summary_validation_rejects_empty_and_non_strict_payloads() {
         assert_eq!(
-            validate_summary("").unwrap_err(),
+            validate_checkpoint("", &[]).unwrap_err(),
             "compaction response was empty"
         );
         assert!(
-            validate_summary(r#"{"summary":""}"#)
+            validate_checkpoint(r#"{"summary":""}"#, &[])
                 .unwrap_err()
                 .contains("summary field is empty")
         );
         assert!(
-            validate_summary(r#"{"summary":"ok","extra":true}"#)
+            validate_checkpoint(r#"{"summary":"ok","extra":true}"#, &[])
                 .unwrap_err()
-                .contains("strict summary JSON")
+                .contains("strict checkpoint JSON")
         );
         assert!(
-            validate_summary("plain text")
+            validate_checkpoint("plain text", &[])
                 .unwrap_err()
-                .contains("strict summary JSON")
+                .contains("strict checkpoint JSON")
         );
+    }
+
+    #[test]
+    fn checkpoint_injects_exact_cli_commands_without_normalizing_spaces() {
+        let messages = vec![(
+            0,
+            ChatMessage {
+                role: MessageRole::Assistant,
+                content: None,
+                tool_calls: vec![ToolCall {
+                    index: 0,
+                    id: "call".to_owned(),
+                    name: "cli_execute".to_owned(),
+                    arguments: r#"{"command":"show system general"}"#.to_owned(),
+                }],
+                tool_call_id: None,
+            },
+        )];
+        let checkpoint = validate_checkpoint(r#"{"summary":"keep command"}"#, &messages).unwrap();
+        let value: Value = serde_json::from_str(&checkpoint).unwrap();
+        assert_eq!(value["version"], 1);
+        assert_eq!(value["literalCommands"][0], "show system general");
     }
 
     #[tokio::test]
@@ -1362,6 +1628,7 @@ mod tests {
                 }],
                 finish_reason: "tool_calls".to_owned(),
                 usage: None,
+                provider_context: None,
             }),
             Ok(text_response("done")),
         ]);
@@ -1403,6 +1670,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reopening_a_thread_preserves_previous_turn_corrections() {
+        let temp = TempDir::new().unwrap();
+        let first_transport = MockTransport::new(vec![Ok(text_response("acknowledged"))]);
+        let first_runtime = CodexRuntime::new(config(&temp, 10_000), first_transport).unwrap();
+        first_runtime
+            .create_thread("conversation-1", None, None, "root")
+            .unwrap();
+        first_runtime
+            .run_turn(
+                "conversation-1",
+                "参数之间是有空格的",
+                Vec::new(),
+                Arc::new(MockHost::default()),
+            )
+            .await
+            .unwrap();
+        first_runtime.dispose().await.unwrap();
+        drop(first_runtime);
+
+        let second_transport = MockTransport::new(vec![Ok(text_response("used correction"))]);
+        let second_runtime =
+            CodexRuntime::new(config(&temp, 10_000), second_transport.clone()).unwrap();
+        second_runtime.resume_thread("conversation-1").unwrap();
+        second_runtime
+            .run_turn(
+                "conversation-1",
+                "继续执行",
+                Vec::new(),
+                Arc::new(MockHost::default()),
+            )
+            .await
+            .unwrap();
+
+        let requests = second_transport.requests.lock().unwrap();
+        let contents = requests[0]
+            .messages
+            .iter()
+            .filter_map(|message| message.content.as_deref())
+            .collect::<Vec<_>>();
+        assert!(contents.contains(&"参数之间是有空格的"));
+        assert!(contents.contains(&"继续执行"));
+    }
+
+    #[tokio::test]
+    async fn steering_is_consumed_before_the_turn_can_finish() {
+        let temp = TempDir::new().unwrap();
+        let transport = Arc::new(SteeringTransport::default());
+        let runtime = CodexRuntime::new(config(&temp, 10_000), transport.clone()).unwrap();
+        runtime
+            .create_thread("conversation-1", None, None, "root")
+            .unwrap();
+        let running_runtime = runtime.clone();
+        let turn = tokio::spawn(async move {
+            running_runtime
+                .run_turn(
+                    "conversation-1",
+                    "执行 show system general",
+                    Vec::new(),
+                    Arc::new(MockHost::default()),
+                )
+                .await
+        });
+        transport.first_started.notified().await;
+        runtime
+            .steer_thread("conversation-1", "show 后面必须保留空格".to_owned())
+            .await
+            .unwrap();
+        transport.release_first.notify_one();
+        let result = turn.await.unwrap().unwrap();
+        assert_eq!(result.text, "draftrevised with steering");
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].messages.iter().any(|message| {
+            message.content.as_deref() == Some("show 后面必须保留空格")
+        }));
+    }
+
+    #[tokio::test]
     async fn parallel_safe_tool_calls_share_one_model_round_trip() {
         let temp = TempDir::new().unwrap();
         let transport = MockTransport::new(vec![
@@ -1428,6 +1773,7 @@ mod tests {
                     completion_tokens: 2,
                     total_tokens: 12,
                 }),
+                provider_context: None,
             }),
             Ok(text_response("done")),
         ]);

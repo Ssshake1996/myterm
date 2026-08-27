@@ -7,12 +7,15 @@ import { AiPanel } from "./AiPanel";
 const ipcMocks = vi.hoisted(() => ({
   agentAbort: vi.fn(),
   agentApprove: vi.fn(),
+  agentConversationCreate: vi.fn(),
+  agentConversationDelete: vi.fn(),
+  agentConversationList: vi.fn(),
+  agentConversationTasks: vi.fn(),
   agentRun: vi.fn(),
+  agentSteer: vi.fn(),
   agentSettingsGet: vi.fn(),
   agentSettingsSave: vi.fn(),
-  agentTaskDelete: vi.fn(),
   agentTaskEvents: vi.fn(),
-  agentTaskList: vi.fn(),
   aiProfileList: vi.fn(),
   errorMessage: (error: unknown, fallback: string) => {
     if (typeof error === "object" && error !== null && "message" in error) {
@@ -58,12 +61,32 @@ describe("AiPanel Agent trace", () => {
     ipcMocks.aiProfileList.mockResolvedValue([aiProfile]);
     ipcMocks.agentSettingsGet.mockResolvedValue(settings);
     ipcMocks.agentSettingsSave.mockImplementation(async (value) => value);
-    ipcMocks.agentTaskDelete.mockResolvedValue(true);
+    ipcMocks.agentConversationCreate.mockResolvedValue({
+      id: "conversation-1",
+      title: "新对话",
+      profileId: "ai-1",
+      createdAtMs: Date.now(),
+      updatedAtMs: Date.now(),
+      turnCount: 0,
+    });
+    ipcMocks.agentConversationDelete.mockResolvedValue(true);
+    ipcMocks.agentConversationList.mockResolvedValue([]);
+    ipcMocks.agentConversationTasks.mockResolvedValue([]);
     ipcMocks.agentTaskEvents.mockResolvedValue([]);
-    ipcMocks.agentTaskList.mockResolvedValue([]);
     ipcMocks.agentAbort.mockResolvedValue(undefined);
     ipcMocks.agentApprove.mockResolvedValue(undefined);
-    ipcMocks.agentRun.mockResolvedValue({ runId: "run", finishReason: "stop", steps: 1 });
+    ipcMocks.agentSteer.mockResolvedValue({
+      conversationId: "conversation-1",
+      turnId: "run",
+      accepted: true,
+    });
+    ipcMocks.agentRun.mockResolvedValue({
+      runId: "run",
+      conversationId: "conversation-1",
+      turnId: "run",
+      finishReason: "stop",
+      steps: 1,
+    });
     useLayoutStore.setState({
       activeTabId: "tab",
       tabs: [
@@ -96,6 +119,7 @@ describe("AiPanel Agent trace", () => {
     ipcMocks.agentRun.mockImplementation(
       async (
         _profileId: string,
+        _conversationId: string,
         _prompt: string,
         _sessionId: string,
         channel: { onmessage: (event: Record<string, unknown>) => void },
@@ -130,7 +154,13 @@ describe("AiPanel Agent trace", () => {
           content: "连接正常，可以继续排查。",
         });
         channel.onmessage({ eventType: "complete", runId: "run", step: 2, message: "stop" });
-        return { runId: "run", finishReason: "stop", steps: 2 };
+        return {
+          runId: "run",
+          conversationId: "conversation-1",
+          turnId: "run",
+          finishReason: "stop",
+          steps: 2,
+        };
       },
     );
     const user = userEvent.setup();
@@ -143,6 +173,7 @@ describe("AiPanel Agent trace", () => {
     await waitFor(() =>
       expect(ipcMocks.agentRun).toHaveBeenCalledWith(
         "ai-1",
+        "conversation-1",
         "检查连接",
         "session-active",
         expect.anything(),
@@ -159,6 +190,7 @@ describe("AiPanel Agent trace", () => {
     ipcMocks.agentRun.mockImplementation(
       async (
         _profileId: string,
+        _conversationId: string,
         _prompt: string,
         _sessionId: string,
         channel: { onmessage: (event: Record<string, unknown>) => void },
@@ -214,6 +246,7 @@ describe("AiPanel Agent trace", () => {
     await waitFor(() =>
       expect(ipcMocks.agentRun).toHaveBeenCalledWith(
         "ai-1",
+        "conversation-1",
         "先检查 A\n再观察 B",
         "session-active",
         expect.anything(),
@@ -251,13 +284,32 @@ describe("AiPanel Agent trace", () => {
   });
 
   it("starts a clearly separated new conversation from task history", async () => {
-    ipcMocks.agentTaskList.mockResolvedValue([
+    ipcMocks.agentConversationList.mockResolvedValue([
+      {
+        id: "saved-conversation-1",
+        title: "检查旧任务",
+        profileId: "ai-1",
+        createdAtMs: Date.now(),
+        updatedAtMs: Date.now(),
+        turnCount: 1,
+      },
+    ]);
+    ipcMocks.agentConversationTasks.mockResolvedValue([
       {
         id: "saved-task-1",
+        conversationId: "saved-conversation-1",
+        turnIndex: 1,
+        profileId: "ai-1",
         prompt: "检查旧任务",
         state: "succeeded",
+        permissionMode: "confirm",
         sessionId: "session-active",
+        createdAtMs: Date.now(),
         updatedAtMs: Date.now(),
+        finishReason: "stop",
+        steps: 1,
+        errorCode: null,
+        errorMessage: null,
       },
     ]);
     ipcMocks.agentTaskEvents.mockResolvedValue([
@@ -273,14 +325,49 @@ describe("AiPanel Agent trace", () => {
     const user = userEvent.setup();
     render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
 
-    await user.click(await screen.findByTitle("任务历史"));
+    await user.click(await screen.findByTitle("对话历史"));
     await user.click(screen.getByRole("button", { name: /检查旧任务/u }));
     expect(await screen.findByText("旧任务结果")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "新建对话" }));
     expect(screen.queryByText("旧任务结果")).not.toBeInTheDocument();
-    expect(screen.getByText("当前任务")).toBeInTheDocument();
+    expect(screen.getByTitle("新对话")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "输入 Agent 任务" })).toHaveFocus();
+  });
+
+  it("keeps the composer active and steers the running turn", async () => {
+    ipcMocks.agentRun.mockImplementation(
+      async (
+        _profileId: string,
+        _conversationId: string,
+        _prompt: string,
+        _sessionId: string,
+        channel: { onmessage: (event: Record<string, unknown>) => void },
+      ) => {
+        channel.onmessage({
+          eventType: "status",
+          runId: "run",
+          message: "Codex Core 正在执行",
+        });
+        return new Promise(() => undefined);
+      },
+    );
+    const user = userEvent.setup();
+    render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
+
+    await screen.findByRole("option", { name: "Ops AI · ops-model" });
+    const input = screen.getByRole("textbox", { name: "输入 Agent 任务" });
+    await user.type(input, "执行 show system general");
+    await user.click(screen.getByRole("button", { name: "运行 Agent" }));
+    await screen.findByRole("button", { name: "停止 Agent" });
+
+    expect(input).toBeEnabled();
+    await user.type(input, "参数之间是有空格的");
+    await user.click(screen.getByRole("button", { name: "追加要求" }));
+
+    await waitFor(() =>
+      expect(ipcMocks.agentSteer).toHaveBeenCalledWith("conversation-1", "参数之间是有空格的"),
+    );
   });
 
   it("renders the exact Agent failure detail and error code", async () => {
@@ -289,6 +376,7 @@ describe("AiPanel Agent trace", () => {
     ipcMocks.agentRun.mockImplementation(
       async (
         _profileId: string,
+        _conversationId: string,
         _prompt: string,
         _sessionId: string,
         channel: { onmessage: (event: Record<string, unknown>) => void },

@@ -1,4 +1,5 @@
 import type {
+  AgentConversation,
   AgentEvent,
   AgentRunResult,
   AgentSettings,
@@ -318,6 +319,7 @@ class DemoBackend {
   private aborted = false;
   private agentAborted = false;
   private approvals = new Map<string, (approved: boolean) => void>();
+  private agentConversations: AgentConversation[] = [];
 
   async appThemeGet() {
     return this.theme;
@@ -803,13 +805,16 @@ class DemoBackend {
   }
 
   async agentRun(
-    _profileId: string,
+    profileId: string,
+    requestedConversationId: string | null,
     prompt: string,
     activeSessionId: string | null,
     sink: MessageChannel<AgentEvent>,
   ): Promise<AgentRunResult> {
     this.agentAborted = false;
     const runId = crypto.randomUUID();
+    const conversationId =
+      requestedConversationId ?? (await this.agentConversationCreate(profileId, prompt)).id;
     const callId = crypto.randomUUID();
     let sequence = 0;
     const emit = (event: Omit<AgentEvent, "schemaVersion" | "sequence" | "createdAtMs">) => {
@@ -831,6 +836,8 @@ class DemoBackend {
       emit({ eventType: "complete", runId, step: 1, message: "stop" });
       return {
         runId,
+        conversationId,
+        turnId: runId,
         finishReason: "stop",
         steps: 1,
         modelRequests: 1,
@@ -879,6 +886,8 @@ class DemoBackend {
         });
         return {
           runId,
+          conversationId,
+          turnId: runId,
           finishReason: this.agentAborted ? "aborted" : "stop",
           steps: 1,
           modelRequests: 1,
@@ -935,6 +944,8 @@ class DemoBackend {
     });
     return {
       runId,
+      conversationId,
+      turnId: runId,
       finishReason: "stop",
       steps: 2,
       modelRequests: 2,
@@ -943,6 +954,36 @@ class DemoBackend {
       completionTokens: 54,
       totalTokens: 356,
     };
+  }
+
+  async agentConversationCreate(profileId: string, title?: string) {
+    const now = Date.now();
+    const conversation: AgentConversation = {
+      id: crypto.randomUUID(),
+      title: title?.trim() || "新对话",
+      profileId,
+      createdAtMs: now,
+      updatedAtMs: now,
+      turnCount: 0,
+    };
+    this.agentConversations.unshift(conversation);
+    return conversation;
+  }
+
+  async agentConversationList(limit: number) {
+    return this.agentConversations.slice(0, limit);
+  }
+
+  async agentConversationDelete(conversationId: string) {
+    const before = this.agentConversations.length;
+    this.agentConversations = this.agentConversations.filter(
+      (conversation) => conversation.id !== conversationId,
+    );
+    return this.agentConversations.length !== before;
+  }
+
+  async agentSteer(conversationId: string, _input: string) {
+    return { conversationId, turnId: "demo-running", accepted: true };
   }
 
   async agentApprove(callId: string, approved: boolean) {

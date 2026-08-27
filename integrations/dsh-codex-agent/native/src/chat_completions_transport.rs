@@ -2,7 +2,10 @@ use std::{collections::BTreeMap, time::Duration};
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use reqwest::{Client, StatusCode};
+use reqwest::{
+    Client, StatusCode,
+    header::{AUTHORIZATION, HeaderValue},
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
@@ -21,7 +24,7 @@ use crate::{
 pub struct ChatCompletionsTransport {
     client: Client,
     endpoint: Url,
-    api_key: String,
+    authorization: HeaderValue,
     model: String,
 }
 
@@ -37,6 +40,18 @@ impl ChatCompletionsTransport {
                 "the injected API key must not be empty".to_owned(),
             ));
         }
+        Self::new_with_authorization(base_url, format!("Bearer {api_key}"), model, timeout)
+    }
+
+    pub fn new_with_authorization(
+        base_url: &str,
+        authorization: String,
+        model: String,
+        timeout: Duration,
+    ) -> Result<Self, CoreError> {
+        let authorization = HeaderValue::from_str(&authorization).map_err(|error| {
+            CoreError::Configuration(format!("invalid Authorization header: {error}"))
+        })?;
         let endpoint = chat_completions_url(base_url)?;
         let client = Client::builder()
             .timeout(timeout)
@@ -45,7 +60,7 @@ impl ChatCompletionsTransport {
         Ok(Self {
             client,
             endpoint,
-            api_key,
+            authorization,
             model,
         })
     }
@@ -87,7 +102,7 @@ impl ModelTransport for ChatCompletionsTransport {
             }
             response = self.client
                 .post(self.endpoint.clone())
-                .bearer_auth(&self.api_key)
+                .header(AUTHORIZATION, self.authorization.clone())
                 .json(&body)
                 .send() => response.map_err(|error| request_error("send", error))?,
         };
@@ -365,6 +380,7 @@ impl ResponseAccumulator {
             tool_calls,
             finish_reason: self.finish_reason.unwrap_or_else(|| "stop".to_owned()),
             usage: self.usage,
+            provider_context: None,
         })
     }
 }
@@ -435,13 +451,19 @@ mod tests {
         )
         .unwrap()
         .request_body(ModelRequest {
+            provider_context_enabled: false,
+            thread_id: "test".to_owned(),
+            system_prompt: String::new(),
             messages,
+            sequenced_messages: Vec::new(),
             tools: vec![ToolDefinition {
                 name: "read_file".to_owned(),
                 description: "read".to_owned(),
                 parameters: json!({"type":"object"}),
                 parallel_safe: true,
             }],
+            provider_contexts: Vec::new(),
+            compact_threshold_tokens: 96_000,
         })
         .unwrap();
         let value = serde_json::to_value(body).unwrap();
@@ -471,6 +493,18 @@ mod tests {
             ResponseAccumulator::default().finish(),
             Err(CoreError::EmptyResponse)
         ));
+    }
+
+    #[test]
+    fn accepts_a_raw_authorization_value_for_api_key_gateways() {
+        let transport = ChatCompletionsTransport::new_with_authorization(
+            "https://gateway.example/v1",
+            "sk-raw-test".to_owned(),
+            "model".to_owned(),
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        assert_eq!(transport.authorization.to_str().unwrap(), "sk-raw-test");
     }
 
     #[derive(Clone)]
@@ -548,8 +582,14 @@ mod tests {
         let response = transport
             .stream(
                 ModelRequest {
+                    provider_context_enabled: false,
+                    thread_id: "test".to_owned(),
+                    system_prompt: String::new(),
                     messages: vec![ChatMessage::text(MessageRole::User, "go")],
+                    sequenced_messages: Vec::new(),
                     tools: Vec::new(),
+                    provider_contexts: Vec::new(),
+                    compact_threshold_tokens: 96_000,
                 },
                 CancellationToken::new(),
                 Some(Arc::new(move |delta| {
@@ -591,8 +631,14 @@ mod tests {
         let error = transport
             .stream(
                 ModelRequest {
+                    provider_context_enabled: false,
+                    thread_id: "test".to_owned(),
+                    system_prompt: String::new(),
                     messages: vec![ChatMessage::text(MessageRole::User, "go")],
+                    sequenced_messages: Vec::new(),
                     tools: Vec::new(),
+                    provider_contexts: Vec::new(),
+                    compact_threshold_tokens: 96_000,
                 },
                 CancellationToken::new(),
                 None,
@@ -627,8 +673,14 @@ mod tests {
         let timeout = timeout_transport
             .stream(
                 ModelRequest {
+                    provider_context_enabled: false,
+                    thread_id: "test".to_owned(),
+                    system_prompt: String::new(),
                     messages: vec![ChatMessage::text(MessageRole::User, "go")],
+                    sequenced_messages: Vec::new(),
                     tools: Vec::new(),
+                    provider_contexts: Vec::new(),
+                    compact_threshold_tokens: 96_000,
                 },
                 CancellationToken::new(),
                 None,

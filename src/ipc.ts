@@ -101,6 +101,7 @@ export type TerminalPalette = "graphite_gold" | "forest_amber" | "midnight_contr
 export type AiAuthMode = "bearer" | "api_key";
 
 export type AiModelRole = "primary" | "analysis" | "fallback";
+export type AiContextMode = "auto" | "responses" | "local_rollout";
 
 export interface AiModelConfig {
   id: string;
@@ -108,6 +109,8 @@ export interface AiModelConfig {
   model: string;
   role: AiModelRole;
   enabled: boolean;
+  context_window_tokens?: number;
+  compact_threshold_tokens?: number;
 }
 
 export interface AiRoutingConfig {
@@ -121,6 +124,7 @@ export interface AiProfile {
   base_url: string;
   api_key_ref: string;
   auth_mode: AiAuthMode;
+  context_mode?: AiContextMode;
   /** Legacy field; new configuration is stored in models. */
   model?: string;
   system_prompt: string;
@@ -290,6 +294,9 @@ export interface AgentEvent {
     | "tool_output"
     | "policy"
     | "context_compacted"
+    | "context_state"
+    | "user_steer"
+    | "steering_applied"
     | "runtime_metrics"
     | "hook"
     | "approval_required"
@@ -313,6 +320,8 @@ export interface AgentEvent {
 
 export interface AgentRunResult {
   runId: string;
+  conversationId: string;
+  turnId: string;
   finishReason: "stop" | "aborted" | "limit" | "loop_detected" | "error";
   steps: number;
   modelRequests?: number;
@@ -332,6 +341,8 @@ export type AgentTaskState =
 
 export interface AgentTask {
   id: string;
+  conversationId: string;
+  turnIndex: number;
   profileId: string;
   sessionId: string | null;
   prompt: string;
@@ -343,6 +354,21 @@ export interface AgentTask {
   steps: number;
   errorCode: string | null;
   errorMessage: string | null;
+}
+
+export interface AgentConversation {
+  id: string;
+  title: string;
+  profileId: string;
+  createdAtMs: number;
+  updatedAtMs: number;
+  turnCount: number;
+}
+
+export interface AgentSteerResult {
+  conversationId: string;
+  turnId: string;
+  accepted: boolean;
 }
 
 export interface ExecutionJob {
@@ -388,7 +414,7 @@ export function createChannel<T>(): MessageChannel<T> {
 export async function getAppInfo(): Promise<AppInfo> {
   if (!isDesktopRuntime) {
     return {
-      version: "0.7.1",
+      version: __APP_VERSION__,
       commitHash: "browser-demo",
       startupProfile: null,
       portable: false,
@@ -725,19 +751,52 @@ export async function agentMcpTest(server: McpServerConfig): Promise<McpToolInfo
 
 export async function agentRun(
   profileId: string,
+  conversationId: string | null,
   prompt: string,
   activeSessionId: string | null,
   onEvent: MessageChannel<AgentEvent>,
 ): Promise<AgentRunResult> {
   if (!isDesktopRuntime) {
-    return demoBackend.agentRun(profileId, prompt, activeSessionId, onEvent);
+    return demoBackend.agentRun(profileId, conversationId, prompt, activeSessionId, onEvent);
   }
   return invoke<AgentRunResult>("agent_run", {
     profileId,
+    conversationId,
     prompt,
     sessionId: activeSessionId,
     onEvent,
   });
+}
+
+export async function agentConversationCreate(
+  profileId: string,
+  title?: string,
+): Promise<AgentConversation> {
+  if (!isDesktopRuntime) return demoBackend.agentConversationCreate(profileId, title);
+  return invoke<AgentConversation>("agent_conversation_create", {
+    profileId,
+    title: title ?? null,
+  });
+}
+
+export async function agentConversationList(limit = 50): Promise<AgentConversation[]> {
+  if (!isDesktopRuntime) return demoBackend.agentConversationList(limit);
+  return invoke<AgentConversation[]>("agent_conversation_list", { limit });
+}
+
+export async function agentConversationTasks(conversationId: string): Promise<AgentTask[]> {
+  if (!isDesktopRuntime) return [];
+  return invoke<AgentTask[]>("agent_conversation_tasks", { conversationId });
+}
+
+export async function agentConversationDelete(conversationId: string): Promise<boolean> {
+  if (!isDesktopRuntime) return demoBackend.agentConversationDelete(conversationId);
+  return invoke<boolean>("agent_conversation_delete", { conversationId });
+}
+
+export async function agentSteer(conversationId: string, input: string): Promise<AgentSteerResult> {
+  if (!isDesktopRuntime) return demoBackend.agentSteer(conversationId, input);
+  return invoke<AgentSteerResult>("agent_steer", { conversationId, input });
 }
 
 export async function agentApprove(callId: string, approved: boolean): Promise<void> {

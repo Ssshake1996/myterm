@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   type AiAuthMode,
+  type AiContextMode,
   type AiErrorDiagnostic,
   type AiModelConfig,
   type AiModelRole,
@@ -68,6 +69,7 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
     profile?.routing?.fallback_on_error ?? true,
   );
   const [authMode, setAuthMode] = useState<AiAuthMode>(profile?.auth_mode ?? "bearer");
+  const [contextMode, setContextMode] = useState<AiContextMode>(profile?.context_mode ?? "auto");
   const [systemPrompt, setSystemPrompt] = useState(profile?.system_prompt ?? "");
   const [apiKey, setApiKey] = useState("");
   const [testing, setTesting] = useState(false);
@@ -84,6 +86,7 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
     base_url: baseUrl.trim().replace(/\/$/, ""),
     api_key_ref: profile?.api_key_ref ?? `ai.${id}.key`,
     auth_mode: authMode,
+    context_mode: contextMode,
     system_prompt: systemPrompt,
     models: models.map((item) => ({ ...item, model: item.model.trim() })),
     routing: {
@@ -109,6 +112,19 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
       !models.some((item) => item.enabled && item.model.trim())
     ) {
       notify("名称、Base URL 和至少一个启用模型不能为空", "error");
+      return;
+    }
+    const invalidContextModel = models.find((item) => {
+      if (!item.enabled) return false;
+      const windowTokens = item.context_window_tokens ?? 128000;
+      const thresholdTokens = item.compact_threshold_tokens ?? Math.floor(windowTokens * 0.75);
+      return windowTokens < 4096 || thresholdTokens < 2048 || thresholdTokens >= windowTokens;
+    });
+    if (invalidContextModel) {
+      notify(
+        `${invalidContextModel.name}的压缩阈值必须小于上下文窗口，且窗口不小于 4096 Token`,
+        "error",
+      );
       return;
     }
     setSaving(true);
@@ -258,6 +274,21 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
             <small>Bearer Token 适用于 OpenAI 兼容网关；API Key 保留原始密钥头值。</small>
           </label>
           <label className="field field-span">
+            <span>Agent 上下文协议</span>
+            <select
+              aria-label="Agent 上下文协议"
+              onChange={(event) => setContextMode(event.target.value as AiContextMode)}
+              value={contextMode}
+            >
+              <option value="auto">自动 · 优先 Responses，确认不支持后回退本地上下文</option>
+              <option value="responses">Responses · 原生增量上下文与压缩</option>
+              <option value="local_rollout">本地上下文 · Chat Completions checkpoint + tail</option>
+            </select>
+            <small>
+              自动模式会持久化能力探测结果；内网兼容网关不支持 Responses 时不会在每轮重复探测。
+            </small>
+          </label>
+          <label className="field field-span">
             <span>System Prompt</span>
             <textarea
               onChange={(event) => setSystemPrompt(event.target.value)}
@@ -335,6 +366,56 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
                       删除
                     </button>
                   ) : null}
+                  <div className="ai-model-context-limits">
+                    <label>
+                      <span>上下文窗口</span>
+                      <input
+                        aria-label={`${item.name}上下文窗口 Token`}
+                        min={4096}
+                        onChange={(event) =>
+                          setModels((current) =>
+                            current.map((candidate, candidateIndex) =>
+                              candidateIndex === index
+                                ? {
+                                    ...candidate,
+                                    context_window_tokens: event.target.value
+                                      ? Number(event.target.value)
+                                      : undefined,
+                                  }
+                                : candidate,
+                            ),
+                          )
+                        }
+                        placeholder="128000"
+                        type="number"
+                        value={item.context_window_tokens ?? ""}
+                      />
+                    </label>
+                    <label>
+                      <span>压缩阈值</span>
+                      <input
+                        aria-label={`${item.name}压缩阈值 Token`}
+                        min={2048}
+                        onChange={(event) =>
+                          setModels((current) =>
+                            current.map((candidate, candidateIndex) =>
+                              candidateIndex === index
+                                ? {
+                                    ...candidate,
+                                    compact_threshold_tokens: event.target.value
+                                      ? Number(event.target.value)
+                                      : undefined,
+                                  }
+                                : candidate,
+                            ),
+                          )
+                        }
+                        placeholder="96000"
+                        type="number"
+                        value={item.compact_threshold_tokens ?? ""}
+                      />
+                    </label>
+                  </div>
                 </div>
               ))}
             </div>

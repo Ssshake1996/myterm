@@ -641,7 +641,9 @@ mod tests {
         endpoint, failed_test, format_http_failure, parse_model_count, redact_and_bound,
         redact_api_key, with_auth, SseDecoder, MAX_DIAGNOSTIC_CHARS,
     };
-    use crate::types::{AiAuthMode, AiModelConfig, AiModelRole, AiProfile, AiRoutingConfig};
+    use crate::types::{
+        AiAuthMode, AiContextMode, AiModelConfig, AiModelRole, AiProfile, AiRoutingConfig,
+    };
 
     #[test]
     fn parses_split_sse_and_ignores_unknown_lines() -> Result<(), Box<dyn std::error::Error>> {
@@ -730,6 +732,7 @@ mod tests {
             base_url: "http://localhost".to_owned(),
             api_key_ref: "key".to_owned(),
             auth_mode: AiAuthMode::Bearer,
+            context_mode: AiContextMode::Auto,
             model: "model".to_owned(),
             system_prompt: String::new(),
             context_lines: 80,
@@ -739,6 +742,8 @@ mod tests {
                 model: "model".to_owned(),
                 role: AiModelRole::Primary,
                 enabled: true,
+                context_window_tokens: None,
+                compact_threshold_tokens: None,
             }],
             routing: AiRoutingConfig::default(),
         };

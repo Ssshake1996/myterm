@@ -2,6 +2,7 @@ mod chat_completions_sse;
 mod chat_completions_transport;
 mod error;
 mod model_transport;
+mod responses_transport;
 mod runtime;
 mod store;
 mod types;
@@ -19,6 +20,7 @@ use napi_derive::napi;
 pub use chat_completions_transport::ChatCompletionsTransport;
 pub use error::CoreError;
 pub use model_transport::ModelTransport;
+pub use responses_transport::ResponsesTransport;
 pub use runtime::{CodexRuntime, HostBridge};
 pub use types::*;
 
@@ -188,6 +190,14 @@ impl NativeCodexCore {
     #[napi(js_name = "cancelThread")]
     pub async fn cancel_thread(&self, thread_id: String) -> bool {
         self.runtime.cancel_thread(&thread_id).await
+    }
+
+    #[napi(js_name = "steerThread")]
+    pub async fn steer_thread(&self, thread_id: String, input: String) -> napi::Result<()> {
+        self.runtime
+            .steer_thread(&thread_id, input)
+            .await
+            .map_err(to_napi_error)
     }
 
     #[napi]

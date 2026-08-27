@@ -6,13 +6,13 @@ use std::{
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
-use super::domain::{now_ms, AgentTask, AgentTaskState, ExecutionJob};
+use super::domain::{now_ms, AgentConversation, AgentTask, AgentTaskState, ExecutionJob};
 use crate::{
     types::{AgentEvent, AGENT_EVENT_SCHEMA_VERSION},
     AppError,
 };
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 pub struct AgentStore {
     path: PathBuf,
@@ -31,16 +31,115 @@ impl AgentStore {
         &self.path
     }
 
+    pub fn create_conversation(
+        &self,
+        id: &str,
+        profile_id: &str,
+        title: &str,
+    ) -> Result<AgentConversation, AppError> {
+        let timestamp = now_ms();
+        let title = conversation_title(title);
+        self.with_connection(|connection| {
+            connection.execute(
+                "INSERT INTO agent_conversations(
+                    id, title, profile_id, created_at_ms, updated_at_ms
+                 ) VALUES(?1, ?2, ?3, ?4, ?4)",
+                params![id, title, profile_id, timestamp],
+            )?;
+            Ok(AgentConversation {
+                id: id.to_owned(),
+                title,
+                profile_id: profile_id.to_owned(),
+                created_at_ms: timestamp,
+                updated_at_ms: timestamp,
+                turn_count: 0,
+            })
+        })
+    }
+
+    pub fn conversation(&self, id: &str) -> Result<Option<AgentConversation>, AppError> {
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT c.id, c.title, c.profile_id, c.created_at_ms, c.updated_at_ms,
+                            COUNT(t.id)
+                     FROM agent_conversations c
+                     LEFT JOIN agent_tasks t ON t.conversation_id = c.id
+                     WHERE c.id = ?1
+                     GROUP BY c.id, c.title, c.profile_id, c.created_at_ms, c.updated_at_ms",
+                    [id],
+                    conversation_from_row,
+                )
+                .optional()
+                .map_err(Into::into)
+        })
+    }
+
+    pub fn conversations(&self, limit: usize) -> Result<Vec<AgentConversation>, AppError> {
+        self.with_connection(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT c.id, c.title, c.profile_id, c.created_at_ms, c.updated_at_ms,
+                        COUNT(t.id)
+                 FROM agent_conversations c
+                 LEFT JOIN agent_tasks t ON t.conversation_id = c.id
+                 GROUP BY c.id, c.title, c.profile_id, c.created_at_ms, c.updated_at_ms
+                 ORDER BY c.updated_at_ms DESC LIMIT ?1",
+            )?;
+            let rows = statement.query_map([limit.clamp(1, 200) as i64], conversation_from_row)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+        })
+    }
+
+    pub fn conversation_tasks(&self, conversation_id: &str) -> Result<Vec<AgentTask>, AppError> {
+        self.with_connection(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT id, conversation_id, turn_index, profile_id, session_id, prompt, state,
+                        permission_mode, created_at_ms, updated_at_ms, finish_reason, steps,
+                        error_code, error_message
+                 FROM agent_tasks WHERE conversation_id = ?1
+                 ORDER BY turn_index ASC, created_at_ms ASC",
+            )?;
+            let rows = statement.query_map([conversation_id], task_from_row)?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+        })
+    }
+
+    pub fn delete_conversation(&self, id: &str) -> Result<bool, AppError> {
+        self.with_connection(|connection| {
+            let transaction = connection.transaction()?;
+            transaction.execute("DELETE FROM agent_tasks WHERE conversation_id = ?1", [id])?;
+            let deleted =
+                transaction.execute("DELETE FROM agent_conversations WHERE id = ?1", [id])? > 0;
+            transaction.commit()?;
+            Ok(deleted)
+        })
+    }
+
+    pub fn next_turn_index(&self, conversation_id: &str) -> Result<u32, AppError> {
+        self.with_connection(|connection| {
+            let next: i64 = connection.query_row(
+                "SELECT COALESCE(MAX(turn_index), 0) + 1
+                 FROM agent_tasks WHERE conversation_id = ?1",
+                [conversation_id],
+                |row| row.get(0),
+            )?;
+            u32::try_from(next)
+                .map_err(|_| AppError::Storage("invalid agent turn index".to_owned()))
+        })
+    }
+
     pub fn create_task(&self, task: &AgentTask) -> Result<(), AppError> {
         self.with_connection(|connection| {
             connection.execute(
                 "INSERT INTO agent_tasks (
-                    id, profile_id, session_id, prompt, state, permission_mode,
+                    id, conversation_id, turn_index, profile_id, session_id, prompt, state, permission_mode,
                     created_at_ms, updated_at_ms, finish_reason, steps,
                     error_code, error_message, next_sequence
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1)",
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 1)",
                 params![
                     task.id,
+                    task.conversation_id,
+                    task.turn_index,
                     task.profile_id,
                     task.session_id,
                     task.prompt,
@@ -52,6 +151,20 @@ impl AgentStore {
                     task.steps,
                     task.error_code,
                     task.error_message,
+                ],
+            )?;
+            connection.execute(
+                "UPDATE agent_conversations SET updated_at_ms = ?2,
+                    title = CASE WHEN NOT EXISTS(
+                        SELECT 1 FROM agent_tasks
+                        WHERE conversation_id = ?1 AND id <> ?3
+                    ) THEN ?4 ELSE title END
+                 WHERE id = ?1",
+                params![
+                    task.conversation_id,
+                    task.updated_at_ms,
+                    task.id,
+                    conversation_title(&task.prompt),
                 ],
             )?;
             Ok(())
@@ -101,6 +214,11 @@ impl AgentStore {
                     error_code,
                     error_message,
                 ],
+            )?;
+            connection.execute(
+                "UPDATE agent_conversations SET updated_at_ms = ?2
+                 WHERE id = (SELECT conversation_id FROM agent_tasks WHERE id = ?1)",
+                params![task_id, now_ms()],
             )?;
             Ok(())
         })
@@ -172,7 +290,7 @@ impl AgentStore {
         self.with_connection(|connection| {
             connection
                 .query_row(
-                    "SELECT id, profile_id, session_id, prompt, state, permission_mode,
+                    "SELECT id, conversation_id, turn_index, profile_id, session_id, prompt, state, permission_mode,
                             created_at_ms, updated_at_ms, finish_reason, steps,
                             error_code, error_message
                      FROM agent_tasks WHERE id = ?1",
@@ -187,7 +305,7 @@ impl AgentStore {
     pub fn tasks(&self, limit: usize) -> Result<Vec<AgentTask>, AppError> {
         self.with_connection(|connection| {
             let mut statement = connection.prepare(
-                "SELECT id, profile_id, session_id, prompt, state, permission_mode,
+                "SELECT id, conversation_id, turn_index, profile_id, session_id, prompt, state, permission_mode,
                         created_at_ms, updated_at_ms, finish_reason, steps,
                         error_code, error_message
                  FROM agent_tasks ORDER BY created_at_ms DESC LIMIT ?1",
@@ -457,8 +575,19 @@ fn migrate(transaction: &Transaction<'_>) -> Result<(), AppError> {
             key TEXT PRIMARY KEY,
             value INTEGER NOT NULL
          );
+         CREATE TABLE IF NOT EXISTS agent_conversations (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            created_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS agent_conversations_updated_idx
+            ON agent_conversations(updated_at_ms DESC);
          CREATE TABLE IF NOT EXISTS agent_tasks (
             id TEXT PRIMARY KEY,
+            conversation_id TEXT,
+            turn_index INTEGER NOT NULL DEFAULT 1,
             profile_id TEXT NOT NULL,
             session_id TEXT,
             prompt TEXT NOT NULL,
@@ -533,6 +662,51 @@ fn migrate(transaction: &Transaction<'_>) -> Result<(), AppError> {
             [],
         )?;
     }
+    let has_conversation_column: i64 = transaction.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('agent_tasks') WHERE name = 'conversation_id'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_conversation_column == 0 {
+        transaction.execute(
+            "ALTER TABLE agent_tasks ADD COLUMN conversation_id TEXT",
+            [],
+        )?;
+    }
+    let has_turn_index_column: i64 = transaction.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('agent_tasks') WHERE name = 'turn_index'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_turn_index_column == 0 {
+        transaction.execute(
+            "ALTER TABLE agent_tasks ADD COLUMN turn_index INTEGER NOT NULL DEFAULT 1",
+            [],
+        )?;
+    }
+    transaction.execute(
+        "INSERT OR IGNORE INTO agent_conversations(
+            id, title, profile_id, created_at_ms, updated_at_ms
+         )
+         SELECT id,
+                CASE WHEN length(trim(prompt)) > 48
+                     THEN substr(trim(prompt), 1, 48) || '…'
+                     WHEN length(trim(prompt)) = 0 THEN '历史任务'
+                     ELSE trim(prompt) END,
+                profile_id, created_at_ms, updated_at_ms
+         FROM agent_tasks",
+        [],
+    )?;
+    transaction.execute(
+        "UPDATE agent_tasks SET conversation_id = id
+         WHERE conversation_id IS NULL OR trim(conversation_id) = ''",
+        [],
+    )?;
+    transaction.execute(
+        "CREATE INDEX IF NOT EXISTS agent_tasks_conversation_idx
+         ON agent_tasks(conversation_id, turn_index, created_at_ms)",
+        [],
+    )?;
     transaction.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -565,11 +739,11 @@ fn recover_interrupted_tasks(connection: &Connection, cutoff_ms: i64) -> Result<
 }
 
 fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentTask> {
-    let state: String = row.get(4)?;
-    let permission: String = row.get(5)?;
+    let state: String = row.get(6)?;
+    let permission: String = row.get(7)?;
     let state = AgentTaskState::try_from(state.as_str()).map_err(|message| {
         rusqlite::Error::FromSqlConversionFailure(
-            4,
+            6,
             rusqlite::types::Type::Text,
             Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -578,22 +752,47 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentTask> {
         )
     })?;
     let permission_mode = serde_json::from_str(&permission).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, Box::new(error))
+        rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(error))
     })?;
     Ok(AgentTask {
         id: row.get(0)?,
-        profile_id: row.get(1)?,
-        session_id: row.get(2)?,
-        prompt: row.get(3)?,
+        conversation_id: row.get(1)?,
+        turn_index: row.get(2)?,
+        profile_id: row.get(3)?,
+        session_id: row.get(4)?,
+        prompt: row.get(5)?,
         state,
         permission_mode,
-        created_at_ms: row.get(6)?,
-        updated_at_ms: row.get(7)?,
-        finish_reason: row.get(8)?,
-        steps: row.get(9)?,
-        error_code: row.get(10)?,
-        error_message: row.get(11)?,
+        created_at_ms: row.get(8)?,
+        updated_at_ms: row.get(9)?,
+        finish_reason: row.get(10)?,
+        steps: row.get(11)?,
+        error_code: row.get(12)?,
+        error_message: row.get(13)?,
     })
+}
+
+fn conversation_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentConversation> {
+    Ok(AgentConversation {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        profile_id: row.get(2)?,
+        created_at_ms: row.get(3)?,
+        updated_at_ms: row.get(4)?,
+        turn_count: u32::try_from(row.get::<_, i64>(5)?).unwrap_or(u32::MAX),
+    })
+}
+
+fn conversation_title(prompt: &str) -> String {
+    let normalized = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() {
+        return "新对话".to_owned();
+    }
+    let mut title = normalized.chars().take(48).collect::<String>();
+    if normalized.chars().count() > 48 {
+        title.push('…');
+    }
+    title
 }
 
 #[cfg(test)]
@@ -608,6 +807,8 @@ mod tests {
     fn task(id: &str) -> AgentTask {
         AgentTask {
             id: id.to_owned(),
+            conversation_id: id.to_owned(),
+            turn_index: 1,
             profile_id: "ai".to_owned(),
             session_id: Some("ssh".to_owned()),
             prompt: "inspect host".to_owned(),
@@ -670,6 +871,53 @@ mod tests {
                 .map_err(Into::into)
         })?;
         assert_eq!(api_table_count, 0);
+        drop(store);
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_tasks_are_migrated_to_single_turn_conversations(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let root = std::env::temp_dir().join(format!(
+            "myterm-conversation-migrate-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root)?;
+        let database_path = root.join("agent.db");
+        let legacy = Connection::open(&database_path)?;
+        legacy.execute_batch(
+            r#"CREATE TABLE agent_tasks (
+                id TEXT PRIMARY KEY,
+                profile_id TEXT NOT NULL,
+                session_id TEXT,
+                prompt TEXT NOT NULL,
+                state TEXT NOT NULL,
+                permission_mode TEXT NOT NULL,
+                created_at_ms INTEGER NOT NULL,
+                updated_at_ms INTEGER NOT NULL,
+                finish_reason TEXT,
+                steps INTEGER NOT NULL DEFAULT 0,
+                error_code TEXT,
+                error_message TEXT,
+                next_sequence INTEGER NOT NULL DEFAULT 1,
+                cancel_requested INTEGER NOT NULL DEFAULT 0
+             );
+             INSERT INTO agent_tasks VALUES(
+                'legacy-task', 'ai', NULL, '参数之间是有空格的', 'succeeded',
+                '"confirm"', 1, 2, 'stop', 1, NULL, NULL, 1, 0
+             );"#,
+        )?;
+        drop(legacy);
+
+        let store = AgentStore::new(database_path);
+        let conversations = store.conversations(10)?;
+        assert_eq!(conversations.len(), 1);
+        assert_eq!(conversations[0].id, "legacy-task");
+        let tasks = store.conversation_tasks("legacy-task")?;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].conversation_id, "legacy-task");
+        assert_eq!(tasks[0].turn_index, 1);
         drop(store);
         std::fs::remove_dir_all(root)?;
         Ok(())

@@ -2,6 +2,15 @@
 
 本文记录 0.8.0 对 Agent 的直接改进，以及后续保持轻量内核时最值得投入的优化。路线按风险、收益和对现有插件边界的影响排序；它不是把 myterm 扩展成通用编排平台的清单。
 
+## 0.9.11 已落地：Conversation/Turn 与 Provider Context Adapter
+
+- 稳定 Conversation 代替“每次发送新 thread”，Turn 历史、用户纠正、工具事实和 CLI 原样命令可持久恢复。
+- Turn 运行期间支持有界 steering；追加要求先持久化，再在模型决策边界消费，与 interrupt 保持独立。
+- Provider Context Adapter 优先使用 Responses `previous_response_id` 和原生压缩，对明确不支持的网关持久回退到 Chat checkpoint + tail。
+- 本地 checkpoint 为严格版本化 JSON，强制保留用户纠正、完整 CLI 命令及空格、Evidence 引用和未完成项。
+
+取舍：相比直接嵌入完整 Codex App Server，当前方案不新增常驻进程，保留 myterm 的 SSH/MCP/权限/审计边界和较小体积；代价是需要自行维护 provider 兼容性，Responses 此版先使用非流式完整响应。
+
 ## 0.9.10 已落地：动态 SSH 目标与 MCP 可诊断性
 
 - 活动 SSH 从“Task 默认绑定”降为被动候选。模型只有在用户明确指向当前终端时才设置 `use_active_session=true`；命名服务器必须经 `session_catalog`/`session_connect` 解析为明确 `session_id`，缺少目标时闭合失败。

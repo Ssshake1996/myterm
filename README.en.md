@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.9.10`
+Current version: `0.9.11`
 
 ## Core Features
 
@@ -19,6 +19,7 @@ Current version: `0.9.10`
 ### Terminal Workbench
 
 - A full xterm.js terminal with UTF-8, color, WebGL rendering, and automatic fitting.
+- Visible vertical scrollbars in SSH and local terminals make long logs and command output easier to navigate.
 - Multiple session tabs. Closing a tab disconnects every session it owns.
 - Right-side splitting, adjustable ratios, and an explicit close action for either pane. Closed panes never remain as hidden connections.
 - SSH failures preserve the original stage, code, and detail. Operators can select the text directly or copy the complete error with one action.
@@ -52,10 +53,12 @@ The Agent follows a Claude Code-style loop:
 task input -> model decision -> tool call -> result -> continue -> final answer
 ```
 
+- Persistent Conversations and Turns. Only New Conversation changes the context boundary; follow-up requirements, user corrections, tool facts, and exact commands survive across turns.
 - Persistent tasks, ordered events, approvals, tool audit records, background jobs, cancellation, and crash recovery.
 - A tool-centric timeline shows model decisions, tool names, parameter summaries, stdout, stderr, results, and status.
 - Task input supports `Shift+Enter` newlines and IME protection; a top handle expands the composer up to half the Agent panel height.
-- A visible New Conversation action clears the current trace without deleting history, and the history surface uses a distinct bordered, elevated panel.
+- New Conversation creates a real durable conversation. Conversation history groups and restores every turn instead of only clearing the current UI trace.
+- The composer stays editable while a turn runs. Add Requirement persists and injects steering at the next model-decision boundary, while Stop remains a separate action.
 - Built-in tools cover session metadata, terminal context, terminal input, structured SSH execution, host facts, directories, and files; inactive saved servers can be discovered and connected automatically, while the built-in Multi-SSH Coordinator provides serial coordination across explicit targets. The focused SSH pane is passive candidate metadata: general questions, MCP, Skills, and history do not read it automatically. The model must set `use_active_session=true` only when the user refers to the current terminal, or resolve a named server and pass an explicit `session_id`.
 - Structured execution records stdout/stderr separately with exit code, signal, timeout, cancellation, and disconnect outcomes.
 - Long operations can become background jobs with status, paged output, and cancellation tools.
@@ -64,6 +67,8 @@ task input -> model decision -> tool call -> result -> continue -> final answer
 - For interactive product CLIs, `cli_execute` locks terminal input, inspects the real xterm cursor line, sends only the missing suffix of the complete intended command, and waits for a prompt, interaction, quiet fallback, or timeout boundary in one host transaction. `cli_execute_batch` groups 1-8 independent known commands into one tool call, avoiding duplicated input and many tiny model requests.
 - The timeline records model-request, tool-call, and token counts for each turn. Independent read-only calls can execute concurrently within one model round, while dependent or effectful operations remain serial.
 - AI profiles persist as versioned JSON. A profile can define primary, analysis, and fallback models; when enabled, failed model requests fail over in role order and the Agent timeline records the selected model.
+- A Provider Context Adapter supports both Responses and Chat Completions. Auto mode prefers `previous_response_id` plus native provider compaction, then persistently falls back to local checkpoint + tail when a gateway is confirmed unsupported.
+- Per-model context-window and compaction thresholds are configurable. Local versioned JSON checkpoints preserve goals, constraints, user corrections, literal CLI commands, tool facts, Evidence references, and unresolved work.
 
 ### Permissions and Safety
 
@@ -182,10 +187,11 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 - [Standard Build and Release Process](docs/build-and-release.md)
 - [Agent Plugin Architecture](docs/agent-plugin-architecture.md)
 - [Agent Optimization Roadmap](docs/agent-optimization-roadmap.md)
+- [Codex Conversation Context Implementation](docs/agent-codex-context-plan.md)
 - [Codex × Harness Architecture Audit](docs/architecture/codex-harness-audit.md)
 - [dsh-codex-agent Implementation](docs/architecture/dsh-codex-agent-implementation.md)
 - [Codex Network Egress Audit](docs/architecture/codex-network-audit.md)
 
 ## Current Boundaries
 
-Version `0.9.10` adds dynamic SSH target resolution on top of the Capability Registry, Evidence Ledger, and atomic CLI Executor. The active pane is only a candidate, every session tool requires an explicit model choice, and missing targets fail closed. It also fixes terminal UI-scale cancellation, adds MCP status diagnostics and normalized result parsing, and reduces browser-autofill interference while editing saved sessions.
+Version `0.9.11` refactors the Agent around durable Conversations/Turns and a Provider Context Adapter, adding cross-turn corrections, in-flight steering, incremental Responses continuation, and local Chat checkpoint fallback. It also adds visible terminal scrollbars and makes product-CLI completion derive an exact missing suffix from the full intended command and the live cursor line, preserving parameter whitespace.
