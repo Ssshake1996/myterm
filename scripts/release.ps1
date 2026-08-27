@@ -168,7 +168,7 @@ if ($LASTEXITCODE -ne 0) {
   git commit -m "release: publish v$Version"
 }
 $tagRef = "v$Version"
-$existingTag = git rev-parse $tagRef 2>$null
+$tagExists = git show-ref --verify --quiet "refs/tags/$tagRef"
 if ($LASTEXITCODE -eq 0) {
   $head = git rev-parse HEAD
   $tagCommit = git rev-list -n 1 $tagRef
