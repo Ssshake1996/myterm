@@ -600,15 +600,28 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
                         {test.tools.map((tool) => (
                           <article key={`${tool.serverId}:${tool.name}`}>
                             <header>
-                              <code>{tool.name}</code>
+                              <code>{tool.title || tool.name}</code>
                               <span>{tool.transport || server.transport || "stdio"}</span>
                             </header>
+                            {tool.title ? <small>{tool.name}</small> : null}
                             <p>{tool.description || "未提供工具说明"}</p>
                             <small>
-                              {tool.serverName} · {tool.serverId}
+                              {tool.serverName} · {tool.capabilityId || tool.serverId}
                             </small>
                             <strong>Input Schema</strong>
                             <pre>{JSON.stringify(tool.inputSchema ?? {}, null, 2)}</pre>
+                            {tool.outputSchema ? (
+                              <>
+                                <strong>Output Schema</strong>
+                                <pre>{JSON.stringify(tool.outputSchema, null, 2)}</pre>
+                              </>
+                            ) : null}
+                            {tool.annotations ? (
+                              <>
+                                <strong>Annotations（仅作提示）</strong>
+                                <pre>{JSON.stringify(tool.annotations, null, 2)}</pre>
+                              </>
+                            ) : null}
                           </article>
                         ))}
                       </section>

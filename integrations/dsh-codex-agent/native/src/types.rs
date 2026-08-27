@@ -109,6 +109,8 @@ pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub parameters: Value,
+    #[serde(default)]
+    pub parallel_safe: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -270,6 +272,8 @@ pub struct TurnResult {
     pub finish_reason: String,
     pub usage: Option<TokenUsage>,
     pub steps: usize,
+    pub model_requests: usize,
+    pub tool_calls: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

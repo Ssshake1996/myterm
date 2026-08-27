@@ -59,7 +59,22 @@ struct ManagedSession {
     info: Mutex<SessionInfo>,
     buffer: Arc<TerminalBuffer>,
     screen: RwLock<Option<TerminalScreenSnapshot>>,
+    input_lock: Arc<tokio::sync::Mutex<()>>,
     control: SessionControl,
+}
+
+pub struct SessionInputGuard {
+    session: Arc<ManagedSession>,
+    _guard: tokio::sync::OwnedMutexGuard<()>,
+}
+
+impl SessionInputGuard {
+    pub async fn write(&self, data: &[u8]) -> Result<(), AppError> {
+        match &self.session.control {
+            SessionControl::Local(terminal) => terminal.write(data),
+            SessionControl::Ssh(terminal) => terminal.write(data).await,
+        }
+    }
 }
 
 pub struct SessionManager {
@@ -165,6 +180,7 @@ impl SessionManager {
             info: Mutex::new(connected.clone()),
             buffer,
             screen: RwLock::new(None),
+            input_lock: Arc::new(tokio::sync::Mutex::new(())),
             control,
         });
         self.sessions
@@ -210,11 +226,16 @@ impl SessionManager {
     }
 
     pub async fn write(&self, session_id: &str, data: &[u8]) -> Result<(), AppError> {
+        self.lock_input(session_id).await?.write(data).await
+    }
+
+    pub async fn lock_input(&self, session_id: &str) -> Result<SessionInputGuard, AppError> {
         let session = self.get(session_id)?;
-        match &session.control {
-            SessionControl::Local(terminal) => terminal.write(data),
-            SessionControl::Ssh(terminal) => terminal.write(data).await,
-        }
+        let guard = session.input_lock.clone().lock_owned().await;
+        Ok(SessionInputGuard {
+            session,
+            _guard: guard,
+        })
     }
 
     pub async fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<(), AppError> {

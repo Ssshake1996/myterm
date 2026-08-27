@@ -9,14 +9,15 @@ use dsh_codex_core::{
     ChatCompletionsTransport, CodexRuntime, CoreConfig, CoreError, HostBridge, ModelRequest,
     ModelTransport, RuntimeEvent, ToolDefinition, ToolExecutionResult, ToolInvocation,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::sync::{watch, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use super::{
     builtin,
+    capability::{CapabilityDescriptor, CapabilityRegistry, EvidenceLedger},
     hooks::{self, HookAction},
-    mcp::{McpTaskClient, McpToolDefinition},
+    mcp::McpTaskClient,
     policy::{self, PolicyAction},
     service::{self, AgentEventSink, AgentService},
 };
@@ -62,14 +63,14 @@ pub(crate) async fn run(
 
     let skill_context =
         super::skills::load_enabled(&settings.skill_directories, &settings.enabled_skills)?;
-    let mut mcp_tools = Vec::new();
+    let mut capabilities = Vec::new();
     let mut mcp_clients = HashMap::new();
     for server in settings.mcp_servers.iter().filter(|server| server.enabled) {
         match McpTaskClient::start(server).await {
             Ok(client) => match client.list_tools().await {
                 Ok(tools) => {
-                    mcp_tools.extend(tools);
-                    mcp_clients.insert(server.id.clone(), client);
+                    capabilities.extend(tools);
+                    mcp_clients.insert(server.id.clone(), Arc::new(Mutex::new(client)));
                 }
                 Err(error) => sink.send(service::mcp_error_event(&run_id, &server.name, &error))?,
             },
@@ -86,7 +87,8 @@ pub(crate) async fn run(
             "没有启用任何 AI 模型，请在 AI 服务设置中添加主模型".to_owned(),
         ));
     }
-    let system_prompt = build_system_prompt(&profile, &skill_context, &mcp_tools);
+    let registry = Arc::new(CapabilityRegistry::new(capabilities));
+    let system_prompt = build_system_prompt(&profile, &skill_context, registry.entries());
     let state_dir = service
         .config_path()
         .parent()
@@ -127,8 +129,9 @@ pub(crate) async fn run(
         run_id: run_id.clone(),
         session_id,
         settings,
-        mcp_tools: mcp_tools.clone(),
-        mcp_clients: Arc::new(Mutex::new(mcp_clients)),
+        registry: registry.clone(),
+        mcp_clients: Arc::new(mcp_clients),
+        evidence: Arc::new(Mutex::new(EvidenceLedger::default())),
         sink: sink.clone(),
         abort: abort.clone(),
     });
@@ -148,7 +151,12 @@ pub(crate) async fn run(
     });
 
     let result = runtime
-        .run_turn(&run_id, prompt.trim(), tool_definitions(&mcp_tools), host)
+        .run_turn(
+            &run_id,
+            prompt.trim(),
+            tool_definitions(&registry, prompt.trim()),
+            host,
+        )
         .await;
     // The watcher is intentionally long-lived while the turn is running. On a
     // normal turn completion no abort signal is sent, so awaiting it directly
@@ -159,6 +167,23 @@ pub(crate) async fn run(
 
     match result {
         Ok(turn) => {
+            let usage = turn.usage.clone().unwrap_or_default();
+            let mut metrics = service::event(
+                &run_id,
+                "runtime_metrics",
+                Some(format!(
+                    "本轮模型请求 {} 次 · 工具调用 {} 次 · Token {}",
+                    turn.model_requests, turn.tool_calls, usage.total_tokens
+                )),
+            );
+            metrics.arguments = Some(json!({
+                "modelRequests": turn.model_requests,
+                "toolCalls": turn.tool_calls,
+                "promptTokens": usage.prompt_tokens,
+                "completionTokens": usage.completion_tokens,
+                "totalTokens": usage.total_tokens,
+            }));
+            sink.send(metrics)?;
             if !turn.text.trim().is_empty() {
                 let mut answer = service::event(&run_id, "assistant", None);
                 answer.content = Some(turn.text);
@@ -173,12 +198,22 @@ pub(crate) async fn run(
                 run_id,
                 finish_reason: turn.finish_reason,
                 steps: turn.steps.min(u8::MAX as usize) as u8,
+                model_requests: turn.model_requests.min(u32::MAX as usize) as u32,
+                tool_calls: turn.tool_calls.min(u32::MAX as usize) as u32,
+                prompt_tokens: usage.prompt_tokens,
+                completion_tokens: usage.completion_tokens,
+                total_tokens: usage.total_tokens,
             })
         }
         Err(CoreError::Cancelled(_detail)) if *abort.borrow() => Ok(AgentRunResult {
             run_id,
             finish_reason: "aborted".to_owned(),
             steps: 0,
+            model_requests: 0,
+            tool_calls: 0,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
         }),
         Err(error) => {
             let mut failed = service::event(&run_id, "complete", Some("failed".to_owned()));
@@ -236,8 +271,9 @@ struct DshHostBridge {
     run_id: String,
     session_id: Option<String>,
     settings: AgentSettings,
-    mcp_tools: Vec<McpToolDefinition>,
-    mcp_clients: Arc<Mutex<HashMap<String, McpTaskClient>>>,
+    registry: Arc<CapabilityRegistry>,
+    mcp_clients: Arc<HashMap<String, Arc<Mutex<McpTaskClient>>>>,
+    evidence: Arc<Mutex<EvidenceLedger>>,
     sink: Arc<dyn AgentEventSink>,
     abort: watch::Receiver<bool>,
 }
@@ -351,24 +387,7 @@ impl HostBridge for DshHostBridge {
             });
         }
 
-        let clients = self.mcp_clients.lock().await;
-        let arguments = invocation.arguments.clone();
-        let result = self
-            .service
-            .execute_builtin_tool(
-                &self.run_id,
-                &invocation.call_id,
-                &invocation.name,
-                arguments,
-                self.session_id.as_deref(),
-                &self.settings,
-                &self.mcp_tools,
-                &clients,
-                self.sink.clone(),
-                self.abort.clone(),
-            )
-            .await;
-        drop(clients);
+        let result = self.execute_registered_tool(&invocation).await;
         match result {
             Ok(mut content) => {
                 if !hook_context.is_empty() {
@@ -398,6 +417,197 @@ impl HostBridge for DshHostBridge {
 }
 
 impl DshHostBridge {
+    async fn execute_registered_tool(
+        &self,
+        invocation: &ToolInvocation,
+    ) -> Result<String, AppError> {
+        if matches!(
+            invocation.name.as_str(),
+            "cli_execute" | "cli_execute_batch"
+        ) {
+            let refs = string_array(&invocation.arguments, "evidence_refs")?;
+            self.evidence.lock().await.validate_refs(&refs)?;
+        }
+        match invocation.name.as_str() {
+            "capability_search" => {
+                let query = service::argument_str(&invocation.arguments, "query")?;
+                let limit = invocation
+                    .arguments
+                    .get("limit")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(8) as usize;
+                let matches = self
+                    .registry
+                    .search(query, limit)
+                    .into_iter()
+                    .map(CapabilityDescriptor::summary)
+                    .collect::<Vec<_>>();
+                Ok(serde_json::to_string(&json!({
+                    "query": query,
+                    "matchCount": matches.len(),
+                    "capabilities": matches,
+                }))?)
+            }
+            "capability_invoke" => {
+                let id = service::argument_str(&invocation.arguments, "capability_id")?;
+                let arguments = invocation
+                    .arguments
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                self.invoke_capability(id, arguments).await
+            }
+            "capability_invoke_batch" => self.invoke_capability_batch(&invocation.arguments).await,
+            "evidence_read" => {
+                let id = service::argument_str(&invocation.arguments, "evidence_id")?;
+                let offset = invocation
+                    .arguments
+                    .get("offset")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                let limit = invocation
+                    .arguments
+                    .get("limit")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(64 * 1024) as usize;
+                let value = self.evidence.lock().await.read(id, offset, limit)?;
+                Ok(serde_json::to_string(&value)?)
+            }
+            name => {
+                if let Some(capability) = self.registry.find_by_model_name(name) {
+                    return self
+                        .invoke_capability(&capability.id, invocation.arguments.clone())
+                        .await;
+                }
+                self.service
+                    .execute_builtin_tool(
+                        &self.run_id,
+                        &invocation.call_id,
+                        &invocation.name,
+                        invocation.arguments.clone(),
+                        self.session_id.as_deref(),
+                        &self.settings,
+                        self.sink.clone(),
+                        self.abort.clone(),
+                    )
+                    .await
+            }
+        }
+    }
+
+    async fn invoke_capability(&self, id: &str, arguments: Value) -> Result<String, AppError> {
+        let capability = self
+            .registry
+            .find_by_id(id)
+            .ok_or_else(|| AppError::NotFound(format!("capability '{id}'")))?;
+        let client = self
+            .mcp_clients
+            .get(&capability.provider_id)
+            .ok_or_else(|| {
+                AppError::NotFound(format!("MCP server '{}'", capability.provider_id))
+            })?;
+        let result = client.lock().await.call_tool(capability, arguments).await?;
+        let raw = serde_json::to_value(&result)?;
+        let evidence_id = format!("ev-{}", uuid::Uuid::new_v4());
+        let record =
+            self.service
+                .persist_evidence(&self.run_id, &evidence_id, &capability.id, &raw)?;
+        let raw_bytes = record.bytes;
+        let raw_path = record.artifact_path.to_string_lossy().into_owned();
+        self.evidence.lock().await.insert(record);
+        let structured = result.structured_content.clone();
+        let structured_bytes = structured
+            .as_ref()
+            .and_then(|value| serde_json::to_vec(value).ok())
+            .map_or(0, |value| value.len());
+        let raw_text = serde_json::to_string(&raw)?;
+        let preview = if raw_text.len() <= 12 * 1024 {
+            raw_text
+        } else {
+            let mut boundary = 12 * 1024;
+            while !raw_text.is_char_boundary(boundary) {
+                boundary = boundary.saturating_sub(1);
+            }
+            format!(
+                "{}...[read evidence {} for the complete result]",
+                &raw_text[..boundary],
+                evidence_id
+            )
+        };
+        let packet = json!({
+            "evidenceId": evidence_id,
+            "capabilityId": capability.id,
+            "provider": {
+                "kind": capability.provider_kind,
+                "id": capability.provider_id,
+                "name": capability.provider_name,
+                "transport": capability.transport,
+            },
+            "tool": capability.original_name,
+            "status": if result.is_error == Some(true) { "error" } else { "success" },
+            "isError": result.is_error.unwrap_or(false),
+            "structuredContent": (structured_bytes <= 24 * 1024).then_some(structured).flatten(),
+            "structuredContentBytes": structured_bytes,
+            "readRequired": raw_bytes > 12 * 1024 || structured_bytes > 24 * 1024,
+            "contentPreview": preview,
+            "rawArtifact": raw_path,
+            "rawBytes": raw_bytes,
+            "outputSchemaValidated": capability.output_schema.is_some() && result.is_error != Some(true),
+        });
+        let encoded = serde_json::to_string(&packet)?;
+        if result.is_error == Some(true) {
+            return Err(AppError::Mcp {
+                code: "MCP_TOOL_ERROR",
+                detail: encoded,
+            });
+        }
+        Ok(encoded)
+    }
+
+    async fn invoke_capability_batch(&self, arguments: &Value) -> Result<String, AppError> {
+        let calls = arguments
+            .get("calls")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                AppError::InvalidInput("capability batch calls must be an array".to_owned())
+            })?;
+        if calls.is_empty() || calls.len() > 8 {
+            return Err(AppError::InvalidInput(
+                "capability_invoke_batch requires 1 to 8 calls".to_owned(),
+            ));
+        }
+        let mut results = Vec::with_capacity(calls.len());
+        let mut failed = false;
+        for call in calls {
+            let id = service::argument_str(call, "capability_id")?;
+            let tool_arguments = call.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            match self.invoke_capability(id, tool_arguments).await {
+                Ok(content) => results.push(serde_json::from_str::<Value>(&content)?),
+                Err(error) => {
+                    failed = true;
+                    results.push(json!({
+                        "capabilityId": id,
+                        "status": "error",
+                        "errorCode": error.code(),
+                        "error": error.detail(),
+                    }));
+                }
+            }
+        }
+        let encoded = serde_json::to_string(&json!({
+            "status": if failed { "partial_error" } else { "success" },
+            "results": results,
+        }))?;
+        if failed {
+            Err(AppError::Mcp {
+                code: "MCP_BATCH_ERROR",
+                detail: encoded,
+            })
+        } else {
+            Ok(encoded)
+        }
+    }
+
     async fn emit_post_hooks(&self, invocation: &ToolInvocation, is_error: bool, content: &str) {
         let event_name = if is_error {
             "ToolFailure"
@@ -445,8 +655,24 @@ impl DshHostBridge {
     }
 }
 
-fn tool_definitions(mcp_tools: &[McpToolDefinition]) -> Vec<ToolDefinition> {
-    service::tool_definitions(mcp_tools)
+fn string_array(arguments: &Value, name: &str) -> Result<Vec<String>, AppError> {
+    let Some(value) = arguments.get(name) else {
+        return Ok(Vec::new());
+    };
+    value
+        .as_array()
+        .ok_or_else(|| AppError::InvalidInput(format!("tool argument '{name}' must be an array")))?
+        .iter()
+        .map(|value| {
+            value.as_str().map(str::to_owned).ok_or_else(|| {
+                AppError::InvalidInput(format!("tool argument '{name}' must contain strings"))
+            })
+        })
+        .collect()
+}
+
+fn tool_definitions(registry: &CapabilityRegistry, prompt: &str) -> Vec<ToolDefinition> {
+    service::tool_definitions(registry, prompt)
         .into_iter()
         .filter_map(|value| {
             let function = value.get("function")?;
@@ -454,15 +680,36 @@ fn tool_definitions(mcp_tools: &[McpToolDefinition]) -> Vec<ToolDefinition> {
                 name: function.get("name")?.as_str()?.to_owned(),
                 description: function.get("description")?.as_str()?.to_owned(),
                 parameters: function.get("parameters")?.clone(),
+                parallel_safe: model_tool_parallel_safe(function.get("name")?.as_str()?),
             })
         })
         .collect()
 }
 
+fn model_tool_parallel_safe(name: &str) -> bool {
+    matches!(
+        name,
+        "terminal_context"
+            | "session_info"
+            | "session_catalog"
+            | "list_directory"
+            | "file_stat"
+            | "file_read"
+            | "file_search"
+            | "host_facts"
+            | "runbook"
+            | "job_status"
+            | "job_output"
+            | "skill_load"
+            | "capability_search"
+            | "evidence_read"
+    )
+}
+
 fn build_system_prompt(
     profile: &AiProfile,
     skill_context: &str,
-    mcp_tools: &[McpToolDefinition],
+    mcp_tools: &[CapabilityDescriptor],
 ) -> String {
     build_agent_system_prompt(profile.system_prompt.as_str(), skill_context, mcp_tools)
 }
@@ -470,7 +717,7 @@ fn build_system_prompt(
 fn build_agent_system_prompt(
     profile_prompt: &str,
     skill_context: &str,
-    mcp_tools: &[McpToolDefinition],
+    mcp_tools: &[CapabilityDescriptor],
 ) -> String {
     let mut sections = vec![DEFAULT_AGENT_SYSTEM_PROMPT.to_owned()];
     if !profile_prompt.trim().is_empty() {
@@ -491,18 +738,18 @@ fn build_agent_system_prompt(
     sections.join("\n\n")
 }
 
-fn mcp_capability_context(mcp_tools: &[McpToolDefinition]) -> String {
+fn mcp_capability_context(mcp_tools: &[CapabilityDescriptor]) -> String {
     if mcp_tools.is_empty() {
         return "MCP capability registry: no enabled MCP tools were discovered for this task. Do not invent MCP capabilities.".to_owned();
     }
     let servers = mcp_tools
         .iter()
-        .map(|tool| tool.server_id.as_str())
+        .map(|tool| tool.provider_id.as_str())
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
     format!(
-        "MCP capability registry (runtime-discovered): {} tool(s) from server(s) {}. The current model-facing tool catalog contains the authoritative names, descriptions, and JSON input Schemas. Use those definitions to choose a tool; if the catalog exposes mcp_tool_search/mcp_tool_call, search first and call only the exact returned pair.",
+        "External capability registry (runtime-discovered): {} MCP capability/capabilities from server(s) {}. Relevant small capabilities may be exposed directly. Use capability_search for the rest, capability_invoke/capability_invoke_batch with exact ids, and treat returned evidence ids, structured content, raw artifacts, and error states as authoritative.",
         mcp_tools.len(),
         servers.join(", ")
     )
@@ -613,7 +860,8 @@ fn app_error(error: AppError) -> CoreError {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_agent_system_prompt, stop_and_drain_cancel_task, McpToolDefinition};
+    use super::{build_agent_system_prompt, stop_and_drain_cancel_task};
+    use crate::agent::capability::CapabilityDescriptor;
     use serde_json::json;
     use std::{future::pending, time::Duration};
 
@@ -630,12 +878,19 @@ mod tests {
 
     #[test]
     fn agent_system_prompt_keeps_core_rules_and_describes_runtime_mcp_capabilities() {
-        let mcp_tools = vec![McpToolDefinition {
-            internal_name: "mcp__storage__show_filesystem".to_owned(),
-            server_id: "storage".to_owned(),
+        let mcp_tools = vec![CapabilityDescriptor {
+            id: "mcp:storage:show_filesystem".to_owned(),
+            model_name: "mcp__storage__show_filesystem".to_owned(),
+            provider_kind: "mcp".to_owned(),
+            provider_id: "storage".to_owned(),
+            provider_name: "Storage".to_owned(),
+            transport: "streamable-http".to_owned(),
             original_name: "show_filesystem".to_owned(),
+            title: Some("Show file systems".to_owned()),
             description: "Describe storage file systems".to_owned(),
             input_schema: json!({"type": "object"}),
+            output_schema: None,
+            annotations: None,
         }];
         let prompt = build_agent_system_prompt(
             "Prefer concise answers.",
@@ -647,8 +902,8 @@ mod tests {
         assert!(prompt.contains("Additional AI profile instructions"));
         assert!(prompt.contains("Use the storage deployment skill."));
         assert!(prompt.contains("runtime-discovered"));
-        assert!(prompt.contains("1 tool(s) from server(s) storage"));
-        assert!(prompt.contains("never invent an MCP server"));
+        assert!(prompt.contains("1 MCP capability/capabilities from server(s) storage"));
+        assert!(prompt.contains("exact ids"));
     }
 
     #[test]

@@ -116,6 +116,12 @@ const TOOL_LABELS: Record<string, string> = {
   session_info: "读取会话信息",
   session_catalog: "读取服务器会话目录",
   session_connect: "自动连接目标服务器",
+  cli_execute: "执行完整 CLI 命令",
+  cli_execute_batch: "批量执行 CLI 命令",
+  capability_search: "搜索外部能力",
+  capability_invoke: "调用外部能力",
+  capability_invoke_batch: "批量调用外部能力",
+  evidence_read: "读取原始证据",
   list_directory: "查看文件目录",
 };
 
@@ -224,6 +230,7 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
   }
   if (
     event.eventType === "mcp_error" ||
+    event.eventType === "runtime_metrics" ||
     event.eventType === "status" ||
     event.eventType === "hook" ||
     event.eventType === "context_compacted" ||

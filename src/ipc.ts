@@ -259,9 +259,13 @@ export interface McpToolInfo {
   serverId: string;
   serverName: string;
   transport: string;
+  capabilityId: string;
   name: string;
+  title?: string | null;
   description: string;
   inputSchema: unknown;
+  outputSchema?: unknown;
+  annotations?: unknown;
 }
 
 export interface AgentPluginInfo {
@@ -286,6 +290,7 @@ export interface AgentEvent {
     | "tool_output"
     | "policy"
     | "context_compacted"
+    | "runtime_metrics"
     | "hook"
     | "approval_required"
     | "tool_result"
@@ -310,6 +315,11 @@ export interface AgentRunResult {
   runId: string;
   finishReason: "stop" | "aborted" | "limit" | "loop_detected" | "error";
   steps: number;
+  modelRequests?: number;
+  toolCalls?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
 }
 
 export type AgentTaskState =

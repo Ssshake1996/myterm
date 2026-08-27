@@ -783,13 +783,21 @@ class DemoBackend {
         serverId: server.id,
         serverName: server.name,
         transport: server.transport,
+        capabilityId: `mcp:${server.id}:list`,
         name: `mcp__${server.name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}__list`,
+        title: "列出资源",
         description: "列出服务器提供的资源。",
         inputSchema: {
           type: "object",
           properties: { path: { type: "string", description: "要读取的资源路径" } },
           additionalProperties: false,
         },
+        outputSchema: {
+          type: "object",
+          properties: { resources: { type: "array" } },
+          required: ["resources"],
+        },
+        annotations: { readOnlyHint: true },
       },
     ];
   }
@@ -845,7 +853,16 @@ class DemoBackend {
           step: 1,
           message: this.agentAborted ? "aborted" : "stop",
         });
-        return { runId, finishReason: this.agentAborted ? "aborted" : "stop", steps: 1 };
+        return {
+          runId,
+          finishReason: this.agentAborted ? "aborted" : "stop",
+          steps: 1,
+          modelRequests: 1,
+          toolCalls: 1,
+          promptTokens: 180,
+          completionTokens: 24,
+          totalTokens: 204,
+        };
       }
     }
     const activeSession = sessionId ? this.sessions.get(sessionId) : undefined;
@@ -864,7 +881,28 @@ class DemoBackend {
       : "已读取活动会话信息，当前连接可用，可以继续执行终端排查。";
     emit({ eventType: "assistant", runId, step: 2, content: answer });
     emit({ eventType: "complete", runId, step: 2, message: "stop" });
-    return { runId, finishReason: "stop", steps: 2 };
+    emit({
+      eventType: "runtime_metrics",
+      runId,
+      message: "本轮模型请求 2 次 · 工具调用 1 次 · Token 356",
+      arguments: {
+        modelRequests: 2,
+        toolCalls: 1,
+        promptTokens: 302,
+        completionTokens: 54,
+        totalTokens: 356,
+      },
+    });
+    return {
+      runId,
+      finishReason: "stop",
+      steps: 2,
+      modelRequests: 2,
+      toolCalls: 1,
+      promptTokens: 302,
+      completionTokens: 54,
+      totalTokens: 356,
+    };
   }
 
   async agentApprove(callId: string, approved: boolean) {

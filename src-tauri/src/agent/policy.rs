@@ -52,9 +52,8 @@ pub fn evaluate_tool(name: &str, arguments: &Value, context: PolicyContext) -> P
     match name {
         "terminal_context" | "session_info" | "session_catalog" | "session_connect"
         | "list_directory" | "file_stat" | "file_read" | "file_search" | "host_facts"
-        | "runbook" | "job_status" | "job_output" | "mcp_tool_search" | "skill_load" => {
-            decide(Analysis::read("built-in read-only tool"), context)
-        }
+        | "runbook" | "job_status" | "job_output" | "capability_search" | "evidence_read"
+        | "skill_load" => decide(Analysis::read("built-in read-only tool"), context),
         "job_cancel" => decide(
             Analysis {
                 effect: ToolEffect::Execute,
@@ -93,12 +92,25 @@ pub fn evaluate_tool(name: &str, arguments: &Value, context: PolicyContext) -> P
                 context,
             )
         }
-        "remote_exec" | "terminal_send" => {
+        "remote_exec" | "terminal_send" | "cli_execute" => {
             let command = arguments
                 .get("command")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             decide(analyze_bash(command), context)
+        }
+        "cli_execute_batch" => {
+            let commands = arguments
+                .get("commands")
+                .and_then(Value::as_array)
+                .map(|commands| {
+                    commands
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            decide(analyze_command_batch(&commands), context)
         }
         _ => decide(
             Analysis {
@@ -113,6 +125,32 @@ pub fn evaluate_tool(name: &str, arguments: &Value, context: PolicyContext) -> P
             context,
         ),
     }
+}
+
+fn analyze_command_batch(commands: &[&str]) -> Analysis {
+    if commands.is_empty() {
+        return unknown("CLI command batch is empty or invalid");
+    }
+    let mut combined = Analysis::read("read-only command batch");
+    for command in commands {
+        let current = analyze_bash(command);
+        combined.effect = combined.effect.max(current.effect);
+        combined.risk = combined.risk.max(current.risk);
+        combined.commands.extend(current.commands);
+        combined.resources.extend(current.resources);
+        combined.parsed &= current.parsed;
+        combined.hard_deny |= current.hard_deny;
+    }
+    combined.commands.sort();
+    combined.commands.dedup();
+    combined.resources.sort();
+    combined.resources.dedup();
+    combined.reason = if combined.hard_deny {
+        "CLI command batch contains a non-overridable destructive operation".to_owned()
+    } else {
+        format!("CLI command batch contains {} command(s)", commands.len())
+    };
+    combined
 }
 
 fn decide(analysis: Analysis, context: PolicyContext) -> PolicyDecision {

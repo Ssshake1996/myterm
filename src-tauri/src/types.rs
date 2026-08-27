@@ -471,9 +471,13 @@ pub struct McpToolInfo {
     pub server_id: String,
     pub server_name: String,
     pub transport: String,
+    pub capability_id: String,
     pub name: String,
+    pub title: Option<String>,
     pub description: String,
     pub input_schema: Value,
+    pub output_schema: Option<Value>,
+    pub annotations: Option<Value>,
 }
 
 #[derive(Clone, Serialize)]
@@ -522,6 +526,11 @@ pub struct AgentRunResult {
     pub run_id: String,
     pub finish_reason: String,
     pub steps: u8,
+    pub model_requests: u32,
+    pub tool_calls: u32,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub total_tokens: u64,
 }
 
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]

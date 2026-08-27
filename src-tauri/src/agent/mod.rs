@@ -1,4 +1,5 @@
 pub mod builtin;
+pub mod capability;
 pub mod domain;
 pub mod dsh;
 pub mod hooks;

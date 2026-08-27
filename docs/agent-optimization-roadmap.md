@@ -2,6 +2,15 @@
 
 本文记录 0.8.0 对 Agent 的直接改进，以及后续保持轻量内核时最值得投入的优化。路线按风险、收益和对现有插件边界的影响排序；它不是把 myterm 扩展成通用编排平台的清单。
 
+## 0.9.9 已落地：请求合并、Capability Registry 与证据链
+
+- `cli_execute` 把“读取真实 xterm 光标行、补齐完整命令、等待完成边界、返回本次输出增量”收敛为一个原子主机工具；`cli_execute_batch` 在一次工具调用中串行执行 1-8 条互不依赖的已知命令。
+- Codex Core 支持在同一模型响应内并发执行宿主明确标记为 `parallel_safe` 的独立只读工具，并聚合本轮模型请求数、工具调用数和 Token 用量。副作用和依赖步骤仍串行。
+- MCP 工具进入任务级 Capability Registry。目录选择由任务相关度和 Schema 字节预算决定，固定 48 工具分支被移除；Input/Output Schema、title 和 annotations 保持完整。
+- MCP 结果形成 Evidence Ledger：原始返回落盘、长内容分页读取、`isError` 保持失败、CLI 命令引用 evidence id。模型不能把一次目录搜索的摘要当作实际命令依据。
+
+取舍：这套方案不引入代码解释器、通用 DAG、长期记忆或常驻服务，内核仍保持“模型轮次 + 工具边界”。代价是静默兜底无法像设备专用适配器一样识别所有 CLI 提示符，复杂依赖链也不会被强行批处理；它们以明确的完成原因、超时和后续模型决策处理。
+
 ## 0.8.0 已落地：完整输出与 JSON 多模型路由
 
 - `TerminalBuffer` 继续只保留轻量的 256 KiB 内存窗口，但 Agent 不再把窗口解释成“最近 N 行”。`terminal_context` 以 `offset/limit/nextOffset/eof` 返回 transcript range，模型可以按需读取完整长输出；远程执行 artifact 使用同样的分页思想。
@@ -24,7 +33,7 @@
 |---|---|---|---|
 | 原始诊断契约（已完成） | 人可以直接定位网关、SSH、MCP 和工具问题；模型能区分失败阶段 | 详情可能很长，必须脱敏并限制内存 | HTTP 401/502、超时、JSON、stderr 和 MCP spawn 错误在设置页、Agent 时间线和历史任务中一致可见 |
 | 结构化工具结果 | 让 Agent 区分非零退出、传输断开、超时、取消和权限拒绝，减少盲目重试 | 旧插件返回字符串，需要兼容迁移 | 每种状态都有稳定 code、原始 detail、retryable；非零退出不被当成 SSH 断线 |
-| 证据与完成判定 | 避免 Agent 只凭一句模型话术宣称成功 | 每个任务要多一次验证，增加延迟和模型上下文 | 变更类 Skill 必须引用命令结果或观察结果才能进入成功终态 |
+| 证据与完成判定（MCP→CLI 已完成） | 避免 Agent 只凭一句模型话术宣称成功 | 长证据需要一次分页读取，增加少量本地 I/O | MCP 生成的 CLI 引用任务内 evidence id；后续扩展到变更类 Skill 的最终验证 |
 
 ### P1：拆分可替换能力，但不增加常驻服务
 
@@ -52,6 +61,6 @@
 
 ## 推荐交付顺序
 
-`结构化工具结果 -> Provider trait -> MCP stderr/超时 -> 上下文预算 -> 证据完成判定 -> 多 SSH target -> checkpoint/resume -> provisioning -> 进程外插件`。
+`结构化工具结果 -> Capability Registry/证据链（已完成） -> Provider trait -> MCP stderr/健康监管 -> 变更完成判定 -> 多 SSH target -> checkpoint/resume -> provisioning -> 进程外插件`。
 
 每个阶段都必须通过 Rust/前端单测、错误原文回归、取消与权限回归、release 构建和覆盖安装检查。性能门槛保持不变：Agent 内核不增加常驻进程；工具输出有界或落盘引用；记录启动时间、工具首事件延迟、空闲 CPU、峰值内存和安装包体积。

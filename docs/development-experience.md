@@ -457,3 +457,38 @@ The skill workflow should produce:
 - A clean commit and publication report.
 
 This is source material only. The actual `SKILL.md` should be created later with the dedicated skill-creation workflow after the MVP process stabilizes.
+## 15. Agent 短请求与 MCP 命令证据重构（0.9.9）
+
+### 问题确认
+
+实际代码中存在两个通用问题，而不是单个产品 CLI 的特例：第一，Agent 的完整 CLI 操作被拆成 `terminal_context -> terminal_send -> 再读上下文`，模型容易一次只调用一个小工具；第二，MCP 目录只保留部分描述，固定以 48 个工具为分界，并把 `isError=true` 的返回当作普通字符串，模型缺少稳定的“查询依据 -> 命令 -> 执行结果”链路。
+
+### 方案比较
+
+| 方案 | 优点 | 缺点 | 结论 |
+|---|---|---|---|
+| 只修改 Prompt，要求模型少请求 | 改动最小 | 无法强制命令边界、Schema 校验和证据引用；换模型后容易回归 | 不采用为主方案 |
+| 给现有分支增加更多批量工具 | 短期可减少调用 | 每种协议继续增加专用分支，改 A 容易影响 B | 只保留通用 CLI/MCP batch 作为执行原语 |
+| Capability Registry + Evidence Ledger + 原子 CLI Executor | 工具发现、调用、证据和命令执行边界统一；可测试、可观测、便于扩展 Provider | 首版需要迁移工具 descriptor、策略和 UI；未知 CLI 提示符仍需兜底 | 采用 |
+
+### 实现决定
+
+1. Capability descriptor 保留 Provider、Transport、Input/Output Schema、annotations 和稳定 ID。小目录直接暴露，大目录按任务相关度和 Schema 字节预算选择，同时提供搜索入口。
+2. MCP 调用前后做 Schema 校验；完整原始结果落盘为 Evidence artifact。模型只拿有界预览，长结果分页读取。
+3. `cli_execute` 在一个输入锁事务内读取屏幕并写入缺失后缀，之后等待明确边界；`cli_execute_batch` 只接受互不依赖的完整命令。
+4. Codex Core 只并发宿主明确标记的只读工具。第三方 annotation 用于展示和未来适配，不直接降低权限或证明并发安全。
+5. 聚合模型请求、工具调用和 Token 指标，通过 Agent 时间线暴露，后续优化以数据为准。
+
+### 失败与修复
+
+- 初次重构把 Evidence 持久化方法放到了 `tool_definitions` 自由函数内部，Rust 编译器准确指出 `self` 不合法；移动回 `AgentService` 实现并补充编译检查。
+- Windows 全量 `cargo test` 发现 `live_check` 示例仍以值类型调用只对 `Arc<AgentService>` 提供的方法；示例改为与生产路径一致的 `Arc` 所有权。
+- MCP Header 测试使用字符串直接查询 `HashMap<HeaderName, _>`，哈希借用不保证大小写归一；改用规范化 `HeaderName` 查询，不改变运行时代码。
+- CLI 静默判定最初可能在完全没有活动时提前成功；加入 `saw_activity` 前置条件，把默认静默窗口提高到 1200 ms，并保留 `completionReason` 和超时结果。
+
+### 可复用经验
+
+- 减少模型请求不能只靠 Prompt，应该把“必须原子完成的一组宿主动作”定义成一个工具边界，把“可独立并行的读取”定义成调度元数据。
+- 外部知识查询必须返回稳定来源和原始证据；摘要适合模型阅读，不适合作为唯一事实存档。
+- 批处理只能合并独立工作。后一步参数依赖前一步结果时，强行 batch 会把延迟优化变成正确性缺陷。
+- 插件 annotations 是提示，不是信任根。权限、并发和重试仍由宿主的本地策略决定。

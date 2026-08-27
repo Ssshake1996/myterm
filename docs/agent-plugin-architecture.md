@@ -25,9 +25,19 @@
 
 每个插件必须提供稳定的 `id`、显示名称、版本、类型、描述和依赖提示。依赖提示用于配置展示和后续启动校验，不代表插件可以自行提升权限。`core.*` 依赖是内核服务能力，不是可被第三方替换的插件。
 
-### Tool descriptor
+### Capability descriptor 与注册表
 
-工具描述包含名称、说明、JSON Schema 和所属插件 id。Schema 由插件返回，Agent Loop 不维护工具白名单。MCP 工具在工具数量较少时直接挂载；目录过大时只挂载搜索和显式调用入口，避免一次运行撑满模型上下文。
+0.9.9 起，内置工具与 MCP 工具在模型边界统一为 Capability descriptor。描述包含稳定 capability id、模型安全名称、Provider/Transport、标题、说明、Input/Output Schema 和 annotations。Agent Loop 不维护 MCP 工具白名单，也不再以固定工具总数决定“全部挂载或全部隐藏”。小目录可直接挂载；大目录按任务语义和 Schema 字节预算选择相关能力，同时始终保留 `capability_search` 和准确 ID 调用入口。
+
+Capability Registry 负责发现、索引和上下文选择；Provider adapter 负责真实调用。当前外部 Provider 是 MCP，后续加入 SSH 文档、远端 API 或 provisioning 时复用同一 descriptor 和证据契约，不把协议细节写回 Codex Core。
+
+### Evidence ledger
+
+外部能力的完整原始结果按任务保存为 Evidence artifact，并登记 evidence id、capability id、路径和字节数。模型默认只收到有界预览与结构化内容；长结果通过 `evidence_read(offset, limit)` 继续读取。CLI 命令由 MCP 结果合成时必须把 evidence id 传给 `cli_execute`，宿主验证引用属于当前任务。MCP 的 `isError`、Schema 校验失败和原始返回不会被转写成成功结果。
+
+### 效果感知调度
+
+Codex Core 的工具定义增加 `parallel_safe`。只有宿主明确标记的独立只读工具才会在同一模型响应内并发；CLI 写入、外部副作用、审批、Subagent 和依赖链保持串行。`cli_execute_batch` 与 `capability_invoke_batch` 用一个工具调用承载多项已知工作，减少模型往返，但不会自动批处理依赖前一步输出的命令。
 
 ### Tool context
 
@@ -59,9 +69,10 @@
 
 1. 插件不是权限边界。所有有副作用的工具仍由统一策略决定，`deny > ask > allow`。
 2. Skill、MCP 和未来外部插件只能声明或调用内核工具，不能注入第二套执行器。
-3. MCP schema 按需挂载；事件参数沿用现有摘要、截断和脱敏规则。
+3. MCP schema 按任务语义与字节预算挂载；输入和声明过的结构化输出执行本地 JSON Schema 校验，事件参数沿用现有摘要、截断和脱敏规则。
 4. 默认注册表不启动常驻子进程。只有任务启用 MCP 时才创建任务级客户端，并在任务结束时释放。
 5. 任何新增插件都必须补充 manifest 测试、工具 schema 测试、拒绝路径测试和一次发布构建检查。
+6. 并发标记由宿主代码决定，不能直接信任第三方 annotation 作为权限或并发安全证明。
 
 ## 后续演进
 

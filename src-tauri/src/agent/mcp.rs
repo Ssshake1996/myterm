@@ -2,7 +2,7 @@ use std::{collections::HashMap, time::Duration};
 
 use http::{HeaderName, HeaderValue};
 use rmcp::{
-    model::CallToolRequestParams,
+    model::{CallToolRequestParams, CallToolResult},
     transport::{
         streamable_http_client::StreamableHttpClientTransportConfig, StreamableHttpClientTransport,
         TokioChildProcess,
@@ -10,9 +10,11 @@ use rmcp::{
     ServiceExt,
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tokio::process::Command;
 
 use crate::{
+    agent::capability::CapabilityDescriptor,
     types::{McpServerConfig, McpToolInfo, McpTransportKind},
     AppError,
 };
@@ -38,7 +40,7 @@ impl McpTaskClient {
         })
     }
 
-    pub async fn list_tools(&self) -> Result<Vec<McpToolDefinition>, AppError> {
+    pub async fn list_tools(&self) -> Result<Vec<CapabilityDescriptor>, AppError> {
         let tools = tokio::time::timeout(Duration::from_secs(15), self.client.list_all_tools())
             .await
             .map_err(|_| {
@@ -57,26 +59,46 @@ impl McpTaskClient {
             })?;
         Ok(tools
             .into_iter()
-            .map(|tool| McpToolDefinition {
-                internal_name: tool_name(&self.server.id, &tool.name),
-                server_id: self.server.id.clone(),
+            .map(|tool| CapabilityDescriptor {
+                id: capability_id(&self.server.id, &tool.name),
+                model_name: tool_name(&self.server.id, &tool.name),
+                provider_kind: "mcp".to_owned(),
+                provider_id: self.server.id.clone(),
+                provider_name: self.server.name.clone(),
+                transport: transport_label(&self.server.transport).to_owned(),
                 original_name: tool.name.into_owned(),
+                title: tool.title,
                 description: tool
                     .description
                     .map_or_else(String::new, |value| value.into_owned()),
                 input_schema: Value::Object((*tool.input_schema).clone()),
+                output_schema: tool
+                    .output_schema
+                    .map(|schema| Value::Object((*schema).clone())),
+                annotations: tool
+                    .annotations
+                    .and_then(|annotations| serde_json::to_value(annotations).ok()),
             })
             .collect())
     }
 
-    pub async fn call_tool(&self, tool_name: &str, arguments: Value) -> Result<String, AppError> {
+    pub async fn call_tool(
+        &self,
+        tool: &CapabilityDescriptor,
+        arguments: Value,
+    ) -> Result<CallToolResult, AppError> {
         let arguments = arguments.as_object().cloned().ok_or_else(|| {
             AppError::InvalidInput("MCP tool arguments must be a JSON object".to_owned())
         })?;
+        validate_schema(
+            &tool.input_schema,
+            &Value::Object(arguments.clone()),
+            &format!("MCP capability '{}' input", tool.id),
+        )?;
         let result = tokio::time::timeout(
             Duration::from_secs(60),
             self.client.call_tool(
-                CallToolRequestParams::new(tool_name.to_owned()).with_arguments(arguments),
+                CallToolRequestParams::new(tool.original_name.clone()).with_arguments(arguments),
             ),
         )
         .await
@@ -85,7 +107,7 @@ impl McpTaskClient {
                 "MCP server '{}' [{}] tool '{}' timed out",
                 self.server.name,
                 transport_label(&self.server.transport),
-                tool_name
+                tool.original_name
             ))
         })?
         .map_err(|error| {
@@ -93,10 +115,25 @@ impl McpTaskClient {
                 "MCP server '{}' [{}] tool '{}' failed: {error}",
                 self.server.name,
                 transport_label(&self.server.transport),
-                tool_name
+                tool.original_name
             ))
         })?;
-        serde_json::to_string(&result).map_err(Into::into)
+        if result.is_error != Some(true) {
+            if let Some(output_schema) = tool.output_schema.as_ref() {
+                let structured = result.structured_content.as_ref().ok_or_else(|| {
+                    AppError::Agent(format!(
+                        "MCP capability '{}' declares outputSchema but returned no structuredContent",
+                        tool.id
+                    ))
+                })?;
+                validate_schema(
+                    output_schema,
+                    structured,
+                    &format!("MCP capability '{}' output", tool.id),
+                )?;
+            }
+        }
+        Ok(result)
     }
 
     pub async fn close(&mut self) {
@@ -110,14 +147,7 @@ impl Drop for McpTaskClient {
     }
 }
 
-#[derive(Clone)]
-pub struct McpToolDefinition {
-    pub internal_name: String,
-    pub server_id: String,
-    pub original_name: String,
-    pub description: String,
-    pub input_schema: Value,
-}
+pub type McpToolDefinition = CapabilityDescriptor;
 
 pub async fn list_tools(server: &McpServerConfig) -> Result<Vec<McpToolDefinition>, AppError> {
     let mut client = McpTaskClient::start(server).await?;
@@ -134,9 +164,13 @@ pub async fn list_tool_info(server: &McpServerConfig) -> Result<Vec<McpToolInfo>
             server_id: server.id.clone(),
             server_name: server.name.clone(),
             transport: transport_label(&server.transport).to_owned(),
+            capability_id: tool.id,
             name: tool.original_name,
+            title: tool.title,
             description: tool.description,
             input_schema: tool.input_schema,
+            output_schema: tool.output_schema,
+            annotations: tool.annotations,
         })
         .collect())
 }
@@ -147,9 +181,31 @@ pub async fn call_tool(
     arguments: Value,
 ) -> Result<String, AppError> {
     let mut client = McpTaskClient::start(server).await?;
-    let result = client.call_tool(tool_name, arguments).await;
+    let tool = client
+        .list_tools()
+        .await?
+        .into_iter()
+        .find(|tool| tool.original_name == tool_name)
+        .ok_or_else(|| AppError::NotFound(format!("MCP tool '{tool_name}'")))?;
+    let result = client
+        .call_tool(&tool, arguments)
+        .await
+        .and_then(|result| serde_json::to_string(&result).map_err(Into::into));
     client.close().await;
     result
+}
+
+fn validate_schema(schema: &Value, instance: &Value, label: &str) -> Result<(), AppError> {
+    let validator = jsonschema::options()
+        .offline()
+        .build(schema)
+        .map_err(|error| AppError::Agent(format!("{label} schema is invalid: {error}")))?;
+    if let Err(error) = validator.validate(instance) {
+        return Err(AppError::InvalidInput(format!(
+            "{label} does not match its JSON Schema: {error}"
+        )));
+    }
+    Ok(())
 }
 
 async fn connect(server: &McpServerConfig) -> Result<RunningClient, AppError> {
@@ -279,7 +335,21 @@ fn transport_label(transport: &McpTransportKind) -> &'static str {
 }
 
 fn tool_name(server_id: &str, name: &str) -> String {
-    format!("mcp__{}__{}", sanitize(server_id), sanitize(name))
+    const MAX_MODEL_TOOL_NAME_BYTES: usize = 64;
+    const HASH_BYTES: usize = 4;
+    let base = format!("mcp__{}__{}", sanitize(server_id), sanitize(name));
+    let digest = Sha256::digest(format!("{server_id}\0{name}").as_bytes());
+    let suffix = digest[..HASH_BYTES]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let prefix_limit = MAX_MODEL_TOOL_NAME_BYTES.saturating_sub(suffix.len() + 2);
+    let prefix = &base[..base.len().min(prefix_limit)];
+    format!("{prefix}__{suffix}")
+}
+
+fn capability_id(server_id: &str, name: &str) -> String {
+    format!("mcp:{server_id}:{name}")
 }
 
 fn sanitize(value: &str) -> String {
@@ -297,16 +367,35 @@ fn sanitize(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{custom_headers, tool_name};
+    use super::{custom_headers, tool_name, validate_schema};
     use crate::types::{McpHeader, McpServerConfig, McpTransportKind};
     use serde_json::json;
 
     #[test]
     fn mcp_tool_names_are_model_safe_and_namespaced() {
-        assert_eq!(
-            tool_name("git server", "status/list"),
-            "mcp__git_server__status_list"
+        let name = tool_name("git server", "status/list");
+        assert!(name.starts_with("mcp__git_server__status_list__"));
+        assert!(name.len() <= 64);
+        assert_ne!(
+            tool_name("git-server", "status/list"),
+            tool_name("git_server", "status/list")
         );
+    }
+
+    #[test]
+    fn capability_arguments_are_checked_against_the_discovered_schema() {
+        let schema = json!({
+            "type": "object",
+            "required": ["product"],
+            "properties": {
+                "product": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+        });
+        validate_schema(&schema, &json!({"product":"array"}), "input").unwrap();
+        let error = validate_schema(&schema, &json!({"unknown":true}), "input").unwrap_err();
+        assert_eq!(error.code(), "invalid_input");
+        assert!(error.detail().contains("does not match its JSON Schema"));
     }
 
     #[test]
@@ -327,7 +416,12 @@ mod tests {
         };
         let headers = custom_headers(&server).expect("headers should parse");
         assert_eq!(headers.len(), 1);
-        assert_eq!(headers.get("authorization").unwrap(), "Bearer sk-test");
+        assert_eq!(
+            headers
+                .get(&http::HeaderName::from_static("authorization"))
+                .unwrap(),
+            "Bearer sk-test"
+        );
     }
 
     #[test]

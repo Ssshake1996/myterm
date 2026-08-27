@@ -440,6 +440,7 @@ mod tests {
                 name: "read_file".to_owned(),
                 description: "read".to_owned(),
                 parameters: json!({"type":"object"}),
+                parallel_safe: true,
             }],
         })
         .unwrap();

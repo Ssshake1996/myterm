@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.9.8。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.9.9。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -233,8 +233,10 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 
 - `session_catalog`：按名称、分组、主机或用户查找已保存服务器，返回每个服务器的实时状态和最近一次 SSH 连接诊断；不会返回凭据。
 - `session_info`：读取活动会话和服务器信息，也可以传入 `session_id`、`profile_id` 或 `profile_name` 查询非活动会话或已保存服务器。
-- `terminal_context`：按 offset 读取终端 transcript，并返回活动 xterm 最近同步的可见屏幕、光标行、光标前内容和更新时间。
-- `terminal_send`：向交互终端发送输入；可传入 `session_id` 指定非活动 SSH 会话。默认 `input_mode=complete_line`，参数 `command` 表示完整目标命令，宿主根据光标前内容只发送缺失后缀；`raw` 只用于确认、分页键或其他交互输入。
+- `terminal_context`：按 offset 读取终端 transcript，并返回活动 xterm 最近同步的可见屏幕、光标行、光标前内容和更新时间。单次最多读取 64 KiB，按 `nextOffset` 可继续读取。
+- `cli_execute`：执行一条完整的交互式 CLI 命令。宿主锁定该会话的输入，在同一事务内读取真实光标行、只发送缺失后缀，并等待提示符、交互、静默兜底或超时；返回本次命令的输出增量和完成原因。
+- `cli_execute_batch`：把 1-8 条互不依赖、无需根据前一条结果改写的已知命令串行执行在一次工具调用中；遇到交互或超时立即停止。
+- `terminal_send`：低层交互输入。`raw` 只用于确认、分页键、控制键或已经运行的 REPL；完整命令优先使用 `cli_execute`。
 - `remote_exec`：通过独立 SSH exec channel 运行结构化命令；可传入 `session_id` 指定目标会话。
 - `host_facts`：读取系统、CPU、内存、磁盘和网络等主机事实。
 - `list_directory`：列出本地或远程目录。
@@ -244,6 +246,8 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 - `file_write`：原子写入文件并进行校验。
 - `file_patch`：基于哈希锁修改已知内容并读回验证。
 - `job_status`、`job_output`、`job_cancel`：管理后台执行任务。
+- `capability_search`、`capability_invoke`、`capability_invoke_batch`：搜索并调用任务启动时发现的外部能力。
+- `evidence_read`：按 offset 读取 MCP 原始证据文件；证据只在当前任务内有效。
 
 终端上下文、主机事实、Runbook、SFTP 和文件工具同样支持可选 `session_id`。Agent 应先用
 `session_catalog` 找到用户所说的环境，再把返回的 `session_id` 传给后续工具；没有实时会话时，
@@ -251,7 +255,9 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 
 结构化命令会分别记录 stdout 和 stderr，并保存退出码、信号、超时、取消或连接断开状态。大输出使用受限 artifact 和首尾预览，防止界面与模型上下文无限增长。
 
-对于会自动补齐输入的交换机、存储或业务 CLI，Agent 必须先读取 `terminal_context`。如果终端已经显示 `show system`，目标命令为 `show system general`，宿主只发送 ` general` 和回车；如果现场是另一条不相容的命令，工具会原样返回当前光标行并停止写入，不会猜测、清行或继续拼接。没有前端 xterm 的后台 SSH 会话没有人工输入竞争，仍可发送完整命令。
+对于会自动补齐输入的交换机、存储或业务 CLI，Agent 把完整目标命令交给 `cli_execute`。如果终端已经显示 `show system`，目标命令为 `show system general`，宿主只发送 ` general` 和回车；如果现场是另一条不相容的命令，工具会原样返回当前光标行并停止写入，不会猜测、清行或继续拼接。命令完成判定优先使用真实提示符或交互提示，无法识别特定设备提示符时才使用有活动前提的静默兜底，最后由超时终止。
+
+当多条 CLI 命令已经确定且互不依赖时，Agent 使用 `cli_execute_batch` 一次提交，减少“模型请求一次、只发一小段命令、再请求一次”的往返。后一条命令需要根据前一条输出决定时不得批处理，以免把错误扩散到后续操作。时间线末尾会显示本轮模型请求数、工具调用数和 Token 用量，便于识别低效循环。
 
 ## 后台 Job
 
@@ -274,9 +280,11 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 
 MCP 支持 `stdio` 和 `streamable-http` 两种传输。添加服务器时先选择传输类型：stdio 配置命令、参数和工作目录；streamable-http 配置 MCP URL 和可选请求头（例如 `Authorization: Bearer ...`），然后先执行连接测试。
 
-- 测试成功后会显示工具数量；点击“查看详情”可展开每个工具的完整名称、说明、所属服务器、Transport 和 Input Schema，也可复制完整 JSON 结果。
+- 测试成功后会显示工具数量；点击“查看详情”可展开每个工具的 Capability ID、完整名称、标题、说明、所属服务器、Transport、Input/Output Schema 和 annotations，也可复制完整 JSON 结果。
 - Agent 调用 MCP 工具时仍经过统一权限、取消、输出限制和审计管线；两种传输对 Agent 暴露相同的工具目录和调用接口。
-- 工具超过 48 个时，Agent 先搜索目录再显式调用，避免上下文膨胀。
+- MCP 工具统一进入当前任务的 Capability Registry。小型目录直接提供；大型目录按任务语义和 Schema 大小选择最相关能力，同时始终提供 `capability_search`，不再使用固定的 48 工具切换阈值。
+- `capability_invoke` 会先按服务端 Input Schema 校验参数；服务声明 Output Schema 时，也会校验 `structuredContent`。MCP 返回 `isError=true` 时会保留为工具失败，不会包装成成功文本。
+- 每次调用的完整原始返回值都会保存为 Evidence artifact。模型看到 evidence id、来源、结构化内容摘要、错误状态和文件位置；内容过长时使用 `evidence_read` 分段读取。根据 MCP 结果生成产品 CLI 命令时，Agent 会把对应 evidence id 写入 `cli_execute.evidence_refs`，宿主拒绝不存在或跨任务的引用。
 - 不要在普通命令参数中直接写密钥；优先使用受控环境或系统凭据方案。
 
 配置文件中的 HTTP MCP 形态如下（请求头可按服务要求填写，值不会出现在 Agent 工具参数摘要中）：
@@ -301,7 +309,7 @@ MCP 支持 `stdio` 和 `streamable-http` 两种传输。添加服务器时先选
 
 `dsh-codex-agent` 使用内置版本化系统 Prompt。AI 服务设置里的 System Prompt 会作为附加任务指令，不会替换 Agent 的核心规则。核心规则包括证据优先、完整读取长输出、目标会话确认、权限边界、Skill/MCP 不得绕过策略，以及不确定时不能猜测。
 
-MCP 能力不是写死在 Prompt 中。每次 Agent 任务启动时，myterm 会连接已启用的 MCP 服务器并发现工具；工具名称、说明和 JSON Schema 会作为当前运行时工具目录提供给模型。工具目录为空时，Agent 不得虚构 MCP 能力；工具目录较大时，Agent 先使用 `mcp_tool_search`，再用搜索结果中的准确服务器和工具调用 `mcp_tool_call`。当前运行时不默认假设 MCP Resources 或 Prompts 存在，只有实际暴露并注册的能力才可使用。
+MCP 能力不是写死在 Prompt 中。每次 Agent 任务启动时，myterm 会连接已启用的 MCP 服务器并发现工具，保留名称、标题、说明、Input/Output Schema、annotations、服务器和 Transport，并生成稳定 Capability ID。工具目录为空时，Agent 不得虚构 MCP 能力；目录较大或当前任务没有直接暴露目标工具时，先使用 `capability_search`，再用准确 ID 调用 `capability_invoke` 或 `capability_invoke_batch`。当前运行时不默认假设 MCP Resources 或 Prompts 存在，只有实际发现并注册的能力才可使用。
 
 ## 远端 CLI 与 REST 操作
 

@@ -12,8 +12,9 @@ use tokio::sync::{oneshot, watch, Mutex};
 
 use super::{
     builtin,
+    capability::{CapabilityRegistry, EvidenceRecord},
     domain::{now_ms, AgentTask, AgentTaskState, ExecutionJob},
-    dsh, hooks, mcp,
+    dsh, hooks,
     policy::PolicyContext,
     skills,
     store::AgentStore,
@@ -124,6 +125,52 @@ fn terminal_editable_input(cursor_line: &str) -> Option<&str> {
     };
     let editable = &cursor_line[prompt_end..];
     Some(editable.strip_prefix(' ').unwrap_or(editable))
+}
+
+fn cli_screen_state(screen: Option<&TerminalScreenSnapshot>) -> Option<&'static str> {
+    let line = screen?
+        .cursor_line_before_cursor
+        .trim_end()
+        .to_ascii_lowercase();
+    if line.contains("--more--")
+        || line.ends_with("password:")
+        || line.ends_with("(y/n)")
+        || line.ends_with("[y/n]")
+        || line.ends_with("yes/no]")
+    {
+        return Some("interactive");
+    }
+    line.ends_with(['#', '$', '>', '%']).then_some("prompt")
+}
+
+fn transcript_delta(before: &str, after: &str) -> String {
+    after
+        .strip_prefix(before)
+        .map_or_else(|| after.to_owned(), str::to_owned)
+}
+
+fn bounded_text_preview(value: &str, limit: usize) -> (String, bool) {
+    if value.len() <= limit {
+        return (value.to_owned(), false);
+    }
+    let head = limit.saturating_mul(3) / 4;
+    let tail = limit.saturating_sub(head);
+    let mut head_end = head.min(value.len());
+    while !value.is_char_boundary(head_end) {
+        head_end = head_end.saturating_sub(1);
+    }
+    let mut tail_start = value.len().saturating_sub(tail);
+    while tail_start < value.len() && !value.is_char_boundary(tail_start) {
+        tail_start += 1;
+    }
+    (
+        format!(
+            "{}\n...[CLI output preview truncated; use terminal_context for transcript ranges]...\n{}",
+            &value[..head_end],
+            &value[tail_start..]
+        ),
+        true,
+    )
 }
 
 pub trait AgentEventSink: Send + Sync {
@@ -597,8 +644,6 @@ impl AgentService {
         arguments: Value,
         session_id: Option<&str>,
         settings: &AgentSettings,
-        mcp_tools: &[mcp::McpToolDefinition],
-        mcp_clients: &HashMap<String, mcp::McpTaskClient>,
         sink: Arc<dyn AgentEventSink>,
         abort: watch::Receiver<bool>,
     ) -> Result<String, AppError> {
@@ -607,8 +652,8 @@ impl AgentService {
                 let session_id = require_session(selected_session_id(&arguments, session_id))?;
                 let offset = argument_u64(&arguments, "offset").unwrap_or(0) as usize;
                 let limit = argument_u64(&arguments, "limit")
-                    .unwrap_or(8 * 1024)
-                    .clamp(1, 8 * 1024) as usize;
+                    .unwrap_or(64 * 1024)
+                    .clamp(1, 64 * 1024) as usize;
                 let range = self.sessions.buffer_range(session_id, offset, limit)?;
                 let screen = self.sessions.screen_snapshot(session_id)?;
                 Ok(serde_json::to_string(&json!({
@@ -622,6 +667,72 @@ impl AgentService {
                     "screen": screen,
                 }))?)
             }
+            "cli_execute" => {
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
+                let command = argument_str(&arguments, "command")?;
+                let timeout_seconds = argument_u64(&arguments, "timeout_seconds")
+                    .unwrap_or(30)
+                    .clamp(1, 300);
+                let quiet_ms = argument_u64(&arguments, "quiet_ms")
+                    .unwrap_or(1_200)
+                    .clamp(500, 5_000);
+                let evidence_refs = argument_string_array(&arguments, "evidence_refs")?;
+                let result = self
+                    .execute_cli_command(
+                        session_id,
+                        command,
+                        timeout_seconds,
+                        quiet_ms,
+                        evidence_refs,
+                        abort,
+                    )
+                    .await?;
+                Ok(serde_json::to_string(&result)?)
+            }
+            "cli_execute_batch" => {
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
+                let commands = argument_string_array(&arguments, "commands")?;
+                if commands.is_empty() || commands.len() > 8 {
+                    return Err(AppError::InvalidInput(
+                        "cli_execute_batch requires 1 to 8 complete commands".to_owned(),
+                    ));
+                }
+                let timeout_seconds = argument_u64(&arguments, "timeout_seconds")
+                    .unwrap_or(30)
+                    .clamp(1, 300);
+                let quiet_ms = argument_u64(&arguments, "quiet_ms")
+                    .unwrap_or(1_200)
+                    .clamp(500, 5_000);
+                let evidence_refs = argument_string_array(&arguments, "evidence_refs")?;
+                let mut results = Vec::new();
+                let mut stopped = false;
+                for command in commands {
+                    let result = self
+                        .execute_cli_command(
+                            session_id,
+                            &command,
+                            timeout_seconds,
+                            quiet_ms,
+                            evidence_refs.clone(),
+                            abort.clone(),
+                        )
+                        .await?;
+                    stopped = matches!(
+                        result.get("completionReason").and_then(Value::as_str),
+                        Some("interactive" | "timeout")
+                    );
+                    results.push(result);
+                    if stopped {
+                        break;
+                    }
+                }
+                Ok(serde_json::to_string(&json!({
+                    "sessionId": session_id,
+                    "requestedCommands": results.len(),
+                    "stopped": stopped,
+                    "results": results,
+                }))?)
+            }
             "terminal_send" => {
                 let session_id = require_session(selected_session_id(&arguments, session_id))?;
                 let command = argument_str(&arguments, "command")?;
@@ -633,13 +744,13 @@ impl AgentService {
                     .get("input_mode")
                     .and_then(Value::as_str)
                     .unwrap_or("complete_line");
+                let input = self.sessions.lock_input(session_id).await?;
                 let screen = self.sessions.screen_snapshot(session_id)?;
                 let plan = terminal_send_plan(command, newline, input_mode, screen.as_ref())?;
                 if !plan.payload.is_empty() {
-                    self.sessions
-                        .write(session_id, plan.payload.as_bytes())
-                        .await?;
+                    input.write(plan.payload.as_bytes()).await?;
                 }
+                drop(input);
                 tokio::time::sleep(Duration::from_millis(700)).await;
                 let range = self.sessions.buffer_range(session_id, 0, 8 * 1024)?;
                 Ok(serde_json::to_string(&json!({
@@ -977,59 +1088,132 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
                     "result": output,
                 }))?)
             }
-            "mcp_tool_search" => {
-                let query = argument_str(&arguments, "query")?.to_ascii_lowercase();
-                let matches = mcp_tools
-                    .iter()
-                    .filter(|tool| {
-                        tool.original_name.to_ascii_lowercase().contains(&query)
-                            || tool.description.to_ascii_lowercase().contains(&query)
-                    })
-                    .take(20)
-                    .map(|tool| {
-                        json!({
-                            "serverId": tool.server_id,
-                            "name": tool.original_name,
-                            "description": tool.description,
-                            "inputSchema": tool.input_schema,
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                Ok(serde_json::to_string(&matches)?)
-            }
             "skill_load" => {
                 let id = argument_str(&arguments, "id")?;
                 skills::load_content(&settings.skill_directories, &settings.enabled_skills, id)
             }
-            "mcp_tool_call" => {
-                let server_id = argument_str(&arguments, "server_id")?;
-                let tool_name = argument_str(&arguments, "tool_name")?;
-                let tool_arguments = arguments
-                    .get("arguments")
-                    .cloned()
-                    .unwrap_or_else(|| json!({}));
-                let tool = mcp_tools
-                    .iter()
-                    .find(|tool| tool.server_id == server_id && tool.original_name == tool_name)
-                    .ok_or_else(|| {
-                        AppError::NotFound(format!("MCP tool '{server_id}/{tool_name}'"))
-                    })?;
-                let client = mcp_clients.get(&tool.server_id).ok_or_else(|| {
-                    AppError::NotFound(format!("MCP server '{}'", tool.server_id))
-                })?;
-                client.call_tool(&tool.original_name, tool_arguments).await
-            }
-            _ => {
-                let tool = mcp_tools
-                    .iter()
-                    .find(|tool| tool.internal_name == name)
-                    .ok_or_else(|| AppError::NotFound(format!("agent tool '{name}'")))?;
-                let client = mcp_clients.get(&tool.server_id).ok_or_else(|| {
-                    AppError::NotFound(format!("MCP server '{}'", tool.server_id))
-                })?;
-                client.call_tool(&tool.original_name, arguments).await
-            }
+            _ => Err(AppError::NotFound(format!("agent tool '{name}'"))),
         }
+    }
+
+    async fn execute_cli_command(
+        &self,
+        session_id: &str,
+        command: &str,
+        timeout_seconds: u64,
+        quiet_ms: u64,
+        evidence_refs: Vec<String>,
+        abort: watch::Receiver<bool>,
+    ) -> Result<Value, AppError> {
+        let input = self.sessions.lock_input(session_id).await?;
+        let before_transcript = self.sessions.buffer_snapshot(session_id)?;
+        let before_screen = self.sessions.screen_snapshot(session_id)?;
+        let plan = terminal_send_plan(command, true, "complete_line", before_screen.as_ref())?;
+        if !plan.payload.is_empty() {
+            input.write(plan.payload.as_bytes()).await?;
+        }
+        drop(input);
+
+        let started = Instant::now();
+        let mut last_change = Instant::now();
+        let mut last_transcript = before_transcript.clone();
+        let mut saw_activity = false;
+        let completion_reason = loop {
+            if *abort.borrow() {
+                return Err(AppError::Agent("CLI execution canceled".to_owned()));
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let transcript = self.sessions.buffer_snapshot(session_id)?;
+            if transcript != last_transcript {
+                last_transcript = transcript;
+                last_change = Instant::now();
+                saw_activity = true;
+            }
+            let elapsed = started.elapsed();
+            let quiet_for = last_change.elapsed();
+            let screen = self.sessions.screen_snapshot(session_id)?;
+            let screen_changed = match (before_screen.as_ref(), screen.as_ref()) {
+                (Some(before), Some(after)) => after.updated_at_ms > before.updated_at_ms,
+                (None, Some(_)) => true,
+                _ => false,
+            };
+            saw_activity |= screen_changed;
+            if screen_changed && quiet_for >= Duration::from_millis(350) {
+                if let Some(state) = cli_screen_state(screen.as_ref()) {
+                    break state;
+                }
+            }
+            if saw_activity
+                && elapsed >= Duration::from_millis(500)
+                && quiet_for >= Duration::from_millis(quiet_ms)
+            {
+                break "quiet_fallback";
+            }
+            if elapsed >= Duration::from_secs(timeout_seconds) {
+                break "timeout";
+            }
+        };
+        let after_transcript = self.sessions.buffer_snapshot(session_id)?;
+        let after_screen = self.sessions.screen_snapshot(session_id)?;
+        let output = transcript_delta(&before_transcript, &after_transcript);
+        let (output_preview, output_truncated) = bounded_text_preview(&output, 64 * 1024);
+        Ok(json!({
+            "executionId": uuid::Uuid::new_v4().to_string(),
+            "sessionId": session_id,
+            "requestedCommand": command,
+            "mode": plan.mode,
+            "observedCursorLine": plan.observed_cursor_line,
+            "matchedPrefix": plan.matched_prefix,
+            "sentText": plan.payload,
+            "completionReason": completion_reason,
+            "complete": matches!(completion_reason, "prompt" | "quiet_fallback"),
+            "elapsedMs": started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            "outputBytes": output.len(),
+            "outputTruncated": output_truncated,
+            "outputDelta": output_preview,
+            "screenBefore": before_screen,
+            "screenAfter": after_screen,
+            "evidenceRefs": evidence_refs,
+        }))
+    }
+
+    pub(crate) fn persist_evidence(
+        &self,
+        run_id: &str,
+        evidence_id: &str,
+        capability_id: &str,
+        raw: &Value,
+    ) -> Result<EvidenceRecord, AppError> {
+        let directory = self
+            .store
+            .path()
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("artifacts")
+            .join(run_id)
+            .join("evidence");
+        fs::create_dir_all(&directory)?;
+        let path = directory.join(format!("{evidence_id}.json"));
+        let bytes = serde_json::to_vec_pretty(raw)?;
+        if bytes.len() as u64 > MAX_ARTIFACT_BYTES {
+            return Err(AppError::Mcp {
+                code: "MCP_EVIDENCE_TOO_LARGE",
+                detail: format!(
+                    "MCP evidence '{}' from capability '{}' is {} bytes; the per-artifact limit is {} bytes",
+                    evidence_id,
+                    capability_id,
+                    bytes.len(),
+                    MAX_ARTIFACT_BYTES
+                ),
+            });
+        }
+        fs::write(&path, &bytes)?;
+        Ok(EvidenceRecord {
+            id: evidence_id.to_owned(),
+            capability_id: capability_id.to_owned(),
+            artifact_path: path,
+            bytes: bytes.len() as u64,
+        })
     }
 
     pub(crate) fn plugin_infos(&self) -> Result<Vec<crate::types::AgentPluginInfo>, AppError> {
@@ -1327,7 +1511,7 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
     }
 }
 
-pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Value> {
+pub(crate) fn tool_definitions(registry: &CapabilityRegistry, prompt: &str) -> Vec<Value> {
     let mut tools = vec![
         function_tool(
             "remote_exec",
@@ -1378,20 +1562,52 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
         ),
         function_tool(
             "terminal_context",
-            "Read the selected terminal transcript in byte ranges and the latest visible xterm screen/cursor line (active session by default). The transcript is not limited to a fixed line count; use nextOffset until eof is true. Read this immediately before terminal_send when the terminal may already contain partially typed CLI input.",
+            "Read the selected terminal transcript in byte ranges and the latest visible xterm screen/cursor line. Use this for investigation or interactive follow-up; cli_execute already performs an atomic live-screen check before sending a complete command.",
             json!({
                 "type": "object",
                 "properties": {
                     "offset": { "type": "integer", "minimum": 0, "default": 0 },
-                    "limit": { "type": "integer", "minimum": 1, "maximum": 8192, "default": 8192 },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 65536 },
                     "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" }
                 },
                 "additionalProperties": false
             }),
         ),
         function_tool(
+            "cli_execute",
+            "Execute one complete command in an interactive CLI using one atomic host transaction: inspect the actual xterm cursor line, send only the missing suffix, wait for a prompt/interaction/quiet/timeout boundary, and return only this execution's output delta. Include evidence_refs when the command was synthesized from MCP evidence.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "description": "The complete desired CLI command line" },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" },
+                    "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 300, "default": 30 },
+                    "quiet_ms": { "type": "integer", "minimum": 500, "maximum": 5000, "default": 1200 },
+                    "evidence_refs": { "type": "array", "items": { "type": "string" }, "maxItems": 16, "default": [] }
+                },
+                "required": ["command"],
+                "additionalProperties": false
+            }),
+        ),
+        function_tool(
+            "cli_execute_batch",
+            "Execute 1-8 already-known, non-branching interactive CLI commands serially in one tool call. Each command gets its own live-screen check and output boundary; the batch stops on interaction or timeout. Do not use when a later command depends on an earlier result.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "commands": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 8 },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" },
+                    "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 300, "default": 30 },
+                    "quiet_ms": { "type": "integer", "minimum": 500, "maximum": 5000, "default": 1200 },
+                    "evidence_refs": { "type": "array", "items": { "type": "string" }, "maxItems": 16, "default": [] }
+                },
+                "required": ["commands"],
+                "additionalProperties": false
+            }),
+        ),
+        function_tool(
             "terminal_send",
-            "Send a desired complete command line to the selected terminal (active session by default). In complete_line mode the host compares the latest xterm cursor line and sends only the missing suffix, preventing duplicated CLI input. Use raw only for interactive keys, confirmations, or pager control. Returns the exact observed line, matched prefix, sent text, and transcript range.",
+            "Low-level terminal input. Prefer cli_execute for complete commands. Use input_mode=raw only for interactive replies, confirmations, control keys, pager input, or an already-running REPL.",
             json!({
                 "type": "object",
                 "properties": {
@@ -1560,40 +1776,85 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
                 "required": ["id"], "additionalProperties": false
             }),
         ),
-    ];
-    if tools.len() + mcp_tools.len() <= 48 {
-        tools.extend(mcp_tools.iter().map(|tool| {
-            function_tool(
-                &tool.internal_name,
-                &tool.description,
-                tool.input_schema.clone(),
-            )
-        }));
-    } else {
-        tools.push(function_tool(
-            "mcp_tool_search",
-            "Search the task-scoped MCP catalog by tool name or description and return matching schemas.",
+        function_tool(
+            "evidence_read",
+            "Read a byte range from the exact raw result artifact for one MCP evidence id returned earlier in the current task.",
             json!({
                 "type": "object",
-                "properties": { "query": { "type": "string" } },
+                "properties": {
+                    "evidence_id": { "type": "string" },
+                    "offset": { "type": "integer", "minimum": 0, "default": 0 },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 65536 }
+                },
+                "required": ["evidence_id"],
+                "additionalProperties": false
+            }),
+        ),
+    ];
+    if !registry.entries().is_empty() {
+        tools.extend(
+            registry
+                .selected_for_prompt(prompt)
+                .into_iter()
+                .map(|capability| {
+                    function_tool(
+                        &capability.model_name,
+                        &format!(
+                            "{} [capabilityId={}, provider={}]",
+                            capability.description, capability.id, capability.provider_name
+                        ),
+                        capability.input_schema.clone(),
+                    )
+                }),
+        );
+        tools.push(function_tool(
+            "capability_search",
+            "Search the task-scoped external capability registry by intent, name, description, provider, and Schema terms. Returns exact capability ids plus input/output Schemas.",
+            json!({
+                "type": "object", "properties": {
+                    "query": { "type": "string" },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 8 }
+                },
                 "required": ["query"], "additionalProperties": false
             }),
         ));
         tools.push(function_tool(
-            "mcp_tool_call",
-            "Call one MCP tool returned by mcp_tool_search. Local permission policy still applies.",
+            "capability_invoke",
+            "Invoke one exact capability returned by capability_search. Arguments are validated against its input Schema; output is returned as a sourced evidence packet and validated against outputSchema when present.",
             json!({
                 "type": "object",
                 "properties": {
-                    "server_id": { "type": "string" },
-                    "tool_name": { "type": "string" },
+                    "capability_id": { "type": "string" },
                     "arguments": { "type": "object" }
                 },
-                "required": ["server_id", "tool_name", "arguments"],
+                "required": ["capability_id", "arguments"],
                 "additionalProperties": false
             }),
         ));
+        tools.push(function_tool(
+            "capability_invoke_batch",
+            "Invoke 1-8 exact external capabilities in one tool call when their queries are independent. Results remain individually sourced and Schema-validated.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "calls": {
+                        "type": "array", "minItems": 1, "maxItems": 8,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "capability_id": { "type": "string" },
+                                "arguments": { "type": "object" }
+                            },
+                            "required": ["capability_id", "arguments"],
+                            "additionalProperties": false
+                        }
+                    }
+                },
+                "required": ["calls"], "additionalProperties": false
+            }),
+        ));
     }
+
     tools
 }
 
@@ -1641,6 +1902,28 @@ pub(crate) fn argument_str<'a>(arguments: &'a Value, name: &str) -> Result<&'a s
 
 fn argument_u64(arguments: &Value, name: &str) -> Option<u64> {
     arguments.get(name).and_then(Value::as_u64)
+}
+
+fn argument_string_array(arguments: &Value, name: &str) -> Result<Vec<String>, AppError> {
+    let Some(value) = arguments.get(name) else {
+        return Ok(Vec::new());
+    };
+    value
+        .as_array()
+        .ok_or_else(|| AppError::InvalidInput(format!("tool argument '{name}' must be an array")))?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| {
+                    AppError::InvalidInput(format!(
+                        "tool argument '{name}' must contain non-empty strings"
+                    ))
+                })
+        })
+        .collect()
 }
 
 fn read_job_output(
@@ -1992,13 +2275,14 @@ mod tests {
         plugin_id_for_tool, redact_event, selected_session_id, terminal_send_plan, tool_definitions,
     };
     use crate::agent::builtin;
+    use crate::agent::capability::CapabilityRegistry;
     use crate::types::{AgentSettings, TerminalScreenSnapshot};
     use serde_json::json;
 
     #[test]
     fn built_in_tools_and_limits_are_explicit() {
-        let tools = tool_definitions(&[]);
-        assert_eq!(tools.len(), 18);
+        let tools = tool_definitions(&CapabilityRegistry::default(), "");
+        assert_eq!(tools.len(), 21);
         assert_eq!(tools[0]["function"]["name"], "remote_exec");
         assert!(tools
             .iter()
@@ -2011,6 +2295,17 @@ mod tests {
         assert!(tools
             .iter()
             .any(|tool| tool["function"]["name"] == "session_connect"));
+        let terminal_context = tools
+            .iter()
+            .find(|tool| tool["function"]["name"] == "terminal_context")
+            .expect("terminal_context tool");
+        assert_eq!(
+            terminal_context["function"]["parameters"]["properties"]["limit"]["maximum"],
+            65_536
+        );
+        assert!(tools
+            .iter()
+            .any(|tool| tool["function"]["name"] == "cli_execute_batch"));
         let settings = AgentSettings::default();
         assert_eq!(settings.profile, "dsh-codex-agent");
         assert_eq!(settings.max_steps, 64);

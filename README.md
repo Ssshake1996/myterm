@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.9.8`
+当前版本：`0.9.9`
 
 ## 核心功能
 
@@ -61,7 +61,8 @@ Agent 使用类似 Claude Code 的循环：
 - 长任务可转入后台 Job，并通过状态、分页输出和取消工具继续管理。
 - 内置诊断 Runbook、上下文压缩、循环检测和敏感字段脱敏。
 - 终端上下文采用无固定行数的 transcript 读取：Agent 通过 `offset`、`nextOffset` 和 `eof` 分段读取完整 `cat`、日志或命令输出；远程执行的超长 stdout/stderr 保留 artifact，可用分页工具继续读取。
-- 对交互式产品 CLI，前端同步 xterm 当前可见屏幕、光标行和光标前输入。`terminal_send` 默认接收“完整目标命令”，只下发尚未输入的后缀；现场输入冲突时拒绝写入，避免 `showshow system...` 一类重复拼接。
+- 对交互式产品 CLI，`cli_execute` 在同一个后端事务中锁定输入、读取 xterm 真实光标行、只发送完整目标命令的缺失后缀，并等待提示符、交互、静默兜底或超时边界；`cli_execute_batch` 可把 1-8 条互不依赖的已知命令合并为一次工具调用，避免 `showshow system...` 和大量短请求。
+- Agent 会在任务时间线记录本轮模型请求数、工具调用数和 Token 用量；独立只读工具可在同一模型轮次并发执行，有副作用或存在依赖的步骤仍保持串行。
 - AI 配置以版本化 JSON 持久化。一个配置可定义主模型、分析模型和备用模型；启用自动切换后，模型请求失败会按角色顺序切换并在 Agent 时间线标出实际使用的模型。
 
 ### 权限与安全策略
@@ -77,13 +78,14 @@ Agent 使用类似 Claude Code 的循环：
 ### Skill、MCP 与 Hooks
 
 - 从本地目录发现 `SKILL.md`，读取元数据和内容哈希，并按任务需要加载已启用 Skill。
-- 支持配置和测试 stdio 与 streamable-http MCP 服务器；测试成功后可展开完整工具名称、说明、Transport 和 Input Schema，并复制结果。
-- MCP 工具较多时使用搜索和显式调用，避免一次性占满模型上下文。
+- 支持配置和测试 stdio 与 streamable-http MCP 服务器；测试成功后可展开 capability id、完整工具名称、标题、说明、Transport、Input/Output Schema 和 annotations，并复制结果。
+- MCP 工具统一进入任务级 Capability Registry：小目录直接暴露，较大目录按任务语义选择并保留 `capability_search`；调用参数和结构化结果按服务端 Schema 校验。
+- MCP 返回值会保存为任务级 Evidence artifact。Agent 根据证据整合产品 CLI 命令，并把 `evidence_refs` 交给 `cli_execute`；错误状态、原始结果和来源不会被改写成模型猜测。
 - 支持有界、确定性的任务生命周期 Hooks；Hooks 不能降低核心权限策略。
 
 ### 插件化 Agent 内核
 
-- Agent Loop 只负责任务生命周期、模型决策、工具调度、结果回填和循环保护，能力通过插件注册表挂载。
+- Agent Loop 只负责任务生命周期、模型决策、效果感知调度、结果回填和循环保护；内置工具与 MCP 都转换为统一 Capability descriptor，而不是继续扩大固定工具分支。
 - 桌面默认配置挂载内置 SSH/会话工具、本地 Skill、stdio/streamable-http MCP、生命周期 Hooks 和 OpenAI 兼容模型适配器。
 - 每个插件都提供 manifest、版本、依赖提示和工具描述；工具事件和审计记录会携带插件 id。
 - Agent 设置页展示插件清单，可缩小当前运行时启用的插件集合；留空表示使用桌面默认配置。
@@ -185,4 +187,4 @@ npm run check:dist
 
 ## 当前边界
 
-当前 `0.9.8` 加入 xterm 可见输入同步和 Agent CLI 后缀补全，完善可复制 SSH 错误、MCP 工具详情、200% 界面缩放、新对话入口与任务历史边界；dsh-codex-agent、Skill/MCP 和多模型配置继续保持兼容。
+当前 `0.9.9` 将 CLI 执行和 MCP 查询收敛到 Capability Registry、Evidence Ledger 与原子 CLI Executor：减少短小模型请求，支持独立只读工具并发、CLI/MCP 批处理、Schema 校验、原始证据读取和运行指标，同时保留现有权限、Skill、多 SSH 与多模型边界。

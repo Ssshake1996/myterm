@@ -10,6 +10,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use futures_util::future::try_join_all;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::{sync::Mutex, task::JoinHandle};
@@ -220,7 +221,10 @@ impl CodexRuntime {
     ) -> Result<TurnResult, CoreError> {
         let model_tools = merge_tools(host_tools.clone());
         let mut combined_text = String::new();
-        let mut last_usage = None;
+        let mut total_usage = crate::types::TokenUsage::default();
+        let mut saw_usage = false;
+        let mut model_requests = 0;
+        let mut tool_call_count = 0;
         for step in 1..=self.config.max_steps {
             if cancellation.is_cancelled() {
                 return Err(CoreError::Cancelled(format!(
@@ -249,10 +253,21 @@ impl CodexRuntime {
                     Some(on_delta),
                 )
                 .await?;
+            model_requests += 1;
             if !response.text.is_empty() {
                 combined_text.push_str(&response.text);
             }
-            last_usage = response.usage.clone().or(last_usage);
+            if let Some(usage) = response.usage.as_ref() {
+                saw_usage = true;
+                total_usage.prompt_tokens = total_usage
+                    .prompt_tokens
+                    .saturating_add(usage.prompt_tokens);
+                total_usage.completion_tokens = total_usage
+                    .completion_tokens
+                    .saturating_add(usage.completion_tokens);
+                total_usage.total_tokens =
+                    total_usage.total_tokens.saturating_add(usage.total_tokens);
+            }
             self.store.append_message(
                 thread_id,
                 &ChatMessage {
@@ -267,26 +282,59 @@ impl CodexRuntime {
                     thread_id: thread_id.to_owned(),
                     text: combined_text,
                     finish_reason: response.finish_reason,
-                    usage: last_usage,
+                    usage: saw_usage.then_some(total_usage),
                     steps: step,
+                    model_requests,
+                    tool_calls: tool_call_count,
                 });
             }
 
-            for call in response.tool_calls {
-                cancellation
-                    .run_until_cancelled(self.execute_tool_call(
-                        thread_id,
-                        &call,
-                        host_tools.clone(),
-                        host.clone(),
-                    ))
-                    .await
-                    .ok_or_else(|| {
-                        CoreError::Cancelled(format!(
-                            "thread {thread_id} was cancelled during tool {}",
-                            call.name
+            let calls = response.tool_calls;
+            tool_call_count = tool_call_count.saturating_add(calls.len());
+            let parallel = calls.len() > 1
+                && calls.iter().all(|call| {
+                    model_tools
+                        .iter()
+                        .find(|tool| tool.name == call.name)
+                        .is_some_and(|tool| tool.parallel_safe)
+                });
+            if parallel {
+                let futures = calls.iter().map(|call| {
+                    let cancellation = cancellation.clone();
+                    let host_tools = host_tools.clone();
+                    let host = host.clone();
+                    async move {
+                        cancellation
+                            .run_until_cancelled(
+                                self.execute_tool_call(thread_id, call, host_tools, host),
+                            )
+                            .await
+                            .ok_or_else(|| {
+                                CoreError::Cancelled(format!(
+                                    "thread {thread_id} was cancelled during tool {}",
+                                    call.name
+                                ))
+                            })?
+                    }
+                });
+                try_join_all(futures).await?;
+            } else {
+                for call in calls {
+                    cancellation
+                        .run_until_cancelled(self.execute_tool_call(
+                            thread_id,
+                            &call,
+                            host_tools.clone(),
+                            host.clone(),
                         ))
-                    })??;
+                        .await
+                        .ok_or_else(|| {
+                            CoreError::Cancelled(format!(
+                                "thread {thread_id} was cancelled during tool {}",
+                                call.name
+                            ))
+                        })??;
+                }
             }
         }
         Err(CoreError::StepLimit(self.config.max_steps))
@@ -768,6 +816,7 @@ fn internal_tool_definitions() -> Vec<ToolDefinition> {
                     "role": { "type": "string" }
                 }
             }),
+            parallel_safe: false,
         },
         ToolDefinition {
             name: "wait_agent".to_owned(),
@@ -781,6 +830,7 @@ fn internal_tool_definitions() -> Vec<ToolDefinition> {
                     "timeout_ms": { "type": "integer", "minimum": 1 }
                 }
             }),
+            parallel_safe: false,
         },
         ToolDefinition {
             name: "cancel_agent".to_owned(),
@@ -793,6 +843,7 @@ fn internal_tool_definitions() -> Vec<ToolDefinition> {
                     "thread_id": { "type": "string" }
                 }
             }),
+            parallel_safe: false,
         },
     ]
 }
@@ -1201,6 +1252,12 @@ mod tests {
         tool_results: StdMutex<VecDeque<ToolExecutionResult>>,
     }
 
+    #[derive(Default)]
+    struct ConcurrentToolHost {
+        active: AtomicUsize,
+        max_active: AtomicUsize,
+    }
+
     #[async_trait]
     impl HostBridge for MockHost {
         fn emit(&self, event: RuntimeEvent) {
@@ -1219,6 +1276,26 @@ mod tests {
                     tool: "mock".to_owned(),
                     detail: "no queued result".to_owned(),
                 })
+        }
+    }
+
+    #[async_trait]
+    impl HostBridge for ConcurrentToolHost {
+        fn emit(&self, _event: RuntimeEvent) {}
+
+        async fn execute_tool(
+            &self,
+            _invocation: ToolInvocation,
+        ) -> Result<ToolExecutionResult, CoreError> {
+            let active = self.active.fetch_add(1, AtomicOrdering::AcqRel) + 1;
+            self.max_active.fetch_max(active, AtomicOrdering::AcqRel);
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            self.active.fetch_sub(1, AtomicOrdering::AcqRel);
+            Ok(ToolExecutionResult {
+                content: "ok".to_owned(),
+                is_error: false,
+                status: "completed".to_owned(),
+            })
         }
     }
 
@@ -1307,18 +1384,78 @@ mod tests {
                     name: "read_file".to_owned(),
                     description: "read".to_owned(),
                     parameters: json!({"type":"object"}),
+                    parallel_safe: true,
                 }],
                 host,
             )
             .await
             .unwrap();
         assert_eq!(result.text, "done");
+        assert_eq!(result.model_requests, 2);
+        assert_eq!(result.tool_calls, 1);
+        assert_eq!(result.usage.unwrap().total_tokens, 2);
         let requests = transport.requests.lock().unwrap();
         assert_eq!(requests.len(), 2);
         assert!(matches!(
             requests[1].messages.last().unwrap().role,
             MessageRole::Tool
         ));
+    }
+
+    #[tokio::test]
+    async fn parallel_safe_tool_calls_share_one_model_round_trip() {
+        let temp = TempDir::new().unwrap();
+        let transport = MockTransport::new(vec![
+            Ok(ModelResponse {
+                text: String::new(),
+                tool_calls: vec![
+                    ToolCall {
+                        index: 0,
+                        id: "read-a".to_owned(),
+                        name: "read_a".to_owned(),
+                        arguments: "{}".to_owned(),
+                    },
+                    ToolCall {
+                        index: 1,
+                        id: "read-b".to_owned(),
+                        name: "read_b".to_owned(),
+                        arguments: "{}".to_owned(),
+                    },
+                ],
+                finish_reason: "tool_calls".to_owned(),
+                usage: Some(TokenUsage {
+                    prompt_tokens: 10,
+                    completion_tokens: 2,
+                    total_tokens: 12,
+                }),
+            }),
+            Ok(text_response("done")),
+        ]);
+        let runtime = CodexRuntime::new(config(&temp, 10_000), transport).unwrap();
+        runtime.create_thread("root", None, None, "root").unwrap();
+        let host = Arc::new(ConcurrentToolHost::default());
+        let result = runtime
+            .run_turn(
+                "root",
+                "inspect independent facts",
+                ["read_a", "read_b"]
+                    .into_iter()
+                    .map(|name| ToolDefinition {
+                        name: name.to_owned(),
+                        description: "read".to_owned(),
+                        parameters: json!({"type":"object"}),
+                        parallel_safe: true,
+                    })
+                    .collect(),
+                host.clone(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(host.max_active.load(AtomicOrdering::Acquire), 2);
+        assert_eq!(result.model_requests, 2);
+        assert_eq!(result.tool_calls, 2);
+        assert_eq!(result.usage.unwrap().total_tokens, 14);
     }
 
     #[tokio::test]
@@ -1525,6 +1662,7 @@ mod tests {
                     name: "inflate".to_owned(),
                     description: "return a large result".to_owned(),
                     parameters: json!({"type":"object"}),
+                    parallel_safe: true,
                 }],
                 host,
             )

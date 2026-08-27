@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.9.8`
+Current version: `0.9.9`
 
 ## Core Features
 
@@ -61,7 +61,8 @@ task input -> model decision -> tool call -> result -> continue -> final answer
 - Long operations can become background jobs with status, paged output, and cancellation tools.
 - Diagnostic runbooks, context compaction, loop detection, and pre-persistence secret redaction are built in.
 - Terminal context is an unbounded-by-line transcript reader: the Agent follows `offset`, `nextOffset`, and `eof` ranges until a complete `cat`, log, or command output has been read. Long remote stdout/stderr stays in artifacts and remains page-readable.
-- For interactive product CLIs, the frontend synchronizes the visible xterm screen, cursor line, and text before the cursor. `terminal_send` accepts the intended complete command and sends only its missing suffix; conflicting visible input stops the write instead of duplicating text.
+- For interactive product CLIs, `cli_execute` locks terminal input, inspects the real xterm cursor line, sends only the missing suffix of the complete intended command, and waits for a prompt, interaction, quiet fallback, or timeout boundary in one host transaction. `cli_execute_batch` groups 1-8 independent known commands into one tool call, avoiding duplicated input and many tiny model requests.
+- The timeline records model-request, tool-call, and token counts for each turn. Independent read-only calls can execute concurrently within one model round, while dependent or effectful operations remain serial.
 - AI profiles persist as versioned JSON. A profile can define primary, analysis, and fallback models; when enabled, failed model requests fail over in role order and the Agent timeline records the selected model.
 
 ### Permissions and Safety
@@ -77,13 +78,14 @@ Hard-deny commands, production/root escalation, output limits, audit records, an
 ### Skills, MCP, and Hooks
 
 - Discover local `SKILL.md` files, record metadata and content hashes, and load enabled Skills on demand.
-- Configure and test stdio and streamable-http MCP servers. Successful tests expose complete tool names, descriptions, transports, and input schemas with a copy action.
-- Large MCP catalogs use search plus explicit invocation to protect model context.
+- Configure and test stdio and streamable-http MCP servers. Successful tests expose capability ids, complete names, titles, descriptions, transports, input/output schemas, and annotations with a copy action.
+- MCP tools enter a task-scoped Capability Registry. Small catalogs are exposed directly; larger catalogs are selected by task relevance while `capability_search` remains available. Inputs and structured outputs are validated against server-provided schemas.
+- MCP results are persisted as task-scoped Evidence artifacts. The Agent synthesizes product CLI commands from evidence and passes `evidence_refs` to `cli_execute`; error states, origins, and raw results remain inspectable.
 - Bounded deterministic lifecycle Hooks are supported and cannot lower core permissions.
 
 ### Plugin Agent Kernel
 
-- The Agent loop is a small runtime that mounts capability plugins instead of hard-coding a growing tool list.
+- The Agent loop remains a small runtime for lifecycle, model decisions, effect-aware scheduling, result feedback, and loop protection. Built-ins and MCP tools are normalized into capability descriptors instead of expanding a fixed dispatch catalog.
 - The desktop profile currently mounts built-in SSH/session tools, local Skills, stdio/streamable-http MCP, lifecycle Hooks, and the OpenAI-compatible model adapter.
 - Each plugin exposes a manifest, version, dependency hints, and tool descriptors. Tool calls carry the plugin id into the event timeline and audit record.
 - The Agent settings panel lists mounted plugins and lets the user narrow the enabled set. An empty enabled list means the default desktop profile.
@@ -185,4 +187,4 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 
 ## Current Boundaries
 
-Version `0.9.8` adds visible xterm input synchronization and safe Agent CLI suffix completion, plus copyable SSH errors, detailed MCP tool inspection, 200% UI scaling, a visible new-conversation action, and a distinct task-history surface. The dsh-codex-agent, Skill/MCP, and multi-model boundaries remain compatible.
+Version `0.9.9` consolidates CLI execution and MCP lookup around a Capability Registry, Evidence Ledger, and atomic CLI Executor. It reduces tiny model requests through read concurrency and CLI/MCP batches, validates schemas, preserves raw evidence, and reports turn metrics while keeping the existing permission, Skill, Multi-SSH, and multi-model boundaries.

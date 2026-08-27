@@ -356,12 +356,16 @@ Event 先持久化再通知 UI。高频输出按 50ms 或 64KiB 合并，条件�
 - `session_connect(profile_id|profile_name)`：按精确保存目标自动启动或复用 SSH，返回后续工具使用的 `session_id`。
 - `session_info(session_id?, profile_id?, profile_name?)`：读取活动、非活动或仅保存的服务器配置。
 - `terminal_context(session_id?, offset, limit)`。
-- `terminal_send(session_id?, command, newline, input_mode=complete_line|raw)`。
+- `cli_execute(session_id?, command, timeout_seconds, quiet_ms, evidence_refs?)`。
+- `cli_execute_batch(session_id?, commands[1..8], timeout_seconds, quiet_ms, evidence_refs?)`。
+- `terminal_send(session_id?, command, newline, input_mode=complete_line|raw)`：仅作为低层交互输入。
 - `remote_exec(session_id?, command, cwd, timeout_ms, mode, max_output_bytes)`。
 - `host_facts(session_id?)`。
 - `list_directory`、`file_stat`、`file_read`、`file_search`、`file_write`、`file_patch` 均支持可选 `session_id`。
 - `job_status`、`job_output`、`job_cancel`。
-- `skill_load`、`mcp_tool_search`、`mcp_tool_call`。
+- `skill_load`、`capability_search`、`capability_invoke`、`capability_invoke_batch`、`evidence_read`。
+
+独立只读工具可在同一模型响应内并发；并发安全由宿主声明，第三方 annotation 不能直接降低权限或证明安全。CLI batch 只接受已知且互不依赖的完整命令，遇到交互或超时停止。
 
 省略 `session_id` 时兼容解析为活动 session。用户点名服务器或目标不在活动窗格时，Agent 必须先调用
 `session_catalog`，必要时调用 `session_connect`，再把返回的 `session_id` 传给后续工具；仅保存但未连接的 profile 不能被声称为当前可达。

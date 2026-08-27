@@ -124,11 +124,12 @@ Header 注入、工具过滤和调用。
 3. 已启用 Skill 的任务上下文：作为指导文本加载，不能提升权限；
 4. 任务级 MCP 能力目录：由实际连接并列出的工具动态生成。
 
-MCP 工具的名称、描述和 JSON Schema 已经通过模型请求的 Tool Definitions 提供给模型；系统
-Prompt 只说明如何信任和使用这份动态目录，不硬编码某个厂商或服务器的工具名。工具数量较大
-时，目录改由 `mcp_tool_search` 和 `mcp_tool_call` 两个受控入口访问。没有发现 MCP 工具时，
-Prompt 会明确要求 Agent 不得猜测 MCP 能力。Resources/Prompts 未进入当前注册目录时，Agent
-也不得假设它们存在。
+MCP 工具的稳定 Capability ID、名称、标题、描述、Input/Output Schema、annotations、Provider
+和 Transport 由桌面宿主发现并注册；系统 Prompt 只说明如何信任和使用动态目录，不硬编码某个
+厂商或服务器。小目录可直接形成 Tool Definitions；大目录按任务相关度和 Schema 字节预算选择，
+并始终提供 `capability_search`、`capability_invoke` 和 `capability_invoke_batch`。调用原始结果进入
+任务 Evidence Ledger，长内容由 `evidence_read` 分段读取。没有发现能力时，Prompt 明确要求 Agent
+不得猜测；Resources/Prompts 未进入当前注册目录时也不得假设它们存在。
 
 ## 8. 删除或不编译的模块
 

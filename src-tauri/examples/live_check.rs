@@ -486,8 +486,12 @@ async fn verify_agent_with_config(
         sessions.clone(),
         Arc::new(NullTransferSink),
     ));
-    let agent =
-        myterm_lib::agent::service::AgentService::new(config, vault, sessions.clone(), sftp)?;
+    let agent = Arc::new(myterm_lib::agent::service::AgentService::new(
+        config,
+        vault,
+        sessions.clone(),
+        sftp,
+    )?);
     let session = sessions
         .connect(profile, 120, 36, Arc::new(DiscardOutput))
         .await?;

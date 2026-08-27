@@ -38,6 +38,8 @@ pub enum AppError {
     Sftp(String),
     #[error("AI service error: {0}")]
     Ai(String),
+    #[error("MCP error [{code}]: {detail}")]
+    Mcp { code: &'static str, detail: String },
     #[error("agent error: {0}")]
     Agent(String),
     #[error("storage error: {0}")]
@@ -63,6 +65,7 @@ impl AppError {
             Self::SessionFailure { code, .. } => code,
             Self::Sftp(_) => "sftp",
             Self::Ai(_) => "ai",
+            Self::Mcp { code, .. } => code,
             Self::Agent(_) => "agent",
             Self::Storage(_) => "storage",
             Self::NotFound(_) => "not_found",
@@ -84,7 +87,7 @@ impl AppError {
             | Self::Storage(detail)
             | Self::NotFound(detail)
             | Self::InvalidInput(detail) => detail.clone(),
-            Self::SessionFailure { detail, .. } => detail.clone(),
+            Self::SessionFailure { detail, .. } | Self::Mcp { detail, .. } => detail.clone(),
             Self::Io(error) => error.to_string(),
             Self::Json(error) => error.to_string(),
             Self::Database(error) => error.to_string(),
