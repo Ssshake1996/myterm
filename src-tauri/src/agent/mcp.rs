@@ -43,19 +43,21 @@ impl McpTaskClient {
     pub async fn list_tools(&self) -> Result<Vec<CapabilityDescriptor>, AppError> {
         let tools = tokio::time::timeout(Duration::from_secs(15), self.client.list_all_tools())
             .await
-            .map_err(|_| {
-                AppError::Ai(format!(
+            .map_err(|_| AppError::Mcp {
+                code: "MCP_LIST_TOOLS_TIMEOUT",
+                detail: format!(
                     "MCP server '{}' [{}] timed out while listing tools",
                     self.server.name,
                     transport_label(&self.server.transport)
-                ))
+                ),
             })?
-            .map_err(|error| {
-                AppError::Ai(format!(
+            .map_err(|error| AppError::Mcp {
+                code: "MCP_LIST_TOOLS_FAILED",
+                detail: format!(
                     "MCP server '{}' [{}] failed to list tools: {error}",
                     self.server.name,
                     transport_label(&self.server.transport)
-                ))
+                ),
             })?;
         Ok(tools
             .into_iter()
@@ -102,21 +104,23 @@ impl McpTaskClient {
             ),
         )
         .await
-        .map_err(|_| {
-            AppError::Ai(format!(
+        .map_err(|_| AppError::Mcp {
+            code: "MCP_TOOL_TIMEOUT",
+            detail: format!(
                 "MCP server '{}' [{}] tool '{}' timed out",
                 self.server.name,
                 transport_label(&self.server.transport),
                 tool.original_name
-            ))
+            ),
         })?
-        .map_err(|error| {
-            AppError::Ai(format!(
+        .map_err(|error| AppError::Mcp {
+            code: "MCP_TOOL_CALL_FAILED",
+            detail: format!(
                 "MCP server '{}' [{}] tool '{}' failed: {error}",
                 self.server.name,
                 transport_label(&self.server.transport),
                 tool.original_name
-            ))
+            ),
         })?;
         if result.is_error != Some(true) {
             if let Some(output_schema) = tool.output_schema.as_ref() {
@@ -235,25 +239,28 @@ async fn connect_stdio(server: &McpServerConfig) -> Result<RunningClient, AppErr
     {
         command.creation_flags(0x0800_0000);
     }
-    let transport = TokioChildProcess::new(command).map_err(|error| {
-        AppError::Ai(format!(
+    let transport = TokioChildProcess::new(command).map_err(|error| AppError::Mcp {
+        code: "MCP_STDIO_START_FAILED",
+        detail: format!(
             "MCP server '{}' stdio process failed to start: {error}",
             server.name
-        ))
+        ),
     })?;
     tokio::time::timeout(Duration::from_secs(15), ().serve(transport))
         .await
-        .map_err(|_| {
-            AppError::Ai(format!(
+        .map_err(|_| AppError::Mcp {
+            code: "MCP_STDIO_INIT_TIMEOUT",
+            detail: format!(
                 "MCP server '{}' stdio initialization timed out",
                 server.name
-            ))
+            ),
         })?
-        .map_err(|error| {
-            AppError::Ai(format!(
+        .map_err(|error| AppError::Mcp {
+            code: "MCP_STDIO_INIT_FAILED",
+            detail: format!(
                 "MCP server '{}' stdio initialization failed: {error}",
                 server.name
-            ))
+            ),
         })
 }
 
@@ -289,17 +296,19 @@ async fn connect_streamable_http(server: &McpServerConfig) -> Result<RunningClie
     let transport = StreamableHttpClientTransport::from_config(config);
     tokio::time::timeout(Duration::from_secs(15), ().serve(transport))
         .await
-        .map_err(|_| {
-            AppError::Ai(format!(
+        .map_err(|_| AppError::Mcp {
+            code: "MCP_HTTP_INIT_TIMEOUT",
+            detail: format!(
                 "MCP server '{}' streamable_http initialization timed out at {}",
                 server.name, parsed
-            ))
+            ),
         })?
-        .map_err(|error| {
-            AppError::Ai(format!(
+        .map_err(|error| AppError::Mcp {
+            code: "MCP_HTTP_INIT_FAILED",
+            detail: format!(
                 "MCP server '{}' streamable_http initialization failed at {}: {error}",
                 server.name, parsed
-            ))
+            ),
         })
 }
 
@@ -327,7 +336,7 @@ fn custom_headers(server: &McpServerConfig) -> Result<HashMap<HeaderName, Header
     Ok(headers)
 }
 
-fn transport_label(transport: &McpTransportKind) -> &'static str {
+pub(crate) fn transport_label(transport: &McpTransportKind) -> &'static str {
     match transport {
         McpTransportKind::Stdio => "stdio",
         McpTransportKind::StreamableHttp => "streamable_http",

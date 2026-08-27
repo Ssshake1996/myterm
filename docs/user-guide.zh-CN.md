@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.9.9。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.9.10。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -130,10 +130,10 @@ docker compose up -d
 
 ## 主题与常规设置
 
-设置窗口的“字号”区域提供两组独立选项：
+设置窗口的“字号”区域提供一套全局倍率和一个终端基础字号：
 
-- “界面字号”提供小（90%）、标准（100%）、大（115%）、特大（130%）、150%、175% 和最大（200%）七档，控制侧栏、工具栏、面板和弹窗文字。高分辨率或远距离查看可从 150% 起逐级调整。
-- “终端字号”提供 `12px` 到 `22px` 档位，只影响 SSH 和本地终端内容，不会改变终端连接。调整后立即重新适配终端列数和行数。
+- “界面字号”提供小（90%）、标准（100%）、大（115%）、特大（130%）、150%、175% 和最大（200%）七档，统一控制侧栏、工具栏、标题、面板、弹窗和 xterm 终端文字。高分辨率或远距离查看可从 150% 起逐级调整。
+- “终端基础字号”提供 `12px` 到 `22px` 档位。终端实际字号等于“基础字号 × 界面倍率”，例如 `13px × 150% = 19.5px`。调整后立即重新适配终端列数和行数，不会断开或重连 SSH/本地终端。
 - 两项设置都会保存到应用配置，重启 myterm 后继续生效；配置失败会恢复到修改前的值。
 
 ### AI 认证方式
@@ -232,7 +232,7 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 ## Agent 内置工具
 
 - `session_catalog`：按名称、分组、主机或用户查找已保存服务器，返回每个服务器的实时状态和最近一次 SSH 连接诊断；不会返回凭据。
-- `session_info`：读取活动会话和服务器信息，也可以传入 `session_id`、`profile_id` 或 `profile_name` 查询非活动会话或已保存服务器。
+- `session_info`：读取明确选择的会话和服务器信息。传入 `session_id`、`profile_id` 或 `profile_name` 可查询非活动会话或已保存服务器；只有用户明确指向当前终端时，Agent 才可设置 `use_active_session=true` 读取活动候选。
 - `terminal_context`：按 offset 读取终端 transcript，并返回活动 xterm 最近同步的可见屏幕、光标行、光标前内容和更新时间。单次最多读取 64 KiB，按 `nextOffset` 可继续读取。
 - `cli_execute`：执行一条完整的交互式 CLI 命令。宿主锁定该会话的输入，在同一事务内读取真实光标行、只发送缺失后缀，并等待提示符、交互、静默兜底或超时；返回本次命令的输出增量和完成原因。
 - `cli_execute_batch`：把 1-8 条互不依赖、无需根据前一条结果改写的已知命令串行执行在一次工具调用中；遇到交互或超时立即停止。
@@ -247,11 +247,12 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 - `file_patch`：基于哈希锁修改已知内容并读回验证。
 - `job_status`、`job_output`、`job_cancel`：管理后台执行任务。
 - `capability_search`、`capability_invoke`、`capability_invoke_batch`：搜索并调用任务启动时发现的外部能力。
+- `mcp_status`：读取每个已配置 MCP 服务器在本任务启动时的状态，包括启用状态、Transport、连接/工具发现阶段、工具数量、稳定错误码和服务端原始详情；不需要 SSH 会话。
 - `evidence_read`：按 offset 读取 MCP 原始证据文件；证据只在当前任务内有效。
 
-终端上下文、主机事实、Runbook、SFTP 和文件工具同样支持可选 `session_id`。Agent 应先用
-`session_catalog` 找到用户所说的环境，再把返回的 `session_id` 传给后续工具；没有实时会话时，
-目录中的状态和诊断只能说明已保存配置或最近一次失败，不能当作主机当前可达性的证明。
+活动 SSH 不再是 Agent Task 的默认绑定，只是界面提供给模型的候选元数据。通用问答、MCP 配置/诊断、Capability 发现、Skill 和任务历史不应调用会话工具；用户明确说“当前终端”“这台服务器”或等价表述时，模型可在本次调用中设置 `use_active_session=true`。用户说出服务器名称或环境时，Agent 应先用 `session_catalog` 找到目标，必要时用 `session_connect` 建立连接，再把返回的 `session_id` 传给终端上下文、命令、主机事实、Runbook、SFTP 和文件工具。没有 `session_id` 且没有显式启用活动候选时，工具会直接返回目标缺失错误，不会静默使用当前焦点。
+
+没有实时会话时，目录中的状态和诊断只能说明已保存配置或最近一次失败，不能当作主机当前可达性的证明。
 
 结构化命令会分别记录 stdout 和 stderr，并保存退出码、信号、超时、取消或连接断开状态。大输出使用受限 artifact 和首尾预览，防止界面与模型上下文无限增长。
 
@@ -283,8 +284,8 @@ MCP 支持 `stdio` 和 `streamable-http` 两种传输。添加服务器时先选
 - 测试成功后会显示工具数量；点击“查看详情”可展开每个工具的 Capability ID、完整名称、标题、说明、所属服务器、Transport、Input/Output Schema 和 annotations，也可复制完整 JSON 结果。
 - Agent 调用 MCP 工具时仍经过统一权限、取消、输出限制和审计管线；两种传输对 Agent 暴露相同的工具目录和调用接口。
 - MCP 工具统一进入当前任务的 Capability Registry。小型目录直接提供；大型目录按任务语义和 Schema 大小选择最相关能力，同时始终提供 `capability_search`，不再使用固定的 48 工具切换阈值。
-- `capability_invoke` 会先按服务端 Input Schema 校验参数；服务声明 Output Schema 时，也会校验 `structuredContent`。MCP 返回 `isError=true` 时会保留为工具失败，不会包装成成功文本。
-- 每次调用的完整原始返回值都会保存为 Evidence artifact。模型看到 evidence id、来源、结构化内容摘要、错误状态和文件位置；内容过长时使用 `evidence_read` 分段读取。根据 MCP 结果生成产品 CLI 命令时，Agent 会把对应 evidence id 写入 `cli_execute.evidence_refs`，宿主拒绝不存在或跨任务的引用。
+- `capability_invoke` 会先按服务端 Input Schema 校验参数；服务声明 Output Schema 时，也会校验 `structuredContent`。MCP 返回会统一规范化为 `structuredContent`、由所有文本块合并出的 `textContent`、`isError` 和读取状态，不要求模型解析 SDK 包装层；`isError=true` 会保留为工具失败，不会包装成成功文本。
+- 每次调用的完整原始返回值都会保存为 Evidence artifact。模型看到 evidence id、来源、结构化内容、规范化文本、错误状态和文件位置；内容过长或 `readRequired=true` 时使用 `evidence_read` 分段读取到 `eof`。根据 MCP 结果生成产品 CLI 命令时，Agent 会把对应 evidence id 写入 `cli_execute.evidence_refs`，宿主拒绝不存在或跨任务的引用。
 - 不要在普通命令参数中直接写密钥；优先使用受控环境或系统凭据方案。
 
 配置文件中的 HTTP MCP 形态如下（请求头可按服务要求填写，值不会出现在 Agent 工具参数摘要中）：
@@ -324,7 +325,7 @@ myterm 所说的 CLI 和 REST 能力，主要指 Agent 在远程 SSH 环境中�
 
 ## 多 SSH 与 OS 安装规划
 
-当前 Agent Task 仍以单个活动 SSH 目标为默认上下文，但内置 Multi-SSH Coordinator 已支持通过 `session_catalog` 查找非活动或仅保存的服务器，并用 `session_connect` 自动启动或复用 SSH，再将明确的 `session_id` 传给后续工具。第一版跨目标协同默认为串行：完成并验证 A 后再操作 B。
+当前 Agent 不再把活动 SSH 自动绑定为默认上下文。模型先根据用户对话决定是否需要 SSH：通用、MCP 或 Skill 任务保持无会话；明确指向当前终端时显式启用活动候选；提到命名环境时通过 `session_catalog` 查找，并用 `session_connect` 自动启动或复用 SSH，再将明确的 `session_id` 传给后续工具。内置 Multi-SSH Coordinator 的第一版跨目标协同默认为串行：完成并验证 A 后再操作 B。
 
 OS 安装不会通过一条 SSH 命令直接执行。计划流程是：
 
@@ -373,7 +374,7 @@ npm run release -- -Version 0.9.6
 
 ### Agent 没有执行命令
 
-检查活动会话、上下文工具开关、权限模式和审批区域。只读模式会阻止写操作；危险命令可能被硬拒绝。AI 服务不可用时先运行连接测试。
+先确认任务是否明确指出了目标。当前终端类任务应能看到“活动 SSH 候选”，命名服务器任务应由 Agent 通过 `session_catalog`/`session_connect` 取得明确 `session_id`；如果目标含糊，Agent 应询问而不是猜测。随后检查权限模式和审批区域：只读模式会阻止写操作，危险命令可能被硬拒绝。AI 服务不可用时先运行连接测试。
 
 ### MCP 连接失败
 

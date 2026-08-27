@@ -46,6 +46,9 @@
   --green-ring: rgba(142, 179, 138, 0.12);
   --gold-ring: rgba(227, 188, 104, 0.12);
   --radius: 6px;
+  --type-section: 11px;
+  --type-title: 13px;
+  --type-heading: 15px;
   letter-spacing: 0;
 }
 
@@ -542,7 +545,7 @@ button:disabled {
   align-items: baseline;
   gap: 6px;
   margin: 0;
-  font-size: 15px;
+  font-size: var(--type-heading);
   font-weight: 620;
 }
 
@@ -1297,7 +1300,7 @@ button:disabled {
 
 .quick-panel-copy strong {
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--type-title);
   font-weight: 620;
   line-height: 13px;
 }
@@ -1774,7 +1777,7 @@ button:disabled {
 }
 
 .ai-heading strong {
-  font-size: 12px;
+  font-size: var(--type-title);
   font-weight: 620;
 }
 
@@ -2380,7 +2383,7 @@ button:disabled {
 .ai-empty h3 {
   margin: 13px 0 5px;
   color: var(--text-soft);
-  font-size: 13px;
+  font-size: var(--type-title);
   font-weight: 540;
 }
 
@@ -2613,7 +2616,6 @@ button:disabled {
   opacity: 0.58;
 }
 
-.context-toggle,
 .toggle-field {
   display: flex;
   align-items: center;
@@ -2621,14 +2623,33 @@ button:disabled {
   cursor: pointer;
 }
 
-.context-toggle {
+.session-candidate {
   flex: 0 0 24px;
   height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--text-soft);
   font-size: 9.5px;
 }
 
-.context-toggle > input,
+.session-candidate > svg {
+  color: var(--text-muted);
+}
+
+.session-candidate.is-ready > svg {
+  color: var(--green);
+}
+
+.session-candidate small {
+  margin-left: auto;
+  max-width: 48%;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .toggle-field > input {
   position: absolute;
   opacity: 0;
@@ -2664,11 +2685,6 @@ input:checked + .toggle-track {
 input:checked + .toggle-track > span {
   left: 13px;
   background: var(--green-strong);
-}
-
-.context-toggle small {
-  margin-left: auto;
-  color: var(--text-muted);
 }
 
 .composer-box {
@@ -2943,7 +2959,7 @@ input:checked + .toggle-track > span {
 
 .modal-header h2 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--type-title);
   font-weight: 620;
 }
 
@@ -2967,7 +2983,7 @@ input:checked + .toggle-track > span {
 .settings-section-title {
   margin: 0 0 9px;
   color: var(--text-soft);
-  font-size: 10px;
+  font-size: var(--type-section);
   font-weight: 620;
 }
 
@@ -3587,7 +3603,7 @@ input:checked + .toggle-track > span {
   gap: 8px;
   margin: 3px 0 -2px;
   color: var(--text-soft);
-  font-size: 10px;
+  font-size: var(--type-section);
   font-weight: 620;
 }
 

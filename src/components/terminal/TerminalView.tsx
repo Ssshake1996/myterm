@@ -22,7 +22,7 @@ import {
 } from "../../ipc";
 import type { PaneModel } from "../../store/layout";
 import { useLayoutStore } from "../../store/layout";
-import { fontScaleFactor, useUiStore } from "../../store/ui";
+import { effectiveTerminalFontSize, useUiStore } from "../../store/ui";
 import { Icon } from "../shell/Icon";
 
 const terminalThemes: Record<AppTheme, ITheme> = {
@@ -350,7 +350,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
   const terminalPalette = useUiStore((state) => state.terminalPalette);
   const fontScale = useUiStore((state) => state.fontScale);
   const terminalFontSize = useUiStore((state) => state.terminalFontSize);
-  const xtermFontSize = terminalFontSize / fontScaleFactor[fontScale];
+  const xtermFontSize = effectiveTerminalFontSize(terminalFontSize, fontScale);
   const xtermFontSizeRef = useRef(xtermFontSize);
   xtermFontSizeRef.current = xtermFontSize;
   const terminalPaletteRef = useRef(terminalPalette);

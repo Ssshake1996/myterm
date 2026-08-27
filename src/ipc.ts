@@ -726,13 +726,18 @@ export async function agentMcpTest(server: McpServerConfig): Promise<McpToolInfo
 export async function agentRun(
   profileId: string,
   prompt: string,
-  sessionId: string | null,
+  activeSessionId: string | null,
   onEvent: MessageChannel<AgentEvent>,
 ): Promise<AgentRunResult> {
   if (!isDesktopRuntime) {
-    return demoBackend.agentRun(profileId, prompt, sessionId, onEvent);
+    return demoBackend.agentRun(profileId, prompt, activeSessionId, onEvent);
   }
-  return invoke<AgentRunResult>("agent_run", { profileId, prompt, sessionId, onEvent });
+  return invoke<AgentRunResult>("agent_run", {
+    profileId,
+    prompt,
+    sessionId: activeSessionId,
+    onEvent,
+  });
 }
 
 export async function agentApprove(callId: string, approved: boolean): Promise<void> {

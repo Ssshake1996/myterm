@@ -29,7 +29,7 @@ import {
   terminalPaletteSave,
 } from "./ipc";
 import { getActivePane, useLayoutStore } from "./store/layout";
-import { useUiStore } from "./store/ui";
+import { effectiveTerminalFontSize, useUiStore } from "./store/ui";
 
 export function App() {
   const [profiles, setProfiles] = useState<SessionProfile[]>([]);
@@ -337,8 +337,12 @@ export function App() {
               </label>
               <label className="font-setting-row">
                 <span>
-                  <strong>终端字号</strong>
-                  <small>只调整 SSH 和本地终端内容</small>
+                  <strong>终端基础字号</strong>
+                  <small>
+                    随界面比例同步放大；当前实际约
+                    {Math.round(effectiveTerminalFontSize(terminalFontSize, fontScale) * 10) / 10}
+                    px
+                  </small>
                 </span>
                 <select
                   aria-label="终端字号"
@@ -347,7 +351,7 @@ export function App() {
                 >
                   {[12, 13, 14, 15, 16, 18, 20, 22].map((size) => (
                     <option key={size} value={size}>
-                      {size}px
+                      {size}px 基础
                     </option>
                   ))}
                 </select>

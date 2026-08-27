@@ -86,9 +86,12 @@ describe("ProfileModal", () => {
         }),
     );
 
-    render(<ProfileModal onClose={vi.fn()} onSaved={vi.fn()} profile={null} />);
+    render(<ProfileModal onClose={vi.fn()} onSaved={vi.fn()} profile={existing} />);
 
-    expect(screen.getByLabelText("名称")).toBeInTheDocument();
+    expect(screen.getByLabelText("名称")).toHaveValue("旧名称");
+    expect(screen.getByLabelText("名称")).toHaveAttribute("autocomplete", "off");
+    expect(screen.getByLabelText("主机")).toHaveValue("192.168.3.94");
+    expect(screen.getByLabelText("密码")).toHaveAttribute("autocomplete", "off");
     expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "本地终端" }));
     expect(screen.getByRole("combobox", { name: "Shell" })).toHaveAttribute("aria-busy", "true");

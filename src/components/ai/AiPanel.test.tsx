@@ -221,6 +221,15 @@ describe("AiPanel Agent trace", () => {
     );
   });
 
+  it("offers the active SSH as a passive candidate without a manual binding control", async () => {
+    render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
+
+    await screen.findByRole("option", { name: "Ops AI · ops-model" });
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByText("活动 SSH 候选")).toBeInTheDocument();
+    expect(screen.getByText("prod-web")).toBeInTheDocument();
+  });
+
   it("resizes the composer upward and caps it at half the Agent panel height", async () => {
     render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
 

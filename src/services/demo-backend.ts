@@ -805,7 +805,7 @@ class DemoBackend {
   async agentRun(
     _profileId: string,
     prompt: string,
-    sessionId: string | null,
+    activeSessionId: string | null,
     sink: MessageChannel<AgentEvent>,
   ): Promise<AgentRunResult> {
     this.agentAborted = false;
@@ -816,25 +816,49 @@ class DemoBackend {
       sequence += 1;
       sink.onmessage({ ...event, schemaVersion: 1, sequence, createdAtMs: Date.now() });
     };
-    emit({ eventType: "status", runId, message: "正在准备工具和上下文" });
+    emit({ eventType: "status", runId, message: "正在判断任务范围和可用工具" });
     await new Promise((resolve) => window.setTimeout(resolve, 180));
     emit({ eventType: "status", runId, step: 1, message: "模型决策 · 1/8" });
+    const usesMcp = /\bmcp\b/iu.test(prompt);
+    const usesActiveSession = /当前|终端|这台|本机|服务器|ssh|磁盘|内存|命令/iu.test(prompt);
+    if (!usesMcp && !usesActiveSession) {
+      emit({
+        eventType: "assistant",
+        runId,
+        step: 1,
+        content: "这是一个通用任务，不需要读取活动 SSH。Agent 会保持终端上下文未加载。",
+      });
+      emit({ eventType: "complete", runId, step: 1, message: "stop" });
+      return {
+        runId,
+        finishReason: "stop",
+        steps: 1,
+        modelRequests: 1,
+        toolCalls: 0,
+        promptTokens: 160,
+        completionTokens: 32,
+        totalTokens: 192,
+      };
+    }
+    const toolName = usesMcp ? "mcp_status" : "session_info";
+    const toolArguments = usesMcp ? {} : { use_active_session: true };
     emit({
       eventType: "tool_requested",
       runId,
       step: 1,
       callId,
-      toolName: "session_info",
-      arguments: {},
+      toolName,
+      arguments: toolArguments,
     });
-    if (this.agentSettings.permission_mode === "confirm") {
+    const requiresApproval = !["mcp_status", "session_info"].includes(toolName);
+    if (this.agentSettings.permission_mode === "confirm" && requiresApproval) {
       emit({
         eventType: "approval_required",
         runId,
         step: 1,
         callId,
-        toolName: "session_info",
-        arguments: {},
+        toolName,
+        arguments: toolArguments,
       });
       const approved = await new Promise<boolean>((resolve) => this.approvals.set(callId, resolve));
       if (!approved || this.agentAborted) {
@@ -843,7 +867,7 @@ class DemoBackend {
           runId,
           step: 1,
           callId,
-          toolName: "session_info",
+          toolName,
           content: this.agentAborted ? "任务已停止" : "用户拒绝了本次工具调用",
           isError: true,
         });
@@ -865,20 +889,36 @@ class DemoBackend {
         };
       }
     }
-    const activeSession = sessionId ? this.sessions.get(sessionId) : undefined;
+    const activeSession = activeSessionId ? this.sessions.get(activeSessionId) : undefined;
     emit({
       eventType: "tool_result",
       runId,
       step: 1,
       callId,
-      toolName: "session_info",
-      content: JSON.stringify({ session: activeSession ?? null, profile: "prod-web-01" }, null, 2),
+      toolName,
+      content: usesMcp
+        ? JSON.stringify(
+            {
+              configuredCount: 1,
+              readyCount: 1,
+              servers: [{ serverName: "CLI Docs", status: "ready", toolCount: 3 }],
+            },
+            null,
+            2,
+          )
+        : JSON.stringify(
+            { session: activeSession ?? null, profile: "prod-web-01", activeCandidate: true },
+            null,
+            2,
+          ),
       isError: false,
     });
     await new Promise((resolve) => window.setTimeout(resolve, 220));
-    const answer = prompt.includes("磁盘")
-      ? "已读取活动会话。根分区使用率较高，建议先运行 `du` 定位占用目录，再决定清理范围。"
-      : "已读取活动会话信息，当前连接可用，可以继续执行终端排查。";
+    const answer = usesMcp
+      ? "MCP 服务器已连接并完成工具发现；本次诊断没有读取活动 SSH。"
+      : prompt.includes("磁盘")
+        ? "已读取活动会话。根分区使用率较高，建议先运行 `du` 定位占用目录，再决定清理范围。"
+        : "已读取活动会话信息，当前连接可用，可以继续执行终端排查。";
     emit({ eventType: "assistant", runId, step: 2, content: answer });
     emit({ eventType: "complete", runId, step: 2, message: "stop" });
     emit({

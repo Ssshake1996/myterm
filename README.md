@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.9.9`
+当前版本：`0.9.10`
 
 ## 核心功能
 
@@ -56,7 +56,7 @@ Agent 使用类似 Claude Code 的循环：
 - AI 面板按时间线展示模型决策、工具名称、参数摘要、stdout、stderr、结果和状态。
 - 任务输入支持 `Shift+Enter` 换行和输入法保护，顶部拖柄可将输入区向上扩大到 Agent 面板高度的一半。
 - Agent 标题栏提供明确的“新对话”按钮；任务历史使用有边框和阴影的独立浮层，避免与执行时间线混在一起。
-- 基础工具覆盖会话信息、终端上下文、终端输入、结构化 SSH 命令、主机事实、目录和文件操作；非活动服务器可通过会话目录发现并自动建立 SSH，内置 Multi-SSH Coordinator 支持多个目标的串行协同。
+- 基础工具覆盖会话信息、终端上下文、终端输入、结构化 SSH 命令、主机事实、目录和文件操作；非活动服务器可通过会话目录发现并自动建立 SSH，内置 Multi-SSH Coordinator 支持多个目标的串行协同。界面中的活动 SSH 只作为候选元数据：通用问答、MCP、Skill 和历史任务不会自动读取终端；只有模型判断用户明确指向当前终端时才会设置 `use_active_session=true`，命名服务器则必须解析并传入明确的 `session_id`。
 - 结构化命令执行分别记录 stdout/stderr、退出码、信号、超时、取消和断连结果。
 - 长任务可转入后台 Job，并通过状态、分页输出和取消工具继续管理。
 - 内置诊断 Runbook、上下文压缩、循环检测和敏感字段脱敏。
@@ -80,7 +80,8 @@ Agent 使用类似 Claude Code 的循环：
 - 从本地目录发现 `SKILL.md`，读取元数据和内容哈希，并按任务需要加载已启用 Skill。
 - 支持配置和测试 stdio 与 streamable-http MCP 服务器；测试成功后可展开 capability id、完整工具名称、标题、说明、Transport、Input/Output Schema 和 annotations，并复制结果。
 - MCP 工具统一进入任务级 Capability Registry：小目录直接暴露，较大目录按任务语义选择并保留 `capability_search`；调用参数和结构化结果按服务端 Schema 校验。
-- MCP 返回值会保存为任务级 Evidence artifact。Agent 根据证据整合产品 CLI 命令，并把 `evidence_refs` 交给 `cli_execute`；错误状态、原始结果和来源不会被改写成模型猜测。
+- MCP 返回值会规范化为 `structuredContent`、`textContent`、错误状态与原始 Evidence artifact。Agent 根据完整证据整合产品 CLI 命令，并把 `evidence_refs` 交给 `cli_execute`；长结果可继续分页读取，不会把包装层、截断摘要或失败内容当成最终事实。
+- Agent 可调用只读的 `mcp_status` 检查每个已配置服务器的启用状态、Transport、连接/工具发现阶段、工具数量、稳定错误码和服务端原始详情；该诊断不需要 SSH 会话。
 - 支持有界、确定性的任务生命周期 Hooks；Hooks 不能降低核心权限策略。
 
 ### 插件化 Agent 内核
@@ -95,7 +96,7 @@ Agent 使用类似 Claude Code 的循环：
 
 - CLI 指 Agent 通过 SSH 大量执行 `systemctl`、`journalctl`、`docker`、`kubectl` 和业务命令，并取得结构化结果；不是要求 myterm 对外提供一套 CLI 产品接口。
 - REST 指从明确的远端 SSH 主机调用业务或基础设施 HTTP API，保留真实网络视角、凭据脱敏和审计；不是要求 myterm 对外暴露 Agent REST 服务。
-- Multi-SSH Coordinator 采用一个 Task 绑定多个保存的服务器；Agent 先发现目标，必要时自动建立 SSH，再为每次工具调用显式指定 `session_id`，默认串行支持 A 操作、B 观察和条件满足后继续。
+- Multi-SSH Coordinator 让一个 Task 使用多个保存的服务器；Agent 先按对话判断是否需要 SSH，再发现目标、必要时自动连接，并为每次会话工具显式指定 `session_id`。活动终端只有在用户明确提到“当前终端/这台服务器”时才可通过 `use_active_session=true` 选中；缺少目标时工具会闭合失败，不会静默落到当前焦点。默认串行支持 A 操作、B 观察和条件满足后继续。
 - OS 安装规划为由本地 Skill 触发的安装 Task。Skill 生成和校验计划，真正的写盘、启动和电源动作由受审批的 provisioning 工具通过虚拟化平台、云 API、MAAS 或 Redfish/BMC 执行。
 
 以上能力的完整边界、方案优缺点和阶段计划见[多 SSH 协同与 Skill 驱动 OS 安装方案](docs/multi-ssh-os-installation-plan.md)。`0.6.3` 已删除早期实现的本机 Agent CLI 和 loopback REST；myterm 保持桌面应用边界，CLI/REST 只表示 Agent 在远端 SSH 环境中执行命令和 HTTP 请求。
@@ -104,7 +105,7 @@ Agent 使用类似 Claude Code 的循环：
 
 - 白色、护眼色和深色三套主题，设置会持久化并同步到终端画布。
 - 终端提供三套命令配色模板：石墨青金（稳定对比）、森林护眼（低蓝光）和午夜高对比（强区分）；命令输入使用高亮色，回显保持正文色。
-- 支持界面字号从 90% 到 200% 七档，另可独立设置终端 `12-22px` 字号；修改即时生效并持久化。
+- 支持界面字号从 90% 到 200% 七档，统一放大侧栏、标题、面板、弹窗和 xterm 终端；终端另提供 `12-22px` 基础字号，最终字号为“基础字号 × 界面倍率”。修改即时生效、重新适配行列且不会重连会话。
 - AI 配置支持 `Bearer Token`（`Authorization: Bearer sk-...`）和 `API Key`（`Authorization: sk-...`）两种认证头格式。
 - AI 与 Agent 的 HTTPS 请求使用 Rustls 并加载操作系统根证书库，支持已部署到系统信任库的企业 CA、内网 CA 和安全代理证书。
 - 测试连接和 Agent 失败先显示失败位置与稳定错误码，点击详情后展开 HTTP 状态、Endpoint、响应体、传输错误、stderr、退出码、超时和调用堆栈；仅对密钥脱敏并限制诊断长度，不用推测性文字替换服务端结果。
@@ -187,4 +188,4 @@ npm run check:dist
 
 ## 当前边界
 
-当前 `0.9.9` 将 CLI 执行和 MCP 查询收敛到 Capability Registry、Evidence Ledger 与原子 CLI Executor：减少短小模型请求，支持独立只读工具并发、CLI/MCP 批处理、Schema 校验、原始证据读取和运行指标，同时保留现有权限、Skill、多 SSH 与多模型边界。
+当前 `0.9.10` 在 Capability Registry、Evidence Ledger 与原子 CLI Executor 基础上加入动态 SSH 目标解析：活动会话只作候选、模型必须显式选中目标、无目标时闭合失败；同时修正终端对全局字号倍率的反向抵消，补齐 MCP 状态诊断和规范化结果解析，并减少编辑已保存会话时的浏览器自动填充干扰。

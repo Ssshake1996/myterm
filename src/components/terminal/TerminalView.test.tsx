@@ -266,6 +266,16 @@ describe("TerminalView", () => {
     expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1);
   });
 
+  it("scales terminal text with the global interface font scale", async () => {
+    render(<TerminalView pane={pane} profile={profile} />);
+    await waitFor(() => expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1));
+
+    act(() => useUiStore.getState().setFontScale("scale_150"));
+
+    await waitFor(() => expect(terminalMocks.options.fontSize).toBe(19.5));
+    expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1);
+  });
+
   it("opens a terminal context menu with clipboard actions", async () => {
     const { container } = render(<TerminalView pane={pane} profile={profile} />);
     await waitFor(() => expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1));

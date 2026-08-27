@@ -245,10 +245,10 @@ impl AgentService {
         self: &Arc<Self>,
         profile_id: &str,
         prompt: String,
-        session_id: Option<String>,
+        active_session_id: Option<String>,
         sink: Arc<dyn AgentEventSink>,
     ) -> Result<AgentRunResult, AppError> {
-        self.run_with_permission(profile_id, prompt, session_id, sink, None)
+        self.run_with_permission(profile_id, prompt, active_session_id, sink, None)
             .await
     }
 
@@ -256,7 +256,7 @@ impl AgentService {
         self: &Arc<Self>,
         profile_id: &str,
         prompt: String,
-        session_id: Option<String>,
+        active_session_id: Option<String>,
         sink: Arc<dyn AgentEventSink>,
         permission: Option<crate::types::AgentPermissionMode>,
     ) -> Result<AgentRunResult, AppError> {
@@ -264,7 +264,7 @@ impl AgentService {
             uuid::Uuid::new_v4().to_string(),
             profile_id,
             prompt,
-            session_id,
+            active_session_id,
             sink,
             permission,
         )
@@ -276,7 +276,7 @@ impl AgentService {
         run_id: String,
         profile_id: &str,
         prompt: String,
-        session_id: Option<String>,
+        active_session_id: Option<String>,
         sink: Arc<dyn AgentEventSink>,
         permission: Option<crate::types::AgentPermissionMode>,
     ) -> Result<AgentRunResult, AppError> {
@@ -307,7 +307,10 @@ impl AgentService {
         self.store.create_task(&AgentTask {
             id: run_id.clone(),
             profile_id: profile.id.clone(),
-            session_id: session_id.clone(),
+            // The active UI session is only a task-time candidate. Persisting it
+            // here would incorrectly describe the whole conversation as bound
+            // before the model has selected any SSH target.
+            session_id: None,
             prompt: prompt.trim().to_owned(),
             state: AgentTaskState::Queued,
             permission_mode: settings.permission_mode,
@@ -354,7 +357,7 @@ impl AgentService {
             profile,
             settings,
             prompt,
-            session_id,
+            active_session_id,
             sink.clone(),
             abort_rx,
             api_key,
@@ -842,6 +845,7 @@ impl AgentService {
                 let requested_session_id = arguments.get("session_id").and_then(Value::as_str);
                 let requested_profile_id = arguments.get("profile_id").and_then(Value::as_str);
                 let requested_name = arguments.get("profile_name").and_then(Value::as_str);
+                let selected_active_session_id = selected_session_id(&arguments, session_id);
                 let profiles = self.config.profile_list()?;
                 let live_sessions = self.sessions.list()?;
                 let session = if let Some(id) = requested_session_id {
@@ -855,7 +859,7 @@ impl AgentService {
                         })
                     })
                 } else {
-                    session_id
+                    selected_active_session_id
                         .and_then(|id| live_sessions.iter().find(|item| item.session_id == id))
                 };
                 let profile = if let Some(session) = session {
@@ -874,13 +878,16 @@ impl AgentService {
                             .map(|id| format!("session '{id}'"))
                             .or_else(|| requested_profile_id.map(|id| format!("profile '{id}'")))
                             .or_else(|| requested_name.map(|name| format!("profile '{name}'")))
-                            .unwrap_or_else(|| "active session".to_owned()),
+                            .unwrap_or_else(|| {
+                                "SSH target (explicit session_id or use_active_session=true)"
+                                    .to_owned()
+                            }),
                     ));
                 }
                 Ok(serde_json::to_string(&json!({
                     "session": session,
                     "profile": profile,
-                    "active": session.is_some_and(|item| Some(item.session_id.as_str()) == session_id),
+                    "activeCandidate": session.is_some_and(|item| Some(item.session_id.as_str()) == session_id),
                 }))?)
             }
             "session_catalog" => {
@@ -1777,6 +1784,17 @@ pub(crate) fn tool_definitions(registry: &CapabilityRegistry, prompt: &str) -> V
             }),
         ),
         function_tool(
+            "mcp_status",
+            "Read task-start diagnostics for every configured MCP server, including transport, enabled state, connection/tool-discovery stage, exact error code, original error detail, and discovered tool count. This tool never requires an SSH session.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Optional case-insensitive server id, name, transport, status, code, or error filter" }
+                },
+                "additionalProperties": false
+            }),
+        ),
+        function_tool(
             "evidence_read",
             "Read a byte range from the exact raw result artifact for one MCP evidence id returned earlier in the current task.",
             json!({
@@ -1791,6 +1809,7 @@ pub(crate) fn tool_definitions(registry: &CapabilityRegistry, prompt: &str) -> V
             }),
         ),
     ];
+    add_explicit_session_targeting(&mut tools);
     if !registry.entries().is_empty() {
         tools.extend(
             registry
@@ -1858,6 +1877,77 @@ pub(crate) fn tool_definitions(registry: &CapabilityRegistry, prompt: &str) -> V
     tools
 }
 
+fn add_explicit_session_targeting(tools: &mut [Value]) {
+    const SESSION_TARGETED_TOOLS: &[&str] = &[
+        "remote_exec",
+        "terminal_context",
+        "cli_execute",
+        "cli_execute_batch",
+        "terminal_send",
+        "session_info",
+        "list_directory",
+        "file_stat",
+        "file_read",
+        "file_search",
+        "file_write",
+        "file_patch",
+        "host_facts",
+        "runbook",
+    ];
+    for tool in tools {
+        let Some(function) = tool.get_mut("function").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        let Some(name) = function
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+        else {
+            continue;
+        };
+        if !SESSION_TARGETED_TOOLS.contains(&name.as_str()) {
+            continue;
+        }
+        if let Some(description) = function.get_mut("description") {
+            let current = description.as_str().unwrap_or_default();
+            let target_contract = match name.as_str() {
+                "session_info" => "To inspect the current SSH candidate, set use_active_session=true; profile_id, profile_name, or session_id remain valid explicit selectors.",
+                "list_directory" => "For remote scope, pass session_id or set use_active_session=true only when the user's task refers to the current SSH; local scope needs neither.",
+                _ => "Target selection is explicit: pass session_id, or set use_active_session=true only when the user's task refers to the current SSH.",
+            };
+            *description = Value::String(format!("{} {target_contract}", current.trim(),));
+        }
+        let Some(properties) = function
+            .get_mut("parameters")
+            .and_then(Value::as_object_mut)
+            .and_then(|parameters| parameters.get_mut("properties"))
+            .and_then(Value::as_object_mut)
+        else {
+            continue;
+        };
+        if let Some(session_id) = properties
+            .get_mut("session_id")
+            .and_then(Value::as_object_mut)
+        {
+            session_id.insert(
+                "description".to_owned(),
+                Value::String(
+                    "Explicit target session_id returned by session_catalog or session_connect"
+                        .to_owned(),
+                ),
+            );
+        }
+        properties.insert(
+            "use_active_session".to_owned(),
+            json!({
+                "type": "boolean",
+                "default": false,
+                "description": "Set true only when the user refers to the current terminal, this server, or the visible SSH; never use it merely because an active pane exists"
+            }),
+        );
+    }
+}
+
 fn function_tool(name: &str, description: &str, parameters: Value) -> Value {
     json!({
         "type": "function",
@@ -1878,18 +1968,30 @@ pub(crate) fn plugin_id_for_tool(name: &str) -> &'static str {
 }
 
 fn require_session(session_id: Option<&str>) -> Result<&str, AppError> {
-    session_id.ok_or_else(|| AppError::InvalidInput("an active session is required".to_owned()))
+    session_id.ok_or_else(|| {
+        AppError::InvalidInput(
+            "an SSH target is required: pass an explicit session_id, or set use_active_session=true only when the user refers to the current terminal or current server"
+                .to_owned(),
+        )
+    })
 }
 
 fn selected_session_id<'a>(
     arguments: &'a Value,
-    active_session_id: Option<&'a str>,
+    active_session_candidate: Option<&'a str>,
 ) -> Option<&'a str> {
     arguments
         .get("session_id")
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
-        .or(active_session_id)
+        .or_else(|| {
+            arguments
+                .get("use_active_session")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                .then_some(active_session_candidate)
+                .flatten()
+        })
 }
 
 pub(crate) fn argument_str<'a>(arguments: &'a Value, name: &str) -> Result<&'a str, AppError> {
@@ -2282,7 +2384,7 @@ mod tests {
     #[test]
     fn built_in_tools_and_limits_are_explicit() {
         let tools = tool_definitions(&CapabilityRegistry::default(), "");
-        assert_eq!(tools.len(), 21);
+        assert_eq!(tools.len(), 22);
         assert_eq!(tools[0]["function"]["name"], "remote_exec");
         assert!(tools
             .iter()
@@ -2303,9 +2405,20 @@ mod tests {
             terminal_context["function"]["parameters"]["properties"]["limit"]["maximum"],
             65_536
         );
+        assert_eq!(
+            terminal_context["function"]["parameters"]["properties"]["use_active_session"]
+                ["default"],
+            false
+        );
+        assert!(terminal_context["function"]["description"]
+            .as_str()
+            .is_some_and(|value| value.contains("Target selection is explicit")));
         assert!(tools
             .iter()
             .any(|tool| tool["function"]["name"] == "cli_execute_batch"));
+        assert!(tools
+            .iter()
+            .any(|tool| tool["function"]["name"] == "mcp_status"));
         let settings = AgentSettings::default();
         assert_eq!(settings.profile, "dsh-codex-agent");
         assert_eq!(settings.max_steps, 64);
@@ -2325,18 +2438,22 @@ mod tests {
     }
 
     #[test]
-    fn explicit_session_id_takes_precedence_over_active_session() {
+    fn active_session_candidate_requires_explicit_model_opt_in() {
         let arguments = json!({ "session_id": "secondary" });
         assert_eq!(
             selected_session_id(&arguments, Some("active")),
             Some("secondary")
         );
         assert_eq!(
-            selected_session_id(&json!({}), Some("active")),
+            selected_session_id(&json!({ "use_active_session": true }), Some("active")),
             Some("active")
         );
+        assert_eq!(selected_session_id(&json!({}), Some("active")), None);
         assert_eq!(
-            selected_session_id(&json!({ "session_id": "" }), Some("active")),
+            selected_session_id(
+                &json!({ "session_id": "", "use_active_session": true }),
+                Some("active")
+            ),
             Some("active")
         );
     }

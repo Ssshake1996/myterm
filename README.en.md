@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.9.9`
+Current version: `0.9.10`
 
 ## Core Features
 
@@ -56,7 +56,7 @@ task input -> model decision -> tool call -> result -> continue -> final answer
 - A tool-centric timeline shows model decisions, tool names, parameter summaries, stdout, stderr, results, and status.
 - Task input supports `Shift+Enter` newlines and IME protection; a top handle expands the composer up to half the Agent panel height.
 - A visible New Conversation action clears the current trace without deleting history, and the history surface uses a distinct bordered, elevated panel.
-- Built-in tools cover session metadata, terminal context, terminal input, structured SSH execution, host facts, directories, and files; inactive saved servers can be discovered and connected automatically, while the built-in Multi-SSH Coordinator provides serial coordination across explicit targets.
+- Built-in tools cover session metadata, terminal context, terminal input, structured SSH execution, host facts, directories, and files; inactive saved servers can be discovered and connected automatically, while the built-in Multi-SSH Coordinator provides serial coordination across explicit targets. The focused SSH pane is passive candidate metadata: general questions, MCP, Skills, and history do not read it automatically. The model must set `use_active_session=true` only when the user refers to the current terminal, or resolve a named server and pass an explicit `session_id`.
 - Structured execution records stdout/stderr separately with exit code, signal, timeout, cancellation, and disconnect outcomes.
 - Long operations can become background jobs with status, paged output, and cancellation tools.
 - Diagnostic runbooks, context compaction, loop detection, and pre-persistence secret redaction are built in.
@@ -80,7 +80,8 @@ Hard-deny commands, production/root escalation, output limits, audit records, an
 - Discover local `SKILL.md` files, record metadata and content hashes, and load enabled Skills on demand.
 - Configure and test stdio and streamable-http MCP servers. Successful tests expose capability ids, complete names, titles, descriptions, transports, input/output schemas, and annotations with a copy action.
 - MCP tools enter a task-scoped Capability Registry. Small catalogs are exposed directly; larger catalogs are selected by task relevance while `capability_search` remains available. Inputs and structured outputs are validated against server-provided schemas.
-- MCP results are persisted as task-scoped Evidence artifacts. The Agent synthesizes product CLI commands from evidence and passes `evidence_refs` to `cli_execute`; error states, origins, and raw results remain inspectable.
+- MCP results are normalized into `structuredContent`, `textContent`, error state, and a task-scoped raw Evidence artifact. The Agent synthesizes product CLI commands from complete evidence and passes `evidence_refs` to `cli_execute`; long results remain page-readable and wrapper text or truncated previews are never treated as the final fact.
+- The read-only `mcp_status` tool reports every configured server's enabled state, transport, connection/tool-discovery stage, tool count, stable error code, and original provider detail without requiring an SSH session.
 - Bounded deterministic lifecycle Hooks are supported and cannot lower core permissions.
 
 ### Plugin Agent Kernel
@@ -95,7 +96,7 @@ Hard-deny commands, production/root escalation, output limits, audit records, an
 
 - CLI means running large numbers of `systemctl`, `journalctl`, `docker`, `kubectl`, and business commands over SSH with structured results. It does not mean that myterm needs a public CLI product surface.
 - REST means calling business or infrastructure HTTP APIs from an explicit remote SSH origin with the correct network perspective, credential redaction, and audit. It does not mean exposing the myterm Agent as a REST service.
-- The Multi-SSH Coordinator binds several saved servers to one Task, discovers and connects targets when needed, requires an explicit `session_id` on every session-bound tool call, and supports serial A-operation, B-observation, and condition-gated continuation.
+- The Multi-SSH Coordinator lets one Task use multiple saved servers. The Agent first decides from the dialogue whether SSH is needed, then discovers and connects targets as necessary and explicitly selects each tool target. `use_active_session=true` is valid only for an explicit current-terminal reference; otherwise a concrete `session_id` is required and missing targets fail closed. Serial A-operation, B-observation, and condition-gated continuation remain supported.
 - OS installation is planned as a local-Skill-triggered installation Task. The Skill builds and validates the plan; approved provisioning tools perform disk, boot, and power operations through a hypervisor, cloud API, MAAS, or Redfish/BMC.
 
 See the [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-installation-plan.md) for boundaries, tradeoffs, and staged delivery. Version `0.6.3` removes the early local Agent CLI and loopback REST surfaces. myterm remains a desktop application; CLI/REST refers only to commands and HTTP requests executed by the Agent in remote SSH environments.
@@ -104,7 +105,7 @@ See the [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-inst
 
 - Persistent light, eye-care, and dark themes also update the terminal canvas.
 - The terminal offers three command-color templates—Graphite Gold (stable contrast), Forest Amber (low blue light), and Midnight Contrast (strong separation). Typed commands use the accent color while command output keeps the body color.
-- Seven persistent UI scale levels from 90% through 200% are available, with an independent `12-22px` terminal font size for SSH and local shells; changes apply immediately.
+- Seven persistent UI scale levels from 90% through 200% uniformly enlarge sidebars, headings, panels, dialogs, and xterm content. SSH and local terminals also expose a `12-22px` base font size; the effective terminal size is the base size multiplied by the UI scale, applied immediately without reconnecting.
 - AI profiles support `Bearer Token` (`Authorization: Bearer sk-...`) and raw `API Key` (`Authorization: sk-...`) header modes.
 - AI and Agent HTTPS traffic uses Rustls with native operating-system roots, including enterprise, intranet, and security-proxy CAs installed in the system trust store.
 - Failed connection tests and Agent runs first show the failing stage and stable error code; opening details reveals the raw HTTP status, endpoint, response body, transport error, stderr, exit code, timeout, and call stack. Only secrets are redacted and diagnostics are bounded; provider responses are not replaced with guesses.
@@ -187,4 +188,4 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 
 ## Current Boundaries
 
-Version `0.9.9` consolidates CLI execution and MCP lookup around a Capability Registry, Evidence Ledger, and atomic CLI Executor. It reduces tiny model requests through read concurrency and CLI/MCP batches, validates schemas, preserves raw evidence, and reports turn metrics while keeping the existing permission, Skill, Multi-SSH, and multi-model boundaries.
+Version `0.9.10` adds dynamic SSH target resolution on top of the Capability Registry, Evidence Ledger, and atomic CLI Executor. The active pane is only a candidate, every session tool requires an explicit model choice, and missing targets fail closed. It also fixes terminal UI-scale cancellation, adds MCP status diagnostics and normalized result parsing, and reduces browser-autofill interference while editing saved sessions.

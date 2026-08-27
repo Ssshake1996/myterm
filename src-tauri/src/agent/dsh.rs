@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     builtin,
-    capability::{CapabilityDescriptor, CapabilityRegistry, EvidenceLedger},
+    capability::{CapabilityDescriptor, CapabilityRegistry, EvidenceLedger, McpServerDiagnostic},
     hooks::{self, HookAction},
     mcp::McpTaskClient,
     policy::{self, PolicyAction},
@@ -37,7 +37,7 @@ pub(crate) async fn run(
     profile: AiProfile,
     settings: AgentSettings,
     prompt: String,
-    session_id: Option<String>,
+    active_session_id: Option<String>,
     sink: Arc<dyn AgentEventSink>,
     abort: watch::Receiver<bool>,
     api_key: String,
@@ -52,7 +52,7 @@ pub(crate) async fn run(
     let session_hooks = hooks::run(
         &settings.hooks,
         "SessionStart",
-        &json!({ "runId": run_id, "sessionId": session_id }),
+        &json!({ "runId": run_id, "activeSessionCandidateId": active_session_id }),
     )
     .await;
     if !session_hooks.is_empty() {
@@ -65,16 +65,65 @@ pub(crate) async fn run(
         super::skills::load_enabled(&settings.skill_directories, &settings.enabled_skills)?;
     let mut capabilities = Vec::new();
     let mut mcp_clients = HashMap::new();
-    for server in settings.mcp_servers.iter().filter(|server| server.enabled) {
+    let mut mcp_diagnostics = Vec::new();
+    for server in &settings.mcp_servers {
+        let transport = super::mcp::transport_label(&server.transport).to_owned();
+        if !server.enabled {
+            mcp_diagnostics.push(McpServerDiagnostic {
+                server_id: server.id.clone(),
+                server_name: server.name.clone(),
+                transport,
+                enabled: false,
+                status: "disabled".to_owned(),
+                tool_count: 0,
+                error_code: None,
+                error_detail: None,
+            });
+            continue;
+        }
         match McpTaskClient::start(server).await {
             Ok(client) => match client.list_tools().await {
                 Ok(tools) => {
+                    mcp_diagnostics.push(McpServerDiagnostic {
+                        server_id: server.id.clone(),
+                        server_name: server.name.clone(),
+                        transport,
+                        enabled: true,
+                        status: "ready".to_owned(),
+                        tool_count: tools.len(),
+                        error_code: None,
+                        error_detail: None,
+                    });
                     capabilities.extend(tools);
                     mcp_clients.insert(server.id.clone(), Arc::new(Mutex::new(client)));
                 }
-                Err(error) => sink.send(service::mcp_error_event(&run_id, &server.name, &error))?,
+                Err(error) => {
+                    mcp_diagnostics.push(McpServerDiagnostic {
+                        server_id: server.id.clone(),
+                        server_name: server.name.clone(),
+                        transport,
+                        enabled: true,
+                        status: "tool_discovery_failed".to_owned(),
+                        tool_count: 0,
+                        error_code: Some(error.code().to_owned()),
+                        error_detail: Some(error.detail()),
+                    });
+                    sink.send(service::mcp_error_event(&run_id, &server.name, &error))?;
+                }
             },
-            Err(error) => sink.send(service::mcp_error_event(&run_id, &server.name, &error))?,
+            Err(error) => {
+                mcp_diagnostics.push(McpServerDiagnostic {
+                    server_id: server.id.clone(),
+                    server_name: server.name.clone(),
+                    transport,
+                    enabled: true,
+                    status: "connection_failed".to_owned(),
+                    tool_count: 0,
+                    error_code: Some(error.code().to_owned()),
+                    error_detail: Some(error.detail()),
+                });
+                sink.send(service::mcp_error_event(&run_id, &server.name, &error))?;
+            }
         }
     }
 
@@ -88,7 +137,13 @@ pub(crate) async fn run(
         ));
     }
     let registry = Arc::new(CapabilityRegistry::new(capabilities));
-    let system_prompt = build_system_prompt(&profile, &skill_context, registry.entries());
+    let system_prompt = build_system_prompt(
+        &profile,
+        &skill_context,
+        registry.entries(),
+        &mcp_diagnostics,
+        active_session_id.is_some(),
+    );
     let state_dir = service
         .config_path()
         .parent()
@@ -127,10 +182,11 @@ pub(crate) async fn run(
     let host: Arc<dyn HostBridge> = Arc::new(DshHostBridge {
         service: service.clone(),
         run_id: run_id.clone(),
-        session_id,
+        active_session_id,
         settings,
         registry: registry.clone(),
         mcp_clients: Arc::new(mcp_clients),
+        mcp_diagnostics: Arc::new(mcp_diagnostics),
         evidence: Arc::new(Mutex::new(EvidenceLedger::default())),
         sink: sink.clone(),
         abort: abort.clone(),
@@ -269,10 +325,11 @@ impl ModelTransport for FallbackTransport {
 struct DshHostBridge {
     service: Arc<AgentService>,
     run_id: String,
-    session_id: Option<String>,
+    active_session_id: Option<String>,
     settings: AgentSettings,
     registry: Arc<CapabilityRegistry>,
     mcp_clients: Arc<HashMap<String, Arc<Mutex<McpTaskClient>>>>,
+    mcp_diagnostics: Arc<Vec<McpServerDiagnostic>>,
     evidence: Arc<Mutex<EvidenceLedger>>,
     sink: Arc<dyn AgentEventSink>,
     abort: watch::Receiver<bool>,
@@ -298,7 +355,15 @@ impl HostBridge for DshHostBridge {
             .get("session_id")
             .and_then(serde_json::Value::as_str)
             .filter(|value| !value.trim().is_empty())
-            .or(self.session_id.as_deref());
+            .or_else(|| {
+                invocation
+                    .arguments
+                    .get("use_active_session")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    .then_some(self.active_session_id.as_deref())
+                    .flatten()
+            });
         let policy_context = self
             .service
             .policy_context(targeted_session_id, self.settings.permission_mode)
@@ -429,6 +494,27 @@ impl DshHostBridge {
             self.evidence.lock().await.validate_refs(&refs)?;
         }
         match invocation.name.as_str() {
+            "mcp_status" => {
+                let query = invocation
+                    .arguments
+                    .get("query")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let servers = self
+                    .mcp_diagnostics
+                    .iter()
+                    .filter(|server| server.matches_query(query))
+                    .collect::<Vec<_>>();
+                Ok(serde_json::to_string(&json!({
+                    "query": query,
+                    "configuredCount": self.mcp_diagnostics.len(),
+                    "enabledCount": self.mcp_diagnostics.iter().filter(|server| server.enabled).count(),
+                    "readyCount": self.mcp_diagnostics.iter().filter(|server| server.status == "ready").count(),
+                    "failedCount": self.mcp_diagnostics.iter().filter(|server| server.status.ends_with("failed")).count(),
+                    "matchCount": servers.len(),
+                    "servers": servers,
+                }))?)
+            }
             "capability_search" => {
                 let query = service::argument_str(&invocation.arguments, "query")?;
                 let limit = invocation
@@ -485,7 +571,7 @@ impl DshHostBridge {
                         &invocation.call_id,
                         &invocation.name,
                         invocation.arguments.clone(),
-                        self.session_id.as_deref(),
+                        self.active_session_id.as_deref(),
                         &self.settings,
                         self.sink.clone(),
                         self.abort.clone(),
@@ -516,44 +602,15 @@ impl DshHostBridge {
         let raw_path = record.artifact_path.to_string_lossy().into_owned();
         self.evidence.lock().await.insert(record);
         let structured = result.structured_content.clone();
-        let structured_bytes = structured
-            .as_ref()
-            .and_then(|value| serde_json::to_vec(value).ok())
-            .map_or(0, |value| value.len());
-        let raw_text = serde_json::to_string(&raw)?;
-        let preview = if raw_text.len() <= 12 * 1024 {
-            raw_text
-        } else {
-            let mut boundary = 12 * 1024;
-            while !raw_text.is_char_boundary(boundary) {
-                boundary = boundary.saturating_sub(1);
-            }
-            format!(
-                "{}...[read evidence {} for the complete result]",
-                &raw_text[..boundary],
-                evidence_id
-            )
-        };
-        let packet = json!({
-            "evidenceId": evidence_id,
-            "capabilityId": capability.id,
-            "provider": {
-                "kind": capability.provider_kind,
-                "id": capability.provider_id,
-                "name": capability.provider_name,
-                "transport": capability.transport,
-            },
-            "tool": capability.original_name,
-            "status": if result.is_error == Some(true) { "error" } else { "success" },
-            "isError": result.is_error.unwrap_or(false),
-            "structuredContent": (structured_bytes <= 24 * 1024).then_some(structured).flatten(),
-            "structuredContentBytes": structured_bytes,
-            "readRequired": raw_bytes > 12 * 1024 || structured_bytes > 24 * 1024,
-            "contentPreview": preview,
-            "rawArtifact": raw_path,
-            "rawBytes": raw_bytes,
-            "outputSchemaValidated": capability.output_schema.is_some() && result.is_error != Some(true),
-        });
+        let packet = capability_result_packet(
+            capability,
+            &raw,
+            structured,
+            result.is_error.unwrap_or(false),
+            &evidence_id,
+            &raw_path,
+            raw_bytes,
+        )?;
         let encoded = serde_json::to_string(&packet)?;
         if result.is_error == Some(true) {
             return Err(AppError::Mcp {
@@ -671,6 +728,85 @@ fn string_array(arguments: &Value, name: &str) -> Result<Vec<String>, AppError> 
         .collect()
 }
 
+fn capability_result_packet(
+    capability: &CapabilityDescriptor,
+    raw: &Value,
+    structured: Option<Value>,
+    is_error: bool,
+    evidence_id: &str,
+    raw_path: &str,
+    raw_bytes: u64,
+) -> Result<Value, AppError> {
+    const INLINE_CONTENT_BYTES: usize = 24 * 1024;
+    let structured_bytes = structured
+        .as_ref()
+        .and_then(|value| serde_json::to_vec(value).ok())
+        .map_or(0, |value| value.len());
+    let text = mcp_text_content(raw);
+    let text_bytes = text.len();
+    let text_content = (!text.is_empty()).then(|| truncate_utf8(&text, INLINE_CONTENT_BYTES));
+    let text_truncated = text_bytes > INLINE_CONTENT_BYTES;
+    let preview_source = if !text.is_empty() {
+        text.clone()
+    } else if let Some(value) = structured.as_ref() {
+        serde_json::to_string(value)?
+    } else {
+        serde_json::to_string(raw)?
+    };
+    let content_preview = truncate_utf8(&preview_source, 12 * 1024);
+    Ok(json!({
+        "evidenceId": evidence_id,
+        "capabilityId": capability.id,
+        "provider": {
+            "kind": capability.provider_kind,
+            "id": capability.provider_id,
+            "name": capability.provider_name,
+            "transport": capability.transport,
+        },
+        "tool": capability.original_name,
+        "status": if is_error { "error" } else { "success" },
+        "isError": is_error,
+        "structuredContent": (structured_bytes <= INLINE_CONTENT_BYTES).then_some(structured).flatten(),
+        "structuredContentBytes": structured_bytes,
+        "textContent": text_content,
+        "textContentBytes": text_bytes,
+        "textContentTruncated": text_truncated,
+        "readRequired": raw_bytes > INLINE_CONTENT_BYTES as u64 || structured_bytes > INLINE_CONTENT_BYTES || text_truncated,
+        "contentPreview": content_preview,
+        "rawArtifact": raw_path,
+        "rawBytes": raw_bytes,
+        "outputSchemaValidated": capability.output_schema.is_some() && !is_error,
+    }))
+}
+
+fn mcp_text_content(raw: &Value) -> String {
+    raw.get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|block| {
+            (block.get("type").and_then(Value::as_str) == Some("text"))
+                .then(|| block.get("text").and_then(Value::as_str))
+                .flatten()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn truncate_utf8(value: &str, limit: usize) -> String {
+    if value.len() <= limit {
+        return value.to_owned();
+    }
+    let mut boundary = limit;
+    while !value.is_char_boundary(boundary) {
+        boundary = boundary.saturating_sub(1);
+    }
+    format!(
+        "{}...[truncated; read the evidence artifact for the complete result]",
+        &value[..boundary]
+    )
+}
+
 fn tool_definitions(registry: &CapabilityRegistry, prompt: &str) -> Vec<ToolDefinition> {
     service::tool_definitions(registry, prompt)
         .into_iter()
@@ -701,6 +837,7 @@ fn model_tool_parallel_safe(name: &str) -> bool {
             | "job_status"
             | "job_output"
             | "skill_load"
+            | "mcp_status"
             | "capability_search"
             | "evidence_read"
     )
@@ -710,14 +847,24 @@ fn build_system_prompt(
     profile: &AiProfile,
     skill_context: &str,
     mcp_tools: &[CapabilityDescriptor],
+    mcp_diagnostics: &[McpServerDiagnostic],
+    active_session_candidate_available: bool,
 ) -> String {
-    build_agent_system_prompt(profile.system_prompt.as_str(), skill_context, mcp_tools)
+    build_agent_system_prompt(
+        profile.system_prompt.as_str(),
+        skill_context,
+        mcp_tools,
+        mcp_diagnostics,
+        active_session_candidate_available,
+    )
 }
 
 fn build_agent_system_prompt(
     profile_prompt: &str,
     skill_context: &str,
     mcp_tools: &[CapabilityDescriptor],
+    mcp_diagnostics: &[McpServerDiagnostic],
+    active_session_candidate_available: bool,
 ) -> String {
     let mut sections = vec![DEFAULT_AGENT_SYSTEM_PROMPT.to_owned()];
     if !profile_prompt.trim().is_empty() {
@@ -734,13 +881,24 @@ fn build_agent_system_prompt(
         )
     });
     sections.push(builtin::system_prompt().to_owned());
-    sections.push(mcp_capability_context(mcp_tools));
+    sections.push(if active_session_candidate_available {
+        "Active SSH candidate: available. This is availability metadata, not a selected target. Use it only by setting use_active_session=true after the user's wording makes the current terminal or current server the intended target.".to_owned()
+    } else {
+        "Active SSH candidate: unavailable. Do not set use_active_session=true; resolve a saved target with session_catalog/session_connect when SSH work is required.".to_owned()
+    });
+    sections.push(mcp_capability_context(mcp_tools, mcp_diagnostics));
     sections.join("\n\n")
 }
 
-fn mcp_capability_context(mcp_tools: &[CapabilityDescriptor]) -> String {
+fn mcp_capability_context(
+    mcp_tools: &[CapabilityDescriptor],
+    diagnostics: &[McpServerDiagnostic],
+) -> String {
     if mcp_tools.is_empty() {
-        return "MCP capability registry: no enabled MCP tools were discovered for this task. Do not invent MCP capabilities.".to_owned();
+        return format!(
+            "MCP capability registry: no enabled MCP tools were discovered for this task. {} MCP server configuration(s) were inspected. Use mcp_status for exact enabled/disabled, connection, and tool-discovery diagnostics; do not invent MCP capabilities.",
+            diagnostics.len()
+        );
     }
     let servers = mcp_tools
         .iter()
@@ -749,9 +907,10 @@ fn mcp_capability_context(mcp_tools: &[CapabilityDescriptor]) -> String {
         .into_iter()
         .collect::<Vec<_>>();
     format!(
-        "External capability registry (runtime-discovered): {} MCP capability/capabilities from server(s) {}. Relevant small capabilities may be exposed directly. Use capability_search for the rest, capability_invoke/capability_invoke_batch with exact ids, and treat returned evidence ids, structured content, raw artifacts, and error states as authoritative.",
+        "External capability registry (runtime-discovered): {} MCP capability/capabilities from server(s) {}; {} MCP server configuration(s) were inspected. Relevant small capabilities may be exposed directly. Use mcp_status for server diagnostics, capability_search for the rest, capability_invoke/capability_invoke_batch with exact ids, and treat returned evidence ids, normalized text, structured content, raw artifacts, and error states as authoritative.",
         mcp_tools.len(),
-        servers.join(", ")
+        servers.join(", "),
+        diagnostics.len()
     )
 }
 
@@ -860,8 +1019,8 @@ fn app_error(error: AppError) -> CoreError {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_agent_system_prompt, stop_and_drain_cancel_task};
-    use crate::agent::capability::CapabilityDescriptor;
+    use super::{build_agent_system_prompt, capability_result_packet, stop_and_drain_cancel_task};
+    use crate::agent::capability::{CapabilityDescriptor, McpServerDiagnostic};
     use serde_json::json;
     use std::{future::pending, time::Duration};
 
@@ -896,6 +1055,17 @@ mod tests {
             "Prefer concise answers.",
             "Use the storage deployment skill.",
             &mcp_tools,
+            &[McpServerDiagnostic {
+                server_id: "storage".to_owned(),
+                server_name: "Storage".to_owned(),
+                transport: "streamable_http".to_owned(),
+                enabled: true,
+                status: "ready".to_owned(),
+                tool_count: 1,
+                error_code: None,
+                error_detail: None,
+            }],
+            true,
         );
 
         assert!(prompt.contains("You are dsh-codex-agent"));
@@ -904,12 +1074,58 @@ mod tests {
         assert!(prompt.contains("runtime-discovered"));
         assert!(prompt.contains("1 MCP capability/capabilities from server(s) storage"));
         assert!(prompt.contains("exact ids"));
+        assert!(prompt.contains("Active SSH candidate: available"));
     }
 
     #[test]
     fn agent_system_prompt_explicitly_handles_an_empty_mcp_catalog() {
-        let prompt = build_agent_system_prompt("", "", &[]);
+        let prompt = build_agent_system_prompt("", "", &[], &[], false);
         assert!(prompt.contains("no enabled MCP tools were discovered"));
-        assert!(prompt.contains("Do not invent MCP capabilities"));
+        assert!(prompt.contains("do not invent MCP capabilities"));
+        assert!(prompt.contains("mcp_status"));
+        assert!(prompt.contains("Active SSH candidate: unavailable"));
+    }
+
+    #[test]
+    fn mcp_result_packet_exposes_normalized_text_before_raw_json() {
+        let capability = CapabilityDescriptor {
+            id: "mcp:storage:lookup".to_owned(),
+            model_name: "mcp__storage__lookup".to_owned(),
+            provider_kind: "mcp".to_owned(),
+            provider_id: "storage".to_owned(),
+            provider_name: "Storage".to_owned(),
+            transport: "streamable_http".to_owned(),
+            original_name: "lookup".to_owned(),
+            title: None,
+            description: "Lookup one product command".to_owned(),
+            input_schema: json!({"type": "object"}),
+            output_schema: None,
+            annotations: None,
+        };
+        let raw = json!({
+            "content": [
+                {"type": "text", "text": "Command: show system general"},
+                {"type": "text", "text": "Run it as one complete line."}
+            ],
+            "isError": false
+        });
+        let packet = capability_result_packet(
+            &capability,
+            &raw,
+            None,
+            false,
+            "ev-1",
+            "evidence/ev-1.json",
+            serde_json::to_vec(&raw).unwrap().len() as u64,
+        )
+        .unwrap();
+
+        assert_eq!(
+            packet["textContent"],
+            "Command: show system general\nRun it as one complete line."
+        );
+        assert_eq!(packet["contentPreview"], packet["textContent"]);
+        assert_eq!(packet["textContentTruncated"], false);
+        assert_eq!(packet["readRequired"], false);
     }
 }

@@ -121,6 +121,7 @@ const TOOL_LABELS: Record<string, string> = {
   capability_search: "搜索外部能力",
   capability_invoke: "调用外部能力",
   capability_invoke_batch: "批量调用外部能力",
+  mcp_status: "检查 MCP 服务器状态",
   evidence_read: "读取原始证据",
   list_directory: "查看文件目录",
 };
@@ -306,7 +307,6 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [entries, setEntries] = useState<TraceEntry[]>([]);
   const [input, setInput] = useState("");
-  const [attach, setAttach] = useState(true);
   const [running, setRunning] = useState(false);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
@@ -437,7 +437,6 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         id: crypto.randomUUID(),
         kind: "task",
         content: task,
-        session: attach && activePane?.sessionId ? activePane.title : undefined,
       },
     ]);
     setInput("");
@@ -445,12 +444,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     const channel = createChannel<AgentEvent>();
     channel.onmessage = onAgentEvent;
     try {
-      const result = await agentRun(
-        profileId,
-        task,
-        attach ? (activePane?.sessionId ?? null) : null,
-        channel,
-      );
+      const result = await agentRun(profileId, task, activePane?.sessionId ?? null, channel);
       setSelectedTaskId(result.runId);
       void agentTaskList()
         .then(setTasks)
@@ -593,7 +587,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
           </span>
           <div>
             <strong>Codex Harness Agent</strong>
-            <small>dsh-codex-agent · {activePane?.title ?? "未绑定活动会话"}</small>
+            <small>dsh-codex-agent · 动态目标解析</small>
           </div>
         </div>
         <div className="ai-header-actions">
@@ -948,18 +942,14 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
           onPointerDown={beginComposerResize}
           tabIndex={0}
         />
-        <label className="context-toggle">
-          <input
-            checked={attach}
-            onChange={(event) => setAttach(event.target.checked)}
-            type="checkbox"
-          />
-          <span className="toggle-track">
-            <span />
-          </span>
-          <span>允许使用活动会话工具</span>
-          <small>{activePane?.sessionId ? "READY" : "NO SESSION"}</small>
-        </label>
+        <div
+          className={activePane?.sessionId ? "session-candidate is-ready" : "session-candidate"}
+          title="活动 SSH 只是候选目标；仅当任务涉及当前终端或当前服务器时才会使用"
+        >
+          <CircleDot size={10} />
+          <span>活动 SSH 候选</span>
+          <small>{activePane?.sessionId ? activePane.title : "无活动会话"}</small>
+        </div>
         <div className="composer-box">
           <textarea
             aria-label="输入 Agent 任务"

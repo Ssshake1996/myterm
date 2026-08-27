@@ -155,11 +155,19 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
         <div className="form-section-title field-span">基本信息</div>
         <label className="field">
           <span>名称</span>
-          <input onChange={(event) => setName(event.target.value)} value={name} />
+          <input
+            autoComplete="off"
+            onChange={(event) => setName(event.target.value)}
+            value={name}
+          />
         </label>
         <label className="field">
           <span>分组</span>
-          <input onChange={(event) => setGroup(event.target.value)} value={group} />
+          <input
+            autoComplete="off"
+            onChange={(event) => setGroup(event.target.value)}
+            value={group}
+          />
         </label>
         <label className="field">
           <span>环境</span>
@@ -214,6 +222,7 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
             <label className="field field-wide">
               <span>主机</span>
               <input
+                autoComplete="off"
                 onChange={(event) => setHost(event.target.value)}
                 placeholder="192.168.1.10"
                 value={host}
@@ -231,7 +240,11 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
             </label>
             <label className="field field-span">
               <span>用户名</span>
-              <input onChange={(event) => setUsername(event.target.value)} value={username} />
+              <input
+                autoComplete="off"
+                onChange={(event) => setUsername(event.target.value)}
+                value={username}
+              />
             </label>
             <div className="form-section-title field-span">认证</div>
             <div className="field field-span">
@@ -257,6 +270,7 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
               <label className="field field-span">
                 <span>私钥路径</span>
                 <input
+                  autoComplete="off"
                   onChange={(event) => setKeyPath(event.target.value)}
                   placeholder="C:\\Users\\me\\.ssh\\id_ed25519"
                   value={keyPath}
@@ -267,7 +281,7 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
               <span>{authKind === "password" ? "密码" : "Passphrase"}</span>
               <input
                 aria-label={authKind === "password" ? "密码" : "Passphrase"}
-                autoComplete="new-password"
+                autoComplete="off"
                 onChange={(event) => setSecret(event.target.value)}
                 placeholder={profile ? "已保存，留空保持不变" : "安全存入系统凭据管理器"}
                 type="password"

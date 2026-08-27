@@ -1,6 +1,6 @@
 [package]
 name = "myterm"
-version = "0.9.9"
+version = "0.9.10"
 description = "A lightweight SSH terminal with a native AI assistant"
 authors = ["myterm contributors"]
 edition = "2021"

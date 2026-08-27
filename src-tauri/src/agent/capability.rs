@@ -13,6 +13,36 @@ use crate::AppError;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct McpServerDiagnostic {
+    pub server_id: String,
+    pub server_name: String,
+    pub transport: String,
+    pub enabled: bool,
+    pub status: String,
+    pub tool_count: usize,
+    pub error_code: Option<String>,
+    pub error_detail: Option<String>,
+}
+
+impl McpServerDiagnostic {
+    pub fn matches_query(&self, query: &str) -> bool {
+        let query = query.trim().to_ascii_lowercase();
+        query.is_empty()
+            || [
+                self.server_id.as_str(),
+                self.server_name.as_str(),
+                self.transport.as_str(),
+                self.status.as_str(),
+                self.error_code.as_deref().unwrap_or_default(),
+                self.error_detail.as_deref().unwrap_or_default(),
+            ]
+            .iter()
+            .any(|value| value.to_ascii_lowercase().contains(&query))
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CapabilityDescriptor {
     pub id: String,
     pub model_name: String,
@@ -234,7 +264,10 @@ impl EvidenceLedger {
 
 #[cfg(test)]
 mod tests {
-    use super::{CapabilityDescriptor, CapabilityRegistry, EvidenceLedger, EvidenceRecord};
+    use super::{
+        CapabilityDescriptor, CapabilityRegistry, EvidenceLedger, EvidenceRecord,
+        McpServerDiagnostic,
+    };
     use serde_json::json;
     use std::fs;
 
@@ -298,5 +331,24 @@ mod tests {
         assert_eq!(first["nextOffset"], 6);
         assert_eq!(first["eof"], false);
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn mcp_diagnostics_can_be_filtered_by_exact_provider_errors() {
+        let diagnostic = McpServerDiagnostic {
+            server_id: "product-docs".to_owned(),
+            server_name: "产品命令文档".to_owned(),
+            transport: "streamable_http".to_owned(),
+            enabled: true,
+            status: "connection_failed".to_owned(),
+            tool_count: 0,
+            error_code: Some("MCP_HTTP_INIT_FAILED".to_owned()),
+            error_detail: Some("HTTP 401 Unauthorized".to_owned()),
+        };
+
+        assert!(diagnostic.matches_query("product-docs"));
+        assert!(diagnostic.matches_query("401"));
+        assert!(diagnostic.matches_query("http_init"));
+        assert!(!diagnostic.matches_query("stdio"));
     }
 }

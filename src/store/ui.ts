@@ -33,6 +33,10 @@ export const fontScaleFactor: Record<AppFontScale, number> = {
   scale_200: 2,
 };
 
+export function effectiveTerminalFontSize(size: number, scale: AppFontScale): number {
+  return size * fontScaleFactor[scale];
+}
+
 export const useUiStore = create<UiState>((set, get) => ({
   toasts: [],
   theme: "dark",
