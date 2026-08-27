@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.9.5`
+Current version: `0.9.6`
 
 ## Core Features
 
@@ -54,7 +54,7 @@ task input -> model decision -> tool call -> result -> continue -> final answer
 - Persistent tasks, ordered events, approvals, tool audit records, background jobs, cancellation, and crash recovery.
 - A tool-centric timeline shows model decisions, tool names, parameter summaries, stdout, stderr, results, and status.
 - Task input supports `Shift+Enter` newlines and IME protection; a top handle expands the composer up to half the Agent panel height.
-- Built-in tools cover session metadata, terminal context, terminal input, structured SSH execution, host facts, directories, and files; inactive saved servers can be discovered and addressed through explicit session targets, while full multi-SSH Task orchestration remains planned.
+- Built-in tools cover session metadata, terminal context, terminal input, structured SSH execution, host facts, directories, and files; inactive saved servers can be discovered and connected automatically, while the built-in Multi-SSH Coordinator provides serial coordination across explicit targets.
 - Structured execution records stdout/stderr separately with exit code, signal, timeout, cancellation, and disconnect outcomes.
 - Long operations can become background jobs with status, paged output, and cancellation tools.
 - Diagnostic runbooks, context compaction, loop detection, and pre-persistence secret redaction are built in.
@@ -86,11 +86,11 @@ Hard-deny commands, production/root escalation, output limits, audit records, an
 - The Agent settings panel lists mounted plugins and lets the user narrow the enabled set. An empty enabled list means the default desktop profile.
 - `src-tauri/src/agent/protocol.rs` defines a versioned line-delimited JSON contract for future out-of-process plugins. This release does not install or execute unknown third-party plugin code automatically.
 
-### Remote CLI, REST, and Multi-SSH Plan
+### Remote CLI, REST, and Multi-SSH
 
 - CLI means running large numbers of `systemctl`, `journalctl`, `docker`, `kubectl`, and business commands over SSH with structured results. It does not mean that myterm needs a public CLI product surface.
 - REST means calling business or infrastructure HTTP APIs from an explicit remote SSH origin with the correct network perspective, credential redaction, and audit. It does not mean exposing the myterm Agent as a REST service.
-- Multi-SSH binds several saved servers to one Task, requires an explicit target on every tool call, and supports operating on A, observing from B, and continuing only after a condition passes.
+- The Multi-SSH Coordinator binds several saved servers to one Task, discovers and connects targets when needed, requires an explicit `session_id` on every session-bound tool call, and supports serial A-operation, B-observation, and condition-gated continuation.
 - OS installation is planned as a local-Skill-triggered installation Task. The Skill builds and validates the plan; approved provisioning tools perform disk, boot, and power operations through a hypervisor, cloud API, MAAS, or Redfish/BMC.
 
 See the [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-installation-plan.md) for boundaries, tradeoffs, and staged delivery. Version `0.6.3` removes the early local Agent CLI and loopback REST surfaces. myterm remains a desktop application; CLI/REST refers only to commands and HTTP requests executed by the Agent in remote SSH environments.
@@ -173,6 +173,7 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 - [Linux Agent Specification](docs/linux-agent-specification.md)
 - [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-installation-plan.md)
 - [Development Experience Record](docs/development-experience.md)
+- [Standard Build and Release Process](docs/build-and-release.md)
 - [Agent Plugin Architecture](docs/agent-plugin-architecture.md)
 - [Agent Optimization Roadmap](docs/agent-optimization-roadmap.md)
 - [Codex × Harness Architecture Audit](docs/architecture/codex-harness-audit.md)

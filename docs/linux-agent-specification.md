@@ -88,7 +88,7 @@ Agent 只有桌面入口：
 | 本地 Skill、stdio MCP、Hooks | 已实现 | 持续维护 |
 | Agent 多行与可调高度输入 | 已实现 | `0.6.3` |
 | 本机 Agent CLI/REST | 已删除 | 不再规划 |
-| 多 SSH Task | 未实现 | `0.7.0` |
+| 多 SSH Task（串行协同与自动连接） | 已实现 | 持续维护 |
 | 结构化远端 HTTP/条件等待 | 未实现 | `0.8.0` |
 | Provisioning fake adapter/plan-only Skill | 未实现 | `0.9.0` |
 | Ubuntu VM 自动安装 | 未实现 | `1.0.0` 候选 |
@@ -130,9 +130,9 @@ Agent 只有桌面入口：
 
 | ID | 需求 |
 |---|---|
-| FR-TARGET-001 | Task 支持 1-8 个 Target，使用 Task 内唯一 alias。 |
-| FR-TARGET-002 | Target 创建时冻结 profile/session、host、port、user、环境和 host key 身份。 |
-| FR-TARGET-003 | 多目标工具调用必须显式带 alias；UI 焦点不能改变运行目标。 |
+| FR-TARGET-001 | Multi-SSH Coordinator 支持在一个 Task 中逐步绑定多个保存目标；第一版默认串行，目标集合由模型通过 `session_catalog` 发现。 |
+| FR-TARGET-002 | 自动连接前使用保存 profile；连接成功后冻结 profile/session、host、port、user 和环境快照，凭据仍只由内核读取。 |
+| FR-TARGET-003 | 多目标工具调用必须显式带 `session_id`；UI 焦点不能改变运行目标。 |
 | FR-TARGET-004 | Event、ToolCall、Approval、Job、Artifact 和 Evidence 必须记录 target alias。 |
 | FR-TARGET-005 | 每目标同时最多一个有副作用 Job；只读并发受界限控制。 |
 | FR-TARGET-006 | profile 编辑/删除、目标断线和 host key 变化必须产生明确事件。 |
@@ -353,6 +353,7 @@ Event 先持久化再通知 UI。高频输出按 50ms 或 64KiB 合并，条件�
 ### 11.1 当前工具
 
 - `session_catalog(query?)`：列出已保存服务器、实时会话状态和最近一次 SSH 连接诊断，不返回凭据。
+- `session_connect(profile_id|profile_name)`：按精确保存目标自动启动或复用 SSH，返回后续工具使用的 `session_id`。
 - `session_info(session_id?, profile_id?, profile_name?)`：读取活动、非活动或仅保存的服务器配置。
 - `terminal_context(session_id?, offset, limit)`。
 - `terminal_send(session_id?, command, newline)`。
@@ -363,7 +364,7 @@ Event 先持久化再通知 UI。高频输出按 50ms 或 64KiB 合并，条件�
 - `skill_load`、`mcp_tool_search`、`mcp_tool_call`。
 
 省略 `session_id` 时兼容解析为活动 session。用户点名服务器或目标不在活动窗格时，Agent 必须先调用
-`session_catalog`，再把返回的 `session_id` 传给后续工具；仅保存但未连接的 profile 不能被声称为当前可达。
+`session_catalog`，必要时调用 `session_connect`，再把返回的 `session_id` 传给后续工具；仅保存但未连接的 profile 不能被声称为当前可达。
 
 ### 11.2 `remote_exec`
 

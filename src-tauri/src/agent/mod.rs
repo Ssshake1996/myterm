@@ -1,3 +1,4 @@
+pub mod builtin;
 pub mod domain;
 pub mod dsh;
 pub mod hooks;

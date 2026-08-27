@@ -11,6 +11,7 @@
 | 插件 | 类型 | 第一版职责 |
 |---|---|---|
 | `builtin.tools` | tool | 会话信息、终端上下文、终端输入、SSH 执行、主机事实、目录和文件工具 |
+| `multi-ssh-coordinator` | workflow | 目标目录、保存 profile 自动连接、显式 session_id 和串行多 SSH 协同 |
 | `builtin.skills` | capability | 从本地目录发现并按需加载 `SKILL.md` |
 | `builtin.mcp` | capability | 启动 stdio MCP、列出工具、搜索工具和显式调用 |
 | `builtin.hooks` | lifecycle | 复用现有 SessionStart、PreToolUse、PostToolUse 等生命周期钩子 |
@@ -64,7 +65,7 @@
 
 ## 后续演进
 
-- M1：将多 SSH 目标、`target_alias` 和连接池作为一个可替换的 operations plugin 接入。
+- M1：已接入 `multi-ssh-coordinator` 内置 workflow plugin；后续可将目标锁、条件等待和批次策略继续抽取为可替换 operations plugin。
 - M2：增加 `remote_http_request`、`wait_condition` 等结构化远端工具，复用同一插件和审计契约。
 - M3：增加 provisioning plugin 与 plan-only OS 安装 Skill；写盘和电源动作必须由目标 OS 之外的控制面完成。
 - 后续：在协议稳定后，按需加入签名的进程外插件，不建设云端 Skill/插件市场。

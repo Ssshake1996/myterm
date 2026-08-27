@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use tokio::sync::{oneshot, watch, Mutex};
 
 use super::{
+    builtin,
     domain::{now_ms, AgentTask, AgentTaskState, ExecutionJob},
     dsh, hooks, mcp,
     policy::PolicyContext,
@@ -26,7 +27,7 @@ use crate::{
     sftp::{service::local_entries, service::SftpService},
     types::{
         AgentEvent, AgentRunResult, AgentSettings, AiProfile, SessionCatalogEntry,
-        SessionCatalogTarget, SessionEnvironment, SessionState, SessionTarget,
+        SessionCatalogTarget, SessionEnvironment, SessionProfile, SessionState, SessionTarget,
         AGENT_EVENT_SCHEMA_VERSION,
     },
     AppError,
@@ -675,6 +676,45 @@ impl AgentService {
                     &self.session_catalog(query, session_id)?,
                 )?)
             }
+            "session_connect" => {
+                let profile = self.resolve_profile_target(&arguments)?;
+                let profile_name = profile.name.clone();
+                let profile_id = profile.id.clone();
+                let mut connecting = event(
+                    run_id,
+                    "target_connecting",
+                    Some(format!("正在自动连接目标服务器：{profile_name}")),
+                );
+                connecting.call_id = Some(call_id.to_owned());
+                connecting.tool_name = Some(name.to_owned());
+                connecting.plugin_id = Some(builtin::MULTI_SSH_COORDINATOR_ID.to_owned());
+                connecting.arguments = Some(json!({
+                    "profileId": profile_id,
+                    "profileName": profile_name,
+                }));
+                sink.send(connecting)?;
+                let connected = self.sessions.ensure_connected(profile).await?;
+                let mut connected_event = event(
+                    run_id,
+                    "target_connected",
+                    Some("目标服务器 SSH 已连接".to_owned()),
+                );
+                connected_event.call_id = Some(call_id.to_owned());
+                connected_event.tool_name = Some(name.to_owned());
+                connected_event.plugin_id = Some(builtin::MULTI_SSH_COORDINATOR_ID.to_owned());
+                connected_event.arguments = Some(json!({
+                    "profileId": connected.profile_id,
+                    "sessionId": connected.session_id,
+                    "state": connected.state,
+                }));
+                sink.send(connected_event)?;
+                Ok(serde_json::to_string(&json!({
+                    "sessionId": connected.session_id,
+                    "profileId": connected.profile_id,
+                    "state": connected.state,
+                    "message": "SSH 连接已建立，请将 sessionId 用于后续工具调用",
+                }))?)
+            }
             "list_directory" => {
                 let scope = arguments
                     .get("scope")
@@ -891,22 +931,55 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
     }
 
     pub(crate) fn plugin_infos(&self) -> Result<Vec<crate::types::AgentPluginInfo>, AppError> {
-        Ok(vec![crate::types::AgentPluginInfo {
-            id: "dsh-codex-agent".to_owned(),
-            name: "Codex Harness Agent".to_owned(),
-            version: "0.1.0".to_owned(),
-            kind: "runtime".to_owned(),
-            description:
-                "myterm 内置 Agent 运行时，负责线程历史、工具循环、上下文压缩和 Subagent Graph。"
-                    .to_owned(),
-            requires: vec![
-                "codex-core".to_owned(),
-                "ssh.operations".to_owned(),
-                "skills".to_owned(),
-                "mcp".to_owned(),
-            ],
-            enabled: true,
-        }])
+        Ok(vec![
+            crate::types::AgentPluginInfo {
+                id: "dsh-codex-agent".to_owned(),
+                name: "Codex Harness Agent".to_owned(),
+                version: "0.1.0".to_owned(),
+                kind: "runtime".to_owned(),
+                description:
+                    "myterm 内置 Agent 运行时，负责线程历史、工具循环、上下文压缩和 Subagent Graph。"
+                        .to_owned(),
+                requires: vec![
+                    "codex-core".to_owned(),
+                    "ssh.operations".to_owned(),
+                    "skills".to_owned(),
+                    "mcp".to_owned(),
+                ],
+                enabled: true,
+            },
+            builtin::multi_ssh_plugin_info(),
+        ])
+    }
+
+    fn resolve_profile_target(&self, arguments: &Value) -> Result<SessionProfile, AppError> {
+        let profile_id = arguments.get("profile_id").and_then(Value::as_str);
+        let profile_name = arguments.get("profile_name").and_then(Value::as_str);
+        if profile_id.is_none() && profile_name.is_none() {
+            return Err(AppError::InvalidInput(
+                "session_connect requires profile_id or profile_name".to_owned(),
+            ));
+        }
+        let profiles = self.config.profile_list()?;
+        let matches = profiles
+            .into_iter()
+            .filter(|profile| {
+                profile_id.is_some_and(|id| profile.id == id)
+                    || profile_name.is_some_and(|name| profile.name == name)
+            })
+            .collect::<Vec<_>>();
+        match matches.len() {
+            0 => Err(AppError::NotFound(
+                profile_id
+                    .map(|id| format!("profile '{id}'"))
+                    .or_else(|| profile_name.map(|name| format!("profile '{name}'")))
+                    .unwrap_or_else(|| "profile".to_owned()),
+            )),
+            1 => Ok(matches.into_iter().next().expect("one profile match")),
+            _ => Err(AppError::InvalidInput(
+                "profile_name matches multiple saved servers; use profile_id".to_owned(),
+            )),
+        }
     }
 
     fn ai_profile(&self, profile_id: &str) -> Result<AiProfile, AppError> {
@@ -1253,6 +1326,18 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
             }),
         ),
         function_tool(
+            "session_connect",
+            "Start or reuse an SSH session for one exact saved server. Use session_catalog first and pass profile_id or profile_name; the result contains the session_id required by later tools. This is the built-in Multi-SSH Coordinator connection primitive and remains subject to policy, timeout, cancellation, and audit.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "profile_id": { "type": "string", "description": "Exact saved profile id from session_catalog" },
+                    "profile_name": { "type": "string", "description": "Exact saved profile name when it is unique" }
+                },
+                "additionalProperties": false
+            }),
+        ),
+        function_tool(
             "list_directory",
             "List a local or remote directory. Returns a JSON array of entries or an error.",
             json!({
@@ -1418,6 +1503,14 @@ fn function_tool(name: &str, description: &str, parameters: Value) -> Value {
             "parameters": parameters,
         }
     })
+}
+
+pub(crate) fn plugin_id_for_tool(name: &str) -> &'static str {
+    if name == "session_connect" {
+        builtin::MULTI_SSH_COORDINATOR_ID
+    } else {
+        "dsh-codex-agent"
+    }
 }
 
 fn require_session(session_id: Option<&str>) -> Result<&str, AppError> {
@@ -1799,7 +1892,7 @@ mod tests {
     #[test]
     fn built_in_tools_and_limits_are_explicit() {
         let tools = tool_definitions(&[]);
-        assert_eq!(tools.len(), 17);
+        assert_eq!(tools.len(), 18);
         assert_eq!(tools[0]["function"]["name"], "remote_exec");
         assert!(tools
             .iter()
@@ -1809,9 +1902,25 @@ mod tests {
             .find(|tool| tool["function"]["name"] == "remote_exec")
             .expect("remote_exec tool");
         assert!(remote_exec["function"]["parameters"]["properties"]["session_id"].is_object());
+        assert!(tools
+            .iter()
+            .any(|tool| tool["function"]["name"] == "session_connect"));
         let settings = AgentSettings::default();
         assert_eq!(settings.profile, "dsh-codex-agent");
         assert_eq!(settings.max_steps, 64);
+    }
+
+    #[test]
+    fn coordinator_plugin_is_explicit_and_targeted() {
+        let plugin = builtin::multi_ssh_plugin_info();
+        assert_eq!(plugin.id, "multi-ssh-coordinator");
+        assert_eq!(plugin.kind, "builtin-plugin");
+        assert_eq!(
+            plugin_id_for_tool("session_connect"),
+            "multi-ssh-coordinator"
+        );
+        assert_eq!(plugin_id_for_tool("remote_exec"), "dsh-codex-agent");
+        assert!(builtin::system_prompt().contains("session_connect"));
     }
 
     #[test]

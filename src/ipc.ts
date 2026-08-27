@@ -263,6 +263,8 @@ export interface AgentEvent {
   createdAtMs: number;
   eventType:
     | "status"
+    | "target_connecting"
+    | "target_connected"
     | "tool_requested"
     | "tool_output"
     | "policy"

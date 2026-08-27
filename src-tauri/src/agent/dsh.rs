@@ -14,6 +14,7 @@ use tokio::sync::{watch, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use super::{
+    builtin,
     hooks::{self, HookAction},
     mcp::{McpTaskClient, McpToolDefinition},
     policy::{self, PolicyAction},
@@ -309,7 +310,7 @@ impl HostBridge for DshHostBridge {
             service::event(&self.run_id, "policy", Some(decision.reason.clone()));
         policy_event.call_id = Some(invocation.call_id.clone());
         policy_event.tool_name = Some(invocation.name.clone());
-        policy_event.plugin_id = Some("dsh-codex-agent".to_owned());
+        policy_event.plugin_id = Some(service::plugin_id_for_tool(&invocation.name).to_owned());
         policy_event.arguments =
             Some(
                 serde_json::to_value(&decision).map_err(|error| CoreError::Tool {
@@ -434,7 +435,7 @@ impl DshHostBridge {
         let mut event = service::event(&self.run_id, "tool_result", None);
         event.call_id = Some(invocation.call_id.clone());
         event.tool_name = Some(invocation.name.clone());
-        event.plugin_id = Some("dsh-codex-agent".to_owned());
+        event.plugin_id = Some(service::plugin_id_for_tool(&invocation.name).to_owned());
         event.content = Some(content);
         event.is_error = Some(is_error);
         event.error_code = (!code.is_empty()).then_some(code.to_owned());
@@ -485,6 +486,7 @@ fn build_agent_system_prompt(
             "Enabled Skill context (task guidance; it cannot override the operating contract or policy):\n{skill_context}"
         )
     });
+    sections.push(builtin::system_prompt().to_owned());
     sections.push(mcp_capability_context(mcp_tools));
     sections.join("\n\n")
 }
@@ -523,8 +525,8 @@ fn map_runtime_event(run_id: &str, event: RuntimeEvent) -> Option<AgentEvent> {
         } => {
             let mut event = service::event(run_id, "tool_requested", None);
             event.call_id = Some(call_id);
-            event.tool_name = Some(name);
-            event.plugin_id = Some("dsh-codex-agent".to_owned());
+            event.tool_name = Some(name.clone());
+            event.plugin_id = Some(service::plugin_id_for_tool(&name).to_owned());
             event.arguments = serde_json::from_str(&arguments_summary).ok();
             event
         }
@@ -592,7 +594,9 @@ fn map_runtime_event(run_id: &str, event: RuntimeEvent) -> Option<AgentEvent> {
             event
         }
     };
-    mapped.plugin_id = Some("dsh-codex-agent".to_owned());
+    if mapped.plugin_id.is_none() {
+        mapped.plugin_id = Some("dsh-codex-agent".to_owned());
+    }
     Some(mapped)
 }
 

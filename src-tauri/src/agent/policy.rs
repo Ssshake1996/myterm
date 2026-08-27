@@ -50,9 +50,9 @@ pub struct PolicyContext {
 
 pub fn evaluate_tool(name: &str, arguments: &Value, context: PolicyContext) -> PolicyDecision {
     match name {
-        "terminal_context" | "session_info" | "session_catalog" | "list_directory"
-        | "file_stat" | "file_read" | "file_search" | "host_facts" | "runbook" | "job_status"
-        | "job_output" | "mcp_tool_search" | "skill_load" => {
+        "terminal_context" | "session_info" | "session_catalog" | "session_connect"
+        | "list_directory" | "file_stat" | "file_read" | "file_search" | "host_facts"
+        | "runbook" | "job_status" | "job_output" | "mcp_tool_search" | "skill_load" => {
             decide(Analysis::read("built-in read-only tool"), context)
         }
         "job_cancel" => decide(

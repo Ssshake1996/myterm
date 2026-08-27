@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.9.5`
+当前版本：`0.9.6`
 
 ## 核心功能
 
@@ -54,7 +54,7 @@ Agent 使用类似 Claude Code 的循环：
 - 持久化任务、事件、审批、工具审计、后台 Job、取消和崩溃恢复。
 - AI 面板按时间线展示模型决策、工具名称、参数摘要、stdout、stderr、结果和状态。
 - 任务输入支持 `Shift+Enter` 换行和输入法保护，顶部拖柄可将输入区向上扩大到 Agent 面板高度的一半。
-- 基础工具覆盖会话信息、终端上下文、终端输入、结构化 SSH 命令、主机事实、目录和文件操作；非活动服务器可通过会话目录发现并按显式目标访问，多 SSH Task 编排仍在规划中。
+- 基础工具覆盖会话信息、终端上下文、终端输入、结构化 SSH 命令、主机事实、目录和文件操作；非活动服务器可通过会话目录发现并自动建立 SSH，内置 Multi-SSH Coordinator 支持多个目标的串行协同。
 - 结构化命令执行分别记录 stdout/stderr、退出码、信号、超时、取消和断连结果。
 - 长任务可转入后台 Job，并通过状态、分页输出和取消工具继续管理。
 - 内置诊断 Runbook、上下文压缩、循环检测和敏感字段脱敏。
@@ -86,11 +86,11 @@ Agent 使用类似 Claude Code 的循环：
 - Agent 设置页展示插件清单，可缩小当前运行时启用的插件集合；留空表示使用桌面默认配置。
 - `src-tauri/src/agent/protocol.rs` 定义了未来进程外插件使用的版本化 JSONL 协议；0.7.0 不会自动安装或执行未知第三方插件代码。
 
-### 远端 CLI、REST 与多 SSH 规划
+### 远端 CLI、REST 与多 SSH
 
 - CLI 指 Agent 通过 SSH 大量执行 `systemctl`、`journalctl`、`docker`、`kubectl` 和业务命令，并取得结构化结果；不是要求 myterm 对外提供一套 CLI 产品接口。
 - REST 指从明确的远端 SSH 主机调用业务或基础设施 HTTP API，保留真实网络视角、凭据脱敏和审计；不是要求 myterm 对外暴露 Agent REST 服务。
-- 多 SSH 采用一个 Task 绑定多个保存的服务器，每次工具调用显式指定目标，支持 A 操作、B 观察、条件满足后继续。
+- Multi-SSH Coordinator 采用一个 Task 绑定多个保存的服务器；Agent 先发现目标，必要时自动建立 SSH，再为每次工具调用显式指定 `session_id`，默认串行支持 A 操作、B 观察和条件满足后继续。
 - OS 安装规划为由本地 Skill 触发的安装 Task。Skill 生成和校验计划，真正的写盘、启动和电源动作由受审批的 provisioning 工具通过虚拟化平台、云 API、MAAS 或 Redfish/BMC 执行。
 
 以上能力的完整边界、方案优缺点和阶段计划见[多 SSH 协同与 Skill 驱动 OS 安装方案](docs/multi-ssh-os-installation-plan.md)。`0.6.3` 已删除早期实现的本机 Agent CLI 和 loopback REST；myterm 保持桌面应用边界，CLI/REST 只表示 Agent 在远端 SSH 环境中执行命令和 HTTP 请求。
@@ -173,6 +173,7 @@ npm run check:dist
 - [Linux Agent 规范](docs/linux-agent-specification.md)
 - [多 SSH 协同与 Skill 驱动 OS 安装方案](docs/multi-ssh-os-installation-plan.md)
 - [开发经验记录](docs/development-experience.md)
+- [标准构建与发布流程](docs/build-and-release.md)
 - [Agent 插件架构说明](docs/agent-plugin-architecture.md)
 - [Agent 优化路线与取舍](docs/agent-optimization-roadmap.md)
 - [Codex × Harness 架构审计](docs/architecture/codex-harness-audit.md)

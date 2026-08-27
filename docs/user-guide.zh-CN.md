@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.9.5。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.9.6。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -293,7 +293,7 @@ myterm 所说的 CLI 和 REST 能力，主要指 Agent 在远程 SSH 环境中�
 
 ## 多 SSH 与 OS 安装规划
 
-当前 Agent Task 仍以单个活动 SSH 目标为默认上下文，但已经支持通过 `session_catalog` 查找非活动或仅保存的服务器，并将明确的 `session_id` 传给后续工具。完整的多 SSH Task 绑定、跨目标条件编排仍在规划中。
+当前 Agent Task 仍以单个活动 SSH 目标为默认上下文，但内置 Multi-SSH Coordinator 已支持通过 `session_catalog` 查找非活动或仅保存的服务器，并用 `session_connect` 自动启动或复用 SSH，再将明确的 `session_id` 传给后续工具。第一版跨目标协同默认为串行：完成并验证 A 后再操作 B。
 
 OS 安装不会通过一条 SSH 命令直接执行。计划流程是：
 
@@ -319,6 +319,16 @@ Skill 负责安装流程、模板和参数检查；真正的系统盘、启动�
 运行 NSIS 安装器即可安装到当前用户目录并创建桌面快捷方式。安装新版本时会调用旧版卸载流程、清理已验证的旧安装目录并安装新文件，同时保留用户配置和系统凭据。
 
 便携 ZIP 包含 `myterm.exe` 和 `portable.flag`。便携模式的配置位置与普通安装不同，移动目录前应先退出程序。
+
+## 标准构建与发布
+
+开发者发布 Windows 版本时使用仓库中的 `scripts/release.ps1`，从项目根目录执行：
+
+```powershell
+npm run release -- -Version 0.9.6
+```
+
+脚本会固定执行单线程前端测试、Rust 格式与类型检查、Release 安装包构建、便携包打包、SHA256、分发审计、运行时内存采样、Git 提交/标签/推送和 GitHub Release 上传。完整说明见 `docs/build-and-release.md`。
 
 ## 常见问题
 
@@ -348,4 +358,4 @@ Skill 负责安装流程、模板和参数检查；真正的系统盘、启动�
 
 ## 第一版边界
 
-当前不提供多 SSH Task、结构化远端 HTTP、Skill 驱动 OS 安装、复杂多 Agent、长期记忆、任务编排平台、云端 Skill 市场和非 stdio MCP。对于高风险生产变更和 OS 重装，myterm 应作为具备审批和审计的执行辅助工具，而不是替代资产系统、变更流程、备份和人工复核。
+当前不提供复杂并行多 SSH 编排、结构化远端 HTTP、Skill 驱动 OS 安装、复杂多 Agent、长期记忆、任务编排平台、云端 Skill 市场和非 stdio MCP。对于高风险生产变更和 OS 重装，myterm 应作为具备审批和审计的执行辅助工具，而不是替代资产系统、变更流程、备份和人工复核。

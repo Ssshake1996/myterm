@@ -81,6 +81,7 @@ type TraceEntry =
       errorCode?: string;
       step?: number;
       error?: boolean;
+      target?: string;
     }
   | { id: string; kind: "assistant"; content: string; step?: number }
   | {
@@ -99,6 +100,7 @@ type TraceEntry =
       jobId?: string;
       jobState?: string;
       errorCode?: string;
+      target?: string;
     };
 
 interface AiPanelProps {
@@ -112,6 +114,7 @@ const TOOL_LABELS: Record<string, string> = {
   terminal_send: "向活动终端发送命令",
   session_info: "读取会话信息",
   session_catalog: "读取服务器会话目录",
+  session_connect: "自动连接目标服务器",
   list_directory: "查看文件目录",
 };
 
@@ -121,6 +124,19 @@ function toolLabel(name: string) {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function targetLabel(value: unknown) {
+  const record = asRecord(value);
+  const name = record.profileName ?? record.profile_name;
+  const profileId = record.profileId ?? record.profile_id;
+  const sessionId = record.sessionId ?? record.session_id;
+  if (typeof name === "string" && name.trim()) return name;
+  if (typeof profileId === "string" && profileId.trim()) return `profile:${profileId}`;
+  if (typeof sessionId === "string" && sessionId.trim()) {
+    return `session:${sessionId.slice(0, 8)}`;
+  }
+  return undefined;
 }
 
 function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[] {
@@ -138,6 +154,7 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
         toolName: event.toolName,
         pluginId: event.pluginId,
         arguments: event.arguments,
+        target: targetLabel(event.arguments),
         step: event.step,
         status: "requested",
       },
@@ -152,6 +169,7 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
     const detail = asRecord(event.arguments);
     return updateTool(current, event.callId, {
       arguments: detail.toolArguments ?? event.arguments,
+      target: targetLabel(detail.toolArguments ?? event.arguments),
       policy: asRecord(detail.policy) as PolicySummary,
       status: "approval",
     });
@@ -207,8 +225,11 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
     event.eventType === "mcp_error" ||
     event.eventType === "status" ||
     event.eventType === "hook" ||
-    event.eventType === "context_compacted"
+    event.eventType === "context_compacted" ||
+    event.eventType === "target_connecting" ||
+    event.eventType === "target_connected"
   ) {
+    const target = targetLabel(event.arguments);
     return [
       ...current,
       {
@@ -219,6 +240,7 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
         errorCode: event.errorCode,
         step: event.step,
         error: event.eventType === "mcp_error",
+        target,
       },
     ];
   }
@@ -744,6 +766,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
                 <div className="trace-status-line">
                   {entry.error ? <AlertTriangle size={12} /> : <CircleDot size={12} />}
                   <span>{entry.content}</span>
+                  {entry.target ? <code className="trace-target">目标：{entry.target}</code> : null}
                   {entry.errorCode ? <code>{entry.errorCode}</code> : null}
                   {entry.step ? <small>STEP {entry.step}</small> : null}
                 </div>
@@ -780,6 +803,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
                     {entry.errorCode ? ` · ${entry.errorCode}` : ""}
                   </code>
                 </span>
+                {entry.target ? <code className="trace-target">目标：{entry.target}</code> : null}
                 {entry.step ? <small>STEP {entry.step}</small> : null}
               </header>
               <details open={entry.status === "approval"}>

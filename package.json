@@ -1,12 +1,13 @@
 {
   "name": "myterm",
   "private": true,
-  "version": "0.9.5",
+  "version": "0.9.6",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "build:release": "tauri build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-portable.ps1",
+    "release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1",
     "build:codex-harness": "npm --prefix integrations/dsh-codex-agent run build",
     "check:dist": "node --experimental-strip-types scripts/check-dist.ts",
     "typecheck": "tsc --noEmit",

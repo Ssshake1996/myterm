@@ -19,6 +19,14 @@ pub trait OutputSink: Send + Sync {
     fn send(&self, data: &[u8]) -> Result<(), AppError>;
 }
 
+pub struct NullOutputSink;
+
+impl OutputSink for NullOutputSink {
+    fn send(&self, _data: &[u8]) -> Result<(), AppError> {
+        Ok(())
+    }
+}
+
 pub trait SessionEventSink: Send + Sync {
     fn state_changed(&self, session: &SessionInfo);
 }
@@ -170,6 +178,23 @@ impl SessionManager {
             }
         });
         Ok(connected)
+    }
+
+    /// Return an existing connected session for a profile or start one with a
+    /// bounded terminal size. Agent-created sessions use a null output sink;
+    /// their transcript is still captured by the session buffer and can be
+    /// read through the normal Agent tools.
+    pub async fn ensure_connected(
+        self: &Arc<Self>,
+        profile: SessionProfile,
+    ) -> Result<SessionInfo, AppError> {
+        if let Some(existing) = self.list()?.into_iter().find(|session| {
+            session.profile_id == profile.id && session.state == SessionState::Connected
+        }) {
+            return Ok(existing);
+        }
+        self.connect(profile, 120, 40, Arc::new(NullOutputSink))
+            .await
     }
 
     pub async fn disconnect(&self, session_id: &str) -> Result<(), AppError> {

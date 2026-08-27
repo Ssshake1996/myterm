@@ -2082,7 +2082,7 @@ button:disabled {
 .trace-tool > header {
   min-height: 38px;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto;
   align-items: center;
   padding: 5px 8px;
   background: var(--surface-item-hover);
@@ -2132,6 +2132,16 @@ button:disabled {
 .trace-answer header small {
   color: var(--text-muted);
   font: 7.5px/1 "Cascadia Mono", Consolas, monospace;
+}
+
+.trace-target {
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  border-radius: 999px;
+  font-size: 10px;
+  padding: 2px 7px;
+  white-space: nowrap;
 }
 
 .trace-tool details {
