@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.9.6`
+Current version: `0.9.7`
 
 ## Core Features
 
@@ -74,14 +74,14 @@ Hard-deny commands, production/root escalation, output limits, audit records, an
 ### Skills, MCP, and Hooks
 
 - Discover local `SKILL.md` files, record metadata and content hashes, and load enabled Skills on demand.
-- Configure and test common stdio MCP servers, list their tools, and let the Agent call them through the same policy gate.
+- Configure and test stdio and streamable-http MCP servers, list their tools, and let the Agent call them through the same policy gate.
 - Large MCP catalogs use search plus explicit invocation to protect model context.
 - Bounded deterministic lifecycle Hooks are supported and cannot lower core permissions.
 
 ### Plugin Agent Kernel
 
 - The Agent loop is a small runtime that mounts capability plugins instead of hard-coding a growing tool list.
-- The desktop profile currently mounts built-in SSH/session tools, local Skills, stdio MCP, lifecycle Hooks, and the OpenAI-compatible model adapter.
+- The desktop profile currently mounts built-in SSH/session tools, local Skills, stdio/streamable-http MCP, lifecycle Hooks, and the OpenAI-compatible model adapter.
 - Each plugin exposes a manifest, version, dependency hints, and tool descriptors. Tool calls carry the plugin id into the event timeline and audit record.
 - The Agent settings panel lists mounted plugins and lets the user narrow the enabled set. An empty enabled list means the default desktop profile.
 - `src-tauri/src/agent/protocol.rs` defines a versioned line-delimited JSON contract for future out-of-process plugins. This release does not install or execute unknown third-party plugin code automatically.

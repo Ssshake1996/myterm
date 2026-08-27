@@ -1885,7 +1885,8 @@ fn redact_text(value: &str, secrets: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{redact_event, selected_session_id, tool_definitions};
+    use super::{plugin_id_for_tool, redact_event, selected_session_id, tool_definitions};
+    use crate::agent::builtin;
     use crate::types::AgentSettings;
     use serde_json::json;
 

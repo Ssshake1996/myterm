@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentSettings } from "./AgentSettings";
@@ -83,6 +83,47 @@ describe("AgentSettings", () => {
     await waitFor(() =>
       expect(ipcMocks.agentMcpTest).toHaveBeenCalledWith(
         expect.objectContaining({ name: "filesystem", command: "npx", args: ["-y"] }),
+      ),
+    );
+    expect(await screen.findByText(/发现 1 个工具/u)).toBeInTheDocument();
+  });
+
+  it("tests an unsaved streamable-http MCP draft with headers", async () => {
+    ipcMocks.agentMcpTest.mockResolvedValue([
+      {
+        serverId: "http-server",
+        serverName: "ops-http",
+        name: "mcp__ops_http__list_hosts",
+        description: "List hosts",
+      },
+    ]);
+    const user = userEvent.setup();
+    render(<AgentSettings onClose={vi.fn()} onSaved={vi.fn()} settings={settings} />);
+
+    await user.click(screen.getByRole("button", { name: "MCP" }));
+    await user.click(screen.getByRole("button", { name: /添加服务器/u }));
+    await user.type(screen.getByRole("textbox", { name: "MCP 名称" }), "ops-http");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "MCP 传输类型" }),
+      "streamable_http",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "MCP HTTP URL" }),
+      "https://mcp.example.test/mcp",
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "MCP 请求头" }), {
+      target: { value: "Authorization: Bearer test-token" },
+    });
+    await user.click(screen.getByRole("button", { name: /测试连接/u }));
+
+    await waitFor(() =>
+      expect(ipcMocks.agentMcpTest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "ops-http",
+          transport: "streamable_http",
+          url: "https://mcp.example.test/mcp",
+          headers: [{ name: "Authorization", value: "Bearer test-token" }],
+        }),
       ),
     );
     expect(await screen.findByText(/发现 1 个工具/u)).toBeInTheDocument();

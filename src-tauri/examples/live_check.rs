@@ -10,8 +10,8 @@ use myterm_lib::{
     },
     sftp::service::{NullTransferSink, SftpService, TransferEventSink},
     types::{
-        AgentEvent, AgentPermissionMode, AuthMethod, McpServerConfig, SessionProfile,
-        SessionTarget, TransferProgress, TransferState,
+        AgentEvent, AgentPermissionMode, AuthMethod, McpServerConfig, McpTransportKind,
+        SessionProfile, SessionTarget, TransferProgress, TransferState,
     },
     AppError, SecretResolver,
 };
@@ -538,12 +538,15 @@ async fn verify_mcp() -> Result<(), Box<dyn std::error::Error>> {
     let server = McpServerConfig {
         id: "official-everything".to_owned(),
         name: "MCP Everything".to_owned(),
+        transport: McpTransportKind::Stdio,
         command: "npx.cmd".to_owned(),
         args: vec![
             "-y".to_owned(),
             "@modelcontextprotocol/server-everything".to_owned(),
         ],
         cwd: None,
+        url: None,
+        headers: Vec::new(),
         enabled: true,
     };
     let tools = mcp::list_tool_info(&server).await?;

@@ -204,10 +204,18 @@ export type AgentPermissionMode = "read_only" | "confirm" | "full_access";
 export interface McpServerConfig {
   id: string;
   name: string;
+  transport: "stdio" | "streamable_http";
   command: string;
   args: string[];
   cwd: string | null;
+  url: string | null;
+  headers: McpHeader[];
   enabled: boolean;
+}
+
+export interface McpHeader {
+  name: string;
+  value: string;
 }
 
 export interface AgentSettings {

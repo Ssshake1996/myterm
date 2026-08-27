@@ -21,10 +21,10 @@ Version 0.1.2 replaces the single-turn assistant surface with a bounded Agent lo
 - Built-in tools cover terminal context, terminal input, active-session metadata, and local or remote directory listing.
 - Confirmation mode is the default; full access is an explicit persisted choice.
 - Local `SKILL.md` discovery and selected-skill prompt injection are bounded by directory, depth, count, and byte limits.
-- stdio MCP servers can be configured, tested, enumerated, and called through the same permission gate.
+- stdio and streamable-http MCP servers can be configured, tested, enumerated, and called through the same permission gate and Transport abstraction.
 - Server add, edit, delete, credential cleanup, reload, and click-to-connect use one profile domain service.
 
-The 0.1.2 boundary explicitly excludes multi-Agent execution, long-term memory, complex task orchestration, cloud Skill distribution, and non-stdio MCP transports.
+The 0.1.2 boundary explicitly excludes multi-Agent execution, long-term memory, complex task orchestration, and cloud Skill distribution. MCP now supports both stdio and streamable-http through one Transport abstraction.
 
 Version 0.1.3 tightens the daily terminal workflow without expanding the Agent boundary:
 
@@ -42,9 +42,9 @@ Version 0.6.0 delivers the first persistent Linux operations Agent line from A0 
 - Tree-sitter Bash policy analysis with read-only, confirm, and conservative task-grant modes; hard-deny rules cannot be lowered by Hooks, Skills, prompts, or MCP.
 - Host facts, bounded UTF-8 file stat/read/search/atomic write/patch, deterministic diagnostic runbooks, and readback/hash verification.
 - One executable for Desktop, CLI JSONL/task control, and an opt-in loopback REST API with bearer hash storage, rate limiting, idempotency, SSE resume, and OpenAPI.
-- Task-scoped stdio MCP connections, on-demand MCP catalog search above 48 tools, Skill v2 metadata/on-demand loading, bounded lifecycle Hooks, deterministic context compaction, and pre-persistence event redaction.
+- Task-scoped stdio/streamable-http MCP connections, on-demand MCP catalog search above 48 tools, Skill v2 metadata/on-demand loading, bounded lifecycle Hooks, deterministic context compaction, and pre-persistence event redaction.
 
-The first version deliberately excludes multi-Agent execution, long-term memory, cloud Skill distribution, non-stdio MCP transports, and remote REST exposure. Non-loopback REST is rejected until TLS, RBAC, and profile allowlists are implemented together.
+The first version deliberately excludes multi-Agent execution, long-term memory, cloud Skill distribution, and remote REST exposure. Non-loopback REST is rejected until TLS, RBAC, and profile allowlists are implemented together.
 
 Version 0.6.1 is a compact-shell correction driven by annotated installed-app feedback:
 
@@ -104,7 +104,7 @@ Version 0.6.8 makes AI connection failures diagnosable without exposing credenti
 Version 0.7.0 moves the Agent extension boundary into an in-process plugin kernel:
 
 - `AgentRuntime` owns the run-scoped registry. The model loop no longer selects concrete Rust methods; it consumes schemas supplied by mounted plugins and routes every call through one policy, approval, cancellation, redaction, and audit path.
-- Built-in operations, local Skills, stdio MCP, lifecycle Hooks, and the OpenAI-compatible model adapter each expose a manifest. Tool events now carry `pluginId`, which makes UI traces and persisted audit records explain where a capability came from.
+- Built-in operations, local Skills, stdio/streamable-http MCP, lifecycle Hooks, and the OpenAI-compatible model adapter each expose a manifest. Tool events now carry `pluginId`, which makes UI traces and persisted audit records explain where a capability came from.
 - Agent settings persist `profile`, `bundles`, and `enabled_plugins`. An empty plugin list is intentionally the default desktop profile so older settings remain compatible; a non-empty list narrows the mounted registry.
 - `agent/protocol.rs` defines a bounded version-1 JSONL contract for future out-of-process plugins. It is a message contract only in this release: no unknown executable is downloaded, installed, or launched automatically.
 - Tradeoff: the registry gives low latency and one security boundary, while third-party process isolation is deferred until trust, signing, command-path, environment, timeout, crash-recovery, and resource-limit contracts are specified.
@@ -238,7 +238,7 @@ The frontend renders an execution trace rather than chat bubbles: task, model st
 
 Skill discovery recursively scans configured roots to depth three, ignores symlinks, accepts only `SKILL.md`, canonicalizes IDs, and loads only selected files that were discovered under those roots. Individual and aggregate byte limits prevent unbounded prompt growth. Skill text is explicitly subordinate to application tool and permission rules.
 
-MCP v1 uses the official Rust SDK client with `TokioChildProcess`. Servers are configured as a command plus an argument array, so quoting is not reparsed by an ad hoc shell parser. Configuration tests operate on the unsaved draft; cancelling the modal therefore has no hidden persistence side effect. Enabled servers are connected when a run prepares its tool catalog, model-facing tool names are namespaced and sanitized, and actual calls pass through the same approval loop as built-in tools.
+MCP v1 uses the official Rust SDK client behind one Transport abstraction. `stdio` uses a controlled child process, while `streamable-http` uses the SDK's HTTP client with URL validation and custom headers. Configuration tests operate on the unsaved draft; cancelling the modal therefore has no hidden persistence side effect. Enabled servers are connected when a run prepares its tool catalog, model-facing tool names are namespaced and sanitized, and actual calls pass through the same approval loop as built-in tools.
 
 ### Efficiency is a product contract
 

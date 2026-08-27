@@ -13,7 +13,7 @@
 | `builtin.tools` | tool | 会话信息、终端上下文、终端输入、SSH 执行、主机事实、目录和文件工具 |
 | `multi-ssh-coordinator` | workflow | 目标目录、保存 profile 自动连接、显式 session_id 和串行多 SSH 协同 |
 | `builtin.skills` | capability | 从本地目录发现并按需加载 `SKILL.md` |
-| `builtin.mcp` | capability | 启动 stdio MCP、列出工具、搜索工具和显式调用 |
+| `builtin.mcp` | capability | 连接 stdio/streamable-http MCP、列出工具、搜索工具和显式调用 |
 | `builtin.hooks` | lifecycle | 复用现有 SessionStart、PreToolUse、PostToolUse 等生命周期钩子 |
 | `builtin.model.openai` | model | OpenAI 兼容模型适配器的能力声明 |
 

@@ -329,13 +329,40 @@ pub enum AgentPermissionMode {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum McpTransportKind {
+    Stdio,
+    StreamableHttp,
+}
+
+impl Default for McpTransportKind {
+    fn default() -> Self {
+        Self::Stdio
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct McpHeader {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct McpServerConfig {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub transport: McpTransportKind,
+    #[serde(default)]
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
+    #[serde(default)]
     pub cwd: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub headers: Vec<McpHeader>,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
 }

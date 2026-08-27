@@ -85,7 +85,7 @@ Agent 只有桌面入口：
 | 单主机结构化 SSH CLI | 已实现 | 持续维护 |
 | 持久 Task/Event/Approval/Audit | 已实现 | 持续维护 |
 | 主机事实、文件工具、后台 Job | 已实现 | 持续维护 |
-| 本地 Skill、stdio MCP、Hooks | 已实现 | 持续维护 |
+| 本地 Skill、stdio/streamable-http MCP、Hooks | 已实现 | 持续维护 |
 | Agent 多行与可调高度输入 | 已实现 | `0.6.3` |
 | 本机 Agent CLI/REST | 已删除 | 不再规划 |
 | 多 SSH Task（串行协同与自动连接） | 已实现 | 持续维护 |
@@ -175,7 +175,7 @@ Agent 只有桌面入口：
 | FR-SKILL-002 | 初始上下文只注入元数据，正文、references 和 scripts 按需加载。 |
 | FR-SKILL-003 | Skill 脚本必须注册为工具并通过同一策略，不得由提示直接执行。 |
 | FR-SKILL-004 | Skill 的权限/provider/environment 策略存于 myterm 配置并绑定内容 hash。 |
-| FR-MCP-001 | 第一阶段只支持 stdio MCP，每 Task 复用连接并有超时、重连和清理。 |
+| FR-MCP-001 | MCP 必须通过统一 Transport 抽象支持 stdio 和 streamable-http；每 Task 复用连接并有超时、重连和清理。 |
 | FR-MCP-002 | MCP 工具按 server/tool 授权，annotation 只能提升风险。 |
 | FR-MCP-003 | 大工具目录先搜索再加载 schema，保护模型上下文。 |
 | FR-HOOK-001 | Hook 可追加上下文、deny、ask 或建议验证，不能覆盖 policy deny/ask。 |
@@ -229,7 +229,7 @@ flowchart TD
     Registry --> SSH["Multi-target SSH manager"]
     Registry --> Files["SFTP and file tools"]
     Registry --> Skills["Skill and Hooks"]
-    Registry --> MCP["stdio MCP clients"]
+    Registry --> MCP["stdio / streamable-http MCP clients"]
     Registry --> Provisioning["Provisioning state machine"]
     Provisioning --> Providers["VM / MAAS / Redfish / cloud adapters"]
 ```
@@ -484,7 +484,7 @@ skill-name/
 
 ### 13.2 MCP
 
-- 第一阶段 stdio transport。
+- 统一 Transport 抽象支持 stdio 和 streamable-http；stdio 使用受控子进程，streamable-http 使用 HTTPS/HTTP MCP 客户端、请求头和有界重连。
 - Task 生命周期复用连接，启动、list、call、close 各有超时。
 - 工具名包含 server namespace；schema hash 进入审计。
 - 工具超过阈值时先搜索目录。

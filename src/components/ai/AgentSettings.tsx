@@ -15,6 +15,7 @@ import {
   agentSettingsSave,
   agentSkillList,
   errorMessage,
+  type McpHeader,
   type McpServerConfig,
   type McpToolInfo,
   type SkillInfo,
@@ -43,6 +44,25 @@ function normalizedLines(value: string) {
         .filter(Boolean),
     ),
   ];
+}
+
+function parseHeaderLines(value: string): McpHeader[] {
+  return value
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const separator = line.indexOf(":");
+      if (separator < 1) return { name: line, value: "" };
+      return {
+        name: line.slice(0, separator).trim(),
+        value: line.slice(separator + 1).trim(),
+      };
+    });
+}
+
+function formatHeaderLines(headers: McpHeader[] = []) {
+  return headers.map((header) => `${header.name}: ${header.value}`).join("\n");
 }
 
 export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps) {
@@ -91,8 +111,13 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
   };
 
   const testMcp = async (server: McpServerConfig) => {
-    if (!server.name.trim() || !server.command.trim()) {
-      notify("MCP 名称和命令不能为空", "error");
+    const transport = server.transport ?? "stdio";
+    if (
+      !server.name.trim() ||
+      (transport === "stdio" && !server.command.trim()) ||
+      (transport === "streamable_http" && !server.url?.trim())
+    ) {
+      notify("stdio 服务器需要启动命令，streamable-http 服务器需要 URL", "error");
       return;
     }
     setMcpTests((current) => ({ ...current, [server.id]: { status: "testing" } }));
@@ -117,14 +142,26 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
     const directories = normalizedLines(directoryText);
     const servers = draft.mcp_servers.map((server) => ({
       ...server,
+      transport: server.transport ?? "stdio",
       name: server.name.trim(),
       command: server.command.trim(),
       args: server.args.map((arg) => arg.trim()).filter(Boolean),
       cwd: server.cwd?.trim() || null,
+      url: server.url?.trim() || null,
+      headers: (server.headers ?? [])
+        .map((header) => ({ name: header.name.trim(), value: header.value.trim() }))
+        .filter((header) => header.name),
     }));
-    if (servers.some((server) => !server.name || !server.command)) {
+    if (
+      servers.some(
+        (server) =>
+          !server.name ||
+          (server.transport === "stdio" && !server.command) ||
+          (server.transport === "streamable_http" && !server.url),
+      )
+    ) {
       setTab("mcp");
-      notify("每个 MCP 服务器都需要名称和启动命令", "error");
+      notify("stdio 服务器需要启动命令，streamable-http 服务器需要 URL", "error");
       return;
     }
     const names = servers.map((server) => server.name.toLocaleLowerCase());
@@ -304,7 +341,7 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
         {tab === "mcp" ? (
           <section className="settings-pane">
             <div className="settings-toolbar">
-              <span>{draft.mcp_servers.length} 个 stdio MCP 服务器</span>
+              <span>{draft.mcp_servers.length} 个 MCP 服务器 · 支持 stdio / streamable-http</span>
               <button
                 className="button button-secondary"
                 onClick={() =>
@@ -315,9 +352,12 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
                       {
                         id: crypto.randomUUID(),
                         name: "",
+                        transport: "stdio",
                         command: "",
                         args: [],
                         cwd: null,
+                        url: null,
+                        headers: [],
                         enabled: true,
                       },
                     ],
@@ -376,36 +416,88 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
                         />
                       </label>
                       <label className="field">
-                        <span>启动命令</span>
-                        <input
-                          aria-label="MCP 启动命令"
+                        <span>传输类型</span>
+                        <select
+                          aria-label="MCP 传输类型"
                           onChange={(event) =>
-                            updateServer(server.id, { command: event.target.value })
+                            updateServer(server.id, {
+                              transport: event.target.value as McpServerConfig["transport"],
+                            })
                           }
-                          placeholder="npx"
-                          value={server.command}
-                        />
+                          value={server.transport ?? "stdio"}
+                        >
+                          <option value="stdio">stdio（本地进程）</option>
+                          <option value="streamable_http">streamable-http（HTTP 流式）</option>
+                        </select>
                       </label>
-                      <label className="field">
-                        <span>参数，每行一个</span>
-                        <textarea
-                          aria-label="MCP 参数"
-                          onChange={(event) =>
-                            updateServer(server.id, { args: event.target.value.split(/\r?\n/u) })
-                          }
-                          placeholder={"-y\n@modelcontextprotocol/server-everything"}
-                          rows={3}
-                          value={server.args.join("\n")}
-                        />
-                      </label>
-                      <label className="field">
-                        <span>工作目录，可选</span>
-                        <input
-                          aria-label="MCP 工作目录"
-                          onChange={(event) => updateServer(server.id, { cwd: event.target.value })}
-                          value={server.cwd ?? ""}
-                        />
-                      </label>
+                      {(server.transport ?? "stdio") === "stdio" ? (
+                        <>
+                          <label className="field">
+                            <span>启动命令</span>
+                            <input
+                              aria-label="MCP 启动命令"
+                              onChange={(event) =>
+                                updateServer(server.id, { command: event.target.value })
+                              }
+                              placeholder="npx"
+                              value={server.command}
+                            />
+                          </label>
+                          <label className="field">
+                            <span>参数，每行一个</span>
+                            <textarea
+                              aria-label="MCP 参数"
+                              onChange={(event) =>
+                                updateServer(server.id, {
+                                  args: event.target.value.split(/\r?\n/u),
+                                })
+                              }
+                              placeholder={"-y\n@modelcontextprotocol/server-everything"}
+                              rows={3}
+                              value={server.args.join("\n")}
+                            />
+                          </label>
+                          <label className="field">
+                            <span>工作目录，可选</span>
+                            <input
+                              aria-label="MCP 工作目录"
+                              onChange={(event) =>
+                                updateServer(server.id, { cwd: event.target.value })
+                              }
+                              value={server.cwd ?? ""}
+                            />
+                          </label>
+                        </>
+                      ) : (
+                        <>
+                          <label className="field">
+                            <span>Streamable HTTP URL</span>
+                            <input
+                              aria-label="MCP HTTP URL"
+                              onChange={(event) =>
+                                updateServer(server.id, { url: event.target.value })
+                              }
+                              placeholder="https://mcp.example.com/mcp"
+                              type="url"
+                              value={server.url ?? ""}
+                            />
+                          </label>
+                          <label className="field">
+                            <span>请求头，每行 Name: Value</span>
+                            <textarea
+                              aria-label="MCP 请求头"
+                              onChange={(event) =>
+                                updateServer(server.id, {
+                                  headers: parseHeaderLines(event.target.value),
+                                })
+                              }
+                              placeholder={"Authorization: Bearer sk-...\nX-Tenant: ops"}
+                              rows={3}
+                              value={formatHeaderLines(server.headers)}
+                            />
+                          </label>
+                        </>
+                      )}
                     </div>
                     <footer className="mcp-test-row">
                       <button
@@ -435,7 +527,7 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
               })}
               {!draft.mcp_servers.length ? (
                 <div className="settings-empty">
-                  添加 stdio MCP 服务器后，可测试连接并查看工具。
+                  添加 stdio 或 streamable-http MCP 服务器后，可测试连接并查看工具。
                 </div>
               ) : null}
             </div>

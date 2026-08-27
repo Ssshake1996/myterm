@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.9.6。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.9.7。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -267,12 +267,30 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 
 ## MCP
 
-第一版重点支持 stdio MCP。添加服务器时配置名称、命令、参数和必要环境变量，然后先执行连接测试。
+MCP 支持 `stdio` 和 `streamable-http` 两种传输。添加服务器时先选择传输类型：stdio 配置命令、参数和工作目录；streamable-http 配置 MCP URL 和可选请求头（例如 `Authorization: Bearer ...`），然后先执行连接测试。
 
 - 测试成功后可查看服务器提供的工具数量。
-- Agent 调用 MCP 工具时仍经过统一权限、取消、输出限制和审计管线。
+- Agent 调用 MCP 工具时仍经过统一权限、取消、输出限制和审计管线；两种传输对 Agent 暴露相同的工具目录和调用接口。
 - 工具超过 48 个时，Agent 先搜索目录再显式调用，避免上下文膨胀。
 - 不要在普通命令参数中直接写密钥；优先使用受控环境或系统凭据方案。
+
+配置文件中的 HTTP MCP 形态如下（请求头可按服务要求填写，值不会出现在 Agent 工具参数摘要中）：
+
+```json
+{
+  "id": "ops-mcp",
+  "name": "运维 MCP",
+  "transport": "streamable_http",
+  "command": "",
+  "args": [],
+  "cwd": null,
+  "url": "https://mcp.example.com/mcp",
+  "headers": [
+    { "name": "Authorization", "value": "Bearer <token>" }
+  ],
+  "enabled": true
+}
+```
 
 ### Agent 系统 Prompt 与 MCP 能力发现
 
@@ -346,7 +364,7 @@ npm run release -- -Version 0.9.6
 
 ### MCP 连接失败
 
-在系统终端中确认 MCP 命令可执行，再检查参数、工作目录和环境变量。stdio 服务器必须保持标准输入输出协议，不能把普通日志混入协议输出。
+stdio 连接失败时，在系统终端中确认 MCP 命令可执行，再检查参数、工作目录和环境变量；stdio 服务器必须保持标准输入输出协议，不能把普通日志混入协议输出。streamable-http 连接失败时，检查 URL、TLS、代理、请求头和服务端返回的 HTTP 状态/响应体。
 
 ### 快捷命令执行到了错误服务器
 
@@ -358,4 +376,4 @@ npm run release -- -Version 0.9.6
 
 ## 第一版边界
 
-当前不提供复杂并行多 SSH 编排、结构化远端 HTTP、Skill 驱动 OS 安装、复杂多 Agent、长期记忆、任务编排平台、云端 Skill 市场和非 stdio MCP。对于高风险生产变更和 OS 重装，myterm 应作为具备审批和审计的执行辅助工具，而不是替代资产系统、变更流程、备份和人工复核。
+当前不提供复杂并行多 SSH 编排、结构化远端 HTTP、Skill 驱动 OS 安装、复杂多 Agent、长期记忆、任务编排平台和云端 Skill 市场。对于高风险生产变更和 OS 重装，myterm 应作为具备审批和审计的执行辅助工具，而不是替代资产系统、变更流程、备份和人工复核。

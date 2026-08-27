@@ -58,7 +58,7 @@ Agent Loop 已收敛为轻量运行时：模型请求、循环保护、权限、
 - 三套主题、紧凑工作区、离线帮助与中英文 README。
 - Claude Code 风格的单 Agent 循环、持久 Task/Event/Approval/Audit、取消和历史。
 - `remote_exec`、后台 Job、主机事实、远端文件读写、tree-sitter Bash 权限策略和证据式完成。
-- 本地 `SKILL.md`、stdio MCP、Hooks、上下文压缩、工具时间线和 0.7.0 插件运行时。
+- 本地 `SKILL.md`、stdio/streamable-http MCP、Hooks、上下文压缩、工具时间线和 0.7.0 插件运行时。
 - Agent 输入框 `Enter` 提交、`Shift+Enter` 换行、IME 组合保护，以及向上拖至面板一半的可调高度。
 
 ### 4.2 `0.6.3` 删除项

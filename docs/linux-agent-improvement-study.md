@@ -9,7 +9,7 @@
 
 `myterm` 下一阶段最重要的工作不是增加多 Agent，而是把已经可验证、可中止、可审计的单主机执行层扩展为显式多目标协同，并为 OS 安装增加独立于目标 OS 的 provisioning 控制面。
 
-当前 `0.7.0` 已具备插件化 Agent 内核，以及持久 Task、结构化 `remote_exec`、后台 Job、权限策略、证据、审计、文件工具、Skill、stdio MCP、Hooks 和可观察时间线。PTY 只保留给交互式命令，普通命令已经能够返回退出码、标准错误、超时、取消和完成边界。
+当前 `0.7.0` 已具备插件化 Agent 内核，以及持久 Task、结构化 `remote_exec`、后台 Job、权限策略、证据、审计、文件工具、Skill、stdio/streamable-http MCP、Hooks 和可观察时间线。PTY 只保留给交互式命令，普通命令已经能够返回退出码、标准错误、超时、取消和完成边界。
 
 对于远程 Linux，尤其是 `root` 会话，本地应用沙箱不能限制已经通过 SSH 发到服务器的命令。真正有效的防线必须同时覆盖：应用侧权限策略、命令语义分析、服务器侧最小权限账号、受限 `sudo` 和完整审计。OS 安装进一步要求 Redfish/BMC、MAAS、虚拟化或云 API 等独立控制面；SSH 不能跨越系统盘重装继续充当主控制链路。
 
@@ -31,7 +31,7 @@
 - Agent Task、Event、Approval、Audit 和 Artifact 已持久化，模型循环、取消和崩溃恢复有明确终态。
 - `remote_exec` 通过独立 SSH exec channel 返回 stdout、stderr、exit code、timeout、cancel 和 disconnect；`terminal_send` 仅用于 PTY 交互。
 - tree-sitter Bash 策略、三级权限、生产/root 升级、hard deny 和预持久化脱敏已经实施。
-- 主机事实、远端文件原子写入、后台 Job、Skill v2、stdio MCP、Hooks 和上下文压缩已经交付。
+- 主机事实、远端文件原子写入、后台 Job、Skill v2、stdio/streamable-http MCP、Hooks 和上下文压缩已经交付。
 - AI 面板展示工具、目标摘要、审批、输出、耗时和验证状态；原生 headless 内核保持轻量。
 - 仍是单主要目标模型：工具调用没有统一的 `target_alias`，不能可靠表达 A 操作、B 观察和跨主机门控。
 - 当前远端 REST 只能由模型通过 `remote_exec` 运行 `curl` 等 CLI；凭据注入、网络执行来源、状态码和幂等语义尚未结构化。
