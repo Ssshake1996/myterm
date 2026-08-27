@@ -16,6 +16,20 @@ use tokio::sync::{oneshot, Mutex};
 use super::manager::OutputSink;
 use crate::{config::atomic_replace, types::AuthMethod, AppError, SecretResolver};
 
+fn ssh_failure(
+    stage: &'static str,
+    code: &'static str,
+    summary: &'static str,
+    detail: impl Into<String>,
+) -> AppError {
+    AppError::SessionFailure {
+        stage,
+        code,
+        summary,
+        detail: detail.into(),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExecStream {
     Stdout,
@@ -55,10 +69,15 @@ impl client::Handler for ClientHandler {
         let mut known = read_known_hosts(&self.known_hosts_path)?;
         if let Some(expected) = known.get(&self.host_key) {
             if expected != &fingerprint {
-                return Err(AppError::Session(format!(
-                    "server host key changed for {}; connection refused",
-                    self.host_key
-                )));
+                return Err(ssh_failure(
+                    "host_key",
+                    "SSH_HOST_KEY_CHANGED",
+                    "SSH 主机密钥发生变化",
+                    format!(
+                        "server host key changed for {}; connection refused",
+                        self.host_key
+                    ),
+                ));
             }
             return Ok(true);
         }
@@ -95,18 +114,49 @@ impl SshTerminal {
             keepalive_max: 3,
             ..client::Config::default()
         });
+        let endpoint = format!("{host}:{port}");
         let mut handle = tokio::time::timeout(
             Duration::from_secs(10),
             client::connect(config, (host, port), handler),
         )
         .await
-        .map_err(|_| AppError::Session(format!("connection to {host}:{port} timed out")))??;
+        .map_err(|_| {
+            ssh_failure(
+                "transport",
+                "SSH_CONNECT_TIMEOUT",
+                "SSH 连接超时",
+                format!("connection to {endpoint} timed out after 10 seconds"),
+            )
+        })?
+        .map_err(|error| {
+            ssh_failure(
+                "transport",
+                "SSH_CONNECT_FAILED",
+                "SSH 传输连接失败",
+                format!("connection to {endpoint} failed: {error}"),
+            )
+        })?;
         let authenticated = match auth {
             AuthMethod::Password { vault_ref } => {
-                let password = resolver.resolve(vault_ref)?;
+                let password = resolver.resolve(vault_ref).map_err(|error| {
+                    ssh_failure(
+                        "credentials",
+                        "SSH_CREDENTIALS_UNAVAILABLE",
+                        "读取 SSH 凭据失败",
+                        error.detail(),
+                    )
+                })?;
                 handle
                     .authenticate_password(username, password)
-                    .await?
+                    .await
+                    .map_err(|error| {
+                        ssh_failure(
+                            "authentication",
+                            "SSH_AUTH_REQUEST_FAILED",
+                            "SSH 密码认证请求失败",
+                            error.to_string(),
+                        )
+                    })?
                     .success()
             }
             AuthMethod::PrivateKey {
@@ -114,25 +164,70 @@ impl SshTerminal {
                 passphrase_ref,
             } => {
                 let passphrase = match passphrase_ref {
-                    Some(reference) => Some(resolver.resolve(reference)?),
+                    Some(reference) => Some(resolver.resolve(reference).map_err(|error| {
+                        ssh_failure(
+                            "credentials",
+                            "SSH_CREDENTIALS_UNAVAILABLE",
+                            "读取 SSH 凭据失败",
+                            error.detail(),
+                        )
+                    })?),
                     None => None,
                 };
-                let private_key = keys::load_secret_key(key_path, passphrase.as_deref())
-                    .map_err(|error| AppError::Session(format!("private key error: {error}")))?;
-                let hash = handle.best_supported_rsa_hash().await?.flatten();
+                let private_key =
+                    keys::load_secret_key(key_path, passphrase.as_deref()).map_err(|error| {
+                        ssh_failure(
+                            "credentials",
+                            "SSH_PRIVATE_KEY_INVALID",
+                            "SSH 私钥读取失败",
+                            format!("private key error: {error}"),
+                        )
+                    })?;
+                let hash = handle
+                    .best_supported_rsa_hash()
+                    .await
+                    .map_err(|error| {
+                        ssh_failure(
+                            "authentication",
+                            "SSH_AUTH_CAPABILITY_FAILED",
+                            "读取 SSH 公钥认证能力失败",
+                            error.to_string(),
+                        )
+                    })?
+                    .flatten();
                 handle
                     .authenticate_publickey(
                         username,
                         PrivateKeyWithHashAlg::new(Arc::new(private_key), hash),
                     )
-                    .await?
+                    .await
+                    .map_err(|error| {
+                        ssh_failure(
+                            "authentication",
+                            "SSH_AUTH_REQUEST_FAILED",
+                            "SSH 私钥认证请求失败",
+                            error.to_string(),
+                        )
+                    })?
                     .success()
             }
         };
         if !authenticated {
-            return Err(AppError::Session("authentication failed".to_owned()));
+            return Err(ssh_failure(
+                "authentication",
+                "SSH_AUTH_REJECTED",
+                "SSH 认证被服务器拒绝",
+                format!("server rejected authentication for user '{username}' at {endpoint}"),
+            ));
         }
-        let channel = handle.channel_open_session().await?;
+        let channel = handle.channel_open_session().await.map_err(|error| {
+            ssh_failure(
+                "channel",
+                "SSH_CHANNEL_OPEN_FAILED",
+                "SSH 会话通道创建失败",
+                error.to_string(),
+            )
+        })?;
         channel
             .request_pty(
                 true,
@@ -143,8 +238,23 @@ impl SshTerminal {
                 0,
                 &[],
             )
-            .await?;
-        channel.request_shell(true).await?;
+            .await
+            .map_err(|error| {
+                ssh_failure(
+                    "terminal",
+                    "SSH_PTY_REQUEST_FAILED",
+                    "SSH 终端请求失败",
+                    error.to_string(),
+                )
+            })?;
+        channel.request_shell(true).await.map_err(|error| {
+            ssh_failure(
+                "terminal",
+                "SSH_SHELL_REQUEST_FAILED",
+                "SSH Shell 请求失败",
+                error.to_string(),
+            )
+        })?;
         let (mut reader, writer) = channel.split();
         let writer = Arc::new(writer);
         let (exit_tx, exit_rx) = oneshot::channel();
@@ -338,7 +448,7 @@ fn write_known_hosts(path: &Path, known: &BTreeMap<String, String>) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    use super::{read_known_hosts, write_known_hosts};
+    use super::{read_known_hosts, ssh_failure, write_known_hosts};
     use std::collections::BTreeMap;
 
     #[test]
@@ -353,5 +463,20 @@ mod tests {
         assert_eq!(read_known_hosts(&path)?, known);
         std::fs::remove_dir_all(root)?;
         Ok(())
+    }
+
+    #[test]
+    fn connection_failure_keeps_machine_code_and_original_detail() {
+        let error = ssh_failure(
+            "transport",
+            "SSH_CONNECT_FAILED",
+            "SSH 传输连接失败",
+            "connection refused by 192.168.3.94:22",
+        );
+        assert_eq!(error.code(), "SSH_CONNECT_FAILED");
+        assert_eq!(error.detail(), "connection refused by 192.168.3.94:22");
+        let diagnostic = error.diagnostic().expect("diagnostic");
+        assert_eq!(diagnostic.stage, "transport");
+        assert_eq!(diagnostic.summary, "SSH 传输连接失败");
     }
 }

@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.9.4`
+Current version: `0.9.5`
 
 ## Core Features
 
@@ -54,7 +54,7 @@ task input -> model decision -> tool call -> result -> continue -> final answer
 - Persistent tasks, ordered events, approvals, tool audit records, background jobs, cancellation, and crash recovery.
 - A tool-centric timeline shows model decisions, tool names, parameter summaries, stdout, stderr, results, and status.
 - Task input supports `Shift+Enter` newlines and IME protection; a top handle expands the composer up to half the Agent panel height.
-- Built-in tools cover session metadata, terminal context, terminal input, structured SSH execution, host facts, directories, and files; explicit multi-SSH targets are planned next.
+- Built-in tools cover session metadata, terminal context, terminal input, structured SSH execution, host facts, directories, and files; inactive saved servers can be discovered and addressed through explicit session targets, while full multi-SSH Task orchestration remains planned.
 - Structured execution records stdout/stderr separately with exit code, signal, timeout, cancellation, and disconnect outcomes.
 - Long operations can become background jobs with status, paged output, and cancellation tools.
 - Diagnostic runbooks, context compaction, loop detection, and pre-persistence secret redaction are built in.
@@ -181,4 +181,4 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 
 ## Current Boundaries
 
-Version `0.9.4` builds on `0.9.3` with a versioned dsh-codex-agent system prompt, runtime MCP capability guidance, serialized multiline quick-command dispatch, faster session editing, and a terminal text context menu. The dsh-codex-agent, Skill/MCP, and multi-model boundaries remain compatible.
+Version `0.9.5` builds on `0.9.4` with structured SSH connection diagnostics, a non-active SSH session catalog, explicit target routing for Agent tools, and synchronized documentation and tests. The dsh-codex-agent, Skill/MCP, and multi-model boundaries remain compatible.

@@ -25,7 +25,8 @@ use crate::{
     },
     sftp::{service::local_entries, service::SftpService},
     types::{
-        AgentEvent, AgentRunResult, AgentSettings, AiProfile, SessionEnvironment,
+        AgentEvent, AgentRunResult, AgentSettings, AiProfile, SessionCatalogEntry,
+        SessionCatalogTarget, SessionEnvironment, SessionState, SessionTarget,
         AGENT_EVENT_SCHEMA_VERSION,
     },
     AppError,
@@ -398,6 +399,104 @@ impl AgentService {
         Ok(decision)
     }
 
+    fn session_catalog(
+        &self,
+        query: Option<&str>,
+        active_session_id: Option<&str>,
+    ) -> Result<Vec<SessionCatalogEntry>, AppError> {
+        let profiles = self.config.profile_list()?;
+        let live_sessions = self.sessions.list()?;
+        let normalized_query = query
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_ascii_lowercase());
+
+        profiles
+            .into_iter()
+            .filter(|profile| {
+                let Some(query) = normalized_query.as_deref() else {
+                    return true;
+                };
+                let target_text = match &profile.target {
+                    SessionTarget::Ssh {
+                        host,
+                        port,
+                        username,
+                        ..
+                    } => format!("{username}@{host}:{port}"),
+                    SessionTarget::Local { shell } => shell.clone(),
+                };
+                [
+                    profile.id.as_str(),
+                    profile.name.as_str(),
+                    profile.group.as_str(),
+                    target_text.as_str(),
+                ]
+                .iter()
+                .any(|value| value.to_ascii_lowercase().contains(query))
+            })
+            .map(|profile| {
+                let live = live_sessions
+                    .iter()
+                    .filter(|session| session.profile_id == profile.id)
+                    .find(|session| Some(session.session_id.as_str()) == active_session_id)
+                    .or_else(|| {
+                        live_sessions
+                            .iter()
+                            .find(|session| session.profile_id == profile.id)
+                    });
+                let last_failure = self.sessions.last_failure(&profile.id)?;
+                let target = match &profile.target {
+                    SessionTarget::Ssh {
+                        host,
+                        port,
+                        username,
+                        ..
+                    } => SessionCatalogTarget {
+                        kind: "ssh".to_owned(),
+                        host: Some(host.clone()),
+                        port: Some(*port),
+                        username: Some(username.clone()),
+                        shell: None,
+                    },
+                    SessionTarget::Local { shell } => SessionCatalogTarget {
+                        kind: "local".to_owned(),
+                        host: None,
+                        port: None,
+                        username: None,
+                        shell: Some(shell.clone()),
+                    },
+                };
+                let diagnostic = live
+                    .and_then(|session| session.diagnostic.clone())
+                    .or(last_failure.clone());
+                let error = live
+                    .and_then(|session| session.error.clone())
+                    .or_else(|| diagnostic.as_ref().map(|item| item.detail.clone()));
+                Ok(SessionCatalogEntry {
+                    profile_id: profile.id,
+                    name: profile.name,
+                    group: profile.group,
+                    environment: profile.environment,
+                    target,
+                    session_id: live.map(|session| session.session_id.clone()),
+                    state: live.map(|session| session.state).unwrap_or_else(|| {
+                        if diagnostic.is_some() {
+                            SessionState::Failed
+                        } else {
+                            SessionState::Disconnected
+                        }
+                    }),
+                    active: live.is_some_and(|session| {
+                        Some(session.session_id.as_str()) == active_session_id
+                    }),
+                    error,
+                    diagnostic,
+                })
+            })
+            .collect()
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn execute_builtin_tool(
         &self,
@@ -414,7 +513,7 @@ impl AgentService {
     ) -> Result<String, AppError> {
         match name {
             "terminal_context" => {
-                let session_id = require_session(session_id)?;
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
                 let offset = argument_u64(&arguments, "offset").unwrap_or(0) as usize;
                 let limit = argument_u64(&arguments, "limit")
                     .unwrap_or(8 * 1024)
@@ -431,7 +530,7 @@ impl AgentService {
                 }))?)
             }
             "terminal_send" => {
-                let session_id = require_session(session_id)?;
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
                 let command = argument_str(&arguments, "command")?;
                 let newline = arguments
                     .get("newline")
@@ -456,7 +555,7 @@ impl AgentService {
                 }))?)
             }
             "remote_exec" => {
-                let session_id = require_session(session_id)?;
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
                 let command = argument_str(&arguments, "command")?;
                 let timeout_seconds = argument_u64(&arguments, "timeout_seconds")
                     .unwrap_or(120)
@@ -526,20 +625,54 @@ impl AgentService {
                 }))?)
             }
             "session_info" => {
-                let session_id = require_session(session_id)?;
-                let session = self
-                    .sessions
-                    .list()?
-                    .into_iter()
-                    .find(|session| session.session_id == session_id)
-                    .ok_or_else(|| AppError::NotFound(format!("session '{session_id}'")))?;
-                let profile = self
-                    .config
-                    .profile_list()?
-                    .into_iter()
-                    .find(|profile| profile.id == session.profile_id);
+                let requested_session_id = arguments.get("session_id").and_then(Value::as_str);
+                let requested_profile_id = arguments.get("profile_id").and_then(Value::as_str);
+                let requested_name = arguments.get("profile_name").and_then(Value::as_str);
+                let profiles = self.config.profile_list()?;
+                let live_sessions = self.sessions.list()?;
+                let session = if let Some(id) = requested_session_id {
+                    live_sessions.iter().find(|item| item.session_id == id)
+                } else if requested_profile_id.is_some() || requested_name.is_some() {
+                    live_sessions.iter().find(|item| {
+                        profiles.iter().any(|profile| {
+                            profile.id == item.profile_id
+                                && (requested_profile_id.is_some_and(|id| profile.id == id)
+                                    || requested_name.is_some_and(|name| profile.name == name))
+                        })
+                    })
+                } else {
+                    session_id
+                        .and_then(|id| live_sessions.iter().find(|item| item.session_id == id))
+                };
+                let profile = if let Some(session) = session {
+                    profiles
+                        .iter()
+                        .find(|profile| profile.id == session.profile_id)
+                } else {
+                    profiles.iter().find(|profile| {
+                        requested_profile_id.is_some_and(|id| profile.id == id)
+                            || requested_name.is_some_and(|name| profile.name == name)
+                    })
+                };
+                if session.is_none() && profile.is_none() {
+                    return Err(AppError::NotFound(
+                        requested_session_id
+                            .map(|id| format!("session '{id}'"))
+                            .or_else(|| requested_profile_id.map(|id| format!("profile '{id}'")))
+                            .or_else(|| requested_name.map(|name| format!("profile '{name}'")))
+                            .unwrap_or_else(|| "active session".to_owned()),
+                    ));
+                }
+                Ok(serde_json::to_string(&json!({
+                    "session": session,
+                    "profile": profile,
+                    "active": session.is_some_and(|item| Some(item.session_id.as_str()) == session_id),
+                }))?)
+            }
+            "session_catalog" => {
+                let query = arguments.get("query").and_then(Value::as_str);
                 Ok(serde_json::to_string(
-                    &json!({ "session": session, "profile": profile }),
+                    &self.session_catalog(query, session_id)?,
                 )?)
             }
             "list_directory" => {
@@ -553,7 +686,7 @@ impl AgentService {
                         path,
                     ))?)?)
                 } else if scope == "remote" {
-                    let session_id = require_session(session_id)?;
+                    let session_id = require_session(selected_session_id(&arguments, session_id))?;
                     Ok(serde_json::to_string(
                         &self.sftp.read_dir(session_id, path).await?,
                     )?)
@@ -564,14 +697,14 @@ impl AgentService {
                 }
             }
             "file_stat" => {
-                let session_id = require_session(session_id)?;
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
                 let path = argument_str(&arguments, "path")?;
                 Ok(serde_json::to_string(
                     &self.sftp.file_stat(session_id, path).await?,
                 )?)
             }
             "file_read" => {
-                let session_id = require_session(session_id)?;
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
                 let path = argument_str(&arguments, "path")?;
                 let offset = argument_u64(&arguments, "offset").unwrap_or(0);
                 let limit = argument_u64(&arguments, "limit")
@@ -582,7 +715,7 @@ impl AgentService {
                 )?)
             }
             "file_search" => {
-                let session_id = require_session(session_id)?;
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
                 let path = argument_str(&arguments, "path")?;
                 let pattern = argument_str(&arguments, "pattern")?;
                 let max_files = argument_u64(&arguments, "max_files")
@@ -599,7 +732,7 @@ impl AgentService {
                 )?)
             }
             "file_write" => {
-                let session_id = require_session(session_id)?;
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
                 let path = argument_str(&arguments, "path")?;
                 let content = argument_str(&arguments, "content")?;
                 let expected_hash = arguments.get("expected_hash").and_then(Value::as_str);
@@ -611,7 +744,7 @@ impl AgentService {
                 )?)
             }
             "file_patch" => {
-                let session_id = require_session(session_id)?;
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
                 let path = argument_str(&arguments, "path")?;
                 let search = argument_str(&arguments, "search")?;
                 let replace = arguments
@@ -644,7 +777,7 @@ impl AgentService {
                 )?)
             }
             "host_facts" => {
-                let session_id = require_session(session_id)?;
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
                 let refresh = arguments
                     .get("refresh")
                     .and_then(Value::as_bool)
@@ -683,7 +816,7 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
                 Ok(serde_json::to_string(&facts)?)
             }
             "runbook" => {
-                let session_id = require_session(session_id)?;
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
                 let runbook = argument_str(&arguments, "name")?;
                 let target = arguments.get("target").and_then(Value::as_str);
                 let (command, evidence, stop_rule, failure_path) =
@@ -1002,7 +1135,7 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
                 );
                 (profile.environment, is_root)
             }
-            None => (SessionEnvironment::Production, true),
+            None => (SessionEnvironment::Production, false),
         };
         Ok(PolicyContext {
             mode,
@@ -1023,11 +1156,12 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
     let mut tools = vec![
         function_tool(
             "remote_exec",
-            "Run a non-interactive command on the active SSH session with separate stdout, stderr, exit status, timeout, cancellation, and full output artifacts.",
+            "Run a non-interactive command on the selected SSH session (or the active session by default) with separate stdout, stderr, exit status, timeout, cancellation, and full output artifacts.",
             json!({
                 "type": "object",
                 "properties": {
                     "command": { "type": "string" },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id from session_catalog; defaults to the active session" },
                     "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 3600, "default": 120 },
                     "background": { "type": "boolean", "default": false, "description": "Return a job id immediately and use job tools to monitor it" }
                 },
@@ -1069,24 +1203,26 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
         ),
         function_tool(
             "terminal_context",
-            "Read the active terminal transcript in byte ranges. The transcript is not limited to a fixed line count; use nextOffset until eof is true.",
+            "Read the selected terminal transcript in byte ranges (active session by default). The transcript is not limited to a fixed line count; use nextOffset until eof is true.",
             json!({
                 "type": "object",
                 "properties": {
                     "offset": { "type": "integer", "minimum": 0, "default": 0 },
-                    "limit": { "type": "integer", "minimum": 1, "maximum": 8192, "default": 8192 }
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 8192, "default": 8192 },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" }
                 },
                 "additionalProperties": false
             }),
         ),
         function_tool(
             "terminal_send",
-            "Send text to the active terminal. Returns a transcript range with offsets so more output can be read on demand.",
+            "Send text to the selected terminal (active session by default). Returns a transcript range with offsets so more output can be read on demand.",
             json!({
                 "type": "object",
                 "properties": {
                     "command": { "type": "string" },
-                    "newline": { "type": "boolean", "default": true }
+                    "newline": { "type": "boolean", "default": true },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" }
                 },
                 "required": ["command"],
                 "additionalProperties": false
@@ -1094,8 +1230,27 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
         ),
         function_tool(
             "session_info",
-            "Read active session state and its saved profile metadata. Returns JSON or an error.",
-            json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+            "Read a live session and its saved profile metadata. Without arguments it reads the active session; provide session_id, profile_id, or profile_name to inspect a non-active session or saved server.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "session_id": { "type": "string" },
+                    "profile_id": { "type": "string" },
+                    "profile_name": { "type": "string" }
+                },
+                "additionalProperties": false
+            }),
+        ),
+        function_tool(
+            "session_catalog",
+            "List saved server profiles joined with live session state and the latest SSH connection diagnostic. Use this first when the user names an environment or the target session is not active; secrets are never returned.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Case-insensitive match against profile id, name, group, host, user, or shell" }
+                },
+                "additionalProperties": false
+            }),
         ),
         function_tool(
             "list_directory",
@@ -1104,7 +1259,8 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
                 "type": "object",
                 "properties": {
                     "scope": { "type": "string", "enum": ["local", "remote"] },
-                    "path": { "type": "string" }
+                    "path": { "type": "string" },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id for remote scope" }
                 },
                 "required": ["scope", "path"],
                 "additionalProperties": false
@@ -1115,7 +1271,10 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
             "Read metadata and, for small regular files, a SHA-256 hash without following symbolic links.",
             json!({
                 "type": "object",
-                "properties": { "path": { "type": "string" } },
+                "properties": {
+                    "path": { "type": "string" },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" }
+                },
                 "required": ["path"], "additionalProperties": false
             }),
         ),
@@ -1127,7 +1286,8 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
                 "properties": {
                     "path": { "type": "string" },
                     "offset": { "type": "integer", "minimum": 0, "default": 0 },
-                    "limit": { "type": "integer", "minimum": 1, "maximum": 1048576, "default": 262144 }
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 1048576, "default": 262144 },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" }
                 },
                 "required": ["path"], "additionalProperties": false
             }),
@@ -1141,7 +1301,8 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
                     "path": { "type": "string" },
                     "pattern": { "type": "string" },
                     "max_files": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 },
-                    "max_matches": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 }
+                    "max_matches": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" }
                 },
                 "required": ["path", "pattern"], "additionalProperties": false
             }),
@@ -1154,7 +1315,8 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
                 "properties": {
                     "path": { "type": "string" },
                     "content": { "type": "string" },
-                    "expected_hash": { "type": "string", "description": "SHA-256 from file_stat; omit only when creating a new file" }
+                    "expected_hash": { "type": "string", "description": "SHA-256 from file_stat; omit only when creating a new file" },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" }
                 },
                 "required": ["path", "content"], "additionalProperties": false
             }),
@@ -1168,7 +1330,8 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
                     "path": { "type": "string" },
                     "search": { "type": "string" },
                     "replace": { "type": "string" },
-                    "expected_hash": { "type": "string" }
+                    "expected_hash": { "type": "string" },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" }
                 },
                 "required": ["path", "search", "replace", "expected_hash"],
                 "additionalProperties": false
@@ -1176,10 +1339,13 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
         ),
         function_tool(
             "host_facts",
-            "Collect a deterministic Linux host fact snapshot. Results are cached for ten minutes unless refresh is true.",
+            "Collect a deterministic Linux host fact snapshot from the selected SSH session (active session by default). Results are cached for ten minutes unless refresh is true.",
             json!({
                 "type": "object",
-                "properties": { "refresh": { "type": "boolean", "default": false } },
+                "properties": {
+                    "refresh": { "type": "boolean", "default": false },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" }
+                },
                 "additionalProperties": false
             }),
         ),
@@ -1190,7 +1356,8 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
                 "type": "object",
                 "properties": {
                     "name": { "type": "string", "enum": ["disk", "memory_cpu", "service", "ports", "logs", "tls", "docker"] },
-                    "target": { "type": "string", "description": "Required for service, logs, and tls" }
+                    "target": { "type": "string", "description": "Required for service, logs, and tls" },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" }
                 },
                 "required": ["name"],
                 "additionalProperties": false
@@ -1255,6 +1422,17 @@ fn function_tool(name: &str, description: &str, parameters: Value) -> Value {
 
 fn require_session(session_id: Option<&str>) -> Result<&str, AppError> {
     session_id.ok_or_else(|| AppError::InvalidInput("an active session is required".to_owned()))
+}
+
+fn selected_session_id<'a>(
+    arguments: &'a Value,
+    active_session_id: Option<&'a str>,
+) -> Option<&'a str> {
+    arguments
+        .get("session_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .or(active_session_id)
 }
 
 pub(crate) fn argument_str<'a>(arguments: &'a Value, name: &str) -> Result<&'a str, AppError> {
@@ -1614,18 +1792,43 @@ fn redact_text(value: &str, secrets: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{redact_event, tool_definitions};
+    use super::{redact_event, selected_session_id, tool_definitions};
     use crate::types::AgentSettings;
     use serde_json::json;
 
     #[test]
     fn built_in_tools_and_limits_are_explicit() {
         let tools = tool_definitions(&[]);
-        assert_eq!(tools.len(), 16);
+        assert_eq!(tools.len(), 17);
         assert_eq!(tools[0]["function"]["name"], "remote_exec");
+        assert!(tools
+            .iter()
+            .any(|tool| tool["function"]["name"] == "session_catalog"));
+        let remote_exec = tools
+            .iter()
+            .find(|tool| tool["function"]["name"] == "remote_exec")
+            .expect("remote_exec tool");
+        assert!(remote_exec["function"]["parameters"]["properties"]["session_id"].is_object());
         let settings = AgentSettings::default();
         assert_eq!(settings.profile, "dsh-codex-agent");
         assert_eq!(settings.max_steps, 64);
+    }
+
+    #[test]
+    fn explicit_session_id_takes_precedence_over_active_session() {
+        let arguments = json!({ "session_id": "secondary" });
+        assert_eq!(
+            selected_session_id(&arguments, Some("active")),
+            Some("secondary")
+        );
+        assert_eq!(
+            selected_session_id(&json!({}), Some("active")),
+            Some("active")
+        );
+        assert_eq!(
+            selected_session_id(&json!({ "session_id": "" }), Some("active")),
+            Some("active")
+        );
     }
 
     #[test]

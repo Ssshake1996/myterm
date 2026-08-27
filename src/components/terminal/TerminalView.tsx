@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import {
   type AppTheme,
   createChannel,
+  formatIpcError,
   publishTerminalOutput,
   type SessionProfile,
   sessionConnect,
@@ -378,7 +379,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       sessionRef.current = session.session_id;
       bindSession(pane.id, session);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "会话连接失败";
+      const message = formatIpcError(error, "会话连接失败：未返回可读的错误信息");
       notify(message, "error");
       failConnection(pane.id, message);
     }

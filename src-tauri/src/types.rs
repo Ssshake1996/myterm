@@ -68,6 +68,48 @@ pub struct SessionInfo {
     pub profile_id: String,
     pub state: SessionState,
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<SessionDiagnostic>,
+}
+
+/// Structured evidence for a session connection or transport failure.
+///
+/// `summary` is safe to show in a compact status line, while `detail` keeps
+/// the original error text that is useful to a human or to the Agent.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDiagnostic {
+    pub stage: String,
+    pub code: String,
+    pub summary: String,
+    pub detail: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCatalogTarget {
+    pub kind: String,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub username: Option<String>,
+    pub shell: Option<String>,
+}
+
+/// Saved profiles joined with live state and the most recent failure evidence.
+/// Secrets and vault references are intentionally excluded.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCatalogEntry {
+    pub profile_id: String,
+    pub name: String,
+    pub group: String,
+    pub environment: SessionEnvironment,
+    pub target: SessionCatalogTarget,
+    pub session_id: Option<SessionId>,
+    pub state: SessionState,
+    pub active: bool,
+    pub error: Option<String>,
+    pub diagnostic: Option<SessionDiagnostic>,
 }
 
 // ── SFTP ─────────────────────────────────────────────────

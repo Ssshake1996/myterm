@@ -352,16 +352,18 @@ Event 先持久化再通知 UI。高频输出按 50ms 或 64KiB 合并，条件�
 
 ### 11.1 当前工具
 
-- `session_info(target_alias?)`。
-- `terminal_context(target_alias?, lines)`。
-- `terminal_send(target_alias?, command, newline)`。
-- `remote_exec(target_alias?, command, cwd, timeout_ms, mode, max_output_bytes)`。
-- `host_facts(target_alias?)`。
-- `list_directory`、`file_stat`、`file_read`、`file_search`、`file_write`、`file_patch`。
+- `session_catalog(query?)`：列出已保存服务器、实时会话状态和最近一次 SSH 连接诊断，不返回凭据。
+- `session_info(session_id?, profile_id?, profile_name?)`：读取活动、非活动或仅保存的服务器配置。
+- `terminal_context(session_id?, offset, limit)`。
+- `terminal_send(session_id?, command, newline)`。
+- `remote_exec(session_id?, command, cwd, timeout_ms, mode, max_output_bytes)`。
+- `host_facts(session_id?)`。
+- `list_directory`、`file_stat`、`file_read`、`file_search`、`file_write`、`file_patch` 均支持可选 `session_id`。
 - `job_status`、`job_output`、`job_cancel`。
 - `skill_load`、`mcp_tool_search`、`mcp_tool_call`。
 
-`0.6.3` 单目标兼容期允许省略 alias 并解析为活动 session。M1 完成后，多目标 Task 必须显式 alias。
+省略 `session_id` 时兼容解析为活动 session。用户点名服务器或目标不在活动窗格时，Agent 必须先调用
+`session_catalog`，再把返回的 `session_id` 传给后续工具；仅保存但未连接的 profile 不能被声称为当前可达。
 
 ### 11.2 `remote_exec`
 

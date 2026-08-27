@@ -171,6 +171,12 @@ The 0.9.4 Agent prompt boundary keeps the system contract separate from user con
 
 The prioritized optimization options and their pros/cons are recorded in [`docs/agent-optimization-roadmap.md`](agent-optimization-roadmap.md). The immediate next boundary is typed tool outcomes, followed by a provider trait and MCP stderr/timeout supervision; multi-SSH and provisioning remain separate milestones.
 
+The SSH diagnostics and non-active-session boundary was tightened after validating the desktop failure path:
+
+- Tauri IPC errors now carry an optional structured session diagnostic (`stage`, `code`, `summary`, `detail`). The terminal UI uses that payload instead of treating serialized `{ code, message }` errors as generic JavaScript failures.
+- `dsh-codex-agent` exposes `session_catalog` for saved profiles, live state, and the latest in-process connection failure. Session-bound tools accept an explicit `session_id`, so a model can inspect or operate on a non-active live SSH session after selecting it from the catalog.
+- The catalog intentionally omits vault references and credentials. A profile with no live session is metadata only; the Agent must not infer reachability from it. Last-failure evidence is process-scoped in this milestone and is cleared after a successful reconnect.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.

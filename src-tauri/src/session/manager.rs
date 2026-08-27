@@ -9,7 +9,9 @@ use super::{
     ssh::{ExecOutputSink, ExecResult, SshTerminal},
 };
 use crate::{
-    types::{SessionId, SessionInfo, SessionProfile, SessionState, SessionTarget},
+    types::{
+        SessionDiagnostic, SessionId, SessionInfo, SessionProfile, SessionState, SessionTarget,
+    },
     AppError, SecretResolver,
 };
 
@@ -52,6 +54,7 @@ struct ManagedSession {
 
 pub struct SessionManager {
     sessions: RwLock<HashMap<SessionId, Arc<ManagedSession>>>,
+    last_failures: RwLock<HashMap<String, SessionDiagnostic>>,
     resolver: Arc<dyn SecretResolver>,
     events: Arc<dyn SessionEventSink>,
 }
@@ -60,6 +63,7 @@ impl SessionManager {
     pub fn new(resolver: Arc<dyn SecretResolver>, events: Arc<dyn SessionEventSink>) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
+            last_failures: RwLock::new(HashMap::new()),
             resolver,
             events,
         }
@@ -78,6 +82,7 @@ impl SessionManager {
             profile_id: profile.id.clone(),
             state: SessionState::Connecting,
             error: None,
+            diagnostic: None,
         };
         self.events.state_changed(&connecting);
         let buffer = Arc::new(TerminalBuffer::default());
@@ -112,9 +117,26 @@ impl SessionManager {
         let (control, exit) = match started {
             Ok(value) => value,
             Err(error) => {
+                let diagnostic = error.diagnostic().or_else(|| {
+                    Some(SessionDiagnostic {
+                        stage: "session".to_owned(),
+                        code: error.code().to_owned(),
+                        summary: "SSH 会话连接失败".to_owned(),
+                        detail: error.detail(),
+                    })
+                });
+                if let Some(diagnostic) = diagnostic.clone() {
+                    self.last_failures
+                        .write()
+                        .map_err(|_| {
+                            AppError::Session("session failure map lock is poisoned".to_owned())
+                        })?
+                        .insert(profile.id.clone(), diagnostic);
+                }
                 self.events.state_changed(&SessionInfo {
                     state: SessionState::Failed,
-                    error: Some(error.to_string()),
+                    error: Some(error.detail()),
+                    diagnostic,
                     ..connecting
                 });
                 return Err(error);
@@ -122,8 +144,13 @@ impl SessionManager {
         };
         let connected = SessionInfo {
             state: SessionState::Connected,
+            diagnostic: None,
             ..connecting
         };
+        self.last_failures
+            .write()
+            .map_err(|_| AppError::Session("session failure map lock is poisoned".to_owned()))?
+            .remove(&profile.id);
         let session = Arc::new(ManagedSession {
             info: Mutex::new(connected.clone()),
             buffer,
@@ -183,6 +210,13 @@ impl SessionManager {
                     .map_err(|_| AppError::Session("session state lock is poisoned".to_owned()))
             })
             .collect()
+    }
+
+    pub fn last_failure(&self, profile_id: &str) -> Result<Option<SessionDiagnostic>, AppError> {
+        self.last_failures
+            .read()
+            .map_err(|_| AppError::Session("session failure map lock is poisoned".to_owned()))
+            .map(|failures| failures.get(profile_id).cloned())
     }
 
     pub fn buffer_lines(&self, session_id: &str, count: usize) -> Result<String, AppError> {

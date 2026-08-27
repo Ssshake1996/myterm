@@ -1131,6 +1131,10 @@ button:disabled {
 
 .disconnect-overlay small {
   color: var(--text-muted);
+  max-width: min(90%, 680px);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .disconnect-icon {
@@ -3860,6 +3864,8 @@ input:checked + .toggle-track > span {
   border-radius: 4px;
   box-shadow: 0 8px 24px var(--shadow);
   text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
 

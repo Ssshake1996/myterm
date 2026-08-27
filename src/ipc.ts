@@ -20,11 +20,19 @@ export interface SessionProfile {
 
 export type SessionState = "connecting" | "connected" | "disconnected" | "failed";
 
+export interface SessionDiagnostic {
+  stage: string;
+  code: string;
+  summary: string;
+  detail: string;
+}
+
 export interface SessionInfo {
   session_id: string;
   profile_id: string;
   state: SessionState;
   error: string | null;
+  diagnostic?: SessionDiagnostic | null;
 }
 
 export interface RemoteEntry {
@@ -153,6 +161,37 @@ export function ipcErrorCode(error: unknown): string | undefined {
   if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
   const code = (error as { code?: unknown }).code;
   return typeof code === "string" && code.trim() ? code : undefined;
+}
+
+export function ipcErrorDiagnostic(error: unknown): SessionDiagnostic | undefined {
+  if (typeof error !== "object" || error === null || !("diagnostic" in error)) {
+    return undefined;
+  }
+  const diagnostic = (error as { diagnostic?: unknown }).diagnostic;
+  if (typeof diagnostic !== "object" || diagnostic === null) return undefined;
+  const value = diagnostic as Partial<SessionDiagnostic>;
+  if (
+    typeof value.stage !== "string" ||
+    typeof value.code !== "string" ||
+    typeof value.summary !== "string" ||
+    typeof value.detail !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    stage: value.stage,
+    code: value.code,
+    summary: value.summary,
+    detail: value.detail,
+  };
+}
+
+export function formatIpcError(error: unknown, fallback: string): string {
+  const message = errorMessage(error, fallback);
+  const diagnostic = ipcErrorDiagnostic(error);
+  if (!diagnostic) return message;
+  const detail = diagnostic.detail.trim() || message;
+  return `${diagnostic.summary} [${diagnostic.code} · ${diagnostic.stage}]\n${detail}`;
 }
 
 export interface AiChatResult {

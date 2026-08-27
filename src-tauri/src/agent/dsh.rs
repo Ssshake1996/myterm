@@ -256,9 +256,15 @@ impl HostBridge for DshHostBridge {
         &self,
         invocation: ToolInvocation,
     ) -> Result<ToolExecutionResult, CoreError> {
+        let targeted_session_id = invocation
+            .arguments
+            .get("session_id")
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .or(self.session_id.as_deref());
         let policy_context = self
             .service
-            .policy_context(self.session_id.as_deref(), self.settings.permission_mode)
+            .policy_context(targeted_session_id, self.settings.permission_mode)
             .map_err(app_error)?;
         let mut decision =
             policy::evaluate_tool(&invocation.name, &invocation.arguments, policy_context);

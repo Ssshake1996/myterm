@@ -27,6 +27,13 @@ pub enum AppError {
     Vault(String),
     #[error("session error: {0}")]
     Session(String),
+    #[error("session error [{stage}/{code}] {summary}: {detail}")]
+    SessionFailure {
+        stage: &'static str,
+        code: &'static str,
+        summary: &'static str,
+        detail: String,
+    },
     #[error("SFTP error: {0}")]
     Sftp(String),
     #[error("AI service error: {0}")]
@@ -53,6 +60,7 @@ impl AppError {
             Self::Config(_) => "config",
             Self::Vault(_) => "vault",
             Self::Session(_) => "session",
+            Self::SessionFailure { code, .. } => code,
             Self::Sftp(_) => "sftp",
             Self::Ai(_) => "ai",
             Self::Agent(_) => "agent",
@@ -76,9 +84,27 @@ impl AppError {
             | Self::Storage(detail)
             | Self::NotFound(detail)
             | Self::InvalidInput(detail) => detail.clone(),
+            Self::SessionFailure { detail, .. } => detail.clone(),
             Self::Io(error) => error.to_string(),
             Self::Json(error) => error.to_string(),
             Self::Database(error) => error.to_string(),
+        }
+    }
+
+    pub fn diagnostic(&self) -> Option<types::SessionDiagnostic> {
+        match self {
+            Self::SessionFailure {
+                stage,
+                code,
+                summary,
+                detail,
+            } => Some(types::SessionDiagnostic {
+                stage: (*stage).to_owned(),
+                code: (*code).to_owned(),
+                summary: (*summary).to_owned(),
+                detail: detail.clone(),
+            }),
+            _ => None,
         }
     }
 }
@@ -87,6 +113,8 @@ impl AppError {
 pub struct IpcError {
     pub code: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<types::SessionDiagnostic>,
 }
 
 impl From<AppError> for IpcError {
@@ -94,6 +122,7 @@ impl From<AppError> for IpcError {
         Self {
             code: error.code().to_owned(),
             message: error.detail(),
+            diagnostic: error.diagnostic(),
         }
     }
 }
@@ -107,10 +136,26 @@ mod error_tests {
         let error = AppError::Ai("HTTP 502 Bad Gateway\nResponse body:\nupstream reset".to_owned());
         let ipc: IpcError = error.into();
         assert_eq!(ipc.code, "ai");
+        assert!(ipc.diagnostic.is_none());
         assert_eq!(
             ipc.message,
             "HTTP 502 Bad Gateway\nResponse body:\nupstream reset"
         );
+    }
+
+    #[test]
+    fn ipc_error_exposes_structured_session_diagnostic() {
+        let error = AppError::SessionFailure {
+            stage: "transport",
+            code: "SSH_CONNECT_FAILED",
+            summary: "SSH 传输连接失败",
+            detail: "connection refused".to_owned(),
+        };
+        let ipc: IpcError = error.into();
+        let diagnostic = ipc.diagnostic.expect("session diagnostic");
+        assert_eq!(diagnostic.stage, "transport");
+        assert_eq!(diagnostic.code, "SSH_CONNECT_FAILED");
+        assert_eq!(diagnostic.detail, "connection refused");
     }
 }
 

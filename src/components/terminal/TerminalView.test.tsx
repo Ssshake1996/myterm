@@ -60,6 +60,18 @@ vi.mock("@xterm/addon-webgl", () => ({ WebglAddon: class {} }));
 
 vi.mock("../../ipc", () => ({
   createChannel: () => ({ onmessage: (_message: unknown) => undefined }),
+  formatIpcError: (error: unknown, fallback: string) => {
+    if (typeof error !== "object" || error === null) return fallback;
+    const value = error as {
+      message?: unknown;
+      diagnostic?: { summary?: unknown; code?: unknown; stage?: unknown; detail?: unknown };
+    };
+    if (value.diagnostic) {
+      const { summary, code, stage, detail } = value.diagnostic;
+      return `${String(summary)} [${String(code)} · ${String(stage)}]\n${String(detail)}`;
+    }
+    return typeof value.message === "string" && value.message.trim() ? value.message : fallback;
+  },
   ...ipcMocks,
 }));
 
@@ -273,5 +285,28 @@ describe("TerminalView", () => {
     });
 
     await waitFor(() => expect(ipcMocks.sessionDisconnect).toHaveBeenCalledWith("orphan-session"));
+  });
+
+  it("shows the original structured SSH connection error instead of a generic failure", async () => {
+    ipcMocks.sessionConnect.mockRejectedValueOnce({
+      code: "SSH_CONNECT_FAILED",
+      message: "connection to 10.0.0.10:22 failed: connection refused",
+      diagnostic: {
+        stage: "transport",
+        code: "SSH_CONNECT_FAILED",
+        summary: "SSH 传输连接失败",
+        detail: "connection to 10.0.0.10:22 failed: connection refused",
+      },
+    });
+    render(<TerminalView pane={pane} profile={profile} />);
+
+    await waitFor(() => {
+      const failedPane = useLayoutStore
+        .getState()
+        .tabs.flatMap((tab) => tab.panes)
+        .find((candidate) => candidate.id === pane.id);
+      expect(failedPane?.error).toContain("SSH 传输连接失败 [SSH_CONNECT_FAILED · transport]");
+      expect(failedPane?.error).toContain("connection to 10.0.0.10:22 failed: connection refused");
+    });
   });
 });

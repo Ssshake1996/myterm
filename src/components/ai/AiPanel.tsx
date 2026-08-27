@@ -111,6 +111,7 @@ const TOOL_LABELS: Record<string, string> = {
   terminal_context: "读取终端上下文",
   terminal_send: "向活动终端发送命令",
   session_info: "读取会话信息",
+  session_catalog: "读取服务器会话目录",
   list_directory: "查看文件目录",
 };
 

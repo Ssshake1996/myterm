@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.9.4。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.9.5。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -228,10 +228,11 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 
 ## Agent 内置工具
 
-- `session_info`：读取活动会话和服务器信息。
+- `session_catalog`：按名称、分组、主机或用户查找已保存服务器，返回每个服务器的实时状态和最近一次 SSH 连接诊断；不会返回凭据。
+- `session_info`：读取活动会话和服务器信息，也可以传入 `session_id`、`profile_id` 或 `profile_name` 查询非活动会话或已保存服务器。
 - `terminal_context`：读取当前终端的有界上下文。
-- `terminal_send`：向交互终端发送输入。
-- `remote_exec`：通过独立 SSH exec channel 运行结构化命令。
+- `terminal_send`：向交互终端发送输入；可传入 `session_id` 指定非活动 SSH 会话。
+- `remote_exec`：通过独立 SSH exec channel 运行结构化命令；可传入 `session_id` 指定目标会话。
 - `host_facts`：读取系统、CPU、内存、磁盘和网络等主机事实。
 - `list_directory`：列出本地或远程目录。
 - `file_stat`：读取文件元数据。
@@ -240,6 +241,10 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 - `file_write`：原子写入文件并进行校验。
 - `file_patch`：基于哈希锁修改已知内容并读回验证。
 - `job_status`、`job_output`、`job_cancel`：管理后台执行任务。
+
+终端上下文、主机事实、Runbook、SFTP 和文件工具同样支持可选 `session_id`。Agent 应先用
+`session_catalog` 找到用户所说的环境，再把返回的 `session_id` 传给后续工具；没有实时会话时，
+目录中的状态和诊断只能说明已保存配置或最近一次失败，不能当作主机当前可达性的证明。
 
 结构化命令会分别记录 stdout 和 stderr，并保存退出码、信号、超时、取消或连接断开状态。大输出使用受限 artifact 和首尾预览，防止界面与模型上下文无限增长。
 
@@ -288,7 +293,7 @@ myterm 所说的 CLI 和 REST 能力，主要指 Agent 在远程 SSH 环境中�
 
 ## 多 SSH 与 OS 安装规划
 
-当前 `0.6.6` 的 Agent Task 仍以单个活动 SSH 目标为主。计划中的多 SSH 模式会让一个 Task 绑定多个保存的服务器，每次工具调用明确显示目标，例如先在 A 执行变更，再从 B 观察 A 的健康接口，满足连续成功条件后继续。
+当前 Agent Task 仍以单个活动 SSH 目标为默认上下文，但已经支持通过 `session_catalog` 查找非活动或仅保存的服务器，并将明确的 `session_id` 传给后续工具。完整的多 SSH Task 绑定、跨目标条件编排仍在规划中。
 
 OS 安装不会通过一条 SSH 命令直接执行。计划流程是：
 
