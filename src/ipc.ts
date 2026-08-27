@@ -87,7 +87,14 @@ export interface QuickCommandImportResult {
 
 export type AppTheme = "light" | "eye_care" | "dark";
 
-export type AppFontScale = "small" | "standard" | "large" | "extra_large";
+export type AppFontScale =
+  | "small"
+  | "standard"
+  | "large"
+  | "extra_large"
+  | "scale_150"
+  | "scale_175"
+  | "scale_200";
 
 export type TerminalPalette = "graphite_gold" | "forest_amber" | "midnight_contrast";
 
@@ -251,8 +258,10 @@ export interface SkillInfo {
 export interface McpToolInfo {
   serverId: string;
   serverName: string;
+  transport: string;
   name: string;
   description: string;
+  inputSchema: unknown;
 }
 
 export interface AgentPluginInfo {
@@ -448,6 +457,14 @@ export interface TerminalOutputEventDetail {
   dataUtf8: string;
 }
 
+export interface TerminalScreenSnapshot {
+  visibleText: string;
+  cursorLine: string;
+  cursorLineBeforeCursor: string;
+  cursorColumn: number;
+  updatedAtMs: number;
+}
+
 function publishTerminalInput(detail: TerminalInputEventDetail): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("myterm:terminal-input", { detail }));
@@ -472,6 +489,14 @@ export async function terminalWrite(sessionId: string, dataUtf8: string): Promis
 export async function terminalResize(sessionId: string, cols: number, rows: number): Promise<void> {
   if (!isDesktopRuntime) return demoBackend.terminalResize(sessionId, cols, rows);
   return invoke("terminal_resize", { sessionId, cols, rows });
+}
+
+export async function terminalScreenUpdate(
+  sessionId: string,
+  snapshot: TerminalScreenSnapshot,
+): Promise<void> {
+  if (!isDesktopRuntime) return demoBackend.terminalScreenUpdate(sessionId, snapshot);
+  return invoke("terminal_screen_update", { sessionId, snapshot });
 }
 
 export async function profileList(): Promise<SessionProfile[]> {

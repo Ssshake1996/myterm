@@ -11,6 +11,7 @@ use super::{
 use crate::{
     types::{
         SessionDiagnostic, SessionId, SessionInfo, SessionProfile, SessionState, SessionTarget,
+        TerminalScreenSnapshot,
     },
     AppError, SecretResolver,
 };
@@ -57,6 +58,7 @@ enum SessionControl {
 struct ManagedSession {
     info: Mutex<SessionInfo>,
     buffer: Arc<TerminalBuffer>,
+    screen: RwLock<Option<TerminalScreenSnapshot>>,
     control: SessionControl,
 }
 
@@ -162,6 +164,7 @@ impl SessionManager {
         let session = Arc::new(ManagedSession {
             info: Mutex::new(connected.clone()),
             buffer,
+            screen: RwLock::new(None),
             control,
         });
         self.sessions
@@ -259,6 +262,32 @@ impl SessionManager {
         limit: usize,
     ) -> Result<crate::session::buffer::TerminalRange, AppError> {
         self.get(session_id)?.buffer.snapshot_range(offset, limit)
+    }
+
+    pub fn update_screen(
+        &self,
+        session_id: &str,
+        snapshot: TerminalScreenSnapshot,
+    ) -> Result<(), AppError> {
+        let session = self.get(session_id)?;
+        *session
+            .screen
+            .write()
+            .map_err(|_| AppError::Session("terminal screen lock is poisoned".to_owned()))? =
+            Some(snapshot);
+        Ok(())
+    }
+
+    pub fn screen_snapshot(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<TerminalScreenSnapshot>, AppError> {
+        let session = self.get(session_id)?;
+        session
+            .screen
+            .read()
+            .map_err(|_| AppError::Session("terminal screen lock is poisoned".to_owned()))
+            .map(|screen| screen.clone())
     }
 
     pub async fn remote_exec(

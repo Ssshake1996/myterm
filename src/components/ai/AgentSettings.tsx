@@ -2,6 +2,7 @@ import {
   AlertCircle,
   BookOpen,
   CheckCircle2,
+  Copy,
   Plug,
   Plus,
   RefreshCw,
@@ -65,6 +66,22 @@ function formatHeaderLines(headers: McpHeader[] = []) {
   return headers.map((header) => `${header.name}: ${header.value}`).join("\n");
 }
 
+async function copyText(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand?.("copy") ?? false;
+  textarea.remove();
+  if (!copied) throw new Error("当前运行环境不允许写入系统剪贴板");
+}
+
 export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps) {
   const notify = useUiStore((state) => state.notify);
   const [tab, setTab] = useState<SettingsTab>("execution");
@@ -73,6 +90,7 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [skillLoading, setSkillLoading] = useState(false);
   const [mcpTests, setMcpTests] = useState<Record<string, McpTestState>>({});
+  const [mcpDetailsOpen, setMcpDetailsOpen] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const refreshSkills = async (directories = normalizedLines(directoryText)) => {
     setSkillLoading(true);
@@ -108,6 +126,7 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
       delete next[id];
       return next;
     });
+    setMcpDetailsOpen((current) => ({ ...current, [id]: false }));
   };
 
   const testMcp = async (server: McpServerConfig) => {
@@ -121,6 +140,7 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
       return;
     }
     setMcpTests((current) => ({ ...current, [server.id]: { status: "testing" } }));
+    setMcpDetailsOpen((current) => ({ ...current, [server.id]: false }));
     try {
       const tools = await agentMcpTest(server);
       setMcpTests((current) => ({
@@ -509,9 +529,25 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
                         <Plug size={13} /> {test?.status === "testing" ? "连接中" : "测试连接"}
                       </button>
                       {test?.status === "success" ? (
-                        <span className="test-success">
-                          <CheckCircle2 size={13} /> 已连接，发现 {test.tools.length} 个工具
-                        </span>
+                        <>
+                          <span className="test-success">
+                            <CheckCircle2 size={13} /> 已连接，发现 {test.tools.length} 个工具
+                          </span>
+                          <button
+                            aria-expanded={mcpDetailsOpen[server.id] ?? false}
+                            className="button button-secondary mcp-details-toggle"
+                            onClick={() =>
+                              setMcpDetailsOpen((current) => ({
+                                ...current,
+                                [server.id]: !current[server.id],
+                              }))
+                            }
+                            type="button"
+                          >
+                            <BookOpen size={12} />
+                            {mcpDetailsOpen[server.id] ? "收起详情" : "查看详情"}
+                          </button>
+                        </>
                       ) : null}
                       {test?.status === "error" ? (
                         <div className="test-error mcp-test-error" role="alert">
@@ -522,6 +558,61 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
                         </div>
                       ) : null}
                     </footer>
+                    {test?.status === "success" && mcpDetailsOpen[server.id] ? (
+                      <section
+                        aria-label={`${server.name || "未命名"} MCP 工具详情`}
+                        className="mcp-tool-details"
+                      >
+                        <header>
+                          <div>
+                            <strong>工具清单</strong>
+                            <small>
+                              {server.name || "未命名"} · {server.transport ?? "stdio"} ·{" "}
+                              {test.tools.length} 个
+                            </small>
+                          </div>
+                          <button
+                            className="icon-button"
+                            onClick={() =>
+                              void copyText(
+                                JSON.stringify(
+                                  {
+                                    serverId: server.id,
+                                    serverName: server.name,
+                                    transport: server.transport ?? "stdio",
+                                    toolCount: test.tools.length,
+                                    tools: test.tools,
+                                  },
+                                  null,
+                                  2,
+                                ),
+                              )
+                                .then(() => notify("MCP 工具详情已复制", "success"))
+                                .catch(() => notify("复制 MCP 工具详情失败", "error"))
+                            }
+                            title="复制完整工具信息"
+                            type="button"
+                          >
+                            <Copy size={12} />
+                          </button>
+                        </header>
+                        {!test.tools.length ? <p>服务器已连接，但没有返回工具。</p> : null}
+                        {test.tools.map((tool) => (
+                          <article key={`${tool.serverId}:${tool.name}`}>
+                            <header>
+                              <code>{tool.name}</code>
+                              <span>{tool.transport || server.transport || "stdio"}</span>
+                            </header>
+                            <p>{tool.description || "未提供工具说明"}</p>
+                            <small>
+                              {tool.serverName} · {tool.serverId}
+                            </small>
+                            <strong>Input Schema</strong>
+                            <pre>{JSON.stringify(tool.inputSchema ?? {}, null, 2)}</pre>
+                          </article>
+                        ))}
+                      </section>
+                    ) : null}
                   </section>
                 );
               })}

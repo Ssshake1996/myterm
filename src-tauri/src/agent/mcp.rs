@@ -133,8 +133,10 @@ pub async fn list_tool_info(server: &McpServerConfig) -> Result<Vec<McpToolInfo>
         .map(|tool| McpToolInfo {
             server_id: server.id.clone(),
             server_name: server.name.clone(),
+            transport: transport_label(&server.transport).to_owned(),
             name: tool.original_name,
             description: tool.description,
+            input_schema: tool.input_schema,
         })
         .collect())
 }

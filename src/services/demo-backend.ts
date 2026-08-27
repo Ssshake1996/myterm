@@ -19,6 +19,7 @@ import type {
   SessionInfo,
   SessionProfile,
   TerminalPalette,
+  TerminalScreenSnapshot,
   TransferProgress,
 } from "../ipc";
 
@@ -412,6 +413,8 @@ class DemoBackend {
 
   async terminalResize(_sessionId: string, _cols: number, _rows: number) {}
 
+  async terminalScreenUpdate(_sessionId: string, _snapshot: TerminalScreenSnapshot) {}
+
   async profileList() {
     return structuredClone(this.profiles);
   }
@@ -779,8 +782,14 @@ class DemoBackend {
       {
         serverId: server.id,
         serverName: server.name,
+        transport: server.transport,
         name: `mcp__${server.name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}__list`,
         description: "列出服务器提供的资源。",
+        inputSchema: {
+          type: "object",
+          properties: { path: { type: "string", description: "要读取的资源路径" } },
+          additionalProperties: false,
+        },
       },
     ];
   }

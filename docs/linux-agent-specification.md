@@ -143,7 +143,7 @@ Agent 只有桌面入口：
 | ID | 需求 |
 |---|---|
 | FR-EXEC-001 | 非交互命令使用 `remote_exec`，返回 exit code、stdout、stderr、耗时和 termination。 |
-| FR-EXEC-002 | PTY `terminal_send` 只表示输入已发送，不能声称命令成功。 |
+| FR-EXEC-002 | PTY `terminal_send` 只表示输入已发送，不能声称命令成功。默认 `complete_line` 必须依据最近同步的 xterm 光标行只发送目标命令缺失后缀；现场冲突时停止写入并返回原始行。`raw` 仅用于明确的交互输入。 |
 | FR-EXEC-003 | stdout/stderr 增量发布、受限驻留并落入 Artifact。 |
 | FR-EXEC-004 | SSH 执行支持超时、取消、断线和输出上限。 |
 | FR-HTTP-001 | `remote_http_request` 必须从指定 SSH observer 发起。 |
@@ -177,7 +177,7 @@ Agent 只有桌面入口：
 | FR-SKILL-004 | Skill 的权限/provider/environment 策略存于 myterm 配置并绑定内容 hash。 |
 | FR-MCP-001 | MCP 必须通过统一 Transport 抽象支持 stdio 和 streamable-http；每 Task 复用连接并有超时、重连和清理。 |
 | FR-MCP-002 | MCP 工具按 server/tool 授权，annotation 只能提升风险。 |
-| FR-MCP-003 | 大工具目录先搜索再加载 schema，保护模型上下文。 |
+| FR-MCP-003 | 大工具目录先搜索再加载 schema，保护模型上下文；桌面测试结果必须允许用户查看和复制完整工具名称、说明、Transport 与 Input Schema。 |
 | FR-HOOK-001 | Hook 可追加上下文、deny、ask 或建议验证，不能覆盖 policy deny/ask。 |
 
 ### 6.6 OS Provisioning
@@ -356,7 +356,7 @@ Event 先持久化再通知 UI。高频输出按 50ms 或 64KiB 合并，条件�
 - `session_connect(profile_id|profile_name)`：按精确保存目标自动启动或复用 SSH，返回后续工具使用的 `session_id`。
 - `session_info(session_id?, profile_id?, profile_name?)`：读取活动、非活动或仅保存的服务器配置。
 - `terminal_context(session_id?, offset, limit)`。
-- `terminal_send(session_id?, command, newline)`。
+- `terminal_send(session_id?, command, newline, input_mode=complete_line|raw)`。
 - `remote_exec(session_id?, command, cwd, timeout_ms, mode, max_output_bytes)`。
 - `host_facts(session_id?)`。
 - `list_directory`、`file_stat`、`file_read`、`file_search`、`file_write`、`file_patch` 均支持可选 `session_id`。

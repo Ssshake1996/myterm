@@ -330,6 +330,9 @@ export function App() {
                   <option value="standard">标准 · 100%</option>
                   <option value="large">大 · 115%</option>
                   <option value="extra_large">特大 · 130%</option>
+                  <option value="scale_150">超大 · 150%</option>
+                  <option value="scale_175">超大 · 175%</option>
+                  <option value="scale_200">最大 · 200%</option>
                 </select>
               </label>
               <label className="font-setting-row">

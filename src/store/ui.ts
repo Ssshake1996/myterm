@@ -28,6 +28,9 @@ export const fontScaleFactor: Record<AppFontScale, number> = {
   standard: 1,
   large: 1.15,
   extra_large: 1.3,
+  scale_150: 1.5,
+  scale_175: 1.75,
+  scale_200: 2,
 };
 
 export const useUiStore = create<UiState>((set, get) => ({

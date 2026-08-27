@@ -11,6 +11,7 @@ const terminalMocks = vi.hoisted(() => ({
   fit: vi.fn(),
   dataHandler: undefined as ((data: string) => void) | undefined,
   options: { theme: {} as Record<string, string>, fontSize: 13 },
+  cursorLine: "[root@prod]# show system",
 }));
 
 const ipcMocks = vi.hoisted(() => ({
@@ -18,6 +19,7 @@ const ipcMocks = vi.hoisted(() => ({
   sessionConnect: vi.fn(),
   sessionDisconnect: vi.fn(),
   terminalResize: vi.fn(),
+  terminalScreenUpdate: vi.fn(),
   terminalWrite: vi.fn(),
 }));
 
@@ -25,6 +27,21 @@ vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     cols = 80;
     rows = 24;
+    buffer = {
+      active: {
+        baseY: 0,
+        cursorY: 0,
+        cursorX: terminalMocks.cursorLine.length,
+        viewportY: 0,
+        getLine: (index: number) =>
+          index === 0
+            ? {
+                translateToString: (_trimRight: boolean, start = 0, end?: number) =>
+                  terminalMocks.cursorLine.slice(start, end),
+              }
+            : undefined,
+      },
+    };
     hasSelection = () => false;
     getSelection = () => "";
     selectAll = vi.fn();
@@ -121,6 +138,7 @@ describe("TerminalView", () => {
       error: null,
     });
     ipcMocks.terminalResize.mockResolvedValue(undefined);
+    ipcMocks.terminalScreenUpdate.mockResolvedValue(undefined);
     ipcMocks.terminalWrite.mockResolvedValue(undefined);
     ipcMocks.sessionDisconnect.mockResolvedValue(undefined);
     useUiStore.getState().setTheme("dark");
@@ -175,7 +193,7 @@ describe("TerminalView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /会话已断开/ }));
+    fireEvent.click(screen.getByRole("button", { name: "重新连接" }));
     await waitFor(() => expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(2));
     expect(ipcMocks.sessionConnect.mock.calls[1]?.[0]).toBe(profile.id);
   });
@@ -298,7 +316,7 @@ describe("TerminalView", () => {
         detail: "connection to 10.0.0.10:22 failed: connection refused",
       },
     });
-    render(<TerminalView pane={pane} profile={profile} />);
+    const { rerender } = render(<TerminalView pane={pane} profile={profile} />);
 
     await waitFor(() => {
       const failedPane = useLayoutStore
@@ -308,5 +326,33 @@ describe("TerminalView", () => {
       expect(failedPane?.error).toContain("SSH 传输连接失败 [SSH_CONNECT_FAILED · transport]");
       expect(failedPane?.error).toContain("connection to 10.0.0.10:22 failed: connection refused");
     });
+
+    const failedPane = useLayoutStore
+      .getState()
+      .tabs.flatMap((tab) => tab.panes)
+      .find((candidate) => candidate.id === pane.id);
+    if (!failedPane) throw new Error("failed pane was not stored");
+    const clipboardWrite = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: clipboardWrite },
+    });
+    rerender(<TerminalView pane={failedPane} profile={profile} />);
+    fireEvent.click(await screen.findByRole("button", { name: "复制错误" }));
+    await waitFor(() => expect(clipboardWrite).toHaveBeenCalledWith(failedPane.error));
+  });
+
+  it("synchronizes the visible xterm cursor line for Agent command completion", async () => {
+    render(<TerminalView pane={pane} profile={profile} />);
+    await waitFor(() =>
+      expect(ipcMocks.terminalScreenUpdate).toHaveBeenCalledWith(
+        "session-terminal",
+        expect.objectContaining({
+          cursorLine: terminalMocks.cursorLine,
+          cursorLineBeforeCursor: terminalMocks.cursorLine,
+          cursorColumn: terminalMocks.cursorLine.length,
+        }),
+      ),
+    );
   });
 });

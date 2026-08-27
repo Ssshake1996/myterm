@@ -270,6 +270,7 @@ pub fn run() {
             ipc::session_list,
             ipc::terminal_write,
             ipc::terminal_resize,
+            ipc::terminal_screen_update,
             ipc::profile_list,
             ipc::profile_save,
             ipc::profile_delete,

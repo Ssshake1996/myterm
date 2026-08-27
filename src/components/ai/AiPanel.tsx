@@ -5,6 +5,7 @@ import {
   CircleDot,
   History,
   LoaderCircle,
+  MessageSquarePlus,
   RefreshCw,
   Settings2,
   ShieldCheck,
@@ -408,6 +409,15 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     }
   };
 
+  const startNewConversation = () => {
+    if (running) return;
+    setSelectedTaskId(null);
+    setEntries([]);
+    setInput("");
+    setHistoryOpen(false);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
   const send = async () => {
     const task = input.trim();
     if (!task || !profileId || running) {
@@ -580,6 +590,17 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
           </div>
         </div>
         <div className="ai-header-actions">
+          <button
+            aria-label="新建对话"
+            className="new-conversation-button"
+            disabled={running}
+            onClick={startNewConversation}
+            title={running ? "任务运行中，停止后可新建对话" : "新建对话"}
+            type="button"
+          >
+            <MessageSquarePlus size={13} />
+            <span>新对话</span>
+          </button>
           <button
             aria-label="AI 服务设置"
             className="icon-button"

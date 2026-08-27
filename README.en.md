@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.9.7`
+Current version: `0.9.8`
 
 ## Core Features
 
@@ -21,6 +21,7 @@ Current version: `0.9.7`
 - A full xterm.js terminal with UTF-8, color, WebGL rendering, and automatic fitting.
 - Multiple session tabs. Closing a tab disconnects every session it owns.
 - Right-side splitting, adjustable ratios, and an explicit close action for either pane. Closed panes never remain as hidden connections.
+- SSH failures preserve the original stage, code, and detail. Operators can select the text directly or copy the complete error with one action.
 - Switch the active SSH workspace between terminal and SFTP views.
 - Local shells and SSH sessions share the same tab and split workflow.
 
@@ -54,11 +55,13 @@ task input -> model decision -> tool call -> result -> continue -> final answer
 - Persistent tasks, ordered events, approvals, tool audit records, background jobs, cancellation, and crash recovery.
 - A tool-centric timeline shows model decisions, tool names, parameter summaries, stdout, stderr, results, and status.
 - Task input supports `Shift+Enter` newlines and IME protection; a top handle expands the composer up to half the Agent panel height.
+- A visible New Conversation action clears the current trace without deleting history, and the history surface uses a distinct bordered, elevated panel.
 - Built-in tools cover session metadata, terminal context, terminal input, structured SSH execution, host facts, directories, and files; inactive saved servers can be discovered and connected automatically, while the built-in Multi-SSH Coordinator provides serial coordination across explicit targets.
 - Structured execution records stdout/stderr separately with exit code, signal, timeout, cancellation, and disconnect outcomes.
 - Long operations can become background jobs with status, paged output, and cancellation tools.
 - Diagnostic runbooks, context compaction, loop detection, and pre-persistence secret redaction are built in.
 - Terminal context is an unbounded-by-line transcript reader: the Agent follows `offset`, `nextOffset`, and `eof` ranges until a complete `cat`, log, or command output has been read. Long remote stdout/stderr stays in artifacts and remains page-readable.
+- For interactive product CLIs, the frontend synchronizes the visible xterm screen, cursor line, and text before the cursor. `terminal_send` accepts the intended complete command and sends only its missing suffix; conflicting visible input stops the write instead of duplicating text.
 - AI profiles persist as versioned JSON. A profile can define primary, analysis, and fallback models; when enabled, failed model requests fail over in role order and the Agent timeline records the selected model.
 
 ### Permissions and Safety
@@ -74,7 +77,7 @@ Hard-deny commands, production/root escalation, output limits, audit records, an
 ### Skills, MCP, and Hooks
 
 - Discover local `SKILL.md` files, record metadata and content hashes, and load enabled Skills on demand.
-- Configure and test stdio and streamable-http MCP servers, list their tools, and let the Agent call them through the same policy gate.
+- Configure and test stdio and streamable-http MCP servers. Successful tests expose complete tool names, descriptions, transports, and input schemas with a copy action.
 - Large MCP catalogs use search plus explicit invocation to protect model context.
 - Bounded deterministic lifecycle Hooks are supported and cannot lower core permissions.
 
@@ -99,7 +102,7 @@ See the [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-inst
 
 - Persistent light, eye-care, and dark themes also update the terminal canvas.
 - The terminal offers three command-color templates—Graphite Gold (stable contrast), Forest Amber (low blue light), and Midnight Contrast (strong separation). Typed commands use the accent color while command output keeps the body color.
-- Four persistent UI scale levels are available, with an independent `12-22px` terminal font size for SSH and local shells; changes apply immediately.
+- Seven persistent UI scale levels from 90% through 200% are available, with an independent `12-22px` terminal font size for SSH and local shells; changes apply immediately.
 - AI profiles support `Bearer Token` (`Authorization: Bearer sk-...`) and raw `API Key` (`Authorization: sk-...`) header modes.
 - AI and Agent HTTPS traffic uses Rustls with native operating-system roots, including enterprise, intranet, and security-proxy CAs installed in the system trust store.
 - Failed connection tests and Agent runs first show the failing stage and stable error code; opening details reveals the raw HTTP status, endpoint, response body, transport error, stderr, exit code, timeout, and call stack. Only secrets are redacted and diagnostics are bounded; provider responses are not replaced with guesses.
@@ -182,4 +185,4 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 
 ## Current Boundaries
 
-Version `0.9.5` builds on `0.9.4` with structured SSH connection diagnostics, a non-active SSH session catalog, explicit target routing for Agent tools, and synchronized documentation and tests. The dsh-codex-agent, Skill/MCP, and multi-model boundaries remain compatible.
+Version `0.9.8` adds visible xterm input synchronization and safe Agent CLI suffix completion, plus copyable SSH errors, detailed MCP tool inspection, 200% UI scaling, a visible new-conversation action, and a distinct task-history surface. The dsh-codex-agent, Skill/MCP, and multi-model boundaries remain compatible.

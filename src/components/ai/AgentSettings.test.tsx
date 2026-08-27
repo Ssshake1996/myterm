@@ -66,8 +66,14 @@ describe("AgentSettings", () => {
       {
         serverId: "server",
         serverName: "filesystem",
+        transport: "stdio",
         name: "mcp__filesystem__list",
         description: "List files",
+        inputSchema: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+        },
       },
     ]);
     const user = userEvent.setup();
@@ -86,6 +92,10 @@ describe("AgentSettings", () => {
       ),
     );
     expect(await screen.findByText(/发现 1 个工具/u)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "查看详情" }));
+    expect(screen.getByText("mcp__filesystem__list")).toBeInTheDocument();
+    expect(screen.getByText("List files")).toBeInTheDocument();
+    expect(screen.getByText(/required/u)).toBeInTheDocument();
   });
 
   it("tests an unsaved streamable-http MCP draft with headers", async () => {
@@ -93,8 +103,10 @@ describe("AgentSettings", () => {
       {
         serverId: "http-server",
         serverName: "ops-http",
+        transport: "streamable_http",
         name: "mcp__ops_http__list_hosts",
         description: "List hosts",
+        inputSchema: { type: "object", properties: {} },
       },
     ]);
     const user = userEvent.setup();

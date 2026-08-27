@@ -17,7 +17,8 @@ use crate::{
     types::{
         AgentEvent, AgentPluginInfo, AgentRunResult, AgentSettings, AiMessage, AiProfile,
         AppFontScale, AppTheme, McpServerConfig, McpToolInfo, QuickCommand, RemoteEntry,
-        SessionInfo, SessionProfile, SkillInfo, TerminalPalette, TransferId,
+        SessionInfo, SessionProfile, SkillInfo, TerminalPalette, TerminalScreenSnapshot,
+        TransferId,
     },
     AppError, AppState, IpcError,
 };
@@ -142,6 +143,18 @@ pub async fn terminal_resize(
         .sessions
         .resize(&session_id, cols, rows)
         .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn terminal_screen_update(
+    state: State<'_, AppState>,
+    session_id: String,
+    snapshot: TerminalScreenSnapshot,
+) -> Result<(), IpcError> {
+    state
+        .sessions
+        .update_screen(&session_id, snapshot)
         .map_err(Into::into)
 }
 

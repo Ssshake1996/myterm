@@ -28,13 +28,103 @@ use crate::{
     types::{
         AgentEvent, AgentRunResult, AgentSettings, AiProfile, SessionCatalogEntry,
         SessionCatalogTarget, SessionEnvironment, SessionProfile, SessionState, SessionTarget,
-        AGENT_EVENT_SCHEMA_VERSION,
+        TerminalScreenSnapshot, AGENT_EVENT_SCHEMA_VERSION,
     },
     AppError,
 };
 
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_ARTIFACT_BYTES: u64 = 50 * 1024 * 1024;
+
+#[derive(Debug)]
+struct TerminalSendPlan {
+    payload: String,
+    observed_cursor_line: Option<String>,
+    matched_prefix: String,
+    mode: &'static str,
+}
+
+fn terminal_send_plan(
+    command: &str,
+    newline: bool,
+    input_mode: &str,
+    screen: Option<&TerminalScreenSnapshot>,
+) -> Result<TerminalSendPlan, AppError> {
+    let normalized = command.replace("\r\n", "\n").replace('\r', "\n");
+    let observed = screen.map(|value| value.cursor_line_before_cursor.as_str());
+    let (remaining, matched_prefix, mode) = match input_mode {
+        "raw" => (normalized.as_str(), String::new(), "raw"),
+        "complete_line" => match observed {
+            None => (
+                normalized.as_str(),
+                String::new(),
+                "complete_line_no_screen",
+            ),
+            Some(cursor_line) => {
+                let desired_first_line = normalized.split('\n').next().unwrap_or_default();
+                let editable_input = if desired_first_line.starts_with(cursor_line) {
+                    cursor_line
+                } else {
+                    terminal_editable_input(cursor_line).unwrap_or(cursor_line)
+                };
+                if desired_first_line.starts_with(editable_input) {
+                    let matched_bytes = editable_input.len();
+                    (
+                        &normalized[matched_bytes..],
+                        desired_first_line[..matched_bytes].to_owned(),
+                        "complete_line",
+                    )
+                } else {
+                    return Err(AppError::InvalidInput(format!(
+                        "terminal input does not match the requested complete command; no text was sent\ncurrent cursor line: {cursor_line}\nrequested command: {command}"
+                    )));
+                }
+            }
+        },
+        other => {
+            return Err(AppError::InvalidInput(format!(
+                "terminal_send input_mode must be 'complete_line' or 'raw', got '{other}'"
+            )))
+        }
+    };
+    let mut payload = remaining.replace('\n', "\r");
+    if newline && !payload.ends_with('\r') {
+        payload.push('\r');
+    }
+    Ok(TerminalSendPlan {
+        payload,
+        observed_cursor_line: observed.map(str::to_owned),
+        matched_prefix,
+        mode,
+    })
+}
+
+fn terminal_editable_input(cursor_line: &str) -> Option<&str> {
+    let prompt_end = if cursor_line.starts_with('[') {
+        let bracket_end = cursor_line.find(']')? + 1;
+        cursor_line[bracket_end..]
+            .chars()
+            .next()
+            .filter(|character| matches!(character, '#' | '$' | '>'))
+            .map_or(bracket_end, |character| bracket_end + character.len_utf8())
+    } else {
+        let (marker, character) = cursor_line
+            .char_indices()
+            .find(|(_, character)| matches!(character, '#' | '$' | '>'))?;
+        let mut end = marker + character.len_utf8();
+        if character == '>' {
+            for trailing in cursor_line[end..].chars() {
+                if trailing != '>' {
+                    break;
+                }
+                end += trailing.len_utf8();
+            }
+        }
+        end
+    };
+    let editable = &cursor_line[prompt_end..];
+    Some(editable.strip_prefix(' ').unwrap_or(editable))
+}
 
 pub trait AgentEventSink: Send + Sync {
     fn send(&self, event: AgentEvent) -> Result<(), AppError>;
@@ -520,6 +610,7 @@ impl AgentService {
                     .unwrap_or(8 * 1024)
                     .clamp(1, 8 * 1024) as usize;
                 let range = self.sessions.buffer_range(session_id, offset, limit)?;
+                let screen = self.sessions.screen_snapshot(session_id)?;
                 Ok(serde_json::to_string(&json!({
                     "offset": range.offset,
                     "nextOffset": range.next_offset,
@@ -528,6 +619,7 @@ impl AgentService {
                     "eof": range.eof,
                     "content": range.content,
                     "readMore": !range.eof,
+                    "screen": screen,
                 }))?)
             }
             "terminal_send" => {
@@ -537,15 +629,25 @@ impl AgentService {
                     .get("newline")
                     .and_then(Value::as_bool)
                     .unwrap_or(true);
-                let payload = if newline {
-                    format!("{command}\r")
-                } else {
-                    command.to_owned()
-                };
-                self.sessions.write(session_id, payload.as_bytes()).await?;
+                let input_mode = arguments
+                    .get("input_mode")
+                    .and_then(Value::as_str)
+                    .unwrap_or("complete_line");
+                let screen = self.sessions.screen_snapshot(session_id)?;
+                let plan = terminal_send_plan(command, newline, input_mode, screen.as_ref())?;
+                if !plan.payload.is_empty() {
+                    self.sessions
+                        .write(session_id, plan.payload.as_bytes())
+                        .await?;
+                }
                 tokio::time::sleep(Duration::from_millis(700)).await;
                 let range = self.sessions.buffer_range(session_id, 0, 8 * 1024)?;
                 Ok(serde_json::to_string(&json!({
+                    "mode": plan.mode,
+                    "requestedCommand": command,
+                    "observedCursorLine": plan.observed_cursor_line,
+                    "matchedPrefix": plan.matched_prefix,
+                    "sentText": plan.payload,
                     "offset": range.offset,
                     "nextOffset": range.next_offset,
                     "totalBytes": range.total_bytes,
@@ -1276,7 +1378,7 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
         ),
         function_tool(
             "terminal_context",
-            "Read the selected terminal transcript in byte ranges (active session by default). The transcript is not limited to a fixed line count; use nextOffset until eof is true.",
+            "Read the selected terminal transcript in byte ranges and the latest visible xterm screen/cursor line (active session by default). The transcript is not limited to a fixed line count; use nextOffset until eof is true. Read this immediately before terminal_send when the terminal may already contain partially typed CLI input.",
             json!({
                 "type": "object",
                 "properties": {
@@ -1289,12 +1391,13 @@ pub(crate) fn tool_definitions(mcp_tools: &[mcp::McpToolDefinition]) -> Vec<Valu
         ),
         function_tool(
             "terminal_send",
-            "Send text to the selected terminal (active session by default). Returns a transcript range with offsets so more output can be read on demand.",
+            "Send a desired complete command line to the selected terminal (active session by default). In complete_line mode the host compares the latest xterm cursor line and sends only the missing suffix, preventing duplicated CLI input. Use raw only for interactive keys, confirmations, or pager control. Returns the exact observed line, matched prefix, sent text, and transcript range.",
             json!({
                 "type": "object",
                 "properties": {
                     "command": { "type": "string" },
                     "newline": { "type": "boolean", "default": true },
+                    "input_mode": { "type": "string", "enum": ["complete_line", "raw"], "default": "complete_line" },
                     "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" }
                 },
                 "required": ["command"],
@@ -1885,9 +1988,11 @@ fn redact_text(value: &str, secrets: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{plugin_id_for_tool, redact_event, selected_session_id, tool_definitions};
+    use super::{
+        plugin_id_for_tool, redact_event, selected_session_id, terminal_send_plan, tool_definitions,
+    };
     use crate::agent::builtin;
-    use crate::types::AgentSettings;
+    use crate::types::{AgentSettings, TerminalScreenSnapshot};
     use serde_json::json;
 
     #[test]
@@ -1939,6 +2044,80 @@ mod tests {
             selected_session_id(&json!({ "session_id": "" }), Some("active")),
             Some("active")
         );
+    }
+
+    fn screen(cursor_line_before_cursor: &str) -> TerminalScreenSnapshot {
+        TerminalScreenSnapshot {
+            visible_text: cursor_line_before_cursor.to_owned(),
+            cursor_line: cursor_line_before_cursor.to_owned(),
+            cursor_line_before_cursor: cursor_line_before_cursor.to_owned(),
+            cursor_column: cursor_line_before_cursor.len() as u16,
+            updated_at_ms: 1,
+        }
+    }
+
+    #[test]
+    fn terminal_send_completes_only_the_missing_cli_suffix() {
+        let snapshot = screen("switch>show system");
+        let plan = terminal_send_plan(
+            "show system general",
+            true,
+            "complete_line",
+            Some(&snapshot),
+        )
+        .expect("terminal send plan");
+        assert_eq!(plan.matched_prefix, "show system");
+        assert_eq!(plan.payload, " general\r");
+    }
+
+    #[test]
+    fn terminal_send_submits_an_already_complete_cli_line_without_duplication() {
+        let snapshot = screen("switch>show system general");
+        let plan = terminal_send_plan(
+            "show system general",
+            true,
+            "complete_line",
+            Some(&snapshot),
+        )
+        .expect("terminal send plan");
+        assert_eq!(plan.matched_prefix, "show system general");
+        assert_eq!(plan.payload, "\r");
+    }
+
+    #[test]
+    fn terminal_send_rejects_conflicting_visible_input() {
+        let snapshot = screen("switch>show interface status");
+        let error = terminal_send_plan(
+            "show system general",
+            true,
+            "complete_line",
+            Some(&snapshot),
+        )
+        .expect_err("conflicting input must stop the send");
+        assert!(error.detail().contains("no text was sent"));
+        assert!(error.detail().contains("show interface status"));
+    }
+
+    #[test]
+    fn terminal_send_does_not_treat_an_accidental_suffix_as_typed_input() {
+        let snapshot = screen("switch>show users");
+        let error = terminal_send_plan(
+            "show system general",
+            true,
+            "complete_line",
+            Some(&snapshot),
+        )
+        .expect_err("a one-character suffix must not be used as a command prefix");
+        assert!(error.detail().contains("no text was sent"));
+    }
+
+    #[test]
+    fn terminal_send_preserves_special_characters_when_no_prompt_is_visible() {
+        let snapshot = screen("echo $PA");
+        let plan = terminal_send_plan("echo $PATH", true, "complete_line", Some(&snapshot))
+            .expect("no-prompt input should be compared before prompt parsing");
+        assert_eq!(plan.matched_prefix, "echo $PA");
+        assert_eq!(plan.payload, "TH\r");
     }
 
     #[test]

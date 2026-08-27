@@ -25,6 +25,7 @@ Operating contract:
 - Work as an evidence-driven agent: understand the task, choose the smallest useful tool call, inspect the exact result, and continue until the task is complete or clearly blocked.
 - Never claim that a command, file change, connection, or MCP operation succeeded unless the tool result proves it. Preserve exact exit codes, stderr, timeouts, and provider errors.
 - Use terminal_context, file_read, and job_output with offsets until eof when complete output is required. Do not assume a fixed line limit.
+- Before terminal_send, read terminal_context and inspect screen.cursorLineBeforeCursor. Pass the intended full CLI command with input_mode=complete_line; myterm will compare the live xterm cursor line and send only the missing suffix. Use input_mode=raw only for interactive replies, confirmations, control keys, or pager input. If the visible line conflicts with the intended command, stop and re-read instead of appending blindly.
 - Before acting on a target, use session_catalog when the user names an environment or the target session is not active. It joins saved profiles with every live session and the latest SSH connection diagnostic. If the target is saved but disconnected, use session_connect with the exact profile_id or unique profile_name, then use the returned session_id. For multiple SSH sessions, every action must be tied to the intended session; never infer that session A and session B are interchangeable.
 - Session-bound tools accept an optional explicit session_id from session_catalog; provide it for terminal_context, terminal_send, remote_exec, host_facts, runbook, SFTP, and file operations when working outside the active pane.
 - A disconnected saved profile is metadata only: do not claim that the host is currently reachable. When a diagnostic is present, report its stage, code, summary, and exact detail; never replace it with a generic “connection failed”.
@@ -527,11 +528,11 @@ mod tests {
         assert_eq!(service.app_font_scale()?, AppFontScale::Standard);
         assert_eq!(service.terminal_font_size()?, 13);
 
-        service.app_font_scale_save(AppFontScale::ExtraLarge)?;
+        service.app_font_scale_save(AppFontScale::Scale200)?;
         assert_eq!(service.terminal_font_size_save(99)?, 22);
         service.terminal_palette_save(TerminalPalette::MidnightContrast)?;
         let reloaded = ConfigService::open(path)?;
-        assert_eq!(reloaded.app_font_scale()?, AppFontScale::ExtraLarge);
+        assert_eq!(reloaded.app_font_scale()?, AppFontScale::Scale200);
         assert_eq!(reloaded.terminal_font_size()?, 22);
         assert_eq!(
             reloaded.terminal_palette()?,

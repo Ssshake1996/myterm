@@ -15,7 +15,9 @@ import {
   sessionDisconnect,
   type TerminalInputEventDetail,
   type TerminalPalette,
+  type TerminalScreenSnapshot,
   terminalResize,
+  terminalScreenUpdate,
   terminalWrite,
 } from "../../ipc";
 import type { PaneModel } from "../../store/layout";
@@ -313,12 +315,32 @@ interface TerminalContextMenu {
   hasSelection: boolean;
 }
 
+function terminalScreenSnapshot(terminal: Terminal): TerminalScreenSnapshot {
+  const buffer = terminal.buffer.active;
+  const cursorLineIndex = buffer.baseY + buffer.cursorY;
+  const cursorLine = buffer.getLine(cursorLineIndex);
+  const visibleLines: string[] = [];
+  for (let index = buffer.viewportY; index < buffer.viewportY + terminal.rows; index += 1) {
+    const line = buffer.getLine(index);
+    visibleLines.push(line?.translateToString(true) ?? "");
+  }
+  return {
+    visibleText: visibleLines.join("\n"),
+    cursorLine: cursorLine?.translateToString(true) ?? "",
+    cursorLineBeforeCursor:
+      cursorLine?.translateToString(false, 0, Math.min(buffer.cursorX, terminal.cols)) ?? "",
+    cursorColumn: buffer.cursorX,
+    updatedAtMs: Date.now(),
+  };
+}
+
 export function TerminalView({ pane, profile }: TerminalViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const searchRef = useRef<SearchAddon | null>(null);
   const sessionRef = useRef<string | null>(pane.sessionId);
+  const screenSyncTimerRef = useRef<number | null>(null);
   const bindSession = useLayoutStore((state) => state.bindSession);
   const failConnection = useLayoutStore((state) => state.failConnection);
   const notify = useUiStore((state) => state.notify);
@@ -344,6 +366,23 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
   const [searchValue, setSearchValue] = useState("");
   const [contextMenu, setContextMenu] = useState<TerminalContextMenu | null>(null);
 
+  const syncTerminalScreen = useCallback(() => {
+    const terminal = terminalRef.current;
+    const sessionId = sessionRef.current;
+    if (!terminal || !sessionId) return;
+    void terminalScreenUpdate(sessionId, terminalScreenSnapshot(terminal)).catch(() => undefined);
+  }, []);
+
+  const scheduleTerminalScreenSync = useCallback(() => {
+    if (screenSyncTimerRef.current !== null) {
+      window.clearTimeout(screenSyncTimerRef.current);
+    }
+    screenSyncTimerRef.current = window.setTimeout(() => {
+      screenSyncTimerRef.current = null;
+      syncTerminalScreen();
+    }, 40);
+  }, [syncTerminalScreen]);
+
   const connect = useCallback(async () => {
     const terminal = terminalRef.current;
     const fit = fitRef.current;
@@ -359,6 +398,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
     channel.onmessage = (buffer) => {
       const bytes = new Uint8Array(buffer);
       writeTerminalChunk(terminal, bytes, renderStateRef.current);
+      scheduleTerminalScreenSync();
       const sessionId = sessionRef.current;
       if (sessionId) {
         publishTerminalOutput({
@@ -378,12 +418,13 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       }
       sessionRef.current = session.session_id;
       bindSession(pane.id, session);
+      scheduleTerminalScreenSync();
     } catch (error) {
       const message = formatIpcError(error, "会话连接失败：未返回可读的错误信息");
       notify(message, "error");
       failConnection(pane.id, message);
     }
-  }, [bindSession, failConnection, notify, pane.id, profile.id]);
+  }, [bindSession, failConnection, notify, pane.id, profile.id, scheduleTerminalScreenSync]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -425,6 +466,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       const sessionId = sessionRef.current;
       if (sessionId)
         void terminalWrite(sessionId, data).catch(() => notify("终端写入失败", "error"));
+      scheduleTerminalScreenSync();
     });
     const handleTerminalInput = (event: Event) => {
       const detail = (event as CustomEvent<TerminalInputEventDetail>).detail;
@@ -436,6 +478,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
         renderStateRef.current,
         detail.dataUtf8,
       );
+      scheduleTerminalScreenSync();
     };
     window.addEventListener("myterm:terminal-input", handleTerminalInput);
     const closeContextMenu = (event: Event) => {
@@ -472,6 +515,10 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
     void connect();
 
     return () => {
+      if (screenSyncTimerRef.current !== null) {
+        window.clearTimeout(screenSyncTimerRef.current);
+        screenSyncTimerRef.current = null;
+      }
       observer.disconnect();
       window.removeEventListener("myterm:terminal-input", handleTerminalInput);
       window.removeEventListener("pointerdown", closeContextMenu);
@@ -480,7 +527,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       terminal.dispose();
       terminalRef.current = null;
     };
-  }, [connect, notify]);
+  }, [connect, notify, scheduleTerminalScreenSync]);
 
   useEffect(() => {
     if (terminalRef.current)
@@ -601,11 +648,33 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
           )
         : null}
       {disconnected ? (
-        <button className="disconnect-overlay" onClick={() => void connect()} type="button">
+        <div
+          aria-live="assertive"
+          className="disconnect-overlay"
+          role={pane.state === "failed" ? "alert" : "status"}
+        >
           <span className="disconnect-icon">↻</span>
           <strong>{pane.state === "failed" ? "连接失败" : "会话已断开"}</strong>
-          <small>{pane.error ?? "点击重新连接"}</small>
-        </button>
+          <pre>{pane.error ?? "会话已断开，可以重新连接。"}</pre>
+          <div className="disconnect-actions">
+            <button className="button button-primary" onClick={() => void connect()} type="button">
+              重新连接
+            </button>
+            {pane.error ? (
+              <button
+                className="button button-secondary"
+                onClick={() =>
+                  void copyTextToClipboard(pane.error ?? "")
+                    .then(() => notify("连接错误已复制", "success"))
+                    .catch(() => notify("复制连接错误失败", "error"))
+                }
+                type="button"
+              >
+                复制错误
+              </button>
+            ) : null}
+          </div>
+        </div>
       ) : null}
       {pane.state === "connecting" ? (
         <div className="terminal-connecting">

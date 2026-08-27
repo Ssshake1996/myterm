@@ -85,6 +85,21 @@ pub struct SessionDiagnostic {
     pub detail: String,
 }
 
+/// Lightweight xterm screen evidence synchronized by the visible terminal.
+///
+/// This is deliberately not another terminal emulator. It only records what
+/// xterm currently renders so Agent input can continue an already typed CLI
+/// line without resending the full command.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalScreenSnapshot {
+    pub visible_text: String,
+    pub cursor_line: String,
+    pub cursor_line_before_cursor: String,
+    pub cursor_column: u16,
+    pub updated_at_ms: i64,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionCatalogTarget {
@@ -196,6 +211,12 @@ pub enum AppFontScale {
     Standard,
     Large,
     ExtraLarge,
+    #[serde(rename = "scale_150")]
+    Scale150,
+    #[serde(rename = "scale_175")]
+    Scale175,
+    #[serde(rename = "scale_200")]
+    Scale200,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -449,8 +470,10 @@ pub struct SkillInfo {
 pub struct McpToolInfo {
     pub server_id: String,
     pub server_name: String,
+    pub transport: String,
     pub name: String,
     pub description: String,
+    pub input_schema: Value,
 }
 
 #[derive(Clone, Serialize)]

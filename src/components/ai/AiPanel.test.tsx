@@ -241,6 +241,39 @@ describe("AiPanel Agent trace", () => {
     expect(composer).toHaveStyle({ height: "111px" });
   });
 
+  it("starts a clearly separated new conversation from task history", async () => {
+    ipcMocks.agentTaskList.mockResolvedValue([
+      {
+        id: "saved-task-1",
+        prompt: "检查旧任务",
+        state: "succeeded",
+        sessionId: "session-active",
+        updatedAtMs: Date.now(),
+      },
+    ]);
+    ipcMocks.agentTaskEvents.mockResolvedValue([
+      {
+        schemaVersion: 2,
+        sequence: 1,
+        createdAtMs: Date.now(),
+        eventType: "assistant",
+        runId: "saved-task-1",
+        content: "旧任务结果",
+      },
+    ]);
+    const user = userEvent.setup();
+    render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
+
+    await user.click(await screen.findByTitle("任务历史"));
+    await user.click(screen.getByRole("button", { name: /检查旧任务/u }));
+    expect(await screen.findByText("旧任务结果")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "新建对话" }));
+    expect(screen.queryByText("旧任务结果")).not.toBeInTheDocument();
+    expect(screen.getByText("当前任务")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "输入 Agent 任务" })).toHaveFocus();
+  });
+
   it("renders the exact Agent failure detail and error code", async () => {
     const detail =
       'HTTP 502 Bad Gateway\nEndpoint: https://api.example.test/v1/chat/completions\nResponse body:\n{"error":"upstream reset"}';

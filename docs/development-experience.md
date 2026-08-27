@@ -177,6 +177,14 @@ The SSH diagnostics and non-active-session boundary was tightened after validati
 - `dsh-codex-agent` exposes `session_catalog` for saved profiles, live state, and the latest in-process connection failure. Session-bound tools accept an explicit `session_id`, so a model can inspect or operate on a non-active live SSH session after selecting it from the catalog.
 - The catalog intentionally omits vault references and credentials. A profile with no live session is metadata only; the Agent must not infer reachability from it. Last-failure evidence is process-scoped in this milestone and is cleared after a successful reconnect.
 
+The 0.9.8 interactive-terminal boundary deliberately uses the visible xterm instance as evidence instead of implementing a second terminal emulator in Rust:
+
+- The frontend periodically sends a bounded screen snapshot containing visible rows, the cursor line, text before the cursor, the cursor column, and an update timestamp. The session manager stores only the latest snapshot.
+- `terminal_send` treats `command` as the intended complete editable line. It removes the recognized prompt prefix, verifies that the visible input is an exact prefix of the desired line, and sends only the remainder. An incompatible line returns an exact error before any write.
+- `raw` remains explicit for confirmation prompts, pager control, and REPL input. Agent-created background SSH sessions have no competing human xterm input, so the no-screen path sends the complete command.
+- Advantage: device and product CLIs use the same displayed state the operator sees, with minimal memory and no parser drift. Tradeoff: this evidence exists only while a frontend xterm is attached; it is not a persistent terminal replay model.
+- The same release makes operational evidence easier to retrieve: SSH errors are selectable/copyable, MCP tests expose complete tool schemas, and the Agent provides a visible new-conversation control plus a visually separate history surface.
+
 ## 2. Reusable Delivery Workflow
 
 1. Read the product specification, architecture, build plan, common constraints, and the current milestone prompt before editing code.
@@ -416,6 +424,7 @@ Update this table with the exact outcome rather than an optimistic status.
 | 0.7.0 plugin kernel | Rust plugin/runtime/protocol tests, frontend Agent settings tests, typecheck, lint, and release build | Pass; the default desktop profile mounts built-in tools, Skills, MCP, Hooks, and model metadata; explicit plugin selection is scoped; plugin ids reach Agent events; JSONL protocol validation rejects malformed and unsupported messages |
 | 0.7.1 raw Agent diagnostics | Rust AI/AppError tests, frontend settings/Agent trace tests, typecheck, lint | Pass; HTTP status/endpoint/body, multiline redacted detail, MCP process errors, error codes, and complete-event failures remain visible without generic replacement; 45 Rust library tests and 41 frontend tests pass |
 | 0.7.0 release and upgrade | `npm run build:release`, `npm run check:dist`, then silently install over 0.6.8 | Pass; installer is 7.68 MB, portable ZIP is 8.46 MB, installed EXE/registry report 0.7.0, one uninstall entry and `uninstall.exe` remain, configuration SHA-256 is unchanged, the desktop shortcut targets the new executable, and the installed process responds |
+| 0.9.8 terminal/Agent usability release | 54 frontend tests, Biome, Vite production build, `cargo fmt --check`, single-thread `cargo check`, distribution audit, and 35-second runtime sampling | Pass; xterm snapshots drive suffix-only CLI completion, conflicts write nothing, SSH errors copy exactly, MCP schemas expand, new conversations preserve history, 200% UI zoom is persisted, and the release gate reports no sustained memory or handle growth |
 | GitHub publication | Push `main` to `Ssshake1996/myterm` | Pass; target `main` created with normal push |
 
 The browser screenshots and console logs are generated under ignored `output/playwright/` paths. They are verification artifacts rather than shipped product files.
