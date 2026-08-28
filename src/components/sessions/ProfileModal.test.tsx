@@ -102,4 +102,18 @@ describe("ProfileModal", () => {
     );
     expect(screen.getByRole("option", { name: "wsl.exe" })).toBeInTheDocument();
   });
+
+  it("rejects environment group names that cannot be used as Windows filenames", async () => {
+    const user = userEvent.setup();
+    render(<ProfileModal onClose={vi.fn()} onSaved={vi.fn()} profile={null} />);
+
+    const group = screen.getByRole("textbox", { name: /分组/ });
+    await user.clear(group);
+    await user.type(group, "prod/db");
+
+    expect(screen.getByRole("alert")).toHaveTextContent("包含非法字符：/");
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "保存并连接" })).toBeDisabled();
+    expect(profileSave).not.toHaveBeenCalled();
+  });
 });

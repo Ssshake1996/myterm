@@ -3,7 +3,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ITheme, Terminal } from "@xterm/xterm";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   type AppTheme,
@@ -315,6 +315,14 @@ interface TerminalContextMenu {
   hasSelection: boolean;
 }
 
+interface HorizontalScrollState {
+  max: number;
+  value: number;
+  thumbWidth: number;
+}
+
+const NO_WRAP_TERMINAL_COLUMNS = 320;
+
 function setTerminalWrapMode(terminal: Terminal, enabled: boolean): void {
   // xterm.js follows the terminal's DECAWM mode. Sending the mode sequence to
   // the local parser changes rendering only; it never reaches the SSH peer.
@@ -341,6 +349,7 @@ function terminalScreenSnapshot(terminal: Terminal): TerminalScreenSnapshot {
 }
 
 export function TerminalView({ pane, profile }: TerminalViewProps) {
+  const scrollShellRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -376,8 +385,29 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
   const [searchValue, setSearchValue] = useState("");
   const [contextMenu, setContextMenu] = useState<TerminalContextMenu | null>(null);
   const [autoWrap, setAutoWrap] = useState(true);
+  const [horizontalScroll, setHorizontalScroll] = useState<HorizontalScrollState>({
+    max: 0,
+    value: 0,
+    thumbWidth: 44,
+  });
   const [showBottomJump, setShowBottomJump] = useState(false);
   autoWrapRef.current = autoWrap;
+
+  const updateHorizontalScrollState = useCallback(() => {
+    const shell = scrollShellRef.current;
+    if (!shell) return;
+    const max = Math.max(0, shell.scrollWidth - shell.clientWidth);
+    const thumbWidth =
+      shell.scrollWidth > 0
+        ? Math.max(44, Math.round((shell.clientWidth * shell.clientWidth) / shell.scrollWidth))
+        : 44;
+    const value = Math.min(shell.scrollLeft, max);
+    setHorizontalScroll((current) =>
+      current.max === max && current.value === value && current.thumbWidth === thumbWidth
+        ? current
+        : { max, value, thumbWidth },
+    );
+  }, []);
 
   const syncTerminalScreen = useCallback(() => {
     const terminal = terminalRef.current;
@@ -411,6 +441,34 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
     terminal.scrollToBottom();
     scheduleTerminalScreenSync();
   }, [scheduleTerminalScreenSync]);
+
+  const applyTerminalLayout = useCallback(
+    (wrapEnabled: boolean) => {
+      const shell = scrollShellRef.current;
+      const host = hostRef.current;
+      const terminal = terminalRef.current;
+      const fit = fitRef.current;
+      if (!shell || !host || !terminal || !fit) return;
+      const previousScrollLeft = shell.scrollLeft;
+      host.style.width = "100%";
+      host.style.height = "100%";
+      fit.fit();
+      if (!wrapEnabled && shell.clientWidth > 0 && terminal.cols > 0) {
+        const cellWidth = shell.clientWidth / terminal.cols;
+        const targetColumns = Math.max(NO_WRAP_TERMINAL_COLUMNS, terminal.cols);
+        host.style.width = `${Math.ceil(cellWidth * targetColumns)}px`;
+        fit.fit();
+        shell.scrollLeft = Math.min(previousScrollLeft, shell.scrollWidth - shell.clientWidth);
+      } else {
+        shell.scrollLeft = 0;
+      }
+      updateHorizontalScrollState();
+      setTerminalWrapMode(terminal, wrapEnabled);
+      const sessionId = sessionRef.current;
+      if (sessionId) void terminalResize(sessionId, terminal.cols, terminal.rows);
+    },
+    [updateHorizontalScrollState],
+  );
 
   const connect = useCallback(async () => {
     const terminal = terminalRef.current;
@@ -484,7 +542,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
     terminalRef.current = terminal;
     fitRef.current = fit;
     searchRef.current = search;
-    fit.fit();
+    applyTerminalLayout(autoWrapRef.current);
 
     const scroll = terminal.onScroll((position) => {
       updateTerminalScrollState(position, terminal);
@@ -558,11 +616,9 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       return true;
     });
     const observer = new ResizeObserver(() => {
-      fit.fit();
-      const sessionId = sessionRef.current;
-      if (sessionId) void terminalResize(sessionId, terminal.cols, terminal.rows);
+      applyTerminalLayout(autoWrapRef.current);
     });
-    observer.observe(host);
+    observer.observe(scrollShellRef.current ?? host);
     void connect();
 
     return () => {
@@ -580,7 +636,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       terminal.dispose();
       terminalRef.current = null;
     };
-  }, [connect, notify, scheduleTerminalScreenSync, updateTerminalScrollState]);
+  }, [applyTerminalLayout, connect, notify, scheduleTerminalScreenSync, updateTerminalScrollState]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -590,12 +646,9 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       wrapInitializedRef.current = true;
       return;
     }
-    setTerminalWrapMode(terminal, autoWrap);
-    fitRef.current?.fit();
-    const sessionId = sessionRef.current;
-    if (sessionId) void terminalResize(sessionId, terminal.cols, terminal.rows);
+    applyTerminalLayout(autoWrap);
     if (followBottomRef.current) terminal.scrollToBottom();
-  }, [autoWrap]);
+  }, [applyTerminalLayout, autoWrap]);
 
   useEffect(() => {
     if (terminalRef.current)
@@ -605,8 +658,8 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
   useEffect(() => {
     if (!terminalRef.current) return;
     terminalRef.current.options.fontSize = xtermFontSize;
-    fitRef.current?.fit();
-  }, [xtermFontSize]);
+    applyTerminalLayout(autoWrapRef.current);
+  }, [applyTerminalLayout, xtermFontSize]);
 
   const disconnected = pane.state === "disconnected" || pane.state === "failed";
 
@@ -638,24 +691,54 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
         </div>
       ) : null}
       <div
-        aria-label="终端会话"
-        className={`terminal-host ${autoWrap ? "terminal-wrap-enabled" : "terminal-wrap-disabled"}`}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          setContextMenu({
-            x: event.clientX,
-            y: event.clientY,
-            hasSelection: terminalRef.current?.hasSelection() ?? false,
-          });
-        }}
-        ref={hostRef}
-        role="application"
-      />
+        className={`terminal-scroll-shell ${autoWrap ? "terminal-wrap-enabled" : "terminal-wrap-disabled"}`}
+        onScroll={updateHorizontalScrollState}
+        ref={scrollShellRef}
+      >
+        <div
+          aria-label="终端会话"
+          className={`terminal-host ${autoWrap ? "terminal-wrap-enabled" : "terminal-wrap-disabled"}`}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setContextMenu({
+              x: event.clientX,
+              y: event.clientY,
+              hasSelection: terminalRef.current?.hasSelection() ?? false,
+            });
+          }}
+          ref={hostRef}
+          role="application"
+        />
+      </div>
+      {!autoWrap ? (
+        <input
+          aria-label="终端横向滚动条"
+          aria-valuetext={`${Math.round(horizontalScroll.value)} / ${Math.round(horizontalScroll.max)}`}
+          className="terminal-horizontal-scrollbar"
+          disabled={horizontalScroll.max <= 0}
+          max={Math.max(1, horizontalScroll.max)}
+          min={0}
+          onInput={(event) => {
+            const shell = scrollShellRef.current;
+            if (!shell) return;
+            shell.scrollLeft = Number(event.currentTarget.value);
+            updateHorizontalScrollState();
+          }}
+          step={1}
+          style={
+            {
+              "--terminal-horizontal-thumb-width": `${horizontalScroll.thumbWidth}px`,
+            } as CSSProperties
+          }
+          type="range"
+          value={Math.min(horizontalScroll.value, horizontalScroll.max)}
+        />
+      ) : null}
       {showBottomJump ? (
         <button
           aria-label="滚动到终端底部"
-          className="terminal-bottom-jump"
+          className={`terminal-bottom-jump ${autoWrap ? "" : "with-horizontal-scroll"}`}
           onClick={scrollTerminalToBottom}
           title="滚动到终端底部"
           type="button"

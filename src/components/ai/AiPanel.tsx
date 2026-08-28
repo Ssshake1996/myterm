@@ -1089,7 +1089,11 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
       </div>
       {aiSettingsOpen ? (
         <AiSettings
+          activeProfileId={profileId}
           onClose={() => setAiSettingsOpen(false)}
+          onDeleted={(deletedProfileId) => {
+            setProfiles((current) => current.filter((item) => item.id !== deletedProfileId));
+          }}
           onSaved={(profile) => {
             setProfiles((current) => {
               const exists = current.some((candidate) => candidate.id === profile.id);
@@ -1100,6 +1104,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             setProfileId(profile.id);
           }}
           profile={currentProfile}
+          profiles={profiles}
         />
       ) : null}
       {agentSettingsOpen ? (

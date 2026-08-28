@@ -9,6 +9,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::{
     types::{
@@ -39,7 +40,11 @@ Operating contract:
 - When a product-specific CLI command is uncertain, gather the required MCP evidence first, parse the returned structuredContent or textContent into the exact command and parameters, and include its evidence id in cli_execute.evidence_refs. Query independent facts together; do not split them into many short calls. If no reliable capability is available, say what is unknown instead of guessing.
 - In one model response, request all independent read-only tools needed for the current decision. Keep dependent actions sequential and never batch a later command whose arguments depend on an earlier result.
 - Reply in the user's language. Separate observed evidence, inference, proposed action, risk, and the final result."#;
-pub const CONFIG_SCHEMA_VERSION: u32 = 2;
+pub const CONFIG_SCHEMA_VERSION: u32 = 3;
+const ENVIRONMENT_SCHEMA_VERSION: u32 = 1;
+const ENVIRONMENT_DIRECTORY_NAME: &str = "environments";
+const ENVIRONMENT_FILE_SUFFIX: &str = ".environments.json";
+const MAX_ENVIRONMENT_GROUP_CHARS: usize = 80;
 const THEME_SETTING_KEY: &str = "theme";
 const FONT_SCALE_SETTING_KEY: &str = "font_scale";
 const TERMINAL_FONT_SIZE_SETTING_KEY: &str = "terminal_font_size";
@@ -49,12 +54,36 @@ const REMOVED_REST_TOKEN_SETTING_KEY: &str = "rest_token_hash";
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub version: u32,
+    /// One-release compatibility field for v0.9.14 migration. Remove this
+    /// field and its migration path in v0.9.15.
+    #[serde(default, skip_serializing)]
     pub profiles: Vec<SessionProfile>,
     pub quick_commands: Vec<QuickCommand>,
     pub ai_profiles: Vec<AiProfile>,
     pub settings: BTreeMap<String, Value>,
     #[serde(default)]
     pub agent: AgentSettings,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct EnvironmentGroupFile {
+    version: u32,
+    group_name: String,
+    profiles: Vec<SessionProfile>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvironmentMigrationReport {
+    pub migrated_profiles: usize,
+    pub renamed_groups: Vec<EnvironmentGroupRename>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvironmentGroupRename {
+    pub from: String,
+    pub to: String,
 }
 
 impl Default for AppConfig {
@@ -91,23 +120,39 @@ impl Default for AppConfig {
 pub struct ConfigService {
     path: PathBuf,
     value: RwLock<AppConfig>,
+    profiles: RwLock<Vec<SessionProfile>>,
+    migration_report: RwLock<Option<EnvironmentMigrationReport>>,
 }
 
 impl ConfigService {
     pub fn open(path: PathBuf) -> Result<Self, AppError> {
         let legacy_agent_fields = legacy_agent_fields_present(&path);
         let mut value = load_config(&path)?;
+        let config_missing = !path.exists();
         let migrated = migrate_config(&mut value);
+        let environment_directory = environment_directory(&path)?;
+        let mut profiles = load_environment_profiles(&environment_directory)?;
+        let migration_report = migrate_legacy_profiles(&mut profiles, &mut value.profiles);
+        if migration_report.is_some() {
+            write_environment_files(&environment_directory, &profiles)?;
+        }
         let removed_legacy_rest = value
             .settings
             .remove(REMOVED_REST_TOKEN_SETTING_KEY)
             .is_some();
-        if migrated || removed_legacy_rest || legacy_agent_fields {
+        if config_missing
+            || migrated
+            || removed_legacy_rest
+            || legacy_agent_fields
+            || migration_report.is_some()
+        {
             write_atomic(&path, &value)?;
         }
         Ok(Self {
             path,
             value: RwLock::new(value),
+            profiles: RwLock::new(profiles),
+            migration_report: RwLock::new(migration_report),
         })
     }
 
@@ -116,21 +161,38 @@ impl ConfigService {
     }
 
     pub fn profile_list(&self) -> Result<Vec<SessionProfile>, AppError> {
-        Ok(self.read()?.profiles.clone())
+        Ok(self.read_profiles()?.clone())
     }
 
     pub fn profile_save(&self, profile: SessionProfile) -> Result<(), AppError> {
-        self.update(|config| upsert(&mut config.profiles, profile, |item| &item.id))
+        validate_environment_group_name(&profile.group)?;
+        let mut profiles = self.write_profiles()?;
+        let mut next = profiles.clone();
+        upsert(&mut next, profile, |item| &item.id);
+        write_environment_files(&environment_directory(&self.path)?, &next)?;
+        *profiles = next;
+        Ok(())
     }
 
     pub fn profile_delete(&self, id: &str) -> Result<Option<SessionProfile>, AppError> {
-        let mut deleted = None;
-        self.update(|config| {
-            if let Some(index) = config.profiles.iter().position(|profile| profile.id == id) {
-                deleted = Some(config.profiles.remove(index));
-            }
-        })?;
-        Ok(deleted)
+        let mut profiles = self.write_profiles()?;
+        let mut next = profiles.clone();
+        if let Some(index) = next.iter().position(|profile| profile.id == id) {
+            let deleted = next.remove(index);
+            write_environment_files(&environment_directory(&self.path)?, &next)?;
+            *profiles = next;
+            return Ok(Some(deleted));
+        }
+        Ok(None)
+    }
+
+    pub fn take_environment_migration_report(
+        &self,
+    ) -> Result<Option<EnvironmentMigrationReport>, AppError> {
+        self.migration_report
+            .write()
+            .map_err(|_| AppError::Config("environment migration lock is poisoned".to_owned()))
+            .map(|mut report| report.take())
     }
 
     pub fn quick_command_list(&self) -> Result<Vec<QuickCommand>, AppError> {
@@ -271,6 +333,22 @@ impl ConfigService {
             .map_err(|_| AppError::Config("configuration lock is poisoned".to_owned()))
     }
 
+    fn read_profiles(
+        &self,
+    ) -> Result<std::sync::RwLockReadGuard<'_, Vec<SessionProfile>>, AppError> {
+        self.profiles
+            .read()
+            .map_err(|_| AppError::Config("environment lock is poisoned".to_owned()))
+    }
+
+    fn write_profiles(
+        &self,
+    ) -> Result<std::sync::RwLockWriteGuard<'_, Vec<SessionProfile>>, AppError> {
+        self.profiles
+            .write()
+            .map_err(|_| AppError::Config("environment lock is poisoned".to_owned()))
+    }
+
     fn update(&self, mutate: impl FnOnce(&mut AppConfig)) -> Result<(), AppError> {
         let mut value = self
             .value
@@ -287,6 +365,251 @@ fn upsert<T>(items: &mut Vec<T>, value: T, id: impl Fn(&T) -> &String) {
     } else {
         items.push(value);
     }
+}
+
+fn environment_directory(config_path: &Path) -> Result<PathBuf, AppError> {
+    config_path
+        .parent()
+        .map(|parent| parent.join(ENVIRONMENT_DIRECTORY_NAME))
+        .ok_or_else(|| AppError::Config("configuration path has no parent directory".to_owned()))
+}
+
+pub fn validate_environment_group_name(name: &str) -> Result<(), AppError> {
+    if name.is_empty() {
+        return Err(AppError::InvalidInput("环境分组名称不能为空".to_owned()));
+    }
+    if name.trim() != name {
+        return Err(AppError::InvalidInput(
+            "环境分组名称不能以空白字符开头或结尾".to_owned(),
+        ));
+    }
+    if name.chars().count() > MAX_ENVIRONMENT_GROUP_CHARS {
+        return Err(AppError::InvalidInput(format!(
+            "环境分组名称不能超过 {MAX_ENVIRONMENT_GROUP_CHARS} 个字符"
+        )));
+    }
+    if let Some(character) = name
+        .chars()
+        .find(|character| character.is_control() || "<>:\"/\\|?*".contains(*character))
+    {
+        return Err(AppError::InvalidInput(format!(
+            "环境分组名称包含非法字符：{character}"
+        )));
+    }
+    if name.ends_with('.') {
+        return Err(AppError::InvalidInput(
+            "环境分组名称不能以句点结尾".to_owned(),
+        ));
+    }
+    if is_windows_reserved_name(name) {
+        return Err(AppError::InvalidInput(format!(
+            "环境分组名称不能使用 Windows 保留名称：{name}"
+        )));
+    }
+    Ok(())
+}
+
+fn sanitize_legacy_group_name(name: &str) -> String {
+    let mut sanitized = name
+        .trim()
+        .chars()
+        .map(|character| {
+            if character.is_control() || "<>:\"/\\|?*".contains(character) {
+                '_'
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    while sanitized.ends_with([' ', '.']) {
+        sanitized.pop();
+    }
+    if sanitized.is_empty() {
+        sanitized = "默认".to_owned();
+    }
+    if is_windows_reserved_name(&sanitized) {
+        sanitized.insert(0, '_');
+    }
+    sanitized = sanitized
+        .chars()
+        .take(MAX_ENVIRONMENT_GROUP_CHARS)
+        .collect();
+    while sanitized.ends_with([' ', '.']) {
+        sanitized.pop();
+    }
+    if sanitized.is_empty() {
+        sanitized = "默认".to_owned();
+    }
+    debug_assert!(validate_environment_group_name(&sanitized).is_ok());
+    sanitized
+}
+
+fn is_windows_reserved_name(name: &str) -> bool {
+    let reserved_base = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
+    matches!(reserved_base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || reserved_base.strip_prefix("COM").is_some_and(|suffix| {
+            matches!(suffix, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+        })
+        || reserved_base.strip_prefix("LPT").is_some_and(|suffix| {
+            matches!(suffix, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9")
+        })
+}
+
+fn group_collision_suffix(group: &str) -> String {
+    let digest = Sha256::digest(group.as_bytes());
+    digest[..4]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn group_name_key(group: &str) -> String {
+    group.to_lowercase()
+}
+
+fn migrate_legacy_profiles(
+    profiles: &mut Vec<SessionProfile>,
+    legacy_profiles: &mut Vec<SessionProfile>,
+) -> Option<EnvironmentMigrationReport> {
+    if legacy_profiles.is_empty() {
+        return None;
+    }
+    let mut existing_groups = profiles
+        .iter()
+        .map(|profile| (group_name_key(&profile.group), profile.group.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let original_groups = legacy_profiles
+        .iter()
+        .map(|profile| profile.group.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut group_names = BTreeMap::new();
+    let mut renamed_groups = Vec::new();
+    for original in original_groups {
+        let mut normalized = sanitize_legacy_group_name(&original);
+        let normalized_key = group_name_key(&normalized);
+        if let Some(existing) = existing_groups.get(&normalized_key) {
+            if validate_environment_group_name(&original).is_ok()
+                && group_name_key(&original) == normalized_key
+            {
+                normalized = existing.clone();
+            } else {
+                let suffix = format!("-{}", group_collision_suffix(&original));
+                let keep = MAX_ENVIRONMENT_GROUP_CHARS.saturating_sub(suffix.chars().count());
+                normalized = format!(
+                    "{}{}",
+                    normalized.chars().take(keep).collect::<String>(),
+                    suffix
+                );
+            }
+        }
+        existing_groups.insert(group_name_key(&normalized), normalized.clone());
+        if normalized != original {
+            renamed_groups.push(EnvironmentGroupRename {
+                from: original.clone(),
+                to: normalized.clone(),
+            });
+        }
+        group_names.insert(original, normalized);
+    }
+    let migrated_profiles = legacy_profiles.len();
+    for mut profile in legacy_profiles.drain(..) {
+        if let Some(group) = group_names.get(&profile.group) {
+            profile.group = group.clone();
+        }
+        upsert(profiles, profile, |item| &item.id);
+    }
+    Some(EnvironmentMigrationReport {
+        migrated_profiles,
+        renamed_groups,
+    })
+}
+
+fn load_environment_profiles(directory: &Path) -> Result<Vec<SessionProfile>, AppError> {
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut profiles = Vec::new();
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let file_name = entry.file_name().to_string_lossy().into_owned();
+        if !file_name.ends_with(ENVIRONMENT_FILE_SUFFIX) {
+            continue;
+        }
+        let group_file: EnvironmentGroupFile = serde_json::from_slice(&fs::read(entry.path())?)?;
+        validate_environment_group_name(&group_file.group_name)?;
+        let expected = format!("{}{}", group_file.group_name, ENVIRONMENT_FILE_SUFFIX);
+        if file_name != expected {
+            return Err(AppError::Config(format!(
+                "环境文件名与分组名称不一致：期望 '{expected}'，实际 '{file_name}'"
+            )));
+        }
+        for mut profile in group_file.profiles {
+            profile.group = group_file.group_name.clone();
+            upsert(&mut profiles, profile, |item| &item.id);
+        }
+    }
+    Ok(profiles)
+}
+
+fn write_environment_files(directory: &Path, profiles: &[SessionProfile]) -> Result<(), AppError> {
+    fs::create_dir_all(directory)?;
+    let mut groups = BTreeMap::<String, Vec<SessionProfile>>::new();
+    let mut group_names = BTreeMap::<String, String>::new();
+    for profile in profiles {
+        validate_environment_group_name(&profile.group)?;
+        let key = group_name_key(&profile.group);
+        if let Some(existing) = group_names.get(&key) {
+            if existing != &profile.group {
+                return Err(AppError::InvalidInput(format!(
+                    "环境分组名称在 Windows 中不区分大小写，'{}' 与已有分组 '{}' 冲突",
+                    profile.group, existing
+                )));
+            }
+        } else {
+            group_names.insert(key, profile.group.clone());
+        }
+        groups
+            .entry(profile.group.clone())
+            .or_default()
+            .push(profile.clone());
+    }
+    let desired_files = groups
+        .keys()
+        .map(|group| format!("{group}{ENVIRONMENT_FILE_SUFFIX}"))
+        .collect::<std::collections::BTreeSet<_>>();
+    for (group_name, group_profiles) in groups {
+        let path = directory.join(format!("{group_name}{ENVIRONMENT_FILE_SUFFIX}"));
+        let group_file = EnvironmentGroupFile {
+            version: ENVIRONMENT_SCHEMA_VERSION,
+            group_name,
+            profiles: group_profiles,
+        };
+        write_json_atomic(&path, &group_file)?;
+    }
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let file_name = entry.file_name().to_string_lossy().into_owned();
+        if file_name.ends_with(ENVIRONMENT_FILE_SUFFIX) && !desired_files.contains(&file_name) {
+            fs::remove_file(entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<(), AppError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let temporary = path.with_extension("json.tmp");
+    fs::write(&temporary, serde_json::to_vec_pretty(value)?)?;
+    atomic_replace(&temporary, path)?;
+    Ok(())
 }
 
 fn load_config(path: &Path) -> Result<AppConfig, AppError> {
@@ -352,14 +675,7 @@ fn normalize_ai_profile(profile: &mut AiProfile) -> bool {
 }
 
 fn write_atomic(path: &Path, value: &AppConfig) -> Result<(), AppError> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let temporary = path.with_extension("json.tmp");
-    let bytes = serde_json::to_vec_pretty(value)?;
-    fs::write(&temporary, bytes)?;
-    atomic_replace(&temporary, path)?;
-    Ok(())
+    write_json_atomic(path, value)
 }
 
 #[cfg(not(windows))]
@@ -437,7 +753,7 @@ pub fn default_config_path(portable: bool) -> Result<PathBuf, AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppConfig, ConfigService};
+    use super::{validate_environment_group_name, AppConfig, ConfigService};
     use crate::types::{
         AppFontScale, AppTheme, AuthMethod, SessionProfile, SessionTarget, TerminalPalette,
     };
@@ -475,6 +791,10 @@ mod tests {
         service.profile_save(profile("two"))?;
         assert_eq!(service.profile_list()?.len(), 2);
         assert!(!path.with_extension("json.tmp").exists());
+        let environment_path = root.join("environments").join("ops.environments.json");
+        assert!(environment_path.exists());
+        let config_json = serde_json::from_str::<Value>(&fs::read_to_string(&path)?)?;
+        assert!(config_json.get("profiles").is_none());
         let reloaded = ConfigService::open(path)?;
         assert_eq!(reloaded.profile_list()?.len(), 2);
         fs::remove_dir_all(root)?;
@@ -508,6 +828,102 @@ mod tests {
         let source = serde_json::to_string(&AppConfig::default())?;
         assert!(!source.contains("password"));
         assert!(!source.contains("api_key\""));
+        assert!(!source.contains("\"profiles\""));
+        Ok(())
+    }
+
+    #[test]
+    fn environment_group_names_are_validated_for_windows_files() {
+        assert!(validate_environment_group_name("生产环境").is_ok());
+        assert!(validate_environment_group_name("prod/db").is_err());
+        assert!(validate_environment_group_name("CON").is_err());
+        assert!(validate_environment_group_name("COM1.logs").is_err());
+        assert!(validate_environment_group_name("ops.").is_err());
+    }
+
+    #[test]
+    fn case_only_group_collisions_do_not_overwrite_environment_files(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let root = test_root();
+        let path = root.join("config.json");
+        let service = ConfigService::open(path)?;
+        let mut first = profile("one");
+        first.group = "Ops".to_owned();
+        service.profile_save(first)?;
+        let mut conflicting = profile("two");
+        conflicting.group = "ops".to_owned();
+
+        assert!(service.profile_save(conflicting).is_err());
+        assert_eq!(service.profile_list()?.len(), 1);
+        assert!(root
+            .join("environments")
+            .join("Ops.environments.json")
+            .exists());
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_profiles_migrate_to_normalized_group_files_once(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let root = test_root();
+        fs::create_dir_all(&root)?;
+        let path = root.join("config.json");
+        fs::write(
+            &path,
+            r#"{
+              "version": 2,
+              "profiles": [
+                {
+                  "id": "legacy-invalid",
+                  "name": "旧环境",
+                  "group": "生产/数据库",
+                  "environment": "production",
+                  "target": {
+                    "kind": "ssh",
+                    "host": "192.0.2.10",
+                    "port": 22,
+                    "username": "root",
+                    "auth": { "kind": "password", "vault_ref": "profile.legacy.password" }
+                  }
+                },
+                {
+                  "id": "legacy-reserved",
+                  "name": "保留名称",
+                  "group": "CON",
+                  "environment": "staging",
+                  "target": { "kind": "local", "shell": "powershell.exe" }
+                }
+              ],
+              "quick_commands": [],
+              "ai_profiles": [],
+              "settings": {},
+              "agent": {}
+            }"#,
+        )?;
+
+        let service = ConfigService::open(path.clone())?;
+        assert_eq!(service.profile_list()?.len(), 2);
+        let report = service
+            .take_environment_migration_report()?
+            .expect("legacy profiles should produce a migration report");
+        assert_eq!(report.migrated_profiles, 2);
+        assert!(root
+            .join("environments")
+            .join("生产_数据库.environments.json")
+            .exists());
+        assert!(root
+            .join("environments")
+            .join("_CON.environments.json")
+            .exists());
+        let config_json = serde_json::from_str::<Value>(&fs::read_to_string(&path)?)?;
+        assert!(config_json.get("profiles").is_none());
+
+        drop(service);
+        let reloaded = ConfigService::open(path)?;
+        assert_eq!(reloaded.profile_list()?.len(), 2);
+        assert!(reloaded.take_environment_migration_report()?.is_none());
+        fs::remove_dir_all(root)?;
         Ok(())
     }
 
@@ -605,7 +1021,7 @@ mod tests {
         assert_eq!(profile.models[0].model, "legacy-model");
         assert_eq!(
             serde_json::from_str::<Value>(&fs::read_to_string(&path)?)?["version"],
-            2
+            3
         );
         let raw = serde_json::from_str::<Value>(&fs::read_to_string(path)?)?;
         let agent = raw

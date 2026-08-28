@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { localShellList, profileSave, type SessionProfile } from "../../ipc";
 import { useUiStore } from "../../store/ui";
+import { environmentGroupError } from "../../utils/environment-group";
 import { Modal } from "../shell/Modal";
 
 interface ProfileModalProps {
@@ -55,10 +56,15 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
   }, []);
 
   const shellOptions = shells.includes(shell) || !shell ? shells : [shell, ...shells];
+  const groupError = environmentGroupError(group);
 
   const save = async (connect: boolean) => {
     if (!name.trim()) {
       notify("请输入会话名称", "error");
+      return;
+    }
+    if (groupError) {
+      notify(groupError, "error");
       return;
     }
     if (targetKind === "ssh" && (!host.trim() || !username.trim())) {
@@ -127,7 +133,7 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
           </button>
           <button
             className="button"
-            disabled={savingAction !== null}
+            disabled={savingAction !== null || groupError !== null}
             onClick={() => void save(false)}
             type="button"
           >
@@ -135,7 +141,7 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
           </button>
           <button
             className="button button-primary"
-            disabled={savingAction !== null}
+            disabled={savingAction !== null || groupError !== null}
             onClick={() => void save(true)}
             type="button"
           >
@@ -164,10 +170,20 @@ export function ProfileModal({ profile, onClose, onSaved }: ProfileModalProps) {
         <label className="field">
           <span>分组</span>
           <input
+            aria-label="分组"
+            aria-describedby={groupError ? "environment-group-error" : undefined}
+            aria-invalid={groupError ? "true" : undefined}
             autoComplete="off"
             onChange={(event) => setGroup(event.target.value)}
             value={group}
           />
+          {groupError ? (
+            <small className="field-error" id="environment-group-error" role="alert">
+              {groupError}
+            </small>
+          ) : (
+            <small>保存为 environments/&lt;分组名&gt;.environments.json。</small>
+          )}
         </label>
         <label className="field">
           <span>环境</span>

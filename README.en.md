@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.9.13`
+Current version: `0.9.14`
 
 ## Core Features
 
@@ -12,6 +12,7 @@ Current version: `0.9.13`
 
 - Create, edit, and delete SSH and local-terminal profiles.
 - Save names, groups, environments, hosts, ports, usernames, authentication modes, and terminal types.
+- Persist server environments as one `environments/<group>.environments.json` file per group instead of embedding them in `config.json`; both frontend and backend enforce Windows-safe group filenames.
 - Passwords, private-key passphrases, and AI API keys stay in the operating-system credential vault; configuration stores references only.
 - Click a saved server to connect. Persisted credentials support automatic login after restarting the app.
 - Search sessions, organize them as a tree, reorder tabs by drag, and inspect connection state.
@@ -20,6 +21,7 @@ Current version: `0.9.13`
 
 - A full xterm.js terminal with UTF-8, color, WebGL rendering, and automatic fitting.
 - Visible vertical scrollbars in SSH and local terminals make long logs and command output easier to navigate.
+- Toggle automatic wrapping from the terminal context menu. When wrapping is off, myterm renders its own explicit horizontal scrollbar instead of relying on Windows WebView's auto-hidden native scrollbar.
 - Multiple session tabs. Closing a tab disconnects every session it owns.
 - Right-side splitting, adjustable ratios, and an explicit close action for either pane. Closed panes never remain as hidden connections.
 - SSH failures preserve the original stage, code, and detail. Operators can select the text directly or copy the complete error with one action.
@@ -117,6 +119,8 @@ See the [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-inst
 - A compact 34px session strip and full-height sidebar work across desktop and narrow windows.
 - A help icon at the far right of the title strip opens the packaged offline user guide.
 - The AI settings editor converts the frontend form into the backend JSON schema; only `api_key_ref` is persisted while API keys remain in the OS credential vault.
+- AI settings separate Fetch Models from Test Model: the former shows the complete accessible model objects, while the latter sends a real inference request with an editable prompt and displays content, latency, endpoint, raw response, or exact diagnostics.
+- Saved AI service profiles can be reviewed and deleted in one place. The active profile must be switched first, and deleting a profile does not delete conversation history.
 
 ## Architecture
 

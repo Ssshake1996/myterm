@@ -150,6 +150,21 @@ export interface AiTestResult {
   error?: AiErrorDiagnostic;
 }
 
+export interface AiModelTestResult {
+  ok: boolean;
+  model?: string;
+  content?: string;
+  elapsedMs?: number;
+  rawResponse?: string;
+  endpoint?: string;
+  error?: AiErrorDiagnostic;
+}
+
+export interface EnvironmentMigrationReport {
+  migratedProfiles: number;
+  renamedGroups: Array<{ from: string; to: string }>;
+}
+
 export interface AiErrorDiagnostic {
   stage: string;
   code: string;
@@ -687,6 +702,11 @@ export async function aiConfigJson(): Promise<Record<string, unknown>> {
   return invoke<Record<string, unknown>>("ai_config_json");
 }
 
+export async function environmentMigrationReport(): Promise<EnvironmentMigrationReport | null> {
+  if (!isDesktopRuntime) return null;
+  return invoke<EnvironmentMigrationReport | null>("environment_migration_report");
+}
+
 export async function configOpenLocal(): Promise<string> {
   if (!isDesktopRuntime) return demoBackend.configOpenLocal();
   return invoke<string>("config_open_local");
@@ -705,6 +725,20 @@ export async function aiProfileDelete(profileId: string): Promise<void> {
 export async function aiTestConnection(profileId: string): Promise<AiTestResult> {
   if (!isDesktopRuntime) return demoBackend.aiTestConnection(profileId);
   return invoke<AiTestResult>("ai_test_connection", { profileId });
+}
+
+export async function aiFetchModels(profileId: string): Promise<AiTestResult> {
+  if (!isDesktopRuntime) return demoBackend.aiFetchModels(profileId);
+  return invoke<AiTestResult>("ai_fetch_models", { profileId });
+}
+
+export async function aiTestModel(
+  profileId: string,
+  model: string,
+  prompt: string,
+): Promise<AiModelTestResult> {
+  if (!isDesktopRuntime) return demoBackend.aiTestModel(profileId, model, prompt);
+  return invoke<AiModelTestResult>("ai_test_model", { profileId, model, prompt });
 }
 
 export async function aiChat(

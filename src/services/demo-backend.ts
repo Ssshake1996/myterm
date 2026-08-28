@@ -693,6 +693,10 @@ class DemoBackend {
   }
 
   async aiTestConnection(_profileId: string): Promise<AiTestResult> {
+    return this.aiFetchModels(_profileId);
+  }
+
+  async aiFetchModels(_profileId: string): Promise<AiTestResult> {
     await new Promise((resolve) => window.setTimeout(resolve, 650));
     const modelDetails = [
       { id: "deepseek-chat", object: "model", owned_by: "deepseek" },
@@ -705,6 +709,23 @@ class DemoBackend {
       modelDetails,
       endpoint: "https://api.deepseek.com/v1/models",
       rawResponse: JSON.stringify({ object: "list", data: modelDetails }, null, 2),
+    };
+  }
+
+  async aiTestModel(_profileId: string, model: string, prompt: string) {
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+    const content = `模型 ${model} 已收到测试提示词：${prompt}`;
+    return {
+      ok: true,
+      model,
+      content,
+      elapsedMs: 486,
+      endpoint: "https://api.deepseek.com/v1/chat/completions",
+      rawResponse: JSON.stringify(
+        { model, choices: [{ message: { role: "assistant", content } }] },
+        null,
+        2,
+      ),
     };
   }
 

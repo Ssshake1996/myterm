@@ -4,7 +4,7 @@ mod vault;
 pub(crate) use service::atomic_replace;
 pub use service::{
     default_config_path, portable_mode_enabled, AppConfig, ConfigService,
-    DEFAULT_AGENT_SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT,
+    EnvironmentMigrationReport, DEFAULT_AGENT_SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT,
 };
 pub use vault::{CredentialVault, KeyringVault, MemoryVault};
 

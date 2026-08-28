@@ -5,11 +5,14 @@ import {
   type AiErrorDiagnostic,
   type AiModelConfig,
   type AiModelRole,
+  type AiModelTestResult,
   type AiProfile,
   type AiTestResult,
   aiConfigJson,
+  aiFetchModels,
+  aiProfileDelete,
   aiProfileSave,
-  aiTestConnection,
+  aiTestModel,
   configOpenLocal,
   errorMessage,
 } from "../../ipc";
@@ -54,11 +57,21 @@ function diagnosticFromThrownError(
 
 interface AiSettingsProps {
   profile: AiProfile | null;
+  profiles?: AiProfile[];
+  activeProfileId?: string;
   onClose: () => void;
+  onDeleted?: (profileId: string) => void;
   onSaved: (profile: AiProfile) => void;
 }
 
-export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
+export function AiSettings({
+  profile,
+  profiles = [],
+  activeProfileId,
+  onClose,
+  onDeleted,
+  onSaved,
+}: AiSettingsProps) {
   const notify = useUiStore((state) => state.notify);
   const [name, setName] = useState(profile?.name ?? "DeepSeek");
   const [baseUrl, setBaseUrl] = useState(profile?.base_url ?? "https://api.deepseek.com/v1");
@@ -75,6 +88,16 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<AiTestResult | null>(null);
   const [testDetailsOpen, setTestDetailsOpen] = useState(false);
+  const [testPrompt, setTestPrompt] = useState("hi");
+  const [testModel, setTestModel] = useState(
+    profile?.models?.find((item) => item.role === "primary" && item.enabled)?.model ??
+      profile?.model ??
+      "",
+  );
+  const [modelTesting, setModelTesting] = useState(false);
+  const [modelTestResult, setModelTestResult] = useState<AiModelTestResult | null>(null);
+  const [modelTestDetailsOpen, setModelTestDetailsOpen] = useState(false);
+  const [deletingProfileId, setDeletingProfileId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedJsonPreview, setSavedJsonPreview] = useState<string>("");
   const [jsonLoading, setJsonLoading] = useState(false);
@@ -104,6 +127,10 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
     null,
     2,
   );
+  const enabledModels = models.filter((item) => item.enabled && item.model.trim());
+  const selectedTestModel = enabledModels.some((item) => item.model === testModel)
+    ? testModel
+    : (enabledModels[0]?.model ?? "");
 
   const save = async () => {
     if (
@@ -180,15 +207,68 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
         return;
       }
       try {
-        setTestResult(await aiTestConnection(next.id));
+        setTestResult(await aiFetchModels(next.id));
       } catch (error) {
         setTestResult({
           ok: false,
-          error: diagnosticFromThrownError(error, "test_connection", "测试连接"),
+          error: diagnosticFromThrownError(error, "fetch_models", "获取模型"),
         });
       }
     } finally {
       setTesting(false);
+    }
+  };
+
+  const testConfiguredModel = async () => {
+    if (!selectedTestModel) {
+      notify("请先配置并启用一个模型", "error");
+      return;
+    }
+    if (!testPrompt.trim()) {
+      notify("测试提示词不能为空", "error");
+      return;
+    }
+    setModelTesting(true);
+    setModelTestResult(null);
+    setModelTestDetailsOpen(false);
+    try {
+      const next = currentProfile();
+      try {
+        await aiProfileSave(next, apiKey || undefined);
+      } catch (error) {
+        setModelTestResult({
+          ok: false,
+          error: diagnosticFromThrownError(error, "save_profile", "保存 AI 配置"),
+        });
+        return;
+      }
+      try {
+        setModelTestResult(await aiTestModel(next.id, selectedTestModel, testPrompt.trim()));
+      } catch (error) {
+        setModelTestResult({
+          ok: false,
+          error: diagnosticFromThrownError(error, "test_model", "测试模型"),
+        });
+      }
+    } finally {
+      setModelTesting(false);
+    }
+  };
+
+  const deleteSavedProfile = async (candidate: AiProfile) => {
+    if (candidate.id === activeProfileId) return;
+    if (!window.confirm(`确认删除 AI 配置“${candidate.name}”吗？此操作不会删除对话历史。`)) {
+      return;
+    }
+    setDeletingProfileId(candidate.id);
+    try {
+      await aiProfileDelete(candidate.id);
+      onDeleted?.(candidate.id);
+      notify(`已删除 AI 配置：${candidate.name}`, "success");
+    } catch (error) {
+      notify(errorMessage(error, "删除 AI 配置失败：未返回可读的错误信息"), "error");
+    } finally {
+      setDeletingProfileId(null);
     }
   };
 
@@ -458,13 +538,13 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
               onClick={() => void test()}
               type="button"
             >
-              {testing ? "测试中" : "测试连接"}
+              {testing ? "获取中" : "获取模型"}
             </button>
             {testResult ? (
               testResult.ok ? (
                 <div className="test-success connection-test-success">
                   <div className="test-success-summary">
-                    <span>连接成功 · {testResult.models ?? 0} 个模型</span>
+                    <span>获取成功 · {testResult.models ?? 0} 个模型</span>
                     <button
                       aria-expanded={testDetailsOpen}
                       className="button button-ghost test-details-button"
@@ -500,7 +580,7 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
               ) : (
                 <div className="test-error connection-test-error" role="alert">
                   <div className="test-error-summary">
-                    <strong>{testResult.error?.summary ?? "测试连接 · unknown_error"}</strong>
+                    <strong>{testResult.error?.summary ?? "获取模型 · unknown_error"}</strong>
                     <code>{testResult.error?.code ?? "unknown_error"}</code>
                     <button
                       aria-expanded={testDetailsOpen}
@@ -515,7 +595,7 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
                     <div className="test-error-detail">
                       <div className="test-error-meta">
                         <span>失败位置</span>
-                        <code>{testResult.error?.stage ?? "test_connection"}</code>
+                        <code>{testResult.error?.stage ?? "fetch_models"}</code>
                       </div>
                       <pre>{testResult.error?.detail ?? "未返回详细错误"}</pre>
                       {testResult.error?.stack ? (
@@ -532,6 +612,149 @@ export function AiSettings({ profile, onClose, onSaved }: AiSettingsProps) {
               )
             ) : null}
           </div>
+          <section className="ai-model-probe" aria-label="测试模型">
+            <div className="field-label-row">
+              <span>测试模型</span>
+              <small>向当前配置中启用的指定模型发送一次真实请求。</small>
+            </div>
+            <div className="ai-model-probe-controls">
+              <label className="field">
+                <span>模型</span>
+                <select
+                  aria-label="选择测试模型"
+                  onChange={(event) => setTestModel(event.target.value)}
+                  value={selectedTestModel}
+                >
+                  {enabledModels.map((item) => (
+                    <option key={item.id} value={item.model}>
+                      {item.name} · {item.model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field ai-model-probe-prompt">
+                <span>测试提示词</span>
+                <textarea
+                  aria-label="测试提示词"
+                  onChange={(event) => setTestPrompt(event.target.value)}
+                  rows={3}
+                  value={testPrompt}
+                />
+              </label>
+              <button
+                className="button button-primary"
+                disabled={modelTesting || !selectedTestModel || !testPrompt.trim()}
+                onClick={() => void testConfiguredModel()}
+                type="button"
+              >
+                {modelTesting ? "测试中" : "测试模型"}
+              </button>
+            </div>
+            {modelTestResult ? (
+              modelTestResult.ok ? (
+                <div className="test-success connection-test-success model-probe-result">
+                  <div className="test-success-summary">
+                    <span>
+                      测试成功 · {modelTestResult.model ?? selectedTestModel}
+                      {modelTestResult.elapsedMs !== undefined
+                        ? ` · ${modelTestResult.elapsedMs} ms`
+                        : ""}
+                    </span>
+                    <button
+                      aria-expanded={modelTestDetailsOpen}
+                      className="button button-ghost test-details-button"
+                      onClick={() => setModelTestDetailsOpen((open) => !open)}
+                      type="button"
+                    >
+                      {modelTestDetailsOpen ? "收起详情" : "查看详情"}
+                    </button>
+                  </div>
+                  <pre className="model-probe-content">
+                    {modelTestResult.content ?? "模型未返回文本"}
+                  </pre>
+                  {modelTestDetailsOpen ? (
+                    <div className="model-test-details">
+                      <div className="test-error-meta">
+                        <span>请求地址</span>
+                        <code>{modelTestResult.endpoint ?? "未返回"}</code>
+                      </div>
+                      {modelTestResult.rawResponse ? (
+                        <details className="model-test-raw" open>
+                          <summary>原始返回 JSON</summary>
+                          <pre>{modelTestResult.rawResponse}</pre>
+                        </details>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="test-error connection-test-error" role="alert">
+                  <div className="test-error-summary">
+                    <strong>{modelTestResult.error?.summary ?? "测试模型 · unknown_error"}</strong>
+                    <code>{modelTestResult.error?.code ?? "unknown_error"}</code>
+                    <button
+                      aria-expanded={modelTestDetailsOpen}
+                      className="button button-ghost test-details-button"
+                      onClick={() => setModelTestDetailsOpen((open) => !open)}
+                      type="button"
+                    >
+                      {modelTestDetailsOpen ? "收起详情" : "查看详情"}
+                    </button>
+                  </div>
+                  {modelTestDetailsOpen ? (
+                    <div className="test-error-detail">
+                      <div className="test-error-meta">
+                        <span>失败位置</span>
+                        <code>{modelTestResult.error?.stage ?? "test_model"}</code>
+                      </div>
+                      <pre>{modelTestResult.error?.detail ?? "未返回详细错误"}</pre>
+                      {modelTestResult.error?.stack ? (
+                        <pre>{modelTestResult.error.stack}</pre>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            ) : null}
+          </section>
+          {profiles.length ? (
+            <section className="saved-ai-profiles" aria-label="已保存 AI 配置">
+              <div className="field-label-row">
+                <span>已保存配置</span>
+                <small>当前使用的配置需先在 Agent 面板切换后才能删除。</small>
+              </div>
+              <div className="saved-ai-profile-list">
+                {profiles.map((candidate) => {
+                  const active = candidate.id === activeProfileId;
+                  const model =
+                    candidate.models?.find((item) => item.role === "primary")?.model ??
+                    candidate.model ??
+                    "未配置模型";
+                  return (
+                    <div className="saved-ai-profile-row" key={candidate.id}>
+                      <span>
+                        <strong>{candidate.name}</strong>
+                        <small>{model}</small>
+                      </span>
+                      {active ? (
+                        <span className="saved-ai-profile-active">当前使用</span>
+                      ) : (
+                        <button
+                          aria-label={`删除 AI 配置 ${candidate.name}`}
+                          className="button button-danger"
+                          disabled={deletingProfileId !== null}
+                          onClick={() => void deleteSavedProfile(candidate)}
+                          type="button"
+                        >
+                          {deletingProfileId === candidate.id ? "删除中" : "删除"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
           <details className="ai-json-preview" open>
             <summary>JSON 配置预览（密钥仅保存为凭据引用）</summary>
             <div className="ai-json-actions">

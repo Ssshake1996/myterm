@@ -52,6 +52,24 @@ pub struct AiTestResult {
     pub error: Option<AiErrorDiagnostic>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiModelTestResult {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<u128>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_response: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<AiErrorDiagnostic>,
+}
+
 pub struct AiService {
     config: Arc<ConfigService>,
     vault: Arc<dyn CredentialVault>,
@@ -81,7 +99,7 @@ impl AiService {
         })
     }
 
-    pub async fn test_connection(&self, profile_id: &str) -> Result<AiTestResult, AppError> {
+    pub async fn fetch_models(&self, profile_id: &str) -> Result<AiTestResult, AppError> {
         let profile = match self.profile(profile_id) {
             Ok(profile) => profile,
             Err(error) => {
@@ -206,6 +224,196 @@ impl AiService {
             model_details: Some(models.clone()),
             raw_response: Some(redact_and_bound(&body, &key)),
             endpoint: Some(models_endpoint.to_string()),
+            error: None,
+        })
+    }
+
+    pub async fn test_connection(&self, profile_id: &str) -> Result<AiTestResult, AppError> {
+        self.fetch_models(profile_id).await
+    }
+
+    pub async fn test_model(
+        &self,
+        profile_id: &str,
+        model: &str,
+        prompt: &str,
+    ) -> Result<AiModelTestResult, AppError> {
+        let profile = match self.profile(profile_id) {
+            Ok(profile) => profile,
+            Err(error) => {
+                return Ok(failed_model_test(
+                    "load_profile",
+                    error.code(),
+                    format!("读取 AI 配置 · {}", error.code()),
+                    error.detail(),
+                    "",
+                ));
+            }
+        };
+        let selected_model = model.trim();
+        if !profile
+            .effective_models()
+            .iter()
+            .any(|candidate| candidate.model == selected_model)
+        {
+            return Ok(failed_model_test(
+                "validate_model",
+                "model_not_configured",
+                "校验测试模型 · model_not_configured",
+                format!("模型 '{selected_model}' 未在当前 AI 配置中启用"),
+                "",
+            ));
+        }
+        let prompt = prompt.trim();
+        if prompt.is_empty() {
+            return Ok(failed_model_test(
+                "validate_prompt",
+                "prompt_empty",
+                "校验测试提示词 · prompt_empty",
+                "测试提示词不能为空".to_owned(),
+                "",
+            ));
+        }
+        let key = match self.vault.get(&profile.api_key_ref) {
+            Ok(Some(value)) if !value.trim().is_empty() => value,
+            Ok(_) => {
+                return Ok(failed_model_test(
+                    "read_api_key",
+                    "api_key_missing",
+                    "读取 API Key · api_key_missing",
+                    "API Key 未配置：请填写 API Key 并保存配置".to_owned(),
+                    "",
+                ));
+            }
+            Err(error) => {
+                return Ok(failed_model_test(
+                    "read_api_key",
+                    error.code(),
+                    format!("读取 API Key · {}", error.code()),
+                    error.detail(),
+                    "",
+                ));
+            }
+        };
+        let chat_endpoint = match endpoint(&profile.base_url, "chat/completions") {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                return Ok(failed_model_test(
+                    "build_model_request",
+                    error.code(),
+                    format!("构造模型测试请求 · {}", error.code()),
+                    error.detail(),
+                    &key,
+                ));
+            }
+        };
+        let system_prompt = if profile.system_prompt.trim().is_empty() {
+            DEFAULT_SYSTEM_PROMPT
+        } else {
+            profile.system_prompt.as_str()
+        };
+        let request = ChatRequest {
+            model: selected_model,
+            messages: vec![
+                RequestMessage {
+                    role: "system",
+                    content: system_prompt,
+                },
+                RequestMessage {
+                    role: "user",
+                    content: prompt,
+                },
+            ],
+            stream: false,
+        };
+        let started = std::time::Instant::now();
+        let response = match with_auth(self.client.post(chat_endpoint.clone()), &profile, &key)
+            .json(&request)
+            .send()
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                return Ok(failed_model_test(
+                    "model_request",
+                    transport_error_code(&error),
+                    format!("请求测试模型 · {}", transport_error_code(&error)),
+                    format_transport_failure(error, &chat_endpoint),
+                    &key,
+                ));
+            }
+        };
+        let status = response.status();
+        let body = match response.text().await {
+            Ok(body) => body,
+            Err(error) => {
+                return Ok(failed_model_test(
+                    "read_model_response",
+                    transport_error_code(&error),
+                    format!("读取模型测试响应 · {}", transport_error_code(&error)),
+                    format_transport_failure(error, &chat_endpoint),
+                    &key,
+                ));
+            }
+        };
+        if !status.is_success() {
+            return Ok(AiModelTestResult {
+                ok: false,
+                model: Some(selected_model.to_owned()),
+                content: None,
+                elapsed_ms: Some(started.elapsed().as_millis()),
+                raw_response: Some(redact_and_bound(&body, &key)),
+                endpoint: Some(chat_endpoint.to_string()),
+                error: Some(http_failure_diagnostic_for(
+                    "model_request",
+                    "请求测试模型",
+                    status,
+                    &body,
+                    &chat_endpoint,
+                    &key,
+                )),
+            });
+        }
+        let value = match serde_json::from_str::<serde_json::Value>(&body) {
+            Ok(value) => value,
+            Err(error) => {
+                return Ok(failed_model_test(
+                    "parse_model_response",
+                    "json_parse",
+                    "解析模型测试响应 · json_parse",
+                    format!(
+                        "JSON parse error: {error}\nResponse body:\n{}",
+                        redact_and_bound(&body, &key)
+                    ),
+                    &key,
+                ));
+            }
+        };
+        let Some(content) = extract_message_content(&value) else {
+            return Ok(failed_model_test(
+                "validate_model_response",
+                "json_schema",
+                "校验模型测试响应 · json_schema",
+                format!(
+                    "JSON validation error: $.choices[0].message.content is missing\nResponse body:\n{}",
+                    redact_and_bound(&body, &key)
+                ),
+                &key,
+            ));
+        };
+        Ok(AiModelTestResult {
+            ok: true,
+            model: Some(
+                value
+                    .get("model")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or(selected_model)
+                    .to_owned(),
+            ),
+            content: Some(content),
+            elapsed_ms: Some(started.elapsed().as_millis()),
+            raw_response: Some(redact_and_bound(&body, &key)),
+            endpoint: Some(chat_endpoint.to_string()),
             error: None,
         })
     }
@@ -545,6 +753,33 @@ fn failed_test(
     }
 }
 
+fn failed_model_test(
+    stage: &str,
+    code: impl Into<String>,
+    summary: impl Into<String>,
+    detail: String,
+    secret: &str,
+) -> AiModelTestResult {
+    AiModelTestResult {
+        ok: false,
+        model: None,
+        content: None,
+        elapsed_ms: None,
+        raw_response: None,
+        endpoint: None,
+        error: Some(AiErrorDiagnostic {
+            stage: stage.to_owned(),
+            code: code.into(),
+            summary: summary.into(),
+            detail: redact_and_bound(&detail, secret),
+            stack: Some(redact_and_bound(
+                &Backtrace::force_capture().to_string(),
+                secret,
+            )),
+        }),
+    }
+}
+
 fn http_failure_diagnostic(
     stage: &str,
     status: reqwest::StatusCode,
@@ -552,15 +787,48 @@ fn http_failure_diagnostic(
     endpoint: &reqwest::Url,
     secret: &str,
 ) -> AiErrorDiagnostic {
-    failed_test(
-        stage,
-        format!("http_{}", status.as_u16()),
-        format!("请求模型列表 · HTTP {status}"),
-        format_http_failure(status, body, endpoint, secret),
-        secret,
-    )
-    .error
-    .expect("failed_test always contains a diagnostic")
+    http_failure_diagnostic_for(stage, "请求模型列表", status, body, endpoint, secret)
+}
+
+fn http_failure_diagnostic_for(
+    stage: &str,
+    label: &str,
+    status: reqwest::StatusCode,
+    body: &str,
+    endpoint: &reqwest::Url,
+    secret: &str,
+) -> AiErrorDiagnostic {
+    AiErrorDiagnostic {
+        stage: stage.to_owned(),
+        code: format!("http_{}", status.as_u16()),
+        summary: format!("{label} · HTTP {status}"),
+        detail: format_http_failure(status, body, endpoint, secret),
+        stack: Some(redact_and_bound(
+            &Backtrace::force_capture().to_string(),
+            secret,
+        )),
+    }
+}
+
+fn extract_message_content(value: &serde_json::Value) -> Option<String> {
+    let content = value.pointer("/choices/0/message/content")?;
+    if let Some(text) = content.as_str() {
+        return Some(text.to_owned());
+    }
+    let parts = content.as_array()?;
+    let text = parts
+        .iter()
+        .filter_map(|part| {
+            part.get("text")
+                .and_then(serde_json::Value::as_str)
+                .or_else(|| {
+                    part.pointer("/text/value")
+                        .and_then(serde_json::Value::as_str)
+                })
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    (!text.is_empty()).then_some(text)
 }
 
 fn transport_error_code(error: &reqwest::Error) -> &'static str {
@@ -638,8 +906,8 @@ fn redact_api_key(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        endpoint, failed_test, format_http_failure, parse_model_count, redact_and_bound,
-        redact_api_key, with_auth, SseDecoder, MAX_DIAGNOSTIC_CHARS,
+        endpoint, extract_message_content, failed_test, format_http_failure, parse_model_count,
+        redact_and_bound, redact_api_key, with_auth, SseDecoder, MAX_DIAGNOSTIC_CHARS,
     };
     use crate::types::{
         AiAuthMode, AiContextMode, AiModelConfig, AiModelRole, AiProfile, AiRoutingConfig,
@@ -721,6 +989,29 @@ mod tests {
         assert!(diagnostic.detail.contains("HTTP 401 Unauthorized"));
         assert!(!diagnostic.detail.contains("sk-secret-value"));
         assert!(diagnostic.stack.is_some());
+    }
+
+    #[test]
+    fn extracts_text_from_string_and_structured_chat_content() {
+        let plain = serde_json::json!({
+            "choices": [{ "message": { "content": "pong" } }]
+        });
+        assert_eq!(extract_message_content(&plain).as_deref(), Some("pong"));
+
+        let structured = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "content": [
+                        { "type": "text", "text": "hello " },
+                        { "type": "output_text", "text": { "value": "world" } }
+                    ]
+                }
+            }]
+        });
+        assert_eq!(
+            extract_message_content(&structured).as_deref(),
+            Some("hello world")
+        );
     }
 
     #[test]

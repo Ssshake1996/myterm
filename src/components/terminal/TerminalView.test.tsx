@@ -178,7 +178,9 @@ describe("TerminalView", () => {
     };
     const buffer = new Uint8Array([0, 127, 255]).buffer;
     channel.onmessage(buffer);
-    const written = terminalMocks.write.mock.calls[0]?.[0] as Uint8Array;
+    const written = terminalMocks.write.mock.calls
+      .map(([value]) => value)
+      .find((value) => value instanceof Uint8Array) as Uint8Array;
     expect([...written]).toEqual([0, 127, 255]);
 
     resizeCallback?.([], {} as ResizeObserver);
@@ -309,6 +311,7 @@ describe("TerminalView", () => {
     fireEvent.click(wrapItem);
 
     await waitFor(() => expect(host).toHaveClass("terminal-wrap-disabled"));
+    expect(screen.getByRole("slider", { name: "终端横向滚动条" })).toBeInTheDocument();
     expect(terminalMocks.write).toHaveBeenCalledWith("\x1b[?7l");
   });
 

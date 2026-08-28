@@ -13,7 +13,8 @@ use crate::{
         service::AgentEventSink,
         skills,
     },
-    ai::service::{AiChatResult, AiTestResult, DeltaSink},
+    ai::service::{AiChatResult, AiModelTestResult, AiTestResult, DeltaSink},
+    config::EnvironmentMigrationReport,
     quick_commands::{
         self, QuickCommandImportPreview, QuickCommandImportResult, QuickCommandImportStrategy,
     },
@@ -418,6 +419,16 @@ pub fn ai_config_json(state: State<'_, AppState>) -> Result<serde_json::Value, I
 }
 
 #[tauri::command]
+pub fn environment_migration_report(
+    state: State<'_, AppState>,
+) -> Result<Option<EnvironmentMigrationReport>, IpcError> {
+    state
+        .config
+        .take_environment_migration_report()
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub fn config_open_local(state: State<'_, AppState>) -> Result<String, IpcError> {
     let path = state.config.path().to_path_buf();
     let target = if path.exists() {
@@ -476,6 +487,28 @@ pub async fn ai_test_connection(
     state
         .ai
         .test_connection(&profile_id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn ai_fetch_models(
+    state: State<'_, AppState>,
+    profile_id: String,
+) -> Result<AiTestResult, IpcError> {
+    state.ai.fetch_models(&profile_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn ai_test_model(
+    state: State<'_, AppState>,
+    profile_id: String,
+    model: String,
+    prompt: String,
+) -> Result<AiModelTestResult, IpcError> {
+    state
+        .ai
+        .test_model(&profile_id, &model, &prompt)
         .await
         .map_err(Into::into)
 }
@@ -706,7 +739,7 @@ mod tests {
         SessionProfile {
             id: id.to_owned(),
             name: name.to_owned(),
-            group: "测试/服务器".to_owned(),
+            group: "测试服务器".to_owned(),
             environment: crate::types::SessionEnvironment::Production,
             target: SessionTarget::Ssh {
                 host: host.to_owned(),
