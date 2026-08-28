@@ -43,6 +43,125 @@ struct TerminalSendPlan {
     observed_cursor_line: Option<String>,
     matched_prefix: String,
     mode: &'static str,
+    cleaned_control_count: usize,
+}
+
+fn hex_digit(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn literal_control_escape_len(input: &str, offset: usize) -> Option<usize> {
+    let bytes = input.as_bytes();
+    if bytes.get(offset) != Some(&b'\\') {
+        return None;
+    }
+    let rest = &bytes[offset + 1..];
+    let (value, consumed) = if rest.first() == Some(&b'u') && rest.len() >= 5 {
+        let mut value = 0_u8;
+        for digit in &rest[1..5] {
+            value = value.checked_mul(16)?.checked_add(hex_digit(*digit)?)?;
+        }
+        (value, 5)
+    } else if rest.first() == Some(&b'x') && rest.len() >= 3 {
+        let value = hex_digit(rest[1])?
+            .checked_mul(16)?
+            .checked_add(hex_digit(rest[2])?)?;
+        (value, 3)
+    } else if rest
+        .first()
+        .is_some_and(|digit| (b'0'..=b'7').contains(digit))
+    {
+        let mut value = 0_u8;
+        let mut digits = 0;
+        for digit in rest.iter().take(3) {
+            if !(b'0'..=b'7').contains(digit) {
+                break;
+            }
+            value = value.checked_mul(8)?.checked_add(*digit - b'0')?;
+            digits += 1;
+        }
+        (value, digits)
+    } else {
+        return None;
+    };
+    (value.is_ascii_control() || value == 0x7f).then_some(consumed + 1)
+}
+
+/// Remove control bytes and escaped control notation from model-produced CLI
+/// lines. Raw terminal input deliberately bypasses this helper so Ctrl+C and
+/// other interactive keys remain available through terminal_send(raw).
+fn sanitize_cli_command(input: &str) -> (String, usize) {
+    let bytes = input.as_bytes();
+    let mut output = String::with_capacity(input.len());
+    let mut offset = 0;
+    let mut removed = 0;
+    let mut pending_separator = false;
+    while offset < bytes.len() {
+        if let Some(consumed) = literal_control_escape_len(input, offset) {
+            offset += consumed;
+            removed += 1;
+            pending_separator = true;
+            continue;
+        }
+        if bytes[offset] == 0x1b {
+            removed += 1;
+            pending_separator = true;
+            offset += 1;
+            if bytes.get(offset) == Some(&b'[') {
+                offset += 1;
+                while offset < bytes.len() {
+                    let byte = bytes[offset];
+                    offset += 1;
+                    if (0x40..=0x7e).contains(&byte) {
+                        break;
+                    }
+                }
+            } else if bytes.get(offset) == Some(&b']') {
+                offset += 1;
+                let mut previous_escape = false;
+                while offset < bytes.len() {
+                    let byte = bytes[offset];
+                    offset += 1;
+                    if byte == 0x07 || (previous_escape && byte == b'\\') {
+                        break;
+                    }
+                    previous_escape = byte == 0x1b;
+                }
+            }
+            continue;
+        }
+        let character = input[offset..].chars().next().expect("valid UTF-8 offset");
+        let width = character.len_utf8();
+        if character.is_control() || character == '\u{7f}' {
+            if character == '\t' {
+                output.push(' ');
+                pending_separator = false;
+            } else {
+                pending_separator = true;
+            }
+            removed += 1;
+        } else {
+            if pending_separator
+                && !output.is_empty()
+                && output
+                    .chars()
+                    .last()
+                    .is_some_and(|last| !last.is_whitespace())
+                && !character.is_whitespace()
+            {
+                output.push(' ');
+            }
+            output.push(character);
+            pending_separator = false;
+        }
+        offset += width;
+    }
+    (output, removed)
 }
 
 fn terminal_send_plan(
@@ -51,7 +170,12 @@ fn terminal_send_plan(
     input_mode: &str,
     screen: Option<&TerminalScreenSnapshot>,
 ) -> Result<TerminalSendPlan, AppError> {
-    let normalized = command.replace("\r\n", "\n").replace('\r', "\n");
+    let (sanitized, cleaned_control_count) = if input_mode == "raw" {
+        (command.to_owned(), 0)
+    } else {
+        sanitize_cli_command(command)
+    };
+    let normalized = sanitized.replace("\r\n", "\n").replace('\r', "\n");
     let observed = screen.map(|value| value.cursor_line_before_cursor.as_str());
     let (remaining, matched_prefix, mode) = match input_mode {
         "raw" => (normalized.as_str(), String::new(), "raw"),
@@ -97,6 +221,7 @@ fn terminal_send_plan(
         observed_cursor_line: observed.map(str::to_owned),
         matched_prefix,
         mode,
+        cleaned_control_count,
     })
 }
 
@@ -125,6 +250,42 @@ fn terminal_editable_input(cursor_line: &str) -> Option<&str> {
     };
     let editable = &cursor_line[prompt_end..];
     Some(editable.strip_prefix(' ').unwrap_or(editable))
+}
+
+fn terminal_edit_payload(
+    operation: &str,
+    count: u64,
+    text: Option<&str>,
+) -> Result<String, AppError> {
+    let count = usize::try_from(count).unwrap_or(256).clamp(1, 256);
+    let payload = match operation {
+        "cancel_line" => "\u{3}".to_owned(),
+        "backspace" => "\u{8}".repeat(count),
+        "delete" => "\u{7f}".repeat(count),
+        "cursor_left" => "\u{1b}[D".repeat(count),
+        "cursor_right" => "\u{1b}[C".repeat(count),
+        "home" => "\u{1}".to_owned(),
+        "end" => "\u{5}".to_owned(),
+        // Ctrl+A + Ctrl+K is the common readline-compatible “go home and
+        // delete to end” pair, so replacement is safe even when the cursor is
+        // in the middle of the current input line.
+        "clear_current_line" => "\u{1}\u{b}".to_owned(),
+        "replace_current_input" => {
+            let replacement = text.ok_or_else(|| {
+                AppError::InvalidInput(
+                    "terminal_edit replace_current_input requires a text argument".to_owned(),
+                )
+            })?;
+            let (replacement, _) = sanitize_cli_command(replacement);
+            format!("\u{1}\u{b}{replacement}")
+        }
+        other => {
+            return Err(AppError::InvalidInput(format!(
+                "terminal_edit operation must be one of cancel_line, backspace, delete, cursor_left, cursor_right, home, end, clear_current_line, replace_current_input; got '{other}'"
+            )))
+        }
+    };
+    Ok(payload)
 }
 
 fn cli_screen_state(screen: Option<&TerminalScreenSnapshot>) -> Option<&'static str> {
@@ -889,6 +1050,7 @@ impl AgentService {
                 Ok(serde_json::to_string(&json!({
                     "mode": plan.mode,
                     "requestedCommand": command,
+                    "cleanedControlCount": plan.cleaned_control_count,
                     "observedCursorLine": plan.observed_cursor_line,
                     "matchedPrefix": plan.matched_prefix,
                     "sentText": plan.payload,
@@ -937,6 +1099,70 @@ impl AgentService {
                         )
                         .await?,
                 )?)
+            }
+            "terminal_edit" => {
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
+                let operation = argument_str(&arguments, "operation")?;
+                let count = arguments
+                    .get("count")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(1)
+                    .clamp(1, 256);
+                let screen = self.sessions.screen_snapshot(session_id)?;
+                let expected_line = arguments
+                    .get("expected_cursor_line_before_cursor")
+                    .and_then(Value::as_str);
+                if operation != "cancel_line" && expected_line.is_none() {
+                    return Err(AppError::InvalidInput(
+                        "terminal_edit requires expected_cursor_line_before_cursor; call terminal_context first so edits are guarded by the visible SSH line"
+                            .to_owned(),
+                    ));
+                }
+                if let Some(expected) = expected_line {
+                    let actual = screen
+                        .as_ref()
+                        .map(|value| value.cursor_line_before_cursor.as_str())
+                        .unwrap_or_default();
+                    if actual != expected {
+                        return Err(AppError::InvalidInput(format!(
+                            "terminal edit refused because the visible cursor line changed; expected '{expected}', observed '{actual}'"
+                        )));
+                    }
+                }
+                if operation == "replace_current_input" {
+                    let expected_input = arguments
+                        .get("expected_input")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| {
+                            AppError::InvalidInput(
+                                "tool argument 'expected_input' is required for replace_current_input"
+                                    .to_owned(),
+                            )
+                        })?;
+                    let actual_line = screen
+                        .as_ref()
+                        .map(|value| value.cursor_line_before_cursor.as_str())
+                        .unwrap_or_default();
+                    let actual_input = terminal_editable_input(actual_line).unwrap_or(actual_line);
+                    if actual_input != expected_input {
+                        return Err(AppError::InvalidInput(format!(
+                            "terminal edit refused because the editable input changed; expected '{expected_input}', observed '{actual_input}'"
+                        )));
+                    }
+                }
+                let text = arguments.get("text").and_then(Value::as_str);
+                let payload = terminal_edit_payload(operation, count, text)?;
+                let input = self.sessions.lock_input(session_id).await?;
+                input.write(payload.as_bytes()).await?;
+                drop(input);
+                Ok(serde_json::to_string(&json!({
+                    "sessionId": session_id,
+                    "operation": operation,
+                    "count": count,
+                    "observedCursorLine": screen.map(|value| value.cursor_line_before_cursor),
+                    "sentText": payload,
+                    "guarded": expected_line.is_some(),
+                }))?)
             }
             "job_status" => {
                 let job_id = argument_str(&arguments, "job_id")?;
@@ -1298,6 +1524,7 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
             "executionId": uuid::Uuid::new_v4().to_string(),
             "sessionId": session_id,
             "requestedCommand": command,
+            "cleanedControlCount": plan.cleaned_control_count,
             "mode": plan.mode,
             "observedCursorLine": plan.observed_cursor_line,
             "matchedPrefix": plan.matched_prefix,
@@ -1758,6 +1985,23 @@ pub(crate) fn tool_definitions(registry: &CapabilityRegistry, prompt: &str) -> V
             }),
         ),
         function_tool(
+            "terminal_edit",
+            "Guarded editing of the currently visible SSH input line. Call terminal_context first, pass its exact cursor_line_before_cursor as expected_cursor_line_before_cursor, then use backspace/delete/cursor movement or replace_current_input to correct a malformed command. The host refuses the edit when the visible line changed, so this never blindly clears another command. cancel_line is available for an intentional Ctrl+C and does not require a line guard.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "operation": { "type": "string", "enum": ["cancel_line", "backspace", "delete", "cursor_left", "cursor_right", "home", "end", "clear_current_line", "replace_current_input"] },
+                    "count": { "type": "integer", "minimum": 1, "maximum": 256, "default": 1 },
+                    "text": { "type": "string", "description": "Replacement text for replace_current_input; control characters are removed before sending" },
+                    "expected_input": { "type": "string", "description": "Exact editable suffix from terminal_context; required for replace_current_input" },
+                    "expected_cursor_line_before_cursor": { "type": "string", "description": "Exact cursor_line_before_cursor returned by terminal_context; required for every operation except cancel_line" },
+                    "session_id": { "type": "string", "description": "Optional explicit target session_id; defaults to the active session" }
+                },
+                "required": ["operation"],
+                "additionalProperties": false
+            }),
+        ),
+        function_tool(
             "session_info",
             "Read a live session and its saved profile metadata. Without arguments it reads the active session; provide session_id, profile_id, or profile_name to inspect a non-active session or saved server.",
             json!({
@@ -2014,6 +2258,7 @@ fn add_explicit_session_targeting(tools: &mut [Value]) {
         "cli_execute",
         "cli_execute_batch",
         "terminal_send",
+        "terminal_edit",
         "session_info",
         "list_directory",
         "file_stat",
@@ -2504,7 +2749,8 @@ fn redact_text(value: &str, secrets: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        plugin_id_for_tool, redact_event, selected_session_id, terminal_send_plan, tool_definitions,
+        plugin_id_for_tool, redact_event, selected_session_id, terminal_edit_payload,
+        terminal_send_plan, tool_definitions,
     };
     use crate::agent::builtin;
     use crate::agent::capability::CapabilityRegistry;
@@ -2514,7 +2760,7 @@ mod tests {
     #[test]
     fn built_in_tools_and_limits_are_explicit() {
         let tools = tool_definitions(&CapabilityRegistry::default(), "");
-        assert_eq!(tools.len(), 22);
+        assert_eq!(tools.len(), 23);
         assert_eq!(tools[0]["function"]["name"], "remote_exec");
         assert!(tools
             .iter()
@@ -2688,6 +2934,50 @@ mod tests {
             .expect("no-prompt input should be compared before prompt parsing");
         assert_eq!(plan.matched_prefix, "echo $PA");
         assert_eq!(plan.payload, "TH\r");
+    }
+
+    #[test]
+    fn terminal_send_removes_control_bytes_and_escaped_control_notation() {
+        let plan = terminal_send_plan(
+            "name=fstest01\u{3}\u{1b}\\003\\033\\u0003",
+            true,
+            "complete_line",
+            None,
+        )
+        .expect("control characters should be cleaned");
+        assert_eq!(plan.payload, "name=fstest01\r");
+        assert_eq!(plan.cleaned_control_count, 5);
+    }
+
+    #[test]
+    fn terminal_send_inserts_a_separator_when_controls_join_cli_arguments() {
+        let plan = terminal_send_plan("name=fstest01\u{3}create foo", true, "complete_line", None)
+            .expect("control separator should be cleaned");
+        assert_eq!(plan.payload, "name=fstest01 create foo\r");
+    }
+
+    #[test]
+    fn raw_terminal_input_preserves_control_keys() {
+        let plan = terminal_send_plan("\u{3}", false, "raw", None).expect("raw input");
+        assert_eq!(plan.payload, "\u{3}");
+        assert_eq!(plan.cleaned_control_count, 0);
+    }
+
+    #[test]
+    fn terminal_edit_payload_is_explicit_and_bounded() {
+        assert_eq!(
+            terminal_edit_payload("backspace", 3, None).unwrap(),
+            "\u{8}\u{8}\u{8}"
+        );
+        assert_eq!(
+            terminal_edit_payload("cursor_left", 2, None).unwrap(),
+            "\u{1b}[D\u{1b}[D"
+        );
+        assert_eq!(
+            terminal_edit_payload("replace_current_input", 1, Some("name=fstest01\\003")).unwrap(),
+            "\u{1}\u{b}name=fstest01"
+        );
+        assert!(terminal_edit_payload("unknown", 1, None).is_err());
     }
 
     #[test]

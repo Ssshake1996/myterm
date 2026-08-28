@@ -359,6 +359,7 @@ Event 先持久化再通知 UI。高频输出按 50ms 或 64KiB 合并，条件�
 - `cli_execute(session_id?, command, timeout_seconds, quiet_ms, evidence_refs?)`。
 - `cli_execute_batch(session_id?, commands[1..8], timeout_seconds, quiet_ms, evidence_refs?)`。
 - `terminal_send(session_id?, command, newline, input_mode=complete_line|raw)`：仅作为低层交互输入。
+- `terminal_edit(session_id?, operation, count?, text?, expected_input?, expected_cursor_line_before_cursor?)`：基于最近一次 `terminal_context` 屏幕快照保护当前输入行，支持 `backspace`、`delete`、`cursor_left`、`cursor_right`、`home`、`end`、`clear_current_line`、`replace_current_input` 和显式 `cancel_line`。
 - `remote_exec(session_id?, command, cwd, timeout_ms, mode, max_output_bytes)`。
 - `host_facts(session_id?)`。
 - `list_directory`、`file_stat`、`file_read`、`file_search`、`file_write`、`file_patch` 均支持可选 `session_id`。

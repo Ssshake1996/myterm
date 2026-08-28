@@ -123,6 +123,7 @@ const TOOL_LABELS: Record<string, string> = {
   remote_exec: "结构化执行命令",
   terminal_context: "读取终端上下文",
   terminal_send: "向活动终端发送命令",
+  terminal_edit: "编辑终端当前输入",
   session_info: "读取会话信息",
   session_catalog: "读取服务器会话目录",
   session_connect: "自动连接目标服务器",

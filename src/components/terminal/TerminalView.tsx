@@ -315,6 +315,12 @@ interface TerminalContextMenu {
   hasSelection: boolean;
 }
 
+function setTerminalWrapMode(terminal: Terminal, enabled: boolean): void {
+  // xterm.js follows the terminal's DECAWM mode. Sending the mode sequence to
+  // the local parser changes rendering only; it never reaches the SSH peer.
+  terminal.write(enabled ? "\x1b[?7h" : "\x1b[?7l");
+}
+
 function terminalScreenSnapshot(terminal: Terminal): TerminalScreenSnapshot {
   const buffer = terminal.buffer.active;
   const cursorLineIndex = buffer.baseY + buffer.cursorY;
@@ -362,9 +368,15 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
     promptTail: "",
     lastVisibleCharacter: "",
   });
+  const followBottomRef = useRef(true);
+  const autoWrapRef = useRef(true);
+  const wrapInitializedRef = useRef(false);
+  const wrapOverrideRef = useRef(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
   const [contextMenu, setContextMenu] = useState<TerminalContextMenu | null>(null);
+  const [autoWrap, setAutoWrap] = useState(true);
+  autoWrapRef.current = autoWrap;
 
   const syncTerminalScreen = useCallback(() => {
     const terminal = terminalRef.current;
@@ -398,6 +410,8 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
     channel.onmessage = (buffer) => {
       const bytes = new Uint8Array(buffer);
       writeTerminalChunk(terminal, bytes, renderStateRef.current);
+      if (wrapOverrideRef.current) setTerminalWrapMode(terminal, autoWrapRef.current);
+      if (followBottomRef.current) terminal.scrollToBottom();
       scheduleTerminalScreenSync();
       const sessionId = sessionRef.current;
       if (sessionId) {
@@ -454,6 +468,14 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
     fitRef.current = fit;
     searchRef.current = search;
     fit.fit();
+
+    const scroll = terminal.onScroll((position) => {
+      followBottomRef.current = position >= terminal.buffer.active.baseY;
+      scheduleTerminalScreenSync();
+    });
+    const parsed = terminal.onWriteParsed(() => {
+      if (followBottomRef.current) terminal.scrollToBottom();
+    });
 
     const input = terminal.onData((data) => {
       markTerminalInput(
@@ -524,10 +546,24 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       window.removeEventListener("pointerdown", closeContextMenu);
       window.removeEventListener("keydown", closeContextMenuOnEscape);
       input.dispose();
+      scroll.dispose();
+      parsed.dispose();
       terminal.dispose();
       terminalRef.current = null;
     };
   }, [connect, notify, scheduleTerminalScreenSync]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    autoWrapRef.current = autoWrap;
+    if (!wrapInitializedRef.current) {
+      wrapInitializedRef.current = true;
+      return;
+    }
+    setTerminalWrapMode(terminal, autoWrap);
+    if (followBottomRef.current) terminal.scrollToBottom();
+  }, [autoWrap]);
 
   useEffect(() => {
     if (terminalRef.current)
@@ -571,7 +607,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       ) : null}
       <div
         aria-label="终端会话"
-        className="terminal-host"
+        className={`terminal-host ${autoWrap ? "terminal-wrap-enabled" : "terminal-wrap-disabled"}`}
         onContextMenu={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -631,6 +667,18 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
                 type="button"
               >
                 全选
+              </button>
+              <button
+                aria-checked={autoWrap}
+                onClick={() => {
+                  wrapOverrideRef.current = true;
+                  setAutoWrap((enabled) => !enabled);
+                  setContextMenu(null);
+                }}
+                role="menuitemcheckbox"
+                type="button"
+              >
+                {autoWrap ? "✓ " : "　"}自动换行
               </button>
               <button
                 disabled={!contextMenu.hasSelection}

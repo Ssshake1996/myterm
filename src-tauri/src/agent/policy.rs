@@ -101,6 +101,43 @@ pub fn evaluate_tool(name: &str, arguments: &Value, context: PolicyContext) -> P
                 .unwrap_or_default();
             decide(analyze_bash(command), context)
         }
+        "terminal_edit" => {
+            let operation = arguments
+                .get("operation")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            decide(
+                Analysis {
+                    effect: ToolEffect::Execute,
+                    risk: if operation == "cancel_line" {
+                        RiskLevel::Medium
+                    } else {
+                        RiskLevel::High
+                    },
+                    reason: format!("visible SSH input line will be edited ({operation})"),
+                    commands: vec![format!("terminal_edit:{operation}")],
+                    resources: arguments
+                        .get("session_id")
+                        .and_then(Value::as_str)
+                        .map(|value| vec![value.to_owned()])
+                        .unwrap_or_default(),
+                    parsed: matches!(
+                        operation,
+                        "cancel_line"
+                            | "backspace"
+                            | "delete"
+                            | "cursor_left"
+                            | "cursor_right"
+                            | "home"
+                            | "end"
+                            | "clear_current_line"
+                            | "replace_current_input"
+                    ),
+                    hard_deny: false,
+                },
+                context,
+            )
+        }
         "cli_execute_batch" => {
             let commands = arguments
                 .get("commands")

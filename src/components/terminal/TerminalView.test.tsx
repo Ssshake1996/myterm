@@ -9,6 +9,7 @@ import { TerminalView } from "./TerminalView";
 const terminalMocks = vi.hoisted(() => ({
   write: vi.fn(),
   fit: vi.fn(),
+  scrollToBottom: vi.fn(),
   dataHandler: undefined as ((data: string) => void) | undefined,
   options: { theme: {} as Record<string, string>, fontSize: 13 },
   cursorLine: "[root@prod]# show system",
@@ -51,10 +52,13 @@ vi.mock("@xterm/xterm", () => ({
     loadAddon = vi.fn();
     open = vi.fn();
     write = terminalMocks.write;
+    scrollToBottom = terminalMocks.scrollToBottom;
     onData = vi.fn((callback: (data: string) => void) => {
       terminalMocks.dataHandler = callback;
       return { dispose: vi.fn() };
     });
+    onScroll = vi.fn(() => ({ dispose: vi.fn() }));
+    onWriteParsed = vi.fn(() => ({ dispose: vi.fn() }));
     attachCustomKeyEventHandler = vi.fn();
     dispose = vi.fn();
   },
@@ -289,6 +293,23 @@ describe("TerminalView", () => {
     expect(screen.getByRole("menuitem", { name: "复制" })).toBeDisabled();
     fireEvent.click(screen.getByRole("menuitem", { name: "全选" }));
     expect(screen.queryByRole("menu", { name: "终端上下文菜单" })).not.toBeInTheDocument();
+  });
+
+  it("toggles automatic wrapping from the terminal context menu", async () => {
+    const { container } = render(<TerminalView pane={pane} profile={profile} />);
+    await waitFor(() => expect(ipcMocks.sessionConnect).toHaveBeenCalledTimes(1));
+    const host = container.querySelector(".terminal-host");
+    expect(host).not.toBeNull();
+    if (!host) throw new Error("terminal host was not rendered");
+    expect(host).toHaveClass("terminal-wrap-enabled");
+
+    fireEvent.contextMenu(host, { clientX: 120, clientY: 80 });
+    const wrapItem = screen.getByRole("menuitemcheckbox", { name: /自动换行/ });
+    expect(wrapItem).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(wrapItem);
+
+    await waitFor(() => expect(host).toHaveClass("terminal-wrap-disabled"));
+    expect(terminalMocks.write).toHaveBeenCalledWith("\x1b[?7l");
   });
 
   it("reclaims a session that finishes connecting after its pane was closed", async () => {

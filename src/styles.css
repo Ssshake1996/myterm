@@ -1039,6 +1039,9 @@ button:disabled {
   zoom: var(--ui-zoom-inverse);
   width: calc(100% * var(--ui-zoom));
   height: calc(100% * var(--ui-zoom));
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .xterm,
@@ -1047,7 +1050,25 @@ button:disabled {
 }
 
 .terminal-host .xterm-viewport {
+  /* Keep a stable gutter so the scroll affordance is present even while the
+     terminal is between output bursts. The extra bottom inset makes the last
+     rendered row reachable instead of hiding it beneath the host edge. */
+  box-sizing: border-box;
+  min-height: 0;
+  overflow-y: scroll !important;
+  overflow-x: hidden;
+  padding-bottom: 14px;
+  scrollbar-gutter: stable;
   scrollbar-color: var(--terminal-scroll-thumb) var(--terminal-scroll-track);
+}
+
+.terminal-host.terminal-wrap-disabled .xterm-viewport {
+  overflow-x: scroll !important;
+  scrollbar-gutter: stable both-edges;
+}
+
+.terminal-host.terminal-wrap-disabled .xterm-screen {
+  min-width: max-content;
 }
 
 .terminal-host .xterm-viewport::-webkit-scrollbar {

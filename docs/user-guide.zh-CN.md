@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.9.11。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.9.12。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -248,6 +248,7 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 - `cli_execute`：执行一条完整的交互式 CLI 命令。Agent 必须传入包含原始空格的完整目标命令，宿主锁定该会话的输入，在同一事务内读取真实光标行并按字节只发送缺失后缀。例如目标是 `show system general`：当前输入为 `show` 时发送 ` system general`，当前输入为 `show ` 时发送 `system general`，当前输入为 `show system` 时发送 ` general`；前缀不兼容时不会发送。随后等待提示符、交互、静默兜底或超时，并返回本次命令的输出增量和完成原因。
 - `cli_execute_batch`：把 1-8 条互不依赖、无需根据前一条结果改写的已知命令串行执行在一次工具调用中；遇到交互或超时立即停止。
 - `terminal_send`：低层交互输入。`raw` 只用于确认、分页键、控制键或已经运行的 REPL；完整命令优先使用 `cli_execute`。
+- `terminal_edit`：在读取 `terminal_context` 后，使用精确的 `cursor_line_before_cursor` 快照保护当前输入行，可执行退格、删除、光标移动、清行或替换当前输入。替换会先执行兼容 readline 的“回到行首并删除到行尾”，再写入清洗后的文本；快照变化时宿主拒绝操作，避免误删用户后来输入的命令。
 - `remote_exec`：通过独立 SSH exec channel 运行结构化命令；可传入 `session_id` 指定目标会话。
 - `host_facts`：读取系统、CPU、内存、磁盘和网络等主机事实。
 - `list_directory`：列出本地或远程目录。
@@ -268,6 +269,8 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 结构化命令会分别记录 stdout 和 stderr，并保存退出码、信号、超时、取消或连接断开状态。大输出使用受限 artifact 和首尾预览，防止界面与模型上下文无限增长。
 
 对于会自动补齐输入的交换机、存储或业务 CLI，Agent 把完整目标命令交给 `cli_execute`。如果终端已经显示 `show system`，目标命令为 `show system general`，宿主只发送 ` general` 和回车；如果现场是另一条不相容的命令，工具会原样返回当前光标行并停止写入，不会猜测、清行或继续拼接。命令完成判定优先使用真实提示符或交互提示，无法识别特定设备提示符时才使用有活动前提的静默兜底，最后由超时终止。
+
+完整 CLI 命令会先清除实际控制字节、ANSI 转义序列以及常见的 `\\003`、`\\033`、`\\u0003` 表示，返回结果中的 `cleanedControlCount` 记录清理数量；`terminal_send(input_mode=raw)` 不做这一步，以保留明确的 Ctrl+C、分页键和 REPL 控制输入。
 
 当多条 CLI 命令已经确定且互不依赖时，Agent 使用 `cli_execute_batch` 一次提交，减少“模型请求一次、只发一小段命令、再请求一次”的往返。后一条命令需要根据前一条输出决定时不得批处理，以免把错误扩散到后续操作。时间线末尾会显示本轮模型请求数、工具调用数和 Token 用量，便于识别低效循环。
 
