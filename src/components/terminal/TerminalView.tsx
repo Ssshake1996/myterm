@@ -376,6 +376,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
   const [searchValue, setSearchValue] = useState("");
   const [contextMenu, setContextMenu] = useState<TerminalContextMenu | null>(null);
   const [autoWrap, setAutoWrap] = useState(true);
+  const [showBottomJump, setShowBottomJump] = useState(false);
   autoWrapRef.current = autoWrap;
 
   const syncTerminalScreen = useCallback(() => {
@@ -394,6 +395,22 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       syncTerminalScreen();
     }, 40);
   }, [syncTerminalScreen]);
+
+  const updateTerminalScrollState = useCallback((position: number, terminal: Terminal) => {
+    const baseY = terminal.buffer.active.baseY;
+    const atBottom = position >= baseY;
+    followBottomRef.current = atBottom;
+    setShowBottomJump(!atBottom && baseY > 0);
+  }, []);
+
+  const scrollTerminalToBottom = useCallback(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    followBottomRef.current = true;
+    setShowBottomJump(false);
+    terminal.scrollToBottom();
+    scheduleTerminalScreenSync();
+  }, [scheduleTerminalScreenSync]);
 
   const connect = useCallback(async () => {
     const terminal = terminalRef.current;
@@ -470,14 +487,23 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
     fit.fit();
 
     const scroll = terminal.onScroll((position) => {
-      followBottomRef.current = position >= terminal.buffer.active.baseY;
+      updateTerminalScrollState(position, terminal);
       scheduleTerminalScreenSync();
     });
     const parsed = terminal.onWriteParsed(() => {
-      if (followBottomRef.current) terminal.scrollToBottom();
+      if (followBottomRef.current) {
+        terminal.scrollToBottom();
+        setShowBottomJump(false);
+      }
+      scheduleTerminalScreenSync();
     });
 
     const input = terminal.onData((data) => {
+      // A command typed at the prompt always belongs to the live bottom of
+      // the shell. Return the viewport there before forwarding the bytes.
+      followBottomRef.current = true;
+      setShowBottomJump(false);
+      terminal.scrollToBottom();
       markTerminalInput(
         terminal,
         themeRef.current,
@@ -500,6 +526,9 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
         renderStateRef.current,
         detail.dataUtf8,
       );
+      followBottomRef.current = true;
+      setShowBottomJump(false);
+      terminal.scrollToBottom();
       scheduleTerminalScreenSync();
     };
     window.addEventListener("myterm:terminal-input", handleTerminalInput);
@@ -551,7 +580,7 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       terminal.dispose();
       terminalRef.current = null;
     };
-  }, [connect, notify, scheduleTerminalScreenSync]);
+  }, [connect, notify, scheduleTerminalScreenSync, updateTerminalScrollState]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
@@ -562,6 +591,9 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
       return;
     }
     setTerminalWrapMode(terminal, autoWrap);
+    fitRef.current?.fit();
+    const sessionId = sessionRef.current;
+    if (sessionId) void terminalResize(sessionId, terminal.cols, terminal.rows);
     if (followBottomRef.current) terminal.scrollToBottom();
   }, [autoWrap]);
 
@@ -620,6 +652,17 @@ export function TerminalView({ pane, profile }: TerminalViewProps) {
         ref={hostRef}
         role="application"
       />
+      {showBottomJump ? (
+        <button
+          aria-label="滚动到终端底部"
+          className="terminal-bottom-jump"
+          onClick={scrollTerminalToBottom}
+          title="滚动到终端底部"
+          type="button"
+        >
+          ↓ 底部
+        </button>
+      ) : null}
       {contextMenu
         ? createPortal(
             <div

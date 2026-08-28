@@ -843,7 +843,11 @@ button:disabled {
 
 .workspace-stack {
   position: relative;
-  flex: 1;
+  flex: 1 1 0%;
+  overflow: hidden;
+  background: var(--surface-panel-alt);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
 }
 
 /* Keep the empty workspace in the same flex slot as an active workspace.
@@ -861,6 +865,7 @@ button:disabled {
   inset: 0;
   display: none;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .workspace-tab.is-visible {
@@ -874,8 +879,9 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   padding: 0 9px 0 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-strong);
   background: var(--surface-hover);
+  box-shadow: 0 1px 0 var(--border-soft);
 }
 
 .connection-identity {
@@ -962,10 +968,13 @@ button:disabled {
   display: flex;
   flex-direction: column;
   border-top: 1px solid transparent;
+  overflow: hidden;
+  background: var(--terminal);
 }
 
 .terminal-pane.is-active {
   border-top-color: var(--green-border);
+  box-shadow: inset 0 1px 0 var(--green-ring);
 }
 
 .pane-caption {
@@ -1029,6 +1038,8 @@ button:disabled {
   position: relative;
   flex: 1;
   background: var(--terminal);
+  overflow: hidden;
+  border-top: 1px solid var(--border-soft);
 }
 
 .terminal-host {
@@ -1037,8 +1048,10 @@ button:disabled {
   /* xterm's mouse grid is calculated in unzoomed CSS pixels. Counter the
      application zoom here so drag selection follows the pointer accurately. */
   zoom: var(--ui-zoom-inverse);
-  width: calc(100% * var(--ui-zoom));
-  height: calc(100% * var(--ui-zoom));
+  /* Let inset determine the actual box. The previous width/height multiplier
+     made the host exceed its flex slot under UI zoom and clipped the last rows. */
+  width: auto;
+  height: auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -1057,7 +1070,7 @@ button:disabled {
   min-height: 0;
   overflow-y: scroll !important;
   overflow-x: hidden;
-  padding-bottom: 14px;
+  padding-bottom: 18px;
   scrollbar-gutter: stable;
   scrollbar-color: var(--terminal-scroll-thumb) var(--terminal-scroll-track);
 }
@@ -1067,12 +1080,25 @@ button:disabled {
   scrollbar-gutter: stable both-edges;
 }
 
+.terminal-host.terminal-wrap-disabled .xterm,
+.terminal-host.terminal-wrap-disabled .xterm-scrollable-element {
+  width: 100% !important;
+  min-width: 100% !important;
+}
+
 .terminal-host.terminal-wrap-disabled .xterm-screen {
-  min-width: max-content;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: none;
 }
 
 .terminal-host .xterm-viewport::-webkit-scrollbar {
   width: 12px;
+  height: 12px;
+}
+
+.terminal-host.terminal-wrap-disabled .xterm-viewport::-webkit-scrollbar:horizontal {
+  height: 12px;
 }
 
 .terminal-host .xterm-viewport::-webkit-scrollbar-track {
@@ -1127,6 +1153,28 @@ button:disabled {
   background: var(--surface-control-active);
   border-radius: 4px;
   box-shadow: 0 8px 20px var(--shadow);
+}
+
+.terminal-bottom-jump {
+  position: absolute;
+  z-index: 6;
+  right: 22px;
+  bottom: 16px;
+  min-width: 66px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--green-border);
+  border-radius: 13px;
+  background: var(--green-surface-strong);
+  box-shadow: 0 4px 12px var(--shadow);
+  color: var(--green-strong);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.terminal-bottom-jump:hover {
+  border-color: var(--green-strong);
+  background: var(--green-surface);
 }
 
 .terminal-context-menu {
@@ -1292,8 +1340,9 @@ button:disabled {
   flex: 0 0 var(--quick-panel-height);
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-strong);
   background: var(--surface-low);
+  box-shadow: inset 0 1px 0 var(--border-soft);
 }
 
 .quick-command-panel.is-collapsed {
@@ -1795,7 +1844,8 @@ button:disabled {
   display: flex;
   flex-direction: column;
   background: var(--surface-panel-alt);
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: inset 1px 0 0 var(--border-soft);
 }
 
 .ai-resizer {
