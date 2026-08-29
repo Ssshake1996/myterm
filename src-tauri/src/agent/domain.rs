@@ -14,6 +14,131 @@ pub enum AgentTaskState {
     Canceled,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentGoalStatus {
+    Active,
+    Paused,
+    WaitingApproval,
+    WaitingExternal,
+    Blocked,
+    BudgetLimited,
+    UsageLimited,
+    Completed,
+    Failed,
+    Canceled,
+}
+
+impl AgentGoalStatus {
+    pub fn is_terminal(self) -> bool {
+        matches!(self, Self::Completed | Self::Failed | Self::Canceled)
+    }
+
+    pub fn can_transition_to(self, next: Self) -> bool {
+        if self == next {
+            return true;
+        }
+        if self.is_terminal() {
+            return false;
+        }
+        match next {
+            Self::Active => matches!(
+                self,
+                Self::Paused
+                    | Self::WaitingApproval
+                    | Self::WaitingExternal
+                    | Self::Blocked
+                    | Self::BudgetLimited
+                    | Self::UsageLimited
+            ),
+            Self::Paused
+            | Self::WaitingApproval
+            | Self::WaitingExternal
+            | Self::Blocked
+            | Self::BudgetLimited
+            | Self::UsageLimited
+            | Self::Completed
+            | Self::Failed
+            | Self::Canceled => true,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Paused => "paused",
+            Self::WaitingApproval => "waiting_approval",
+            Self::WaitingExternal => "waiting_external",
+            Self::Blocked => "blocked",
+            Self::BudgetLimited => "budget_limited",
+            Self::UsageLimited => "usage_limited",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Canceled => "canceled",
+        }
+    }
+}
+
+impl TryFrom<&str> for AgentGoalStatus {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "active" => Ok(Self::Active),
+            "paused" => Ok(Self::Paused),
+            "waiting_approval" => Ok(Self::WaitingApproval),
+            "waiting_external" => Ok(Self::WaitingExternal),
+            "blocked" => Ok(Self::Blocked),
+            "budget_limited" => Ok(Self::BudgetLimited),
+            "usage_limited" => Ok(Self::UsageLimited),
+            "completed" => Ok(Self::Completed),
+            "failed" => Ok(Self::Failed),
+            "canceled" => Ok(Self::Canceled),
+            _ => Err(format!("unknown goal status '{value}'")),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentGoal {
+    pub id: String,
+    pub conversation_id: String,
+    pub objective: String,
+    pub status: AgentGoalStatus,
+    pub token_budget: Option<u64>,
+    pub tokens_used: u64,
+    pub continuation_count: u32,
+    pub current_turn_id: Option<String>,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub completed_at_ms: Option<i64>,
+    pub last_checkpoint: Option<Value>,
+    pub last_error: Option<String>,
+    pub blocked_reason: Option<String>,
+    pub no_progress_count: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentInputMode {
+    Steer,
+    Queue,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentQueuedInput {
+    pub id: String,
+    pub conversation_id: String,
+    pub goal_id: Option<String>,
+    pub content: String,
+    pub mode: AgentInputMode,
+    pub state: String,
+    pub created_at_ms: i64,
+    pub consumed_at_ms: Option<i64>,
+}
+
 impl AgentTaskState {
     pub fn is_terminal(self) -> bool {
         matches!(self, Self::Succeeded | Self::Failed | Self::Canceled)
@@ -81,7 +206,9 @@ pub struct AgentConversation {
 pub struct AgentTask {
     pub id: String,
     pub conversation_id: String,
+    pub goal_id: Option<String>,
     pub turn_index: u32,
+    pub continuation_index: u32,
     pub profile_id: String,
     pub session_id: Option<String>,
     pub prompt: String,
@@ -127,6 +254,8 @@ pub struct ApprovalRequest {
 pub struct ExecutionJob {
     pub id: String,
     pub task_id: String,
+    pub goal_id: Option<String>,
+    pub conversation_id: Option<String>,
     pub tool_call_id: String,
     pub state: String,
     pub exit_code: Option<i32>,
@@ -159,7 +288,7 @@ pub fn now_ms() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::AgentTaskState;
+    use super::{AgentGoalStatus, AgentTaskState};
 
     #[test]
     fn state_machine_allows_only_forward_non_terminal_transitions() {
@@ -171,4 +300,26 @@ mod tests {
         assert!(!AgentTaskState::Succeeded.can_transition_to(AgentTaskState::Running));
         assert!(!AgentTaskState::Failed.can_transition_to(AgentTaskState::Canceled));
     }
+
+    #[test]
+    fn goal_state_machine_supports_pause_resume_and_terminal_guards() {
+        assert!(AgentGoalStatus::Active.can_transition_to(AgentGoalStatus::Paused));
+        assert!(AgentGoalStatus::Paused.can_transition_to(AgentGoalStatus::Active));
+        assert!(AgentGoalStatus::WaitingExternal.can_transition_to(AgentGoalStatus::Active));
+        assert!(AgentGoalStatus::Active.can_transition_to(AgentGoalStatus::Completed));
+        assert!(!AgentGoalStatus::Completed.can_transition_to(AgentGoalStatus::Active));
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEvidence {
+    pub id: String,
+    pub goal_id: String,
+    pub conversation_id: String,
+    pub task_id: String,
+    pub capability_id: String,
+    pub artifact_path: String,
+    pub bytes: u64,
+    pub created_at_ms: i64,
 }

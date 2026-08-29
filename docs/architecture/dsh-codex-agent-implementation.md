@@ -1,186 +1,133 @@
-# dsh-codex-agent 第一版实现说明
+# dsh-codex-agent 0.11.0 实现说明
 
-> v0.9.1 起，该运行时已嵌入 myterm 桌面端并作为唯一内置 Agent；本文早期的独立 Harness 包边界仍适用于插件包，但桌面端不再保留第二套 Agent Loop。
+> 更新日期：2026-08-29。桌面端只保留一套 Agent Loop：精简 Codex Core 负责 Thread/Turn、模型工具循环、上下文和 Subagent Graph；myterm 宿主负责 Goal、权限、SSH、Skill、MCP、后台 Job、审计与 UI 投影。
 
-- 完成日期：2026-08-26
-- DeepSeek Harness 审计基线：`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`
-- Codex 审计基线：`2764e83626efe55f64e04d153fc99a157327f3c2`
+## 1. 设计目标与取舍
 
-## 1. 修改文件清单
+本版本采用“精简 Core + 轻量 Goal 控制面”，不接入完整 codex app-server。
 
-| 分组 | 文件 |
-| --- | --- |
-| 根构建与审计 | `.gitignore`、`package.json`、`vite.config.ts`、`scripts/audit-codex-network.ts` |
-| 审计与说明 | `docs/architecture/codex-harness-audit.md`、`docs/architecture/codex-network-audit.md`、本文件 |
-| Harness 插件 | `integrations/dsh-codex-agent/src/agent.ts`、`index.ts`、`native.ts`、`projection.ts`、`policy.ts`、`mcp-http.ts`、`web-search-http.ts`、`types.ts` |
-| 裁剪 Core | `native/src/lib.rs`、`runtime.rs`、`store.rs`、`types.rs`、`error.rs`、`model_transport.rs`、`chat_completions_transport.rs`、`chat_completions_sse.rs` |
-| 构建配置 | 插件 `package.json`/Lockfile、`cordis.patch.yml`、`README.md`、Cargo manifest/Lockfile、N-API `build.rs`、TypeScript/Biome/Vitest 配置 |
-| 测试 | `tests/apply.spec.ts`、`tests/native.spec.ts` 和各 Rust 模块内单元/集成测试 |
+| 方案 | 优点 | 缺点 | 结论 |
+|---|---|---|---|
+| 只保留固定 Step 的单 Turn | 实现最小 | 64 Step 会把可继续任务误判失败；等待外部结果和重启恢复割裂 | 不采用 |
+| 精简 Core 上增加 Goal 控制面 | 复用现有 Core；普通输入自动获得长任务能力；体积和依赖可控 | 宿主需维护 Goal/Turn 映射和恢复不变量 | 采用 |
+| 完整 codex-core/app-server | 上游能力最完整 | 依赖、协议、网络出口和未使用功能显著增加，偏离轻量桌面目标 | 排除 |
 
-生成目录 `lib/`、`native-dist/` 和 `native/target/` 不提交；发布时由构建流程生成。
+用户不需要输入 `/goal`，也不需要判断长短任务。每个普通输入自动创建或复用 Goal；短任务在一个 Turn 完成，长任务透明续跑。
 
-## 2. 插件架构和生命周期
+## 2. 状态所有权
 
-插件由一个 Harness 函数插件和一个同进程 N-API Rust 模块组成：
+| 状态 | 唯一所有者 | 关键不变量 |
+|---|---|---|
+| Goal、输入队列、Job、Evidence、Goal Skill | myterm AgentService/AgentStore | 一个 Conversation 同时最多一个非终态 Goal |
+| Thread/Turn、消息、工具调用顺序、Checkpoint、Subagent Graph | dsh-codex-core | 宿主不能重排 Core 工具调用或维护第二份模型历史 |
+| AI Profile、模型路由、凭据引用 | Config/AiService | API Key 只从系统凭据库解析，不进入 JSON、事件和 artifact |
+| SSH/SFTP/文件、权限、审批、Hooks | myterm 宿主 | 所有效果工具共用策略、取消、输出限制、锁和审计 |
+| MCP Transport、连接池、目录与原始结果 | CapabilityProvider/McpManager | Core 不依赖 MCP SDK、stdio 进程或 HTTP 会话类型 |
+| Agent 时间线 | 持久 Event 投影 | 先持久化再发送 UI；UI 断开不丢事实 |
 
-```text
-Harness UI / HTTP
-       |
-唯一 AgentFactory (TypeScript)
-       |
-N-API：事件投影 / 单次工具 Provider 回调
-       |
-Trimmed Codex Core (Rust)
-  Loop + Thread/Turn + Compaction + Multi-Agent + SQLite Store
-```
+## 3. 自动 Goal 与长任务续跑
 
-启动时先验证固定模型地址、阈值和 Secret 环境变量，再打开 SQLite、连接显式外部
-Provider，最后注册唯一 `AgentFactory`。创建 Agent 时先创建/恢复 Core Thread，再发布
-Harness Session 投影；失败会回滚未发布 Thread。
+Goal 状态包括 `active`、`paused`、`waiting_approval`、`waiting_external`、`blocked`、`completed`、`failed` 和 `canceled`。
 
-卸载时按固定顺序停止接收新 Agent、取消并排空 Root/Subagent 和工具回调、关闭 Native
-Store、注销 Web Search、最后关闭 MCP。测试已锁定该顺序，避免 MCP 先断开而活动 Turn
-仍在等待工具结果。
+Core 仍保留单 Turn 默认 64 Step 的安全让出边界，但达到边界返回 `continuation_required`，不是 `maximum step count` 错误。宿主按以下顺序处理：
 
-## 3. 状态所有权
+1. 提交当前 Turn 的工具结果、Token 用量和 Checkpoint。
+2. 将 Turn 标记成功让出，不改变 Goal 为失败。
+3. 若没有暂停、取消、审批或外部等待，自动创建下一 Turn。
+4. 新 Turn 从同一 Thread 的持久历史与最新 Goal checkpoint 继续，不重做已验证步骤。
 
-| 状态 | 唯一所有者 | Harness 行为 |
-| --- | --- | --- |
-| Agent Loop、Thread/Turn、模型历史 | Codex Core | 创建/销毁包装器，只接收投影 |
-| 自动压缩与 Token 预算 | Codex Core | 展示重试、成功、失败事件 |
-| Tool Call 顺序与状态 | Codex Core | 按 Core 的单次请求执行 Provider，不重排、不驱动下一步 |
-| Root/Subagent、Agent Graph | Codex Core | 只展示 Graph/状态投影 |
-| Thread/Graph/Compaction/Audit Store | Codex Core SQLite | 不以 Harness Session 恢复模型历史 |
-| Tool Provider、审批、Sandbox | Harness | 返回规范 Tool Result |
-| 外部 MCP/Web Search 连接 | Harness 插件层 | 仅显式 URL/工具白名单 |
+默认 Goal 没有隐藏 Token 总预算。循环保护依靠重复工具签名、无进展 checkpoint、策略错误和明确取消，不用固定总 Step 数替代进展判断。
 
-集成测试确认 `Session.deriveMessages()` 始终为空；Core Thread Store 是模型请求的唯一历史
-来源。完整审计矩阵见 `codex-harness-audit.md`。
+运行中输入提供两种明确语义：
 
-## 4. Chat Completions Adapter
+- `steer`：持久化后在最近的模型决策边界注入当前 Turn。
+- `queue`：当前 Turn 结束后作为下一条输入继续同一 Goal。
 
-Rust Core 直接构造 `POST /chat/completions`，不使用 Responses API、response ID、登录或
-远程会话状态。Adapter 支持：
+后台 Job 完成后使用事件驱动 `Notify` 唤醒等待中的 Goal。回调先注册通知再检查活动状态，避免完成事件与 Turn 收尾之间的丢唤醒竞态；没有固定 30 秒轮询和任意任务级超时。
 
-- SSE 分片、CRLF、多行 data 和无尾空行；
-- 文本增量、多个 `tool_calls`、参数增量、Call ID 和稳定 index 顺序；
-- `finish_reason`、usage、多轮 Assistant/Tool Result 消息；
-- 空响应、畸形 SSE、HTTP 状态/原始响应体和分阶段超时；
-- `rustls-tls-native-roots`，加载系统证书库以适应内网 CA。
+## 4. 澄清、暂停与恢复
 
-API Key 只作为 N-API 构造器的独立内存参数进入 Bearer Header，不属于 JSON 配置。SQLite
-二进制扫描测试确认测试 Secret 不落盘。
+系统 Prompt 要求先做安全只读发现。只有目标、范围、预期结果或安全边界仍存在会改变执行路径的实质歧义时，模型才调用 `goal_update(status=waiting_approval)`，并写入准确的未决问题。允许多轮澄清；用户回答后重新激活同一 Goal。
 
-## 5. 自动压缩失败行为
+应用重启时：
 
-达到阈值后，Core 使用同一内网 Chat Completions Provider 发送无工具定义的严格摘要
-请求。响应必须是无额外字段且摘要非空的 `{"summary":"..."}`。
+- 运行中 Job 标记 `lost`，等待中的审批拒绝；
+- 被中断的 Turn 标记失败，但非终态 Goal 只暂停；
+- Conversation、Goal、队列、Evidence 和 Skill 继续可读，用户恢复后从 checkpoint 继续。
 
-失败策略已按最新要求实现：
+应用退出会中止活动 Turn、取消 Job、拒绝审批、释放 Core Runtime 并关闭 MCP 连接。Runtime 按 Conversation/Provider 指纹缓存，默认最多 12 个、空闲 30 分钟；最多 4 个 Conversation 并发，活动 Runtime 不参与空闲/LRU 淘汰，必要时允许暂时超过缓存上限。
 
-1. 首次请求失败；
-2. 最多重试 3 次，总计最多 4 次；
-3. 退避为 100ms、250ms、500ms；
-4. 每次失败只写本地重试审计，不写摘要、边界或 revision；
-5. 任一次成功后，摘要、Thread revision、Subagent Graph revision 和本地审计在一个
-   SQLite 事务提交；
-6. 四次全部失败，投影结构化 `CompactionFailed`，终止当前 Turn，不发普通模型请求，
-   不截断历史，不 fallback，不写半成品。
+## 5. 上下文与原始证据
 
-测试覆盖全失败、第三次重试后恢复、空摘要、非严格 JSON、无工具压缩请求、失败后历史
-不变，以及 Subagent 压缩失败向 Root 传播。
+上下文选择完全自适应，前端不提供协议、上下文窗口或压缩阈值开关：
 
-## 6. 多 Agent 和 Agent Graph
+- 优先使用 Responses 增量上下文；明确不支持时按 Provider 配置指纹持久回退 Chat Completions。
+- 瞬时错误不写成永久不支持；Base URL、模型或认证变化会生成新指纹重新探测。
+- 本地 Checkpoint v2 只输入上一 checkpoint 与新增 tail，同一活动模型完成压缩。
+- 压缩初次失败后最多重试 3 次；全部失败只终止当前 Turn，原历史不截断、不提交半成品。
 
-Core 内置 `spawn_agent`、`wait_agent`、`cancel_agent`。每个 Subagent 创建独立持久 Thread，
-继承同一个 Provider 和 Harness Tool Provider 集合，由本地 Tokio Task 调度。Root 可以
-并发创建多个 Subagent、带超时等待、取消并汇总结果。
+超过 8 KiB 的工具结果写入不可变 artifact，并保存字节数与 SHA-256。模型上下文只接收 Result Capsule；`result_read` 可按查询或 UTF-8 安全范围读取原文。MCP 原始返回以 Goal Evidence 保存，可跨 Turn 用 `evidence_read` 分页，但不能跨 Goal 引用。
 
-Thread、Graph edge、状态、结果、结构化错误和压缩 revision 均写入同一个 SQLite。
-重启后可恢复关系与状态。测试证明两个子 Agent 同时进入运行态、等待超时不破坏任务、
-失败可传播、Graph 可重开恢复，销毁后活动子任务计数归零。
+## 6. 多 Provider 路由与可靠性
 
-## 7. 外部 MCP 白名单策略
+一个 AI Profile 可定义主、分析、备用模型；每个模型路由可以引用另一份已保存 Provider Profile，从而组合不同 Base URL、认证方式和系统凭据。删除仍被路由引用的 Provider 会被后端拒绝。
 
-第一版只导入 MCP Client 的 Streamable HTTP Transport：
+路由按角色和启用状态选择，失败可跨模型、跨 Provider 回退。每条路由独立维护：
 
-- Server URL 必须显式配置且只能是 HTTP(S)，URL 禁止内嵌用户名/密码；
-- 每个 Server 必须列出非空工具白名单，禁止 `*`；
-- 只注册 Server 实际声明且在白名单内的工具；名称归一化冲突会拒绝启动；
-- Header 值只能从环境变量读取；
-- 禁止 stdio、本地 Server、Registry/插件发现、未知地址连接和自动重连；
-- 审计只记录工具名、固定目标、参数摘要、结果状态，不记录 Header/Secret。
+- 瞬时请求最多 3 次总尝试，退避 400ms、1000ms；
+- 已经产生流式增量后不自动重放，避免重复文本或工具调用；
+- 连续 3 次终态瞬时失败后熔断 30 秒；
+- 结构化日志保留路由、阶段、错误码和原始诊断，只脱敏凭据。
 
-测试包含拒绝未配置工具、白名单执行，以及真实本地 Streamable HTTP MCP Server 的连接、
-Header 注入、工具过滤和调用。
+Core 配置同时接受新的 `turnStepBudget` 和旧 `maxSteps` 字段；这是插件边界兼容，不是用户可见的 Goal 总上限。
 
-### 7.1 Agent 系统 Prompt 与运行时能力目录
+## 7. CapabilityProvider 与 MCP
 
-桌面端 dsh-codex-agent 使用独立的 `DEFAULT_AGENT_SYSTEM_PROMPT`，不复用普通 AI 对话的
-默认提示词。Prompt 由四层按固定顺序组成：
+MCP 统一实现为 Transport 无关 `CapabilityProvider`：
 
-1. 内置 Agent 核心契约：证据、工具循环、长输出分页、目标会话、权限、Skill/MCP 边界和错误事实；
-2. AI Profile 的附加指令：只在不冲突时生效，不能替换核心契约；
-3. 已启用 Skill 的任务上下文：作为指导文本加载，不能提升权限；
-4. 任务级 MCP 能力目录：由实际连接并列出的工具动态生成。
+- Transport：`stdio` 与 `streamable-http`。
+- 能力：Tools、Resources、Prompts、进度事件和诊断。
+- 连接池：配置指纹复用，目录缓存 5 分钟、空闲 30 分钟、上限 16。
+- 恢复：发现/list/read 操作断线后重连一次；工具调用失败不自动重放，以免重复副作用，但清除故障连接供下一次显式调用重连。
+- 安全：输入和 `structuredContent` 按服务端 Schema 校验；HTTP Header 名校验；Secret 不进入参数摘要。
+- 证据：规范化 `structuredContent`、合并 `textContent`、`isError`、原始 JSON 和 Evidence 引用。
 
-MCP 工具的稳定 Capability ID、名称、标题、描述、Input/Output Schema、annotations、Provider
-和 Transport 由桌面宿主发现并注册；系统 Prompt 只说明如何信任和使用动态目录，不硬编码某个
-厂商或服务器。小目录可直接形成 Tool Definitions；大目录按任务相关度和 Schema 字节预算选择，
-并始终提供 `capability_search`、`capability_invoke` 和 `capability_invoke_batch`。调用原始结果进入
-任务 Evidence Ledger，长内容由 `evidence_read` 分段读取。没有发现能力时，Prompt 明确要求 Agent
-不得猜测；Resources/Prompts 未进入当前注册目录时也不得假设它们存在。
+每次调用结束、错误或超时都会清除该次 progress sink，避免池化客户端把旧回调泄漏到后续 Goal。模型只能使用实际发现的能力；空目录不得猜测工具、Resource 或 Prompt。
 
-## 8. 删除或不编译的模块
+## 8. Skill 与多 SSH
 
-目标生产依赖图没有链接完整 `codex-core`，因此以下能力没有进入裁剪 crate：
+Skill 从本地目录发现 `SKILL.md`，支持常见 hyphenated 元数据和 YAML block list。宿主执行 `model-invocable`、platform、allowed-tools、信任和风险校验；已激活 Skill 按 Goal 持久化，每个 Turn 恢复完整正文（单个上限 128 KiB），不能绕过权限策略。
 
-- analytics、OTEL、diagnostics、feedback、response-debug-context；
-- OpenAI/ChatGPT 登录、keyring、backend/cloud config、Cloud Tasks；
-- Remote Control/Models/Plugin、Code Mode、external-agent migration；
-- remote compaction、git-utils、shell escalation、exec server、unified exec；
-- updater、远程模型列表、插件发现/分享；
-- Browser/Computer Use、Realtime、Image Generation、Responses WebSocket。
+活动 SSH 只是候选目标。通用问答、MCP、Skill 和历史不自动读取终端；用户明确说当前终端时使用 `use_active_session=true`，命名服务器先 `session_catalog`/`session_connect`，后续工具必须携带 `session_id`。
 
-Harness profile 同时禁用其 Agent Loop、Compaction、Subagent/Workflow、Telemetry、Credential
-Store、默认模型、默认 DeepSeek Web Search 和 Code Runtime row。保留的 File/Search/Patch/
-Shell/Exec Policy/Sandbox/Process Hardening/Skill 工具由 Harness Provider 提供，Core 只拥有
-调用顺序。
+同一 Session 的状态变更通过独立操作锁串行，不同 Session 可并发。`session_wait_until` 在目标 B 上有界轮询静态只读命令，支持精确条件、进度、取消和 4 MiB 捕获上限，用一次工具调用表达“A 完成后观察 B”，减少短小模型请求。
 
-## 9. 测试结果
+交互 CLI 使用完整目标命令。宿主在一个事务中读取真实 xterm 光标行，只发送缺失后缀；冲突时零写入。`terminal_edit` 通过预期光标行守卫支持删除、移动和替换错误输入。
 
-| 验证 | 结果 |
-| --- | --- |
-| Rust 单元/集成测试 | 20 passed |
-| TypeScript/Harness/N-API 集成测试 | 9 passed |
-| Rust debug/release 编译 | 通过；仅 MSVC linker 生成 import library 的提示 |
-| Harness 插件 TypeScript build/typecheck | 通过 |
-| Biome lint + `cargo fmt --check` | 通过 |
-| NPM 发布内容 dry-run | 通过；只含生产 JS/声明、profile、README 和 Windows native binary |
-| 静态网络审计 | PASS，3 个允许出口，0 个未知出口 |
-| myterm 前端回归 | 44 passed；生产前端 build 通过 |
+## 9. 会话删除与资源清理
 
-关键测试包括真实本地 Chat Completions SSE、真实 Streamable HTTP MCP、固定 Web Search
-HTTP、API Key 不落盘、Thread/Session 唯一历史、Graph 恢复、多 Agent 并发/超时/失败/
-销毁，以及压缩四次失败终止 Turn。
+删除 Conversation 前检查活动 Turn 和 `running/canceling` Job。允许删除时：
 
-## 10. 静态网络审计结果
+1. 递归解析并删除 Root/Subagent Thread 树；
+2. 删除 Core audit、工具结果索引和原始 artifact；
+3. 释放缓存 Runtime；
+4. 清理 Goal/Task Evidence 目录和宿主数据库记录。
 
-允许出口只有：内网 Chat Completions、显式 HTTP MCP、显式 Web Search。源码、生产直接
-依赖、Cargo Lockfile、构建 JS 和 Windows N-API 二进制扫描为 0 finding。详细调用点、
-禁用 Harness row 和扫描规则见 `codex-network-audit.md`。
+所有 artifact key 必须通过安全字符校验，清理失败记录准确 warning；不会对未解析目录执行递归删除。
 
-## 11. 尚存风险和后续待办
+## 10. 测试与构建门禁
 
-- 当前 Core 是按审计基线抽取并重建的最小兼容切面，不直接依赖完整上游 crate；优点是
-  能证明禁用模块不在依赖图，缺点是上游 Thread/Tool 语义变更需要人工同步审计。
-- 目前发布产物只构建 Windows x64 MSVC。Linux/macOS 需要各自 CI、原生包命名与审计。
-- 固定 URL 白名单没有解析后 CIDR 策略；高安全部署应由出口网关限制，或后续加入 DNS/IP
-  校验。
-- Web Search 采用通用固定 POST 协议，需要企业搜索网关适配返回格式。
-- 外部 MCP 不自动重连；优点是不会产生隐式后台网络，缺点是断线后需要显式重载插件。
-- 仓库原有 Tauri Agent 仍是独立旧实现。接入产品主界面时必须以本插件替换旧 Agent
-  状态所有者，不能把两套 Loop、keyring 模型 Secret 或 stdio MCP 同时启用。
-- 额外执行旧 Tauri `cargo check` 时，当前机器缺少 `NASM`；关闭汇编后又缺少 `cmake`，
-  因而旧应用的 `aws-lc-sys` 构建检查未完成。该依赖不在 `dsh-codex-core` 依赖图中，
-  本插件 Rust debug/release 构建与测试均已通过。
+发布前必须通过：
+
+- myterm 前端 Vitest、TypeScript、Biome 和生产构建；
+- Tauri 宿主 Rust 全量测试、`cargo fmt --check`、`cargo check -j1`；
+- dsh-codex-core Rust 全量测试；
+- Harness N-API 集成测试。
+
+Harness 测试会先重建 `native-dist/*.node` 再运行 TypeScript，禁止用陈旧 N-API 二进制验证新源码。Release 构建固定单线程 Rust，并执行分发审计、35 秒内存/句柄采样、SHA256、提交、标签和 GitHub Release 上传。
+
+## 11. 保持裁剪的边界
+
+本版本仍不引入完整 Codex app-server、Cloud Tasks、ChatGPT 登录、Telemetry、远程插件市场、通用 DAG、自动长期记忆或第二套 Agent Loop。OS 安装仍处于 Skill + Provisioning Provider 方案阶段，高风险写盘不会退化为一条自由文本 shell 命令。
+
+该边界的优点是依赖图、网络出口、内存和维护面可控；缺点是上游 Codex 的 Goal/app-server 新能力需要经过审计后人工同步，而不是自动继承。

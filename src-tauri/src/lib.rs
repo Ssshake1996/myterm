@@ -294,7 +294,7 @@ pub fn run() {
         });
         Ok(())
     });
-    if let Err(error) = builder
+    let app = builder
         .invoke_handler(tauri::generate_handler![
             ipc::app_info,
             ipc::session_connect,
@@ -351,6 +351,11 @@ pub fn run() {
             ipc::agent_conversation_create,
             ipc::agent_conversation_list,
             ipc::agent_conversation_tasks,
+            ipc::agent_goal_get,
+            ipc::agent_input_queue,
+            ipc::agent_goal_pause,
+            ipc::agent_goal_resume,
+            ipc::agent_goal_cancel,
             ipc::agent_conversation_delete,
             ipc::agent_steer,
             ipc::agent_approve,
@@ -362,9 +367,15 @@ pub fn run() {
             ipc::agent_task_delete,
             ipc::local_shell_list,
         ])
-        .run(tauri::generate_context!())
-    {
-        eprintln!("Unable to run myterm: {error}");
+        .build(tauri::generate_context!());
+    match app {
+        Ok(app) => app.run(|handle, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                let agent = handle.state::<AppState>().agent.clone();
+                tauri::async_runtime::block_on(agent.shutdown());
+            }
+        }),
+        Err(error) => eprintln!("Unable to build myterm: {error}"),
     }
 }
 

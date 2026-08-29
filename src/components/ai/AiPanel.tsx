@@ -3,9 +3,12 @@ import {
   Bot,
   CheckCircle2,
   CircleDot,
+  Flag,
   History,
   LoaderCircle,
   MessageSquarePlus,
+  Pause,
+  Play,
   RefreshCw,
   Settings2,
   ShieldCheck,
@@ -15,10 +18,11 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type AgentConversation,
   type AgentEvent,
+  type AgentGoal,
   type AgentSettings as AgentSettingsValue,
   type AiProfile,
   agentAbort,
@@ -27,6 +31,11 @@ import {
   agentConversationDelete,
   agentConversationList,
   agentConversationTasks,
+  agentGoalCancel,
+  agentGoalGet,
+  agentGoalPause,
+  agentGoalResume,
+  agentInputQueue,
   agentJobCancel,
   agentRun,
   agentSettingsGet,
@@ -235,6 +244,25 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
       status: state === "succeeded" ? "success" : "error",
     });
   }
+  if (
+    (event.eventType === "capability_progress" || event.eventType === "session_wait_progress") &&
+    event.callId
+  ) {
+    const detail = asRecord(event.arguments);
+    const progress = typeof detail.progress === "number" ? detail.progress : undefined;
+    const total = typeof detail.total === "number" ? detail.total : undefined;
+    const attempts = typeof detail.attempts === "number" ? detail.attempts : undefined;
+    const suffix =
+      progress !== undefined
+        ? ` (${progress}${total !== undefined ? ` / ${total}` : ""})`
+        : attempts !== undefined
+          ? ` (第 ${attempts} 次检查)`
+          : "";
+    return updateTool(current, event.callId, {
+      result: `${event.message ?? "工具正在运行"}${suffix}`,
+      status: "running",
+    });
+  }
   if (event.eventType === "assistant") {
     return [
       ...current,
@@ -261,7 +289,8 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
     event.eventType === "context_state" ||
     event.eventType === "steering_applied" ||
     event.eventType === "target_connecting" ||
-    event.eventType === "target_connected"
+    event.eventType === "target_connected" ||
+    event.eventType === "skill_restore_warning"
   ) {
     const target = targetLabel(event.arguments);
     return [
@@ -273,7 +302,7 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
         detail: event.eventType === "mcp_error" ? event.content : undefined,
         errorCode: event.errorCode,
         step: event.step,
-        error: event.eventType === "mcp_error",
+        error: event.eventType === "mcp_error" || event.eventType === "skill_restore_warning",
         target,
       },
     ];
@@ -285,7 +314,20 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
       loop_detected: "Codex Core 检测到重复工具调用，任务已停止",
       failed: "任务执行失败",
       stop: "任务完成",
+      continuation_required: "当前 Turn 已完成，正在自动续跑",
+      waiting_approval: "Agent 正在等待用户确认",
+      waiting_external: "Agent 正在等待外部结果",
+      blocked: "Goal 已阻塞，请查看检查点",
+      budget_limited: "Goal 已达到 Token 预算",
+      usage_limited: "Goal 已达到服务额度限制",
     };
+    const nonErrors = [
+      "stop",
+      "aborted",
+      "continuation_required",
+      "waiting_approval",
+      "waiting_external",
+    ];
     return [
       ...current,
       {
@@ -295,7 +337,7 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
         detail: event.isError ? event.content : undefined,
         errorCode: event.errorCode,
         step: event.step,
-        error: !["stop", "aborted"].includes(event.message ?? ""),
+        error: !nonErrors.includes(event.message ?? ""),
       },
     ];
   }
@@ -321,6 +363,61 @@ function updateTool(
   );
 }
 
+const GOAL_STATUS_LABELS: Record<AgentGoal["status"], string> = {
+  active: "执行中",
+  paused: "已暂停",
+  waiting_approval: "等待授权",
+  waiting_external: "等待外部结果",
+  blocked: "需要处理",
+  budget_limited: "预算受限",
+  usage_limited: "额度受限",
+  completed: "已完成",
+  failed: "失败",
+  canceled: "已取消",
+};
+
+function compactTokenCount(value: number) {
+  if (value < 1_000) return String(value);
+  if (value < 1_000_000) return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}k`;
+  return `${(value / 1_000_000).toFixed(1)}m`;
+}
+
+async function loadAllTaskEvents(taskId: string) {
+  const events: AgentEvent[] = [];
+  let afterSequence = 0;
+  for (;;) {
+    const page = await agentTaskEvents(taskId, afterSequence, 1_000);
+    events.push(...page);
+    if (page.length < 1_000) return events;
+    const nextSequence = page.at(-1)?.sequence ?? afterSequence;
+    if (nextSequence <= afterSequence) return events;
+    afterSequence = nextSequence;
+  }
+}
+
+async function loadConversationSnapshot(conversationId: string) {
+  const [conversationTasks, conversationGoal] = await Promise.all([
+    agentConversationTasks(conversationId),
+    agentGoalGet(conversationId),
+  ]);
+  const eventGroups = await Promise.all(
+    conversationTasks.map((task) => loadAllTaskEvents(task.id)),
+  );
+  const trace = conversationTasks.flatMap((task, index) => {
+    const initial: TraceEntry[] = [
+      {
+        id: `task:${task.id}`,
+        kind: "task",
+        content: task.prompt,
+        session: task.sessionId ?? undefined,
+        turnIndex: task.turnIndex,
+      },
+    ];
+    return eventGroups[index].reduce(reduceAgentEvent, initial);
+  });
+  return { goal: conversationGoal, trace };
+}
+
 export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   const activePane = useLayoutStore(getActivePane);
   const notify = useUiStore((state) => state.notify);
@@ -330,9 +427,13 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   const [conversations, setConversations] = useState<AgentConversation[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [goal, setGoal] = useState<AgentGoal | null>(null);
   const [entries, setEntries] = useState<TraceEntry[]>([]);
   const [input, setInput] = useState("");
-  const [running, setRunning] = useState(false);
+  const [runningConversationIds, setRunningConversationIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [runningInputMode, setRunningInputMode] = useState<"steer" | "queue">("steer");
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
   const [width, setWidth] = useState(372);
@@ -341,6 +442,8 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   const panelRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const selectedConversationIdRef = useRef<string | null>(null);
+  const backgroundSnapshotRef = useRef("");
 
   useEffect(() => {
     void Promise.all([aiProfileList(), agentSettingsGet(), agentConversationList()])
@@ -392,44 +495,91 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   const currentProfile = profiles.find((profile) => profile.id === profileId) ?? null;
   const currentConversation =
     conversations.find((conversation) => conversation.id === selectedConversationId) ?? null;
+  const running = runningConversationIds.size > 0;
+  const locallyRunning = selectedConversationId
+    ? runningConversationIds.has(selectedConversationId)
+    : false;
+  const currentConversationRunning = Boolean(
+    selectedConversationId &&
+      (locallyRunning ||
+        (goal?.conversationId === selectedConversationId && goal.status === "active")),
+  );
 
-  const scrollToBottom = () => {
+  useEffect(() => {
+    selectedConversationIdRef.current = selectedConversationId;
+    backgroundSnapshotRef.current = "";
+  }, [selectedConversationId]);
+
+  const scrollToBottom = useCallback(() => {
     window.requestAnimationFrame(() =>
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }),
     );
-  };
+  }, []);
 
-  const onAgentEvent = (event: AgentEvent) => {
-    setEntries((current) => reduceAgentEvent(current, event));
+  useEffect(() => {
+    if (
+      collapsed ||
+      !selectedConversationId ||
+      locallyRunning ||
+      !goal ||
+      !["active", "waiting_external"].includes(goal.status)
+    ) {
+      return;
+    }
+    let disposed = false;
+    let refreshing = false;
+    const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const snapshot = await loadConversationSnapshot(selectedConversationId);
+        if (disposed || selectedConversationIdRef.current !== selectedConversationId) return;
+        const signature = `${snapshot.goal?.updatedAtMs ?? 0}:${snapshot.trace.length}:${snapshot.trace.at(-1)?.id ?? ""}`;
+        if (backgroundSnapshotRef.current !== signature) {
+          backgroundSnapshotRef.current = signature;
+          setGoal(snapshot.goal);
+          setEntries(snapshot.trace);
+          scrollToBottom();
+        }
+      } catch {
+        // The foreground action surfaces errors. Background refresh retries on the next tick.
+      } finally {
+        refreshing = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 1_500);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [collapsed, goal, locallyRunning, scrollToBottom, selectedConversationId]);
+
+  const onAgentEvent = (conversationId: string, event: AgentEvent) => {
+    if (selectedConversationIdRef.current === conversationId) {
+      setEntries((current) => reduceAgentEvent(current, event));
+      scrollToBottom();
+    }
     if (event.eventType === "complete") {
       void agentConversationList()
         .then(setConversations)
         .catch(() => undefined);
+      void agentGoalGet(conversationId)
+        .then((nextGoal) => {
+          if (selectedConversationIdRef.current === conversationId) setGoal(nextGoal);
+        })
+        .catch(() => undefined);
     }
-    scrollToBottom();
   };
 
   const loadConversation = async (conversation: AgentConversation) => {
     try {
-      const conversationTasks = await agentConversationTasks(conversation.id);
-      const eventGroups = await Promise.all(
-        conversationTasks.map((task) => agentTaskEvents(task.id, 0, 1_000)),
-      );
-      const restored = conversationTasks.flatMap((task, index) => {
-        const initial: TraceEntry[] = [
-          {
-            id: `task:${task.id}`,
-            kind: "task",
-            content: task.prompt,
-            session: task.sessionId ?? undefined,
-            turnIndex: task.turnIndex,
-          },
-        ];
-        return eventGroups[index].reduce(reduceAgentEvent, initial);
-      });
-      setEntries(restored);
+      const snapshot = await loadConversationSnapshot(conversation.id);
+      setEntries(snapshot.trace);
       setProfileId(conversation.profileId);
+      selectedConversationIdRef.current = conversation.id;
       setSelectedConversationId(conversation.id);
+      setGoal(snapshot.goal);
       setHistoryOpen(false);
       scrollToBottom();
     } catch (error) {
@@ -444,7 +594,9 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         current.filter((conversation) => conversation.id !== conversationId),
       );
       if (selectedConversationId === conversationId) {
+        selectedConversationIdRef.current = null;
         setSelectedConversationId(null);
+        setGoal(null);
         setEntries([]);
       }
     } catch (error) {
@@ -453,7 +605,6 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   };
 
   const startNewConversation = async () => {
-    if (running) return;
     if (!profileId) {
       setAiSettingsOpen(true);
       return;
@@ -461,7 +612,9 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     try {
       const conversation = await agentConversationCreate(profileId);
       setConversations((current) => [conversation, ...current]);
+      selectedConversationIdRef.current = conversation.id;
       setSelectedConversationId(conversation.id);
+      setGoal(null);
       setEntries([]);
       setInput("");
       setHistoryOpen(false);
@@ -471,19 +624,81 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     }
   };
 
+  const runAgentTask = async (conversationId: string, task: string) => {
+    setRunningConversationIds((current) => new Set(current).add(conversationId));
+    const channel = createChannel<AgentEvent>();
+    channel.onmessage = (event) => onAgentEvent(conversationId, event);
+    try {
+      const result = await agentRun(
+        profileId,
+        conversationId,
+        task,
+        activePane?.sessionId ?? null,
+        channel,
+      );
+      void agentConversationList()
+        .then(setConversations)
+        .catch(() => undefined);
+      void agentGoalGet(conversationId)
+        .then((nextGoal) => {
+          if (selectedConversationIdRef.current === conversationId) setGoal(nextGoal);
+        })
+        .catch(() => undefined);
+      if (result.finishReason === "budget_limited") {
+        notify("Goal 已达到 Token 预算，可调整后继续", "error");
+      } else if (result.finishReason === "loop_detected") {
+        notify("Goal 因连续无进展而暂停，请查看检查点", "error");
+      }
+    } catch (error) {
+      const message = errorMessage(error, "Agent 运行失败：未返回可读的错误信息");
+      if (selectedConversationIdRef.current === conversationId) {
+        setEntries((current) => {
+          const alreadyRendered = current.some(
+            (entry) => entry.kind === "status" && entry.error && entry.detail === message,
+          );
+          if (alreadyRendered) return current;
+          return [
+            ...current,
+            {
+              id: crypto.randomUUID(),
+              kind: "status",
+              content: "Agent 运行失败",
+              detail: message,
+              errorCode: ipcErrorCode(error),
+              error: true,
+            },
+          ];
+        });
+      }
+      notify(message, "error");
+    } finally {
+      setRunningConversationIds((current) => {
+        const next = new Set(current);
+        next.delete(conversationId);
+        return next;
+      });
+      scrollToBottom();
+    }
+  };
+
   const send = async () => {
     const task = input.trim();
     if (!task || !profileId) {
       if (!profileId) setAiSettingsOpen(true);
       return;
     }
-    if (running) {
+    if (currentConversationRunning) {
       if (!selectedConversationId) {
         notify("当前运行任务没有可追加的对话标识", "error");
         return;
       }
       try {
-        await agentSteer(selectedConversationId, task);
+        if (runningInputMode === "queue") {
+          await agentInputQueue(selectedConversationId, task);
+          notify("要求已排队，将在当前 Turn 结束后执行", "success");
+        } else {
+          await agentSteer(selectedConversationId, task);
+        }
         setInput("");
         scrollToBottom();
       } catch (error) {
@@ -496,6 +711,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
       try {
         const conversation = await agentConversationCreate(profileId, task);
         conversationId = conversation.id;
+        selectedConversationIdRef.current = conversation.id;
         setSelectedConversationId(conversation.id);
         setConversations((current) => [conversation, ...current]);
       } catch (error) {
@@ -512,45 +728,38 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
       },
     ]);
     setInput("");
-    setRunning(true);
-    const channel = createChannel<AgentEvent>();
-    channel.onmessage = onAgentEvent;
+    await runAgentTask(conversationId, task);
+  };
+
+  const pauseGoal = async () => {
+    if (!goal) return;
     try {
-      const result = await agentRun(
-        profileId,
-        conversationId,
-        task,
-        activePane?.sessionId ?? null,
-        channel,
-      );
-      setSelectedConversationId(result.conversationId);
-      void agentConversationList()
-        .then(setConversations)
-        .catch(() => undefined);
-      if (result.finishReason === "limit") notify("Codex Core 已达到内部安全边界", "error");
+      setGoal(await agentGoalPause(goal.id));
     } catch (error) {
-      const message = errorMessage(error, "Agent 运行失败：未返回可读的错误信息");
-      setEntries((current) => {
-        const alreadyRendered = current.some(
-          (entry) => entry.kind === "status" && entry.error && entry.detail === message,
-        );
-        if (alreadyRendered) return current;
-        return [
-          ...current,
-          {
-            id: crypto.randomUUID(),
-            kind: "status",
-            content: "Agent 运行失败",
-            detail: message,
-            errorCode: ipcErrorCode(error),
-            error: true,
-          },
-        ];
-      });
-      notify(message, "error");
-    } finally {
-      setRunning(false);
-      scrollToBottom();
+      notify(errorMessage(error, "暂停 Goal 失败：未返回可读的错误信息"), "error");
+    }
+  };
+
+  const resumeGoal = async () => {
+    if (!goal || currentConversationRunning) return;
+    try {
+      const resumed = await agentGoalResume(goal.id);
+      setGoal(resumed);
+      await runAgentTask(
+        resumed.conversationId,
+        "继续执行当前 Goal。请从最近检查点恢复，先核对已完成工作与现有证据，再完成所有剩余事项。",
+      );
+    } catch (error) {
+      notify(errorMessage(error, "恢复 Goal 失败：未返回可读的错误信息"), "error");
+    }
+  };
+
+  const cancelGoal = async () => {
+    if (!goal) return;
+    try {
+      setGoal(await agentGoalCancel(goal.id));
+    } catch (error) {
+      notify(errorMessage(error, "取消 Goal 失败：未返回可读的错误信息"), "error");
     }
   };
 
@@ -672,9 +881,8 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
           <button
             aria-label="新建对话"
             className="new-conversation-button"
-            disabled={running}
             onClick={() => void startNewConversation()}
-            title={running ? "任务运行中，停止后可新建对话" : "新建对话"}
+            title="新建独立对话"
             type="button"
           >
             <MessageSquarePlus size={13} />
@@ -713,10 +921,11 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         <span className={running ? "profile-status is-running" : "profile-status"} />
         <select
           aria-label="AI 配置"
-          disabled={running}
+          disabled={currentConversationRunning}
           onChange={(event) => {
             setProfileId(event.target.value);
             setSelectedConversationId(null);
+            setGoal(null);
             setEntries([]);
             setHistoryOpen(false);
           }}
@@ -790,21 +999,24 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
               className={conversation.id === selectedConversationId ? "is-selected" : ""}
               key={conversation.id}
             >
-              <button
-                disabled={running && conversation.id !== selectedConversationId}
-                onClick={() => void loadConversation(conversation)}
-                type="button"
-              >
+              <button onClick={() => void loadConversation(conversation)} type="button">
                 <span>{conversation.title}</span>
                 <small>
                   {conversation.turnCount} 个回合 ·{" "}
                   {new Date(conversation.updatedAtMs).toLocaleString()}
+                  {runningConversationIds.has(conversation.id) ||
+                  (conversation.id === selectedConversationId && goal?.status === "active")
+                    ? " · 执行中"
+                    : ""}
                 </small>
               </button>
               <button
                 aria-label="删除对话"
                 className="icon-button"
-                disabled={running}
+                disabled={
+                  runningConversationIds.has(conversation.id) ||
+                  (conversation.id === selectedConversationId && goal?.status === "active")
+                }
                 onClick={() => void removeConversation(conversation.id)}
                 title="删除对话及其全部回合"
                 type="button"
@@ -814,6 +1026,74 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             </div>
           ))}
         </div>
+      ) : null}
+
+      {goal ? (
+        <section className={`agent-goal-strip status-${goal.status}`} aria-label="当前 Goal">
+          <div className="agent-goal-main">
+            <span className="agent-goal-flag">
+              <Flag size={12} />
+            </span>
+            <div>
+              <div className="agent-goal-heading">
+                <strong>Goal</strong>
+                <span>{GOAL_STATUS_LABELS[goal.status]}</span>
+              </div>
+              <p title={goal.objective}>{goal.objective}</p>
+            </div>
+          </div>
+          <div className="agent-goal-footer">
+            <span>续跑 {goal.continuationCount}</span>
+            <span>
+              {compactTokenCount(goal.tokensUsed)}
+              {goal.tokenBudget ? ` / ${compactTokenCount(goal.tokenBudget)}` : ""} tokens
+            </span>
+            <div className="agent-goal-actions">
+              {currentConversationRunning && goal.status === "active" ? (
+                <button
+                  aria-label="暂停 Goal"
+                  onClick={() => void pauseGoal()}
+                  title="暂停 Goal"
+                  type="button"
+                >
+                  <Pause size={11} />
+                </button>
+              ) : null}
+              {!currentConversationRunning &&
+              ["paused", "blocked", "budget_limited", "usage_limited", "waiting_external"].includes(
+                goal.status,
+              ) ? (
+                <button
+                  aria-label="继续 Goal"
+                  onClick={() => void resumeGoal()}
+                  title="从检查点继续"
+                  type="button"
+                >
+                  <Play size={11} />
+                </button>
+              ) : null}
+              {!["completed", "failed", "canceled"].includes(goal.status) ? (
+                <button
+                  aria-label="取消 Goal"
+                  onClick={() => void cancelGoal()}
+                  title="取消 Goal"
+                  type="button"
+                >
+                  <Square size={10} />
+                </button>
+              ) : null}
+            </div>
+          </div>
+          {goal.blockedReason || goal.lastError ? (
+            <details>
+              <summary>检查点详情</summary>
+              <pre>
+                {goal.blockedReason ?? goal.lastError}
+                {goal.lastCheckpoint ? `\n${JSON.stringify(goal.lastCheckpoint, null, 2)}` : ""}
+              </pre>
+            </details>
+          ) : null}
+        </section>
       ) : null}
 
       <div className="agent-trace" ref={scrollRef}>
@@ -992,7 +1272,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             </article>
           );
         })}
-        {running &&
+        {currentConversationRunning &&
         !entries.some((entry) => entry.kind === "tool" && entry.status === "approval") ? (
           <div className="trace-running">
             <LoaderCircle className="spin" size={13} /> dsh-codex-agent 正在运行
@@ -1044,6 +1324,27 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
           <span>活动 SSH 候选</span>
           <small>{activePane?.sessionId ? activePane.title : "无活动会话"}</small>
         </div>
+        {currentConversationRunning ? (
+          <fieldset className="agent-running-input-mode" aria-label="运行中输入处理方式">
+            <legend>运行中输入</legend>
+            <button
+              className={runningInputMode === "steer" ? "is-active" : ""}
+              onClick={() => setRunningInputMode("steer")}
+              title="尽快注入当前 Turn"
+              type="button"
+            >
+              立即调整
+            </button>
+            <button
+              className={runningInputMode === "queue" ? "is-active" : ""}
+              onClick={() => setRunningInputMode("queue")}
+              title="当前 Turn 完成后作为下一条要求执行"
+              type="button"
+            >
+              排队执行
+            </button>
+          </fieldset>
+        ) : null}
         <div className="composer-box">
           <textarea
             aria-label="输入 Agent 任务"
@@ -1055,8 +1356,10 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
               }
             }}
             placeholder={
-              running
-                ? "继续输入要求；Enter 追加到当前回合，Shift+Enter 换行"
+              currentConversationRunning
+                ? runningInputMode === "queue"
+                  ? "继续输入要求；Enter 排队到下一 Turn，Shift+Enter 换行"
+                  : "继续输入要求；Enter 调整当前 Turn，Shift+Enter 换行"
                 : "描述目标，dsh-codex-agent 会决定并调用工具"
             }
             ref={inputRef}
@@ -1064,19 +1367,19 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             value={input}
           />
           <button
-            aria-label={running ? "追加要求" : "运行 Agent"}
-            className={running ? "composer-send is-steer" : "composer-send"}
+            aria-label={currentConversationRunning ? "追加要求" : "运行 Agent"}
+            className={currentConversationRunning ? "composer-send is-steer" : "composer-send"}
             disabled={!input.trim()}
             onClick={() => void send()}
             type="button"
           >
             <Icon name="send" />
           </button>
-          {running ? (
+          {currentConversationRunning ? (
             <button
               aria-label="停止 Agent"
               className="composer-stop"
-              onClick={() => void agentAbort()}
+              onClick={() => void agentAbort(selectedConversationId)}
               title="停止当前回合"
               type="button"
             >

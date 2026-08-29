@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.10.1`
+当前版本：`0.11.0`
 
 ## 核心功能
 
@@ -55,7 +55,9 @@ Agent 使用类似 Claude Code 的循环：
 任务输入 -> 模型决策 -> 工具调用 -> 结果返回 -> 继续循环 -> 最终答复
 ```
 
-- 持久化 Conversation 与 Turn：只有点击“新对话”才切换上下文，同一对话的后续要求、用户纠正、工具事实和精确命令可跨回合恢复。
+- 每个普通输入都会自动创建或复用内部 Goal；用户不需要判断任务长短，也不需要输入 `/goal`。短任务在一个 Turn 完成，长任务在内部 Turn 达到让出边界、后台 Job 完成或应用恢复后自动从已验证 checkpoint 继续。
+- 持久化 Goal、Conversation 与 Turn：只有点击“新对话”才切换上下文，同一对话的目标、后续要求、用户纠正、工具事实和精确命令可跨回合恢复。
+- 目标、范围、结果或风险会改变执行路径且无法从现场安全读取时，Agent 会进入“等待用户”并保留准确问题；用户回答后在同一 Goal 继续，而不是另起一项任务。
 - 持久化任务、事件、审批、工具审计、后台 Job、取消和崩溃恢复。
 - AI 面板按时间线展示模型决策、工具名称、参数摘要、stdout、stderr、结果和状态。
 - 任务输入支持 `Shift+Enter` 换行和输入法保护，顶部拖柄可将输入区向上扩大到 Agent 面板高度的一半。
@@ -68,9 +70,9 @@ Agent 使用类似 Claude Code 的循环：
 - 终端上下文采用无固定行数的 transcript 读取：Agent 通过 `offset`、`nextOffset` 和 `eof` 分段读取完整 `cat`、日志或命令输出；远程执行的超长 stdout/stderr 保留 artifact，可用分页工具继续读取。
 - 对交互式产品 CLI，`cli_execute` 在同一个后端事务中锁定输入、读取 xterm 真实光标行、只发送完整目标命令的缺失后缀，并等待提示符、交互、静默兜底或超时边界；`cli_execute_batch` 可把 1-8 条互不依赖的已知命令合并为一次工具调用，避免 `showshow system...` 和大量短请求。
 - Agent 会在任务时间线记录本轮模型请求数、工具调用数和 Token 用量；独立只读工具可在同一模型轮次并发执行，有副作用或存在依赖的步骤仍保持串行。
-- AI 配置以版本化 JSON 持久化。一个配置可定义主模型、分析模型和备用模型；启用自动切换后，模型请求失败会按角色顺序切换并在 Agent 时间线标出实际使用的模型。
+- AI 配置以版本化 JSON 持久化。一个配置可定义主模型、分析模型和备用模型，每个模型路由还可引用另一份已保存 Provider 配置；失败时会跨模型、跨 Provider 按角色顺序切换并在 Agent 时间线标出实际使用的路由。
 - Provider Context Adapter 统一支持 Responses 和 Chat Completions：无需手工选择协议，运行时优先复用 `previous_response_id` 与服务端原生压缩，确认网关不支持后按 Provider 配置指纹跨对话持久回退到本地 checkpoint + tail；Base URL、模型或认证方式变化会自动重新探测。
-- AI 设置可按模型配置上下文窗口和压缩阈值；本地 Checkpoint v2 只合并“上一份 checkpoint + 新增 tail”，并按持久化引用注入用户纠正、原样 CLI 命令、工具事实和 Evidence，不再为每次压缩重放全部原始历史。
+- 上下文窗口、协议选择和压缩阈值由运行时完全自适应，不在 AI 设置中暴露人工开关。本地 Checkpoint v2 只合并“上一份 checkpoint + 新增 tail”，并按持久化引用注入用户纠正、原样 CLI 命令、工具事实和 Evidence，不再为每次压缩重放全部原始历史。
 - 超过 8 KiB 的终端、文件、MCP 和查询结果原文单独落盘并记录 SHA-256；模型收到的是带 `resultId`、来源事实和精确摘录的 Result Capsule。需要核实时使用只读 `result_read` 按字面搜索或分页读取原始结果，不截断事实，也不重新执行可能有副作用的工具。
 - Chat Completions 的上下文预算同时计入系统 Prompt、工具 Schema、消息、checkpoint 和输出预留；压缩请求若失败会携带上一次校验错误重试，初次请求加 3 次重试仍失败才终止当前 Turn。
 - 安装版默认写入按天滚动的本地 JSON 诊断日志并保留 14 天；`--debug` 提升为 DEBUG 级，Provider 探测、缓存命中、回退和精确错误均使用稳定字段，方便维护 AI 直接读取定位。
@@ -89,14 +91,14 @@ Agent 使用类似 Claude Code 的循环：
 
 - 从本地目录发现 `SKILL.md`，读取元数据和内容哈希，并按任务需要加载已启用 Skill。
 - 支持配置和测试 stdio 与 streamable-http MCP 服务器；测试成功后可展开 capability id、完整工具名称、标题、说明、Transport、Input/Output Schema 和 annotations，并复制结果。
-- MCP 工具统一进入任务级 Capability Registry：小目录直接暴露，较大目录按任务语义选择并保留 `capability_search`；调用参数和结构化结果按服务端 Schema 校验。
+- MCP 工具、Resources 和 Prompts 统一通过 Transport 无关的 CapabilityProvider 层进入 Goal 级能力目录；工具调用参数和结构化结果按服务端 Schema 校验，Resources/Prompts 只有实际发现后才可列出和读取。
 - MCP 返回值会规范化为 `structuredContent`、`textContent`、错误状态与原始 Evidence artifact。Agent 根据完整证据整合产品 CLI 命令，并把 `evidence_refs` 交给 `cli_execute`；长结果可继续分页读取，不会把包装层、截断摘要或失败内容当成最终事实。
 - Agent 可调用只读的 `mcp_status` 检查每个已配置服务器的启用状态、Transport、连接/工具发现阶段、工具数量、稳定错误码和服务端原始详情；该诊断不需要 SSH 会话。
 - 支持有界、确定性的任务生命周期 Hooks；Hooks 不能降低核心权限策略。
 
 ### 插件化 Agent 内核
 
-- Agent Loop 只负责任务生命周期、模型决策、效果感知调度、结果回填和循环保护；内置工具与 MCP 都转换为统一 Capability descriptor，而不是继续扩大固定工具分支。
+- Agent Loop 只负责 Goal/Turn 生命周期、模型决策、效果感知调度、结果回填和循环保护；SSH/文件等内置工具由宿主提供，MCP 通过统一 CapabilityProvider 接入，避免把 Transport、连接池和服务端协议写进 Core。
 - 桌面默认配置挂载内置 SSH/会话工具、本地 Skill、stdio/streamable-http MCP、生命周期 Hooks 和 OpenAI 兼容模型适配器。
 - 每个插件都提供 manifest、版本、依赖提示和工具描述；工具事件和审计记录会携带插件 id。
 - Agent 设置页展示插件清单，可缩小当前运行时启用的插件集合；留空表示使用桌面默认配置。
@@ -201,4 +203,4 @@ npm run check:dist
 
 ## 当前边界
 
-当前 `0.9.11` 将 Agent 重构为稳定 Conversation/Turn 和 Provider Context Adapter：支持跨回合纠正、运行中追加要求、Responses 增量续接与 Chat 本地 checkpoint 回退。本版同时增加终端可见滚动条，并把产品 CLI 补全收敛为“完整目标命令 + 当前光标行 + 精确缺失后缀”，保留参数间空格。
+当前 `0.11.0` 在精简 Codex Core 之上恢复轻量 Goal 控制面：所有普通任务自动获得长任务续跑、澄清等待、后台 Job 唤醒和崩溃恢复能力，不再以 64 个模型步骤作为任务失败上限。该版本同时交付跨 Provider 模型路由、全自适应上下文、Goal 级 Skill/Evidence、统一 stdio/streamable-http MCP Transport、Resources/Prompts、多 SSH 条件协同和可清理的持久会话树；仍不引入通用 DAG、云端记忆或第二套 Agent Loop。

@@ -1,8 +1,8 @@
 # myterm Linux Agent 功能与技术说明书
 
-> v0.9.1 实现说明：桌面端 Agent Loop、Thread/Turn、上下文压缩和 Subagent Graph 由 `dsh-codex-agent`/Codex Core 独占。下文涉及旧循环步数或插件挂载字段的示例用于协议研究，不代表当前桌面配置项。
+> v0.11.0 当前契约：桌面宿主拥有轻量 Goal 控制面，`dsh-codex-agent`/精简 Codex Core 独占 Thread/Turn、模型工具循环、上下文压缩和 Subagent Graph。每个普通输入自动进入 Goal，用户无需判断长短任务或输入 `/goal`。
 
-> 文档状态：`0.6.3` 当前契约与后续目标单一事实源
+> 文档状态：`0.11.0` 当前契约与后续目标单一事实源（更新于 2026-08-29）
 > 当前产品入口：Desktop only
 > 开发计划：[`linux-agent-development-plan.md`](linux-agent-development-plan.md)
 > OS 安装专项方案：[`multi-ssh-os-installation-plan.md`](multi-ssh-os-installation-plan.md)
@@ -61,8 +61,11 @@ Agent 只有桌面入口：
 
 | 术语 | 含义 |
 |---|---|
-| Task | 一次用户目标及其完整 Agent 循环，标识为 `run_id` |
-| Step | 一次模型决策轮次 |
+| Goal | 一个可跨 Turn、应用重启和外部等待持续推进的用户目标 |
+| Conversation | 用户可见的对话边界；一个 Conversation 同时最多有一个非终态 Goal |
+| Turn | 一次可独立审计、让出和恢复的 Core 执行段 |
+| Task | 桌面 UI 对 Goal/Conversation 工作项的通用称呼，不再等同于单个 Turn |
+| Step | Turn 内的一次模型决策轮次；只用于内部让出与观测，不是用户任务总上限 |
 | Tool call | 模型请求执行的一个内置或 MCP 工具调用 |
 | Job | 可查询、输出和取消的执行单元，标识为 `job_id` |
 | Target | Task 绑定的一个 existing session 或保存 profile |
@@ -80,7 +83,7 @@ Agent 只有桌面入口：
 
 ## 4. 能力状态
 
-| 能力 | `0.6.3` | 目标版本 |
+| 能力 | `0.11.0` | 目标版本 |
 |---|---:|---:|
 | 单主机结构化 SSH CLI | 已实现 | 持续维护 |
 | 持久 Task/Event/Approval/Audit | 已实现 | 持续维护 |
@@ -89,7 +92,8 @@ Agent 只有桌面入口：
 | Agent 多行与可调高度输入 | 已实现 | `0.6.3` |
 | 本机 Agent CLI/REST | 已删除 | 不再规划 |
 | 多 SSH Task（串行协同与自动连接） | 已实现 | 持续维护 |
-| 结构化远端 HTTP/条件等待 | 未实现 | `0.8.0` |
+| 多 SSH 条件等待 | 已实现 | 持续维护 |
+| 结构化远端 HTTP | 未实现 | 后续 |
 | Provisioning fake adapter/plan-only Skill | 未实现 | `0.9.0` |
 | Ubuntu VM 自动安装 | 未实现 | `1.0.0` 候选 |
 | 物理机与更多 OS | 未实现 | 后续 |
@@ -115,16 +119,18 @@ Agent 只有桌面入口：
 
 | ID | 需求 |
 |---|---|
-| FR-TASK-001 | 每个 Task 必须有 UUID `run_id`，模型请求前持久化。 |
-| FR-TASK-002 | Task 必须记录 AI profile、prompt、权限、目标快照、时间、状态和 finish reason。 |
+| FR-TASK-001 | 每个普通用户输入必须自动创建或复用持久 Goal；不得要求用户输入 `/goal` 或选择长/短任务。 |
+| FR-TASK-002 | Goal、Conversation 和 Turn 必须在模型请求前持久化，并记录 AI profile、权限、目标、时间、状态、checkpoint 和错误。 |
 | FR-TASK-003 | 循环必须是“模型决策 -> 工具策略/审批 -> 执行 -> 结果持久化 -> 继续模型”。 |
 | FR-TASK-004 | 模型文字不能覆盖真实工具结果或 Task 状态。 |
 | FR-TASK-005 | 取消传播到模型请求、审批等待、SSH channel、Job、条件等待和 provider。 |
-| FR-TASK-006 | 模型步骤默认 8，范围 1-32；达到上限写独立 finish reason。 |
-| FR-TASK-007 | 相同工具与规范化参数连续 3 次触发循环保护。 |
-| FR-TASK-008 | Task、Event、Approval 和 Artifact 在 UI 关闭后可恢复。 |
-| FR-TASK-009 | 默认全局同时运行 1 个 Agent Task，其他 Task 排队。 |
-| FR-TASK-010 | 每个 Task 必须进入可解释终态。 |
+| FR-TASK-006 | Core 的默认 64 Step 只作为单 Turn 让出边界；达到边界返回 `continuation_required`，宿主保存 checkpoint 并自动启动下一 Turn，不得把 Goal 标记失败。 |
+| FR-TASK-007 | 默认 Goal 不设置隐藏 Token 总预算；若未来支持用户显式预算，预算必须可见且可解释。 |
+| FR-TASK-008 | 相同工具与规范化参数重复、无进展 checkpoint 或策略拒绝必须触发循环保护，不能依赖固定总 Step 上限。 |
+| FR-TASK-009 | Goal、Turn、Event、Approval、Job、Evidence、Skill 和 Artifact 在 UI 关闭或应用重启后可恢复；正在运行的 Turn 标记失败，Goal 暂停等待恢复。 |
+| FR-TASK-010 | 默认最多并发运行 4 个 Conversation；同一 Conversation 不允许并发启动两个 Turn。 |
+| FR-TASK-011 | 目标、范围、结果或安全边界存在会改变执行路径的实质歧义时，Agent 可多轮进入 `waiting_approval` 澄清；可从现场安全读取的信息不得反问用户。 |
+| FR-TASK-012 | 每个 Goal 必须进入可解释终态，或明确等待用户/外部条件；后台 Job 完成后以事件通知自动唤醒同一 Goal。 |
 
 ### 6.2 目标与多 SSH
 
@@ -222,14 +228,16 @@ Agent 只有桌面入口：
 flowchart TD
     Desktop["React Desktop UI"] --> IPC["Typed Tauri IPC"]
     IPC --> App["Agent application service"]
-    App --> Runtime["Task runtime and model loop"]
+    App --> Goal["Goal control plane"]
+    Goal --> Runtime["Trimmed Codex Core: Thread / Turn / model loop"]
+    Goal --> Store["SQLite Goal / Event / Job / Evidence store"]
     Runtime --> Policy["Policy and approval"]
-    Runtime --> Store["SQLite Event and Artifact store"]
     Policy --> Registry["Tool registry"]
     Registry --> SSH["Multi-target SSH manager"]
     Registry --> Files["SFTP and file tools"]
     Registry --> Skills["Skill and Hooks"]
-    Registry --> MCP["stdio / streamable-http MCP clients"]
+    Registry --> Capability["CapabilityProvider"]
+    Capability --> MCP["stdio / streamable-http MCP clients"]
     Registry --> Provisioning["Provisioning state machine"]
     Provisioning --> Providers["VM / MAAS / Redfish / cloud adapters"]
 ```
@@ -243,56 +251,48 @@ flowchart TD
 - Provider adapter 不直接调用模型，不接受自由文本命令。
 - 不创建本机 Agent REST server 或 headless CLI runtime。
 
-## 8. Task 领域模型
+## 8. Goal 领域模型
 
 ### 8.1 请求
 
-目标模型实施后，桌面 IPC 请求为：
+桌面只提交普通对话输入；Goal 与 Turn 由宿主自动创建：
 
 ```json
 {
-  "schema_version": 2,
+  "conversation_id": "conversation-uuid",
   "prompt": "先更新 A，再从 B 观察健康接口",
   "ai_profile_id": "ai-uuid",
-  "targets": {
-    "app-a": { "kind": "profile", "profile_id": "profile-a" },
-    "observer-b": { "kind": "profile", "profile_id": "profile-b" }
-  },
-  "default_target": "app-a",
   "permission_mode": "confirm",
-  "max_steps": 16
+  "running_input_mode": "steer"
 }
 ```
 
-`target.kind`：
+目标不作为固定绑定随请求提交。Agent 根据对话决定是否需要 SSH：明确指向当前终端时使用活动候选，命名服务器先通过 `session_catalog` 解析并用 `session_connect` 建立或复用会话，再在后续工具调用中携带明确 `session_id`。请求不接受密码、API Key、私钥内容或任意 vault ref。
 
-- `existing_session`：带 `session_id`，Task 不拥有连接生命周期。
-- `profile`：带 `profile_id`，Task 使用保存凭据连接并拥有自己创建的连接。
-
-请求不接受密码、API Key、私钥内容或任意 vault ref。服务只从保存 profile 和允许的凭据配置解析引用。
-
-### 8.2 Task 状态
+### 8.2 Goal 状态
 
 ```mermaid
 stateDiagram-v2
-    [*] --> queued
-    queued --> running
-    queued --> canceled
-    running --> waiting_approval
-    waiting_approval --> running
-    waiting_approval --> failed
-    waiting_approval --> canceled
-    running --> succeeded
-    running --> failed
-    running --> canceled
-    succeeded --> [*]
+    [*] --> active
+    active --> paused
+    paused --> active
+    active --> waiting_approval
+    waiting_approval --> active
+    active --> waiting_external
+    waiting_external --> active
+    active --> blocked
+    blocked --> active
+    active --> completed
+    active --> failed
+    active --> canceled
+    completed --> [*]
     failed --> [*]
     canceled --> [*]
 ```
 
-`wait_condition` 是运行中的 Job，不增加 Task 顶层状态。Task 终态不可恢复为运行；继续或重试创建新 `run_id` 并记录 `parent_run_id`。
+单个 Turn 可结束为 `completed`、`continuation_required`、`waiting_approval`、`waiting_external`、`failed` 或 `canceled`。`continuation_required` 不是 Goal 状态和失败原因，宿主必须自动续跑。Goal 终态不可恢复为运行；同一 Conversation 的新输入会创建新 Goal。
 
-finish reason 至少包括：`completed`、`verification_failed`、`permission_denied`、`approval_expired`、`step_limit`、`loop_detected`、`model_error`、`connection_lost`、`provider_error`、`recovery_required`、`user_canceled` 和 `internal_error`。
+错误/停止原因至少包括：`completed`、`verification_failed`、`permission_denied`、`approval_expired`、`loop_detected`、`model_error`、`connection_lost`、`provider_error`、`recovery_required`、`user_canceled` 和 `internal_error`。`step_limit` 不再是 Goal 失败原因。
 
 ### 8.3 Job 与 Target 状态
 
@@ -335,16 +335,16 @@ Event 先持久化再通知 UI。高频输出按 50ms 或 64KiB 合并，条件�
 ## 10. Agent 循环
 
 1. 校验桌面请求、AI profile、目标集合和权限。
-2. 冻结目标身份并持久化 Task。
-3. 建立或绑定所需 Target，读取主机事实和 Skill/MCP 目录。
+2. 自动创建或恢复 Goal，持久化 Turn；若需要目标，再解析并冻结目标身份。
+3. 按需建立 Target，恢复 Goal Skill/Evidence，并发现当前任务相关 MCP 能力。
 4. 组装最小系统上下文和按需工具目录。
 5. 请求模型并持久化 model 事件。
 6. 规范化每个工具参数、alias、资源和重复签名。
 7. 工具声明 effect/risk，策略返回 deny/ask/allow。
 8. deny 返回结构化错误；ask 持久化审批；allow 创建 Job。
 9. 输出先写 Event/Artifact，再给模型有限结果。
-10. 没有工具调用时检查未完成 Job、条件、安装阶段和验证证据。
-11. 满足完成条件后写最终答复和终态。
+10. 没有工具调用时检查 Goal checkpoint、未完成 Job、条件和验证证据；需要澄清时写入准确问题并等待用户。
+11. Turn 达到内部让出边界时写 `continuation_required` 并由宿主自动续跑；满足完成条件后写最终答复和 Goal 终态。
 
 模型不能直接写 Task 状态、数据库、凭据或 provider 请求。
 
@@ -490,9 +490,11 @@ skill-name/
 ### 13.2 MCP
 
 - 统一 Transport 抽象支持 stdio 和 streamable-http；stdio 使用受控子进程，streamable-http 使用 HTTPS/HTTP MCP 客户端、请求头和有界重连。
-- Task 生命周期复用连接，启动、list、call、close 各有超时。
+- 连接池按 Provider 配置指纹复用；目录缓存 5 分钟、空闲连接 30 分钟、上限 16，启动、list、call、close 各有超时。
 - 工具名包含 server namespace；schema hash 进入审计。
 - 工具超过阈值时先搜索目录。
+- list/read 等可安全重试的发现操作断线后重连一次；工具调用失败不自动重放，以免重复副作用，但会丢弃故障连接供下一次显式调用重连。
+- Tools、Resources 和 Prompts 使用同一 Transport 抽象；原始返回保存为 Goal Evidence，进度事件进入 Agent 时间线。
 - MCP 适合非核心扩展；OS 写盘第一版优先内置 provider adapter。
 
 ### 13.3 Hooks
@@ -563,7 +565,7 @@ stateDiagram-v2
 - 顶部水平拖柄向上扩大、向下缩小输入区；最大高度不得超过 Agent 面板高度的 50%。
 - 拖柄支持 `ArrowUp`、`ArrowDown`、`Home` 和 `End` 键，并暴露当前、最小和最大值。
 - 窗口或面板缩小时自动收敛到新上限，不遮挡标题栏或提交按钮。
-- 运行中输入禁用，按钮切换为停止。
+- 运行中输入保持可编辑；“立即调整”在最近模型决策边界注入当前 Turn，“排队执行”在当前 Turn 结束后继续同一 Goal，“停止”为独立按钮。
 
 ### 15.2 固定上下文
 
@@ -579,11 +581,7 @@ stateDiagram-v2
 
 ## 16. 数据与迁移
 
-SQLite 表：
-
-- `schema_meta`、`agent_tasks`、`agent_events`。
-- `tool_calls`、`approvals`、`execution_jobs`。
-- 后续增加 `task_targets`、`evidence`、`install_plans`、`installations` 和 `provider_events`。
+SQLite schema 9 的当前表覆盖 Conversation/Turn 兼容任务、Goal、输入队列、Event、Approval、后台 Job、Goal Evidence、Goal Skill、工具审计和 Provider Context。原始大结果与 Evidence 正文保存在带哈希的独立 artifact，SQLite 只保存索引与来源。删除非活动 Conversation 时必须同时删除 Root/Subagent Thread 树、审计索引和相关 artifact；运行中或仍有 Job 时拒绝删除。
 
 `0.6.3` schema version 4 删除 `api_idempotency_keys`。配置打开时删除 `rest_token_hash`。这两项属于已删除本机 REST 的专用数据；服务器、AI、Agent 设置和 Task 历史不得受影响。
 

@@ -100,7 +100,7 @@ pub struct TerminalScreenSnapshot {
     pub updated_at_ms: i64,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionCatalogTarget {
     pub kind: String,
@@ -264,6 +264,10 @@ pub struct AiModelConfig {
     pub id: String,
     pub name: String,
     pub model: String,
+    /// Optional AI profile whose endpoint, authentication mode, and vault key
+    /// provide this route. `None` means the containing profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_profile_id: Option<String>,
     #[serde(default)]
     pub role: AiModelRole,
     #[serde(default = "enabled_by_default")]
@@ -324,6 +328,7 @@ impl AiProfile {
                 id: "primary".to_owned(),
                 name: "主模型".to_owned(),
                 model: self.model.clone(),
+                provider_profile_id: None,
                 role: AiModelRole::Primary,
                 enabled: true,
                 context_window_tokens: None,
@@ -355,17 +360,12 @@ pub enum AgentPermissionMode {
     FullAccess,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum McpTransportKind {
+    #[default]
     Stdio,
     StreamableHttp,
-}
-
-impl Default for McpTransportKind {
-    fn default() -> Self {
-        Self::Stdio
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -408,8 +408,6 @@ pub struct AgentSettings {
     pub enabled_plugins: Vec<String>,
     #[serde(default)]
     pub permission_mode: AgentPermissionMode,
-    #[serde(skip, default = "default_agent_max_steps")]
-    pub max_steps: u8,
     #[serde(default)]
     pub skill_directories: Vec<String>,
     #[serde(default)]
@@ -422,10 +420,6 @@ pub struct AgentSettings {
 
 fn default_agent_profile() -> String {
     "dsh-codex-agent".to_owned()
-}
-
-fn default_agent_max_steps() -> u8 {
-    64
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -447,7 +441,6 @@ impl Default for AgentSettings {
             bundles: Vec::new(),
             enabled_plugins: Vec::new(),
             permission_mode: AgentPermissionMode::Confirm,
-            max_steps: default_agent_max_steps(),
             skill_directories: Vec::new(),
             enabled_skills: Vec::new(),
             mcp_servers: Vec::new(),
@@ -456,7 +449,7 @@ impl Default for AgentSettings {
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillInfo {
     pub id: String,

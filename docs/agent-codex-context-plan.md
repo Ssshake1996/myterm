@@ -1,17 +1,18 @@
 # myterm Codex 对话上下文重构方案
 
-> 文档状态：0.10.0 已实施，包含 Result Capsule 与增量 Checkpoint v2
+> 文档状态：0.11.0 已实施，包含稳定 Conversation/Turn、自动 Goal、Result Capsule 与增量 Checkpoint v2
 > 适用范围：`dsh-codex-agent` 对话、模型请求、压缩、追加要求与任务历史
 
 ## 1. 结论
 
-0.10.0 的当前实现采用本地可审计事实源、Provider Context Adapter 和增量 Checkpoint，并不声称等同于完整 Codex App Server。
+0.11.0 的当前实现采用本地可审计事实源、Provider Context Adapter、增量 Checkpoint 和轻量 Goal 控制面，并不声称等同于完整 Codex App Server。
 
 - `dsh-codex-core` 已具备本地 thread、message、summary 和压缩数据结构。
-- myterm 每次发送都会创建新的 `run_id` 和新的 core thread，上一轮用户修正不会自动进入下一轮。
-- “新建对话”目前只清空前端展示，没有创建或切换持久 conversation。
+- 只有“新建对话”才创建新的持久 Conversation/Core root thread；普通后续输入在同一 Conversation 创建新 Turn，上一轮纠正和证据继续可用。
+- 每个普通输入自动创建或复用 Goal；Core 达到内部 Step 边界后保存 checkpoint 并返回 `continuation_required`，宿主自动创建下一 Turn 继续。
 - Chat Completions 在首次触发压缩前仍需发送有效消息；触发后只发送 Checkpoint v2 与新增 tail，大工具结果使用 Result Capsule 投影。
 - 本地压缩是严格的 Chat Completions checkpoint 协议，不冒充 Responses API 的原生不透明 compaction item；Responses provider 仍优先使用自身续接状态。
+- 上下文窗口、协议和压缩阈值完全自适应，前端不提供人工控制；失败能力按 Provider 配置指纹持久化。
 
 因此，本方案把“对话身份”“一次用户回合”“一次执行任务”分开，并在 provider 层兼容原生 Responses 上下文和本地 Chat 回退。
 

@@ -25,7 +25,16 @@ npm test
 ```
 
 The native binary is generated under `native-dist/` and TypeScript output under
-`lib/`. A release must package the native binary for each target platform.
+`lib/`. `npm test` runs the Rust suite, rebuilds the current Release N-API
+binary and TypeScript output, type-checks and lints the package, and only then
+runs the N-API integration test. This prevents an old `native-dist` artifact
+from validating newer source accidentally. A release must package the native
+binary for each target platform.
+
+The Core configuration accepts `turnStepBudget`; the legacy `maxSteps` name is
+kept as a deserialization alias. This is a per-Turn yield boundary. The myterm
+desktop Goal control plane automatically continues long work and does not
+expose either field as a user task limit.
 
 ## Harness profile
 

@@ -106,6 +106,8 @@ export interface AiModelConfig {
   id: string;
   name: string;
   model: string;
+  /** Uses this saved AI profile's endpoint/authentication; omitted means the containing profile. */
+  provider_profile_id?: string;
   role: AiModelRole;
   enabled: boolean;
   context_window_tokens?: number;
@@ -311,6 +313,9 @@ export interface AgentEvent {
     | "tool_result"
     | "job_started"
     | "job_finished"
+    | "capability_progress"
+    | "session_wait_progress"
+    | "skill_restore_warning"
     | "mcp_error"
     | "assistant"
     | "complete";
@@ -330,7 +335,20 @@ export interface AgentRunResult {
   runId: string;
   conversationId: string;
   turnId: string;
-  finishReason: "stop" | "aborted" | "limit" | "loop_detected" | "error";
+  finishReason:
+    | "stop"
+    | "aborted"
+    | "paused"
+    | "canceled"
+    | "continuation_required"
+    | "waiting_approval"
+    | "waiting_external"
+    | "blocked"
+    | "budget_limited"
+    | "usage_limited"
+    | "loop_detected"
+    | "failed"
+    | "error";
   steps: number;
   modelRequests?: number;
   toolCalls?: number;
@@ -350,7 +368,9 @@ export type AgentTaskState =
 export interface AgentTask {
   id: string;
   conversationId: string;
+  goalId: string | null;
   turnIndex: number;
+  continuationIndex: number;
   profileId: string;
   sessionId: string | null;
   prompt: string;
@@ -362,6 +382,47 @@ export interface AgentTask {
   steps: number;
   errorCode: string | null;
   errorMessage: string | null;
+}
+
+export type AgentGoalStatus =
+  | "active"
+  | "paused"
+  | "waiting_approval"
+  | "waiting_external"
+  | "blocked"
+  | "budget_limited"
+  | "usage_limited"
+  | "completed"
+  | "failed"
+  | "canceled";
+
+export interface AgentGoal {
+  id: string;
+  conversationId: string;
+  objective: string;
+  status: AgentGoalStatus;
+  tokenBudget: number | null;
+  tokensUsed: number;
+  continuationCount: number;
+  currentTurnId: string | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+  completedAtMs: number | null;
+  lastCheckpoint: unknown | null;
+  lastError: string | null;
+  blockedReason: string | null;
+  noProgressCount: number;
+}
+
+export interface AgentQueuedInput {
+  id: string;
+  conversationId: string;
+  goalId: string | null;
+  content: string;
+  mode: "steer" | "queue";
+  state: string;
+  createdAtMs: number;
+  consumedAtMs: number | null;
 }
 
 export interface AgentConversation {
@@ -382,6 +443,8 @@ export interface AgentSteerResult {
 export interface ExecutionJob {
   id: string;
   taskId: string;
+  goalId: string | null;
+  conversationId: string | null;
   toolCallId: string;
   state: "running" | "canceling" | "succeeded" | "failed" | "canceled" | "timed_out" | "lost";
   exitCode: number | null;
@@ -811,6 +874,34 @@ export async function agentConversationTasks(conversationId: string): Promise<Ag
   return invoke<AgentTask[]>("agent_conversation_tasks", { conversationId });
 }
 
+export async function agentGoalGet(conversationId: string): Promise<AgentGoal | null> {
+  if (!isDesktopRuntime) return demoBackend.agentGoalGet(conversationId);
+  return invoke<AgentGoal | null>("agent_goal_get", { conversationId });
+}
+
+export async function agentInputQueue(
+  conversationId: string,
+  input: string,
+): Promise<AgentQueuedInput> {
+  if (!isDesktopRuntime) return demoBackend.agentInputQueue(conversationId, input);
+  return invoke<AgentQueuedInput>("agent_input_queue", { conversationId, input });
+}
+
+export async function agentGoalPause(goalId: string): Promise<AgentGoal> {
+  if (!isDesktopRuntime) return demoBackend.agentGoalPause(goalId);
+  return invoke<AgentGoal>("agent_goal_pause", { goalId });
+}
+
+export async function agentGoalResume(goalId: string): Promise<AgentGoal> {
+  if (!isDesktopRuntime) return demoBackend.agentGoalResume(goalId);
+  return invoke<AgentGoal>("agent_goal_resume", { goalId });
+}
+
+export async function agentGoalCancel(goalId: string): Promise<AgentGoal> {
+  if (!isDesktopRuntime) return demoBackend.agentGoalCancel(goalId);
+  return invoke<AgentGoal>("agent_goal_cancel", { goalId });
+}
+
 export async function agentConversationDelete(conversationId: string): Promise<boolean> {
   if (!isDesktopRuntime) return demoBackend.agentConversationDelete(conversationId);
   return invoke<boolean>("agent_conversation_delete", { conversationId });
@@ -826,9 +917,9 @@ export async function agentApprove(callId: string, approved: boolean): Promise<v
   return invoke("agent_approve", { callId, approved });
 }
 
-export async function agentAbort(): Promise<void> {
-  if (!isDesktopRuntime) return demoBackend.agentAbort();
-  return invoke("agent_abort");
+export async function agentAbort(conversationId?: string | null): Promise<void> {
+  if (!isDesktopRuntime) return demoBackend.agentAbort(conversationId ?? null);
+  return invoke("agent_abort", { conversationId: conversationId ?? null });
 }
 
 export async function agentJobCancel(jobId: string): Promise<ExecutionJob> {
@@ -836,6 +927,8 @@ export async function agentJobCancel(jobId: string): Promise<ExecutionJob> {
     return {
       id: jobId,
       taskId: "demo",
+      goalId: null,
+      conversationId: null,
       toolCallId: "demo",
       state: "canceling",
       exitCode: null,

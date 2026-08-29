@@ -89,7 +89,7 @@ export function AiSettings({
   const [testDetailsOpen, setTestDetailsOpen] = useState(false);
   const [testPrompt, setTestPrompt] = useState("hi");
   const [testModel, setTestModel] = useState(
-    profile ? (effectiveAiModels(profile)[0]?.model ?? "") : "",
+    profile ? (effectiveAiModels(profile)[0]?.id ?? "") : "",
   );
   const [modelTesting, setModelTesting] = useState(false);
   const [modelTestResult, setModelTestResult] = useState<AiModelTestResult | null>(null);
@@ -98,7 +98,7 @@ export function AiSettings({
   const [saving, setSaving] = useState(false);
   const [savedJsonPreview, setSavedJsonPreview] = useState<string>("");
   const [jsonLoading, setJsonLoading] = useState(false);
-  const id = profile?.id ?? crypto.randomUUID();
+  const [id] = useState(() => profile?.id ?? crypto.randomUUID());
 
   const currentProfile = (): AiProfile => ({
     id,
@@ -110,6 +110,10 @@ export function AiSettings({
     models: ensurePrimaryAiModel(models).map((item) => ({
       ...item,
       model: item.model.trim(),
+      provider_profile_id:
+        item.provider_profile_id && item.provider_profile_id !== id
+          ? item.provider_profile_id
+          : undefined,
     })),
     routing: {
       ...DEFAULT_ROUTING,
@@ -119,7 +123,7 @@ export function AiSettings({
 
   const draftJson = JSON.stringify(
     {
-      version: 4,
+      version: 5,
       ai_profiles: [currentProfile()],
       note: "API key is stored in the OS credential vault",
     },
@@ -127,9 +131,9 @@ export function AiSettings({
     2,
   );
   const enabledModels = models.filter((item) => item.enabled && item.model.trim());
-  const selectedTestModel = enabledModels.some((item) => item.model === testModel)
+  const selectedTestModel = enabledModels.some((item) => item.id === testModel)
     ? testModel
-    : (enabledModels[0]?.model ?? "");
+    : (enabledModels[0]?.id ?? "");
 
   const save = async () => {
     if (
@@ -138,19 +142,6 @@ export function AiSettings({
       !models.some((item) => item.enabled && item.model.trim())
     ) {
       notify("名称、Base URL 和至少一个启用模型不能为空", "error");
-      return;
-    }
-    const invalidContextModel = models.find((item) => {
-      if (!item.enabled) return false;
-      const windowTokens = item.context_window_tokens ?? 128000;
-      const thresholdTokens = item.compact_threshold_tokens ?? Math.floor(windowTokens * 0.75);
-      return windowTokens < 4096 || thresholdTokens < 2048 || thresholdTokens >= windowTokens;
-    });
-    if (invalidContextModel) {
-      notify(
-        `${invalidContextModel.name}的压缩阈值必须小于上下文窗口，且窗口不小于 4096 Token`,
-        "error",
-      );
       return;
     }
     setSaving(true);
@@ -407,6 +398,32 @@ export function AiSettings({
                     placeholder="模型 ID"
                     value={item.model}
                   />
+                  <select
+                    aria-label={`${item.name}Provider`}
+                    onChange={(event) =>
+                      setModels((current) =>
+                        current.map((candidate, candidateIndex) =>
+                          candidateIndex === index
+                            ? {
+                                ...candidate,
+                                provider_profile_id: event.target.value || undefined,
+                              }
+                            : candidate,
+                        ),
+                      )
+                    }
+                    title="该模型请求使用的服务地址、认证方式和密钥"
+                    value={item.provider_profile_id ?? ""}
+                  >
+                    <option value="">当前 Provider · {name || "未命名"}</option>
+                    {profiles
+                      .filter((candidate) => candidate.id !== id)
+                      .map((candidate) => (
+                        <option key={candidate.id} value={candidate.id}>
+                          {candidate.name}
+                        </option>
+                      ))}
+                  </select>
                   <label className="ai-model-enabled">
                     <input
                       checked={item.enabled}
@@ -439,56 +456,6 @@ export function AiSettings({
                       删除
                     </button>
                   ) : null}
-                  <div className="ai-model-context-limits">
-                    <label>
-                      <span>上下文窗口</span>
-                      <input
-                        aria-label={`${item.name}上下文窗口 Token`}
-                        min={4096}
-                        onChange={(event) =>
-                          setModels((current) =>
-                            current.map((candidate, candidateIndex) =>
-                              candidateIndex === index
-                                ? {
-                                    ...candidate,
-                                    context_window_tokens: event.target.value
-                                      ? Number(event.target.value)
-                                      : undefined,
-                                  }
-                                : candidate,
-                            ),
-                          )
-                        }
-                        placeholder="128000"
-                        type="number"
-                        value={item.context_window_tokens ?? ""}
-                      />
-                    </label>
-                    <label>
-                      <span>压缩阈值</span>
-                      <input
-                        aria-label={`${item.name}压缩阈值 Token`}
-                        min={2048}
-                        onChange={(event) =>
-                          setModels((current) =>
-                            current.map((candidate, candidateIndex) =>
-                              candidateIndex === index
-                                ? {
-                                    ...candidate,
-                                    compact_threshold_tokens: event.target.value
-                                      ? Number(event.target.value)
-                                      : undefined,
-                                  }
-                                : candidate,
-                            ),
-                          )
-                        }
-                        placeholder="96000"
-                        type="number"
-                        value={item.compact_threshold_tokens ?? ""}
-                      />
-                    </label>
-                  </div>
                 </div>
               ))}
             </div>
@@ -521,7 +488,8 @@ export function AiSettings({
               </label>
             </div>
             <small>
-              终端上下文不再按固定行数截断；Agent 会按 offset/nextOffset 分段读取完整输出。
+              上下文窗口、压缩时机和 Provider 原生/本地 checkpoint 切换均由 Agent
+              自适应处理；终端输出按 offset/nextOffset 分段读取，不按固定行数截断。
             </small>
           </div>
           <div className="connection-test">
@@ -619,8 +587,11 @@ export function AiSettings({
                   value={selectedTestModel}
                 >
                   {enabledModels.map((item) => (
-                    <option key={item.id} value={item.model}>
+                    <option key={item.id} value={item.id}>
                       {item.name} · {item.model}
+                      {item.provider_profile_id
+                        ? ` · ${profiles.find((candidate) => candidate.id === item.provider_profile_id)?.name ?? "未知 Provider"}`
+                        : ""}
                     </option>
                   ))}
                 </select>

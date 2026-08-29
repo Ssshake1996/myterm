@@ -1,14 +1,15 @@
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::BTreeSet,
+    path::PathBuf,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
 use dsh_codex_core::{
-    ChatCompletionsTransport, CodexRuntime, CoreConfig, CoreError, HostBridge, ModelRequest,
-    ModelTransport, ProviderContextMode, ProviderContextUpdate, ResponsesTransport, RuntimeEvent,
-    ToolDefinition, ToolExecutionResult, ToolInvocation,
+    ChatCompletionsTransport, CoreConfig, CoreError, HostBridge, ModelRequest, ModelTransport,
+    ProviderContextMode, ProviderContextUpdate, ResponsesTransport, RuntimeEvent, ToolDefinition,
+    ToolExecutionResult, ToolInvocation,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -17,14 +18,16 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     builtin,
-    capability::{CapabilityDescriptor, CapabilityRegistry, EvidenceLedger, McpServerDiagnostic},
+    capability::{
+        CapabilityDescriptor, CapabilityProvider, CapabilityRegistry, EvidenceLedger,
+        EvidenceRecord, McpServerDiagnostic,
+    },
     hooks::{self, HookAction},
-    mcp::McpTaskClient,
     policy::{self, PolicyAction},
     service::{self, AgentEventSink, AgentService},
 };
 use crate::{
-    ai::service::redact_and_bound,
+    ai::{routing::ResolvedAiModelRoute, service::redact_and_bound},
     config::DEFAULT_AGENT_SYSTEM_PROMPT,
     types::{
         AgentEvent, AgentPermissionMode, AgentRunResult, AgentSettings, AiAuthMode, AiModelConfig,
@@ -34,7 +37,7 @@ use crate::{
 };
 
 const CORE_CONTEXT_WINDOW_TOKENS: usize = 128_000;
-const CORE_MAX_STEPS: usize = 64;
+const CORE_TURN_STEP_BUDGET: usize = 64;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run(
@@ -44,8 +47,9 @@ pub(crate) async fn run(
     prompt: String,
     active_session_id: Option<String>,
     sink: Arc<dyn AgentEventSink>,
+    continuation_sink: Arc<dyn AgentEventSink>,
     abort: watch::Receiver<bool>,
-    api_key: String,
+    mut model_routes: Vec<ResolvedAiModelRoute>,
     run_id: String,
     conversation_id: String,
     mut steering: mpsc::Receiver<String>,
@@ -55,6 +59,11 @@ pub(crate) async fn run(
         "status",
         Some("dsh-codex-agent 正在初始化 Codex Core".to_owned()),
     ))?;
+
+    let goal_id = service
+        .task(&run_id)?
+        .goal_id
+        .ok_or_else(|| AppError::Agent("agent turn is missing its Goal id".to_owned()))?;
 
     let session_hooks = hooks::run(
         &settings.hooks,
@@ -68,77 +77,60 @@ pub(crate) async fn run(
         sink.send(hook_event)?;
     }
 
-    let skill_context =
+    let mut skill_context =
         super::skills::load_enabled(&settings.skill_directories, &settings.enabled_skills)?;
-    let mut capabilities = Vec::new();
-    let mut mcp_clients = HashMap::new();
-    let mut mcp_diagnostics = Vec::new();
-    for server in &settings.mcp_servers {
-        let transport = super::mcp::transport_label(&server.transport).to_owned();
-        if !server.enabled {
-            mcp_diagnostics.push(McpServerDiagnostic {
-                server_id: server.id.clone(),
-                server_name: server.name.clone(),
-                transport,
-                enabled: false,
-                status: "disabled".to_owned(),
-                tool_count: 0,
-                error_code: None,
-                error_detail: None,
-            });
-            continue;
-        }
-        match McpTaskClient::start(server).await {
-            Ok(client) => match client.list_tools().await {
-                Ok(tools) => {
-                    mcp_diagnostics.push(McpServerDiagnostic {
-                        server_id: server.id.clone(),
-                        server_name: server.name.clone(),
-                        transport,
-                        enabled: true,
-                        status: "ready".to_owned(),
-                        tool_count: tools.len(),
-                        error_code: None,
-                        error_detail: None,
-                    });
-                    capabilities.extend(tools);
-                    mcp_clients.insert(server.id.clone(), Arc::new(Mutex::new(client)));
-                }
-                Err(error) => {
-                    mcp_diagnostics.push(McpServerDiagnostic {
-                        server_id: server.id.clone(),
-                        server_name: server.name.clone(),
-                        transport,
-                        enabled: true,
-                        status: "tool_discovery_failed".to_owned(),
-                        tool_count: 0,
-                        error_code: Some(error.code().to_owned()),
-                        error_detail: Some(error.detail()),
-                    });
-                    sink.send(service::mcp_error_event(&run_id, &server.name, &error))?;
-                }
-            },
-            Err(error) => {
-                mcp_diagnostics.push(McpServerDiagnostic {
-                    server_id: server.id.clone(),
-                    server_name: server.name.clone(),
-                    transport,
-                    enabled: true,
-                    status: "connection_failed".to_owned(),
-                    tool_count: 0,
-                    error_code: Some(error.code().to_owned()),
-                    error_detail: Some(error.detail()),
-                });
-                sink.send(service::mcp_error_event(&run_id, &server.name, &error))?;
-            }
-        }
+    let restored = super::skills::restore_for_model(
+        &settings.skill_directories,
+        &settings.enabled_skills,
+        &service.store().goal_skill_ids(&goal_id)?,
+    );
+    for warning in &restored.warnings {
+        let mut event = service::event(
+            &run_id,
+            "skill_restore_warning",
+            Some("Skill 恢复".to_owned()),
+        );
+        event.content = Some(warning.clone());
+        event.is_error = Some(true);
+        event.error_code = Some("SKILL_RESTORE_FAILED".to_owned());
+        sink.send(event)?;
     }
+    let active_skill_context = super::skills::active_context(&restored.loaded);
+    if !active_skill_context.is_empty() {
+        if !skill_context.is_empty() {
+            skill_context.push_str("\n\n");
+        }
+        skill_context.push_str(&active_skill_context);
+    }
+    let restored_skill_infos = restored
+        .loaded
+        .iter()
+        .map(|skill| skill.info.clone())
+        .collect::<Vec<_>>();
+    let prepared_mcp = service.mcp().prepare(&settings.mcp_servers).await;
+    for diagnostic in prepared_mcp
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.error_detail.is_some())
+    {
+        let mut failure = service::event(
+            &run_id,
+            "mcp_error",
+            Some(format!("MCP · {}", diagnostic.server_name)),
+        );
+        failure.content = diagnostic.error_detail.clone();
+        failure.is_error = Some(true);
+        failure.error_code = diagnostic.error_code.clone();
+        sink.send(failure)?;
+    }
+    let capabilities = prepared_mcp.capabilities;
+    let mcp_providers = prepared_mcp.providers;
+    let mcp_diagnostics = prepared_mcp.diagnostics;
 
-    let mut models = profile.effective_models();
     if !profile.routing.fallback_on_error {
-        models.truncate(1);
+        model_routes.truncate(1);
     }
-    if models.is_empty() {
+    if model_routes.is_empty() {
         return Err(AppError::Ai(
             "没有启用任何 AI 模型，请在 AI 服务设置中添加主模型".to_owned(),
         ));
@@ -157,64 +149,112 @@ pub(crate) async fn run(
         .unwrap_or_else(|| std::path::Path::new("."))
         .join("dsh-codex-agent");
     std::fs::create_dir_all(&state_dir)?;
-    let context_window_tokens = models[0]
-        .context_window_tokens
-        .map_or(CORE_CONTEXT_WINDOW_TOKENS, |value| value as usize);
-    let compact_threshold_tokens = models[0].compact_threshold_tokens.map_or_else(
-        || context_window_tokens.saturating_mul(3) / 4,
-        |value| value as usize,
-    );
+    // A Thread may fail over to any route. Use the smallest declared window
+    // and threshold so a fallback Provider never receives an oversized local
+    // rollout produced for a larger primary model.
+    let context_window_tokens = model_routes
+        .iter()
+        .map(|route| {
+            route
+                .model
+                .context_window_tokens
+                .map_or(CORE_CONTEXT_WINDOW_TOKENS, |value| value as usize)
+        })
+        .min()
+        .unwrap_or(CORE_CONTEXT_WINDOW_TOKENS);
+    let compact_threshold_tokens = model_routes
+        .iter()
+        .map(|route| {
+            let window = route
+                .model
+                .context_window_tokens
+                .map_or(CORE_CONTEXT_WINDOW_TOKENS, |value| value as usize);
+            route
+                .model
+                .compact_threshold_tokens
+                .map_or_else(|| window.saturating_mul(3) / 4, |value| value as usize)
+        })
+        .min()
+        .unwrap_or_else(|| context_window_tokens.saturating_mul(3) / 4)
+        .min(context_window_tokens.saturating_mul(3) / 4);
     if compact_threshold_tokens == 0 || compact_threshold_tokens >= context_window_tokens {
         return Err(AppError::InvalidInput(format!(
             "AI 模型 '{}' 的压缩阈值 {} 必须小于上下文窗口 {}",
-            models[0].model, compact_threshold_tokens, context_window_tokens
+            model_routes[0].model.model, compact_threshold_tokens, context_window_tokens
         )));
     }
     let core_config = CoreConfig {
-        base_url: profile.base_url.clone(),
-        model: models[0].model.clone(),
+        base_url: model_routes[0].provider.base_url.clone(),
+        model: model_routes[0].model.model.clone(),
         state_dir: state_dir.to_string_lossy().into_owned(),
         request_timeout_ms: 120_000,
         context_window_tokens,
         compact_threshold_tokens,
-        max_steps: CORE_MAX_STEPS,
+        turn_step_budget: CORE_TURN_STEP_BUDGET,
         system_prompt,
     };
-    let diagnostic_secret: Arc<str> = Arc::from(api_key.as_str());
-    let transports = models
+    let transports = model_routes
         .iter()
-        .filter(|candidate| candidate.enabled)
-        .map(|candidate| {
-            let provider_id = provider_context_id(&profile, candidate);
-            let authorization = match profile.auth_mode {
-                AiAuthMode::Bearer => format!("Bearer {api_key}"),
-                AiAuthMode::ApiKey => api_key.clone(),
+        .map(|route| {
+            let provider_id = provider_context_id(&route.provider, &route.model);
+            let authorization = match route.provider.auth_mode {
+                AiAuthMode::Bearer => format!("Bearer {}", route.api_key),
+                AiAuthMode::ApiKey => route.api_key.clone(),
             };
             let chat = ChatCompletionsTransport::new_with_authorization(
-                &profile.base_url,
+                &route.provider.base_url,
                 authorization.clone(),
-                candidate.model.clone(),
+                route.model.model.clone(),
                 Duration::from_millis(core_config.request_timeout_ms),
             )
             .map_err(core_error)?;
             let responses = ResponsesTransport::new_with_authorization(
-                &profile.base_url,
+                &route.provider.base_url,
                 authorization,
-                candidate.model.clone(),
+                route.model.model.clone(),
                 provider_id.clone(),
                 Duration::from_millis(core_config.request_timeout_ms),
             )
             .map_err(core_error)?;
             Ok(ProviderTransport {
                 provider_id,
-                diagnostic_secret: diagnostic_secret.clone(),
+                route_label: format!("{} · {}", route.provider.name, route.model.model),
+                diagnostic_secret: Arc::from(route.api_key.as_str()),
                 chat,
                 responses,
+                health: Mutex::new(RouteHealth::default()),
             })
         })
         .collect::<Result<Vec<_>, AppError>>()?;
-    let runtime = CodexRuntime::new(core_config, Arc::new(ProviderContextAdapter { transports }))
-        .map_err(core_error)?;
+    let runtime_fingerprint = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&json!({
+            "profileId": profile.id,
+            "models": model_routes.iter().map(|route| json!({
+                "id": route.model.id,
+                "model": route.model.model,
+                "role": route.model.role,
+                "providerProfileId": route.provider.id,
+                "baseUrl": route.provider.base_url,
+                "authMode": route.provider.auth_mode,
+                "credentialFingerprint": credential_fingerprint(&route.api_key),
+                "contextWindowTokens": route.model.context_window_tokens,
+                "compactThresholdTokens": route.model.compact_threshold_tokens,
+            })).collect::<Vec<_>>(),
+            "systemPrompt": core_config.system_prompt,
+            "contextWindowTokens": core_config.context_window_tokens,
+            "compactThresholdTokens": core_config.compact_threshold_tokens,
+            "turnStepBudget": core_config.turn_step_budget,
+        }))?)
+    );
+    let runtime = service
+        .runtime_for(
+            &conversation_id,
+            runtime_fingerprint,
+            core_config,
+            Arc::new(ProviderContextAdapter { transports }),
+        )
+        .await?;
     let context_state = match runtime.resume_thread(&conversation_id) {
         Ok(snapshot) => format!(
             "复用对话上下文 · {} 条消息 · 压缩版本 {}",
@@ -238,13 +278,16 @@ pub(crate) async fn run(
     let host: Arc<dyn HostBridge> = Arc::new(DshHostBridge {
         service: service.clone(),
         run_id: run_id.clone(),
+        goal_id,
         active_session_id,
         settings,
         registry: registry.clone(),
-        mcp_clients: Arc::new(mcp_clients),
+        capability_providers: Arc::new(mcp_providers),
         mcp_diagnostics: Arc::new(mcp_diagnostics),
         evidence: Arc::new(Mutex::new(EvidenceLedger::default())),
+        loaded_skills: Arc::new(Mutex::new(restored_skill_infos)),
         sink: sink.clone(),
+        continuation_sink,
         abort: abort.clone(),
     });
     let cancel_runtime = runtime.clone();
@@ -289,8 +332,6 @@ pub(crate) async fn run(
     // before publishing the terminal event.
     stop_and_drain_cancel_task(cancel_task).await;
     stop_and_drain_cancel_task(steer_task).await;
-    runtime.dispose().await.map_err(core_error)?;
-
     match result {
         Ok(turn) => {
             let usage = turn.usage.clone().unwrap_or_default();
@@ -375,13 +416,66 @@ impl ModelTransport for ProviderContextAdapter {
     ) -> Result<dsh_codex_core::ModelResponse, CoreError> {
         let mut failures = Vec::new();
         for transport in &self.transports {
-            match transport
-                .stream(request.clone(), cancellation.clone(), on_text_delta.clone())
-                .await
-            {
-                Ok(response) => return Ok(response),
-                Err(CoreError::Cancelled(detail)) => return Err(CoreError::Cancelled(detail)),
-                Err(error) => failures.push(error.to_json()),
+            if let Some(remaining) = transport.circuit_remaining().await {
+                failures.push(
+                    CoreError::Model {
+                        phase: "routing",
+                        code: "MODEL_ROUTE_CIRCUIT_OPEN".to_owned(),
+                        status: None,
+                        detail: format!(
+                            "model route '{}' is cooling down for {} ms after repeated failures",
+                            transport.route_label,
+                            remaining.as_millis()
+                        ),
+                        response_body: None,
+                    }
+                    .to_json(),
+                );
+                continue;
+            }
+            for attempt in 0..=2 {
+                match transport
+                    .stream(request.clone(), cancellation.clone(), on_text_delta.clone())
+                    .await
+                {
+                    Ok(response) => {
+                        transport.record_success().await;
+                        return Ok(response);
+                    }
+                    Err(CoreError::Cancelled(detail)) => {
+                        return Err(CoreError::Cancelled(detail));
+                    }
+                    Err(error) => {
+                        let retryable = retryable_model_error(&error);
+                        if retryable && attempt < 2 {
+                            let delay = [400_u64, 1_000][attempt];
+                            tracing::warn!(
+                                event = "model_route_retry",
+                                route = %transport.route_label,
+                                attempt = attempt + 1,
+                                delay_ms = delay,
+                                error_code = error.diagnostic_code(),
+                                error_phase = error.phase(),
+                                error_detail = %error.to_json(),
+                                "retrying transient model route failure"
+                            );
+                            tokio::select! {
+                                _ = cancellation.cancelled() => {
+                                    return Err(CoreError::Cancelled("model route retry cancelled".to_owned()));
+                                }
+                                _ = tokio::time::sleep(Duration::from_millis(delay)) => {}
+                            }
+                            continue;
+                        }
+                        transport.record_failure(retryable).await;
+                        failures.push(format!(
+                            "route '{}': {}",
+                            transport.route_label,
+                            error.to_json()
+                        ));
+                        break;
+                    }
+                }
             }
         }
         Err(CoreError::Model {
@@ -396,12 +490,51 @@ impl ModelTransport for ProviderContextAdapter {
 
 struct ProviderTransport {
     provider_id: String,
+    route_label: String,
     diagnostic_secret: Arc<str>,
     chat: ChatCompletionsTransport,
     responses: ResponsesTransport,
+    health: Mutex<RouteHealth>,
+}
+
+#[derive(Default)]
+struct RouteHealth {
+    consecutive_failures: u8,
+    open_until: Option<Instant>,
 }
 
 impl ProviderTransport {
+    async fn circuit_remaining(&self) -> Option<Duration> {
+        let mut health = self.health.lock().await;
+        let open_until = health.open_until?;
+        let now = Instant::now();
+        if open_until <= now {
+            health.open_until = None;
+            health.consecutive_failures = 0;
+            return None;
+        }
+        Some(open_until.saturating_duration_since(now))
+    }
+
+    async fn record_success(&self) {
+        let mut health = self.health.lock().await;
+        health.consecutive_failures = 0;
+        health.open_until = None;
+    }
+
+    async fn record_failure(&self, retryable: bool) {
+        let mut health = self.health.lock().await;
+        if record_route_failure(&mut health, retryable, Instant::now()) {
+            tracing::warn!(
+                event = "model_route_circuit_opened",
+                route = %self.route_label,
+                cooldown_ms = 30_000,
+                consecutive_failures = health.consecutive_failures,
+                "model route circuit opened"
+            );
+        }
+    }
+
     async fn stream(
         &self,
         request: ModelRequest,
@@ -496,6 +629,50 @@ impl ProviderTransport {
     }
 }
 
+fn retryable_model_error(error: &CoreError) -> bool {
+    match error {
+        CoreError::Model {
+            phase,
+            code,
+            status,
+            detail,
+            ..
+        } => {
+            let request_not_streaming = matches!(
+                *phase,
+                "send"
+                    | "responses_send"
+                    | "responses_body"
+                    | "response_status"
+                    | "responses_status"
+                    | "provider_context_fallback"
+            );
+            if !request_not_streaming {
+                return false;
+            }
+            status.is_some_and(|value| value == 408 || value == 429 || value >= 500)
+                || matches!(code.as_str(), "TIMEOUT" | "CONNECT" | "HTTP_CLIENT")
+                || (code == "RESPONSES_AND_CHAT_FAILED"
+                    && ["TIMEOUT", "CONNECT", "HTTP_429", "HTTP_5"]
+                        .iter()
+                        .any(|marker| detail.contains(marker)))
+        }
+        _ => false,
+    }
+}
+
+fn record_route_failure(health: &mut RouteHealth, retryable: bool, now: Instant) -> bool {
+    if !retryable {
+        return false;
+    }
+    health.consecutive_failures = health.consecutive_failures.saturating_add(1);
+    if health.consecutive_failures < 3 {
+        return false;
+    }
+    health.open_until = Some(now + Duration::from_secs(30));
+    true
+}
+
 fn provider_context_id(profile: &AiProfile, model: &AiModelConfig) -> String {
     let auth_mode = match profile.auth_mode {
         AiAuthMode::Bearer => "bearer",
@@ -510,6 +687,11 @@ fn provider_context_id(profile: &AiProfile, model: &AiModelConfig) -> String {
     hasher.update(auth_mode.as_bytes());
     let fingerprint = format!("{:x}", hasher.finalize());
     format!("{}:{}:{}", profile.id, model.id, &fingerprint[..16])
+}
+
+fn credential_fingerprint(secret: &str) -> String {
+    let digest = format!("{:x}", Sha256::digest(secret.as_bytes()));
+    digest[..16].to_owned()
 }
 
 fn redact_model_error(error: CoreError, secret: &str) -> CoreError {
@@ -555,13 +737,16 @@ fn responses_unsupported(error: &CoreError) -> bool {
 struct DshHostBridge {
     service: Arc<AgentService>,
     run_id: String,
+    goal_id: String,
     active_session_id: Option<String>,
     settings: AgentSettings,
     registry: Arc<CapabilityRegistry>,
-    mcp_clients: Arc<HashMap<String, Arc<Mutex<McpTaskClient>>>>,
+    capability_providers: Arc<std::collections::HashMap<String, Arc<dyn CapabilityProvider>>>,
     mcp_diagnostics: Arc<Vec<McpServerDiagnostic>>,
     evidence: Arc<Mutex<EvidenceLedger>>,
+    loaded_skills: Arc<Mutex<Vec<crate::types::SkillInfo>>>,
     sink: Arc<dyn AgentEventSink>,
+    continuation_sink: Arc<dyn AgentEventSink>,
     abort: watch::Receiver<bool>,
 }
 
@@ -600,6 +785,8 @@ impl HostBridge for DshHostBridge {
             .map_err(app_error)?;
         let mut decision =
             policy::evaluate_tool(&invocation.name, &invocation.arguments, policy_context);
+        self.apply_skill_constraints(&invocation.name, &mut decision)
+            .await;
         let pre_hooks = hooks::run(
             &self.settings.hooks,
             "PreToolUse",
@@ -712,6 +899,54 @@ impl HostBridge for DshHostBridge {
 }
 
 impl DshHostBridge {
+    async fn apply_skill_constraints(
+        &self,
+        tool_name: &str,
+        decision: &mut policy::PolicyDecision,
+    ) {
+        if matches!(tool_name, "skill_load" | "goal_update" | "evidence_read") {
+            return;
+        }
+        for skill in self.loaded_skills.lock().await.iter() {
+            if !super::skills::allows_tool(skill, tool_name) {
+                decision.action = PolicyAction::Deny;
+                decision.reason = format!(
+                    "Skill '{}' does not allow tool '{}'; declared allowed_tools: {}",
+                    skill.name,
+                    tool_name,
+                    skill.allowed_tools.join(", ")
+                );
+                return;
+            }
+            let risk = skill.risk.trim().to_ascii_lowercase();
+            if matches!(risk.as_str(), "deny" | "blocked") {
+                decision.action = PolicyAction::Deny;
+                decision.reason = format!("Skill '{}' metadata denies execution", skill.name);
+                return;
+            }
+            if matches!(risk.as_str(), "read_only" | "readonly")
+                && decision.effect != policy::ToolEffect::Read
+            {
+                decision.action = PolicyAction::Deny;
+                decision.reason = format!(
+                    "Skill '{}' is read-only and cannot authorize a state-changing tool",
+                    skill.name
+                );
+                return;
+            }
+            if matches!(risk.as_str(), "confirm" | "high" | "critical")
+                && decision.effect != policy::ToolEffect::Read
+                && decision.action == PolicyAction::Allow
+            {
+                decision.action = PolicyAction::Ask;
+                decision.reason = format!(
+                    "Skill '{}' metadata requires user confirmation for state-changing tools: {}",
+                    skill.name, decision.reason
+                );
+            }
+        }
+    }
+
     async fn execute_registered_tool(
         &self,
         invocation: &ToolInvocation,
@@ -721,9 +956,76 @@ impl DshHostBridge {
             "cli_execute" | "cli_execute_batch"
         ) {
             let refs = string_array(&invocation.arguments, "evidence_refs")?;
+            for reference in &refs {
+                self.ensure_evidence_loaded(reference).await?;
+            }
             self.evidence.lock().await.validate_refs(&refs)?;
         }
         match invocation.name.as_str() {
+            "goal_update" => {
+                let status = service::argument_str(&invocation.arguments, "status")?;
+                let status = match status {
+                    "active" => super::domain::AgentGoalStatus::Active,
+                    "waiting_approval" => super::domain::AgentGoalStatus::WaitingApproval,
+                    "waiting_external" => super::domain::AgentGoalStatus::WaitingExternal,
+                    "blocked" => super::domain::AgentGoalStatus::Blocked,
+                    "completed" => super::domain::AgentGoalStatus::Completed,
+                    "failed" => super::domain::AgentGoalStatus::Failed,
+                    value => {
+                        return Err(AppError::InvalidInput(format!(
+                            "unsupported Goal status '{value}'"
+                        )));
+                    }
+                };
+                let checkpoint = invocation.arguments.get("checkpoint");
+                let reason = invocation.arguments.get("reason").and_then(Value::as_str);
+                let goal = self.service.store().update_goal(
+                    &self.goal_id,
+                    super::store::GoalUpdate::new(status)
+                        .current_turn(Some(&self.run_id))
+                        .checkpoint(checkpoint)
+                        .last_error(
+                            (status == super::domain::AgentGoalStatus::Failed)
+                                .then_some(reason.unwrap_or("Agent marked the Goal as failed")),
+                        )
+                        .blocked_reason(
+                            matches!(
+                                status,
+                                super::domain::AgentGoalStatus::WaitingApproval
+                                    | super::domain::AgentGoalStatus::WaitingExternal
+                                    | super::domain::AgentGoalStatus::Blocked
+                            )
+                            .then_some(reason.unwrap_or("Agent is waiting before it can continue")),
+                        ),
+                )?;
+                Ok(serde_json::to_string(&goal)?)
+            }
+            "skill_load" => {
+                let id = service::argument_str(&invocation.arguments, "id")?;
+                let loaded = super::skills::load_for_model(
+                    &self.settings.skill_directories,
+                    &self.settings.enabled_skills,
+                    id,
+                )?;
+                self.service.store().activate_goal_skill(
+                    &self.goal_id,
+                    &loaded.info.id,
+                    &loaded.info.content_hash,
+                )?;
+                let mut active = self.loaded_skills.lock().await;
+                if !active.iter().any(|skill| skill.id == loaded.info.id) {
+                    active.push(loaded.info.clone());
+                }
+                Ok(serde_json::to_string(&json!({
+                    "skill": loaded.info,
+                    "instructions": loaded.content,
+                    "enforcement": {
+                        "allowedToolsEnforced": true,
+                        "riskEnforced": true,
+                        "hostPolicyStillApplies": true,
+                    }
+                }))?)
+            }
             "mcp_status" => {
                 let query = invocation
                     .arguments
@@ -771,11 +1073,53 @@ impl DshHostBridge {
                     .get("arguments")
                     .cloned()
                     .unwrap_or_else(|| json!({}));
-                self.invoke_capability(id, arguments).await
+                self.invoke_capability(&invocation.call_id, id, arguments)
+                    .await
             }
-            "capability_invoke_batch" => self.invoke_capability_batch(&invocation.arguments).await,
+            "capability_invoke_batch" => {
+                self.invoke_capability_batch(&invocation.call_id, &invocation.arguments)
+                    .await
+            }
+            "capability_resource_list" => {
+                let provider_id = invocation
+                    .arguments
+                    .get("provider_id")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty());
+                self.list_provider_values(provider_id, "resources").await
+            }
+            "capability_resource_read" => {
+                let provider_id = service::argument_str(&invocation.arguments, "provider_id")?;
+                let uri = service::argument_str(&invocation.arguments, "uri")?;
+                let provider = self.provider(provider_id)?;
+                let raw = provider.read_resource(uri).await?;
+                self.persist_provider_value(provider.as_ref(), "resource", uri, &raw)
+                    .await
+            }
+            "capability_prompt_list" => {
+                let provider_id = invocation
+                    .arguments
+                    .get("provider_id")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty());
+                self.list_provider_values(provider_id, "prompts").await
+            }
+            "capability_prompt_get" => {
+                let provider_id = service::argument_str(&invocation.arguments, "provider_id")?;
+                let name = service::argument_str(&invocation.arguments, "name")?;
+                let arguments = invocation
+                    .arguments
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                let provider = self.provider(provider_id)?;
+                let raw = provider.get_prompt(name, arguments).await?;
+                self.persist_provider_value(provider.as_ref(), "prompt", name, &raw)
+                    .await
+            }
             "evidence_read" => {
                 let id = service::argument_str(&invocation.arguments, "evidence_id")?;
+                self.ensure_evidence_loaded(id).await?;
                 let offset = invocation
                     .arguments
                     .get("offset")
@@ -792,7 +1136,11 @@ impl DshHostBridge {
             name => {
                 if let Some(capability) = self.registry.find_by_model_name(name) {
                     return self
-                        .invoke_capability(&capability.id, invocation.arguments.clone())
+                        .invoke_capability(
+                            &invocation.call_id,
+                            &capability.id,
+                            invocation.arguments.clone(),
+                        )
                         .await;
                 }
                 self.service
@@ -804,6 +1152,7 @@ impl DshHostBridge {
                         self.active_session_id.as_deref(),
                         &self.settings,
                         self.sink.clone(),
+                        self.continuation_sink.clone(),
                         self.abort.clone(),
                     )
                     .await
@@ -811,19 +1160,53 @@ impl DshHostBridge {
         }
     }
 
-    async fn invoke_capability(&self, id: &str, arguments: Value) -> Result<String, AppError> {
+    async fn invoke_capability(
+        &self,
+        call_id: &str,
+        id: &str,
+        arguments: Value,
+    ) -> Result<String, AppError> {
         let capability = self
             .registry
             .find_by_id(id)
             .ok_or_else(|| AppError::NotFound(format!("capability '{id}'")))?;
-        let client = self
-            .mcp_clients
+        let provider = self
+            .capability_providers
             .get(&capability.provider_id)
             .ok_or_else(|| {
-                AppError::NotFound(format!("MCP server '{}'", capability.provider_id))
+                AppError::NotFound(format!("capability provider '{}'", capability.provider_id))
             })?;
-        let result = client.lock().await.call_tool(capability, arguments).await?;
-        let raw = serde_json::to_value(&result)?;
+        let progress_sink = {
+            let sink = self.sink.clone();
+            let run_id = self.run_id.clone();
+            let event_call_id = call_id.to_owned();
+            let tool_name = capability.original_name.clone();
+            let provider_id = capability.provider_id.clone();
+            Arc::new(move |progress: super::capability::CapabilityProgress| {
+                let mut event = service::event(
+                    &run_id,
+                    "capability_progress",
+                    progress
+                        .message
+                        .clone()
+                        .or_else(|| Some("MCP progress".to_owned())),
+                );
+                event.call_id = Some(event_call_id.clone());
+                event.tool_name = Some(tool_name.clone());
+                event.arguments = Some(json!({
+                    "providerId": provider_id,
+                    "progress": progress.progress,
+                    "total": progress.total,
+                }));
+                if let Err(error) = sink.send(event) {
+                    tracing::debug!(%error, "unable to emit MCP capability progress");
+                }
+            }) as super::capability::CapabilityProgressSink
+        };
+        let result = provider
+            .invoke(capability, arguments, Some(progress_sink))
+            .await?;
+        let raw = result.raw;
         let evidence_id = format!("ev-{}", uuid::Uuid::new_v4());
         let record =
             self.service
@@ -836,13 +1219,13 @@ impl DshHostBridge {
             capability,
             &raw,
             structured,
-            result.is_error.unwrap_or(false),
+            result.is_error,
             &evidence_id,
             &raw_path,
             raw_bytes,
         )?;
         let encoded = serde_json::to_string(&packet)?;
-        if result.is_error == Some(true) {
+        if result.is_error {
             return Err(AppError::Mcp {
                 code: "MCP_TOOL_ERROR",
                 detail: encoded,
@@ -851,7 +1234,113 @@ impl DshHostBridge {
         Ok(encoded)
     }
 
-    async fn invoke_capability_batch(&self, arguments: &Value) -> Result<String, AppError> {
+    fn provider(&self, id: &str) -> Result<Arc<dyn CapabilityProvider>, AppError> {
+        self.capability_providers
+            .get(id)
+            .cloned()
+            .ok_or_else(|| AppError::NotFound(format!("capability provider '{id}'")))
+    }
+
+    async fn list_provider_values(
+        &self,
+        provider_id: Option<&str>,
+        kind: &str,
+    ) -> Result<String, AppError> {
+        let providers = match provider_id {
+            Some(id) => vec![self.provider(id)?],
+            None => self.capability_providers.values().cloned().collect(),
+        };
+        let mut results = Vec::with_capacity(providers.len());
+        for provider in providers {
+            let value = match kind {
+                "resources" => provider.list_resources().await,
+                "prompts" => provider.list_prompts().await,
+                _ => unreachable!("known provider value kind"),
+            };
+            match value {
+                Ok(value) => results.push(json!({
+                    "providerId": provider.id(),
+                    "providerName": provider.name(),
+                    "providerKind": provider.kind(),
+                    "transport": provider.transport(),
+                    "status": "success",
+                    "items": value,
+                })),
+                Err(error) => results.push(json!({
+                    "providerId": provider.id(),
+                    "providerName": provider.name(),
+                    "status": "error",
+                    "errorCode": error.code(),
+                    "error": error.detail(),
+                })),
+            }
+        }
+        Ok(serde_json::to_string(&json!({
+            "kind": kind,
+            "providerCount": results.len(),
+            "providers": results,
+        }))?)
+    }
+
+    async fn persist_provider_value(
+        &self,
+        provider: &dyn CapabilityProvider,
+        kind: &str,
+        name: &str,
+        raw: &Value,
+    ) -> Result<String, AppError> {
+        const INLINE_BYTES: usize = 24 * 1024;
+        let evidence_id = format!("ev-{}", uuid::Uuid::new_v4());
+        let capability_id = format!("{}:{}:{}", provider.kind(), provider.id(), kind);
+        let record =
+            self.service
+                .persist_evidence(&self.run_id, &evidence_id, &capability_id, raw)?;
+        let raw_bytes = record.bytes;
+        let raw_path = record.artifact_path.to_string_lossy().into_owned();
+        self.evidence.lock().await.insert(record);
+        let encoded = serde_json::to_string(raw)?;
+        Ok(serde_json::to_string(&json!({
+            "evidenceId": evidence_id,
+            "provider": {
+                "kind": provider.kind(),
+                "id": provider.id(),
+                "name": provider.name(),
+                "transport": provider.transport(),
+            },
+            "contentKind": kind,
+            "name": name,
+            "content": (encoded.len() <= INLINE_BYTES).then_some(raw),
+            "contentPreview": truncate_utf8(&encoded, 12 * 1024),
+            "readRequired": encoded.len() > INLINE_BYTES,
+            "rawArtifact": raw_path,
+            "rawBytes": raw_bytes,
+        }))?)
+    }
+
+    async fn ensure_evidence_loaded(&self, id: &str) -> Result<(), AppError> {
+        if self.evidence.lock().await.contains(id) {
+            return Ok(());
+        }
+        let persisted = self
+            .service
+            .store()
+            .evidence(id)?
+            .filter(|record| record.goal_id == self.goal_id)
+            .ok_or_else(|| AppError::NotFound(format!("evidence '{id}' for current Goal")))?;
+        self.evidence.lock().await.insert(EvidenceRecord {
+            id: persisted.id,
+            capability_id: persisted.capability_id,
+            artifact_path: PathBuf::from(persisted.artifact_path),
+            bytes: persisted.bytes,
+        });
+        Ok(())
+    }
+
+    async fn invoke_capability_batch(
+        &self,
+        call_id: &str,
+        arguments: &Value,
+    ) -> Result<String, AppError> {
         let calls = arguments
             .get("calls")
             .and_then(Value::as_array)
@@ -868,7 +1357,7 @@ impl DshHostBridge {
         for call in calls {
             let id = service::argument_str(call, "capability_id")?;
             let tool_arguments = call.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            match self.invoke_capability(id, tool_arguments).await {
+            match self.invoke_capability(call_id, id, tool_arguments).await {
                 Ok(content) => results.push(serde_json::from_str::<Value>(&content)?),
                 Err(error) => {
                     failed = true;
@@ -1069,6 +1558,10 @@ fn model_tool_parallel_safe(name: &str) -> bool {
             | "skill_load"
             | "mcp_status"
             | "capability_search"
+            | "capability_resource_list"
+            | "capability_resource_read"
+            | "capability_prompt_list"
+            | "capability_prompt_get"
             | "evidence_read"
     )
 }
@@ -1269,7 +1762,7 @@ fn map_runtime_event(run_id: &str, event: RuntimeEvent) -> Option<AgentEvent> {
     Some(mapped)
 }
 
-fn core_error(error: CoreError) -> AppError {
+pub(crate) fn core_error(error: CoreError) -> AppError {
     AppError::Agent(error.to_json())
 }
 
@@ -1284,7 +1777,8 @@ fn app_error(error: AppError) -> CoreError {
 mod tests {
     use super::{
         build_agent_system_prompt, capability_result_packet, provider_context_id,
-        redact_model_error, stop_and_drain_cancel_task,
+        record_route_failure, redact_model_error, responses_unsupported, retryable_model_error,
+        stop_and_drain_cancel_task, RouteHealth,
     };
     use crate::agent::capability::{CapabilityDescriptor, McpServerDiagnostic};
     use crate::types::{AiAuthMode, AiModelConfig, AiModelRole, AiProfile, AiRoutingConfig};
@@ -1309,6 +1803,7 @@ mod tests {
             id: "primary".to_owned(),
             name: "主模型".to_owned(),
             model: "model-a".to_owned(),
+            provider_profile_id: None,
             role: AiModelRole::Primary,
             enabled: true,
             context_window_tokens: None,
@@ -1362,6 +1857,67 @@ mod tests {
         assert!(diagnostic.contains("401"));
         assert!(!diagnostic.contains("sk-secret-value"));
         assert!(diagnostic.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn retry_classifier_never_replays_a_partially_streamed_failure() {
+        let transient_send = CoreError::Model {
+            phase: "send",
+            code: "TIMEOUT".to_owned(),
+            status: None,
+            detail: "request timed out before response".to_owned(),
+            response_body: None,
+        };
+        let streamed = CoreError::Model {
+            phase: "stream",
+            code: "TIMEOUT".to_owned(),
+            status: None,
+            detail: "stream interrupted after a delta".to_owned(),
+            response_body: None,
+        };
+        let permanent = CoreError::Model {
+            phase: "response_status",
+            code: "HTTP_401".to_owned(),
+            status: Some(401),
+            detail: "unauthorized".to_owned(),
+            response_body: None,
+        };
+        assert!(retryable_model_error(&transient_send));
+        assert!(!retryable_model_error(&streamed));
+        assert!(!retryable_model_error(&permanent));
+    }
+
+    #[test]
+    fn route_circuit_opens_only_after_three_transient_terminal_failures() {
+        let now = std::time::Instant::now();
+        let mut health = RouteHealth::default();
+        assert!(!record_route_failure(&mut health, false, now));
+        assert_eq!(health.consecutive_failures, 0);
+        assert!(!record_route_failure(&mut health, true, now));
+        assert!(!record_route_failure(&mut health, true, now));
+        assert!(record_route_failure(&mut health, true, now));
+        assert_eq!(health.consecutive_failures, 3);
+        assert_eq!(health.open_until, Some(now + Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn responses_capability_fallback_is_persisted_only_for_unsupported_endpoints() {
+        let unsupported = CoreError::Model {
+            phase: "responses_status",
+            code: "HTTP_404".to_owned(),
+            status: Some(404),
+            detail: "not found".to_owned(),
+            response_body: Some("unknown endpoint /responses".to_owned()),
+        };
+        let temporary = CoreError::Model {
+            phase: "responses_status",
+            code: "HTTP_503".to_owned(),
+            status: Some(503),
+            detail: "unavailable".to_owned(),
+            response_body: Some("try again".to_owned()),
+        };
+        assert!(responses_unsupported(&unsupported));
+        assert!(!responses_unsupported(&temporary));
     }
 
     #[test]

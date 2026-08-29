@@ -35,7 +35,6 @@ export interface Config {
   requestTimeoutMs?: number
   contextWindowTokens?: number
   compactThresholdTokens?: number
-  maxSteps?: number
   systemPrompt?: string
   externalMcp?: ExternalMcpConfig[]
   webSearch?: ExternalWebSearchConfig
@@ -50,7 +49,6 @@ export const Config: z<Config> = z.object({
   requestTimeoutMs: z.number().step(1).min(1).default(120_000),
   contextWindowTokens: z.number().step(1).min(2).default(128_000),
   compactThresholdTokens: z.number().step(1).min(1).default(96_000),
-  maxSteps: z.number().step(1).min(1).default(64),
   systemPrompt: z.string().default(''),
   externalMcp: z
     .array(
@@ -80,7 +78,6 @@ interface ResolvedConfig {
   requestTimeoutMs: number
   contextWindowTokens: number
   compactThresholdTokens: number
-  maxSteps: number
   systemPrompt: string
   externalMcp: ExternalMcpConfig[]
   webSearch?: ExternalWebSearchConfig
@@ -291,7 +288,7 @@ export async function apply(
       requestTimeoutMs: resolved.requestTimeoutMs,
       contextWindowTokens: resolved.contextWindowTokens,
       compactThresholdTokens: resolved.compactThresholdTokens,
-      maxSteps: resolved.maxSteps,
+      turnStepBudget: 64,
       systemPrompt: resolved.systemPrompt,
     }),
     apiKey,
@@ -342,7 +339,6 @@ function resolveConfig(config: Config): ResolvedConfig {
     requestTimeoutMs: config.requestTimeoutMs ?? 120_000,
     contextWindowTokens,
     compactThresholdTokens,
-    maxSteps: config.maxSteps ?? 64,
     systemPrompt: config.systemPrompt ?? '',
     externalMcp: config.externalMcp ?? [],
     ...(config.webSearch === undefined ? {} : { webSearch: config.webSearch }),

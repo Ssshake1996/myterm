@@ -1,25 +1,63 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
+use async_trait::async_trait;
 use http::{HeaderName, HeaderValue};
 use rmcp::{
-    model::{CallToolRequestParams, CallToolResult},
+    model::{
+        CallToolRequestParams, CallToolResult, GetPromptRequestParams, ProgressNotificationParam,
+        ReadResourceRequestParams,
+    },
+    service::NotificationContext,
     transport::{
         streamable_http_client::StreamableHttpClientTransportConfig, StreamableHttpClientTransport,
         TokioChildProcess,
     },
-    ServiceExt,
+    ClientHandler, RoleClient, ServiceExt,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio::process::Command;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::{
-    agent::capability::CapabilityDescriptor,
+    agent::capability::{
+        CapabilityDescriptor, CapabilityInvocationResult, CapabilityProgress,
+        CapabilityProgressSink, CapabilityProvider, McpServerDiagnostic,
+    },
     types::{McpServerConfig, McpToolInfo, McpTransportKind},
     AppError,
 };
 
-type RunningClient = rmcp::service::RunningService<rmcp::RoleClient, ()>;
+type RunningClient = rmcp::service::RunningService<rmcp::RoleClient, McpClientHandler>;
+
+#[derive(Clone, Default)]
+struct McpClientHandler {
+    progress: Arc<RwLock<Option<CapabilityProgressSink>>>,
+}
+
+impl ClientHandler for McpClientHandler {
+    async fn on_progress(
+        &self,
+        params: ProgressNotificationParam,
+        _context: NotificationContext<RoleClient>,
+    ) {
+        if let Some(sink) = self.progress.read().await.clone() {
+            sink(CapabilityProgress {
+                progress: params.progress,
+                total: params.total,
+                message: params.message,
+            });
+        }
+    }
+}
+
+const MCP_CATALOG_TTL: Duration = Duration::from_secs(5 * 60);
+const MCP_IDLE_TTL: Duration = Duration::from_secs(30 * 60);
+const MAX_POOLED_MCP_SERVERS: usize = 16;
 
 /// A task-scoped MCP client backed by one of the supported transports.
 ///
@@ -33,7 +71,7 @@ pub struct McpTaskClient {
 
 impl McpTaskClient {
     pub async fn start(server: &McpServerConfig) -> Result<Self, AppError> {
-        let client = connect(server).await?;
+        let client = connect(server, McpClientHandler::default()).await?;
         Ok(Self {
             server: server.clone(),
             client,
@@ -88,6 +126,7 @@ impl McpTaskClient {
         &self,
         tool: &CapabilityDescriptor,
         arguments: Value,
+        progress: Option<CapabilityProgressSink>,
     ) -> Result<CallToolResult, AppError> {
         let arguments = arguments.as_object().cloned().ok_or_else(|| {
             AppError::InvalidInput("MCP tool arguments must be a JSON object".to_owned())
@@ -97,31 +136,37 @@ impl McpTaskClient {
             &Value::Object(arguments.clone()),
             &format!("MCP capability '{}' input", tool.id),
         )?;
+        *self.client.service().progress.write().await = progress;
         let result = tokio::time::timeout(
             Duration::from_secs(60),
             self.client.call_tool(
                 CallToolRequestParams::new(tool.original_name.clone()).with_arguments(arguments),
             ),
         )
-        .await
-        .map_err(|_| AppError::Mcp {
-            code: "MCP_TOOL_TIMEOUT",
-            detail: format!(
-                "MCP server '{}' [{}] tool '{}' timed out",
-                self.server.name,
-                transport_label(&self.server.transport),
-                tool.original_name
-            ),
-        })?
-        .map_err(|error| AppError::Mcp {
-            code: "MCP_TOOL_CALL_FAILED",
-            detail: format!(
-                "MCP server '{}' [{}] tool '{}' failed: {error}",
-                self.server.name,
-                transport_label(&self.server.transport),
-                tool.original_name
-            ),
-        })?;
+        .await;
+        // Progress callbacks are scoped to one invocation. Clearing this on
+        // every exit path prevents a pooled client from publishing a later
+        // request's notifications into an earlier Turn.
+        *self.client.service().progress.write().await = None;
+        let result = result
+            .map_err(|_| AppError::Mcp {
+                code: "MCP_TOOL_TIMEOUT",
+                detail: format!(
+                    "MCP server '{}' [{}] tool '{}' timed out",
+                    self.server.name,
+                    transport_label(&self.server.transport),
+                    tool.original_name
+                ),
+            })?
+            .map_err(|error| AppError::Mcp {
+                code: "MCP_TOOL_CALL_FAILED",
+                detail: format!(
+                    "MCP server '{}' [{}] tool '{}' failed: {error}",
+                    self.server.name,
+                    transport_label(&self.server.transport),
+                    tool.original_name
+                ),
+            })?;
         if result.is_error != Some(true) {
             if let Some(output_schema) = tool.output_schema.as_ref() {
                 let structured = result.structured_content.as_ref().ok_or_else(|| {
@@ -140,6 +185,100 @@ impl McpTaskClient {
         Ok(result)
     }
 
+    pub async fn list_resources(&self) -> Result<Value, AppError> {
+        let resources =
+            tokio::time::timeout(Duration::from_secs(15), self.client.list_all_resources())
+                .await
+                .map_err(|_| AppError::Mcp {
+                    code: "MCP_LIST_RESOURCES_TIMEOUT",
+                    detail: format!(
+                        "MCP server '{}' timed out while listing resources",
+                        self.server.name
+                    ),
+                })?
+                .map_err(|error| AppError::Mcp {
+                    code: "MCP_LIST_RESOURCES_FAILED",
+                    detail: format!(
+                        "MCP server '{}' failed to list resources: {error}",
+                        self.server.name
+                    ),
+                })?;
+        Ok(serde_json::to_value(resources)?)
+    }
+
+    pub async fn read_resource(&self, uri: &str) -> Result<Value, AppError> {
+        let result = tokio::time::timeout(
+            Duration::from_secs(60),
+            self.client
+                .read_resource(ReadResourceRequestParams::new(uri)),
+        )
+        .await
+        .map_err(|_| AppError::Mcp {
+            code: "MCP_READ_RESOURCE_TIMEOUT",
+            detail: format!(
+                "MCP server '{}' timed out while reading resource '{uri}'",
+                self.server.name
+            ),
+        })?
+        .map_err(|error| AppError::Mcp {
+            code: "MCP_READ_RESOURCE_FAILED",
+            detail: format!(
+                "MCP server '{}' failed to read resource '{uri}': {error}",
+                self.server.name
+            ),
+        })?;
+        Ok(serde_json::to_value(result)?)
+    }
+
+    pub async fn list_prompts(&self) -> Result<Value, AppError> {
+        let prompts = tokio::time::timeout(Duration::from_secs(15), self.client.list_all_prompts())
+            .await
+            .map_err(|_| AppError::Mcp {
+                code: "MCP_LIST_PROMPTS_TIMEOUT",
+                detail: format!(
+                    "MCP server '{}' timed out while listing prompts",
+                    self.server.name
+                ),
+            })?
+            .map_err(|error| AppError::Mcp {
+                code: "MCP_LIST_PROMPTS_FAILED",
+                detail: format!(
+                    "MCP server '{}' failed to list prompts: {error}",
+                    self.server.name
+                ),
+            })?;
+        Ok(serde_json::to_value(prompts)?)
+    }
+
+    pub async fn get_prompt(&self, name: &str, arguments: Value) -> Result<Value, AppError> {
+        let arguments = arguments.as_object().cloned().ok_or_else(|| {
+            AppError::InvalidInput("MCP prompt arguments must be a JSON object".to_owned())
+        })?;
+        let result = tokio::time::timeout(
+            Duration::from_secs(60),
+            self.client
+                .get_prompt(GetPromptRequestParams::new(name).with_arguments(arguments)),
+        )
+        .await;
+        *self.client.service().progress.write().await = None;
+        let result = result
+            .map_err(|_| AppError::Mcp {
+                code: "MCP_GET_PROMPT_TIMEOUT",
+                detail: format!(
+                    "MCP server '{}' timed out while getting prompt '{name}'",
+                    self.server.name
+                ),
+            })?
+            .map_err(|error| AppError::Mcp {
+                code: "MCP_GET_PROMPT_FAILED",
+                detail: format!(
+                    "MCP server '{}' failed to get prompt '{name}': {error}",
+                    self.server.name
+                ),
+            })?;
+        Ok(serde_json::to_value(result)?)
+    }
+
     pub async fn close(&mut self) {
         let _ = self.client.close_with_timeout(Duration::from_secs(2)).await;
     }
@@ -149,6 +288,372 @@ impl Drop for McpTaskClient {
     fn drop(&mut self) {
         self.client.cancellation_token().cancel();
     }
+}
+
+struct CachedCatalog {
+    loaded_at: Instant,
+    capabilities: Vec<CapabilityDescriptor>,
+}
+
+pub struct McpCapabilityProvider {
+    server: McpServerConfig,
+    client: Mutex<Option<McpTaskClient>>,
+    catalog: RwLock<Option<CachedCatalog>>,
+}
+
+impl McpCapabilityProvider {
+    fn new(server: McpServerConfig) -> Self {
+        Self {
+            server,
+            client: Mutex::new(None),
+            catalog: RwLock::new(None),
+        }
+    }
+
+    async fn connect_locked<'a>(
+        &'a self,
+        slot: &'a mut Option<McpTaskClient>,
+    ) -> Result<&'a McpTaskClient, AppError> {
+        if slot.is_none() {
+            *slot = Some(McpTaskClient::start(&self.server).await?);
+        }
+        Ok(slot.as_ref().expect("MCP client initialized"))
+    }
+
+    async fn reset_locked(&self, slot: &mut Option<McpTaskClient>) {
+        if let Some(mut client) = slot.take() {
+            client.close().await;
+        }
+    }
+
+    async fn close(&self) {
+        let mut slot = self.client.lock().await;
+        self.reset_locked(&mut slot).await;
+        *self.catalog.write().await = None;
+    }
+
+    async fn list_tools_uncached(&self) -> Result<Vec<CapabilityDescriptor>, AppError> {
+        let mut slot = self.client.lock().await;
+        let first = self.connect_locked(&mut slot).await?.list_tools().await;
+        match first {
+            Ok(tools) => Ok(tools),
+            Err(first_error) => {
+                tracing::warn!(
+                    server_id = %self.server.id,
+                    error_code = first_error.code(),
+                    error = %first_error.detail(),
+                    "MCP discovery failed; reconnecting once"
+                );
+                self.reset_locked(&mut slot).await;
+                self.connect_locked(&mut slot)
+                    .await?
+                    .list_tools()
+                    .await
+                    .map_err(|retry_error| AppError::Mcp {
+                        code: "MCP_RECONNECT_FAILED",
+                        detail: format!(
+                            "MCP server '{}' discovery failed before and after reconnect. First error: {}. Retry error: {}",
+                            self.server.name,
+                            first_error.detail(),
+                            retry_error.detail()
+                        ),
+                    })
+            }
+        }
+    }
+
+    async fn read_operation(
+        &self,
+        operation: &'static str,
+        request: impl Fn(
+            &McpTaskClient,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<Value, AppError>> + Send + '_>,
+        >,
+    ) -> Result<Value, AppError> {
+        let mut slot = self.client.lock().await;
+        let first = request(self.connect_locked(&mut slot).await?).await;
+        match first {
+            Ok(value) => Ok(value),
+            Err(first_error) => {
+                tracing::warn!(
+                    server_id = %self.server.id,
+                    operation,
+                    error_code = first_error.code(),
+                    error = %first_error.detail(),
+                    "MCP read operation failed; reconnecting once"
+                );
+                self.reset_locked(&mut slot).await;
+                request(self.connect_locked(&mut slot).await?).await.map_err(|retry_error| {
+                    AppError::Mcp {
+                        code: "MCP_RECONNECT_FAILED",
+                        detail: format!(
+                            "MCP server '{}' operation '{}' failed before and after reconnect. First error: {}. Retry error: {}",
+                            self.server.name,
+                            operation,
+                            first_error.detail(),
+                            retry_error.detail()
+                        ),
+                    }
+                })
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl CapabilityProvider for McpCapabilityProvider {
+    fn id(&self) -> &str {
+        &self.server.id
+    }
+
+    fn name(&self) -> &str {
+        &self.server.name
+    }
+
+    fn kind(&self) -> &str {
+        "mcp"
+    }
+
+    fn transport(&self) -> &str {
+        transport_label(&self.server.transport)
+    }
+
+    async fn discover(&self, refresh: bool) -> Result<Vec<CapabilityDescriptor>, AppError> {
+        if !refresh {
+            let catalog = self.catalog.read().await;
+            if let Some(cached) = catalog.as_ref() {
+                if cached.loaded_at.elapsed() < MCP_CATALOG_TTL {
+                    return Ok(cached.capabilities.clone());
+                }
+            }
+        }
+        let capabilities = self.list_tools_uncached().await?;
+        *self.catalog.write().await = Some(CachedCatalog {
+            loaded_at: Instant::now(),
+            capabilities: capabilities.clone(),
+        });
+        Ok(capabilities)
+    }
+
+    async fn invoke(
+        &self,
+        capability: &CapabilityDescriptor,
+        arguments: Value,
+        progress: Option<CapabilityProgressSink>,
+    ) -> Result<CapabilityInvocationResult, AppError> {
+        let mut slot = self.client.lock().await;
+        let result = self
+            .connect_locked(&mut slot)
+            .await?
+            .call_tool(capability, arguments, progress)
+            .await;
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                // Never replay an arbitrary MCP tool automatically: the
+                // request may have reached the server before the transport
+                // failed. Reset the pooled connection so the next explicit
+                // invocation reconnects cleanly without duplicating effects.
+                self.reset_locked(&mut slot).await;
+                return Err(error);
+            }
+        };
+        let raw = serde_json::to_value(&result)?;
+        Ok(CapabilityInvocationResult {
+            structured_content: result.structured_content,
+            is_error: result.is_error.unwrap_or(false),
+            raw,
+        })
+    }
+
+    async fn list_resources(&self) -> Result<Value, AppError> {
+        self.read_operation("resources/list", |client| {
+            Box::pin(async move { client.list_resources().await })
+        })
+        .await
+    }
+
+    async fn read_resource(&self, uri: &str) -> Result<Value, AppError> {
+        let uri = uri.to_owned();
+        self.read_operation("resources/read", move |client| {
+            let uri = uri.clone();
+            Box::pin(async move { client.read_resource(&uri).await })
+        })
+        .await
+    }
+
+    async fn list_prompts(&self) -> Result<Value, AppError> {
+        self.read_operation("prompts/list", |client| {
+            Box::pin(async move { client.list_prompts().await })
+        })
+        .await
+    }
+
+    async fn get_prompt(&self, name: &str, arguments: Value) -> Result<Value, AppError> {
+        let name = name.to_owned();
+        self.read_operation("prompts/get", move |client| {
+            let name = name.clone();
+            let arguments = arguments.clone();
+            Box::pin(async move { client.get_prompt(&name, arguments).await })
+        })
+        .await
+    }
+}
+
+struct PoolEntry {
+    fingerprint: String,
+    provider: Arc<McpCapabilityProvider>,
+    last_used: Instant,
+}
+
+#[derive(Default)]
+pub struct McpConnectionManager {
+    entries: Mutex<HashMap<String, PoolEntry>>,
+}
+
+pub struct PreparedMcpProviders {
+    pub providers: HashMap<String, Arc<dyn CapabilityProvider>>,
+    pub capabilities: Vec<CapabilityDescriptor>,
+    pub diagnostics: Vec<McpServerDiagnostic>,
+}
+
+impl McpConnectionManager {
+    pub async fn prepare(&self, servers: &[McpServerConfig]) -> PreparedMcpProviders {
+        let now = Instant::now();
+        let mut close_after_unlock = Vec::new();
+        let mut selected = Vec::new();
+        let mut diagnostics = Vec::new();
+        {
+            let mut entries = self.entries.lock().await;
+            let stale_ids = entries
+                .iter()
+                .filter_map(|(id, entry)| {
+                    (now.duration_since(entry.last_used) >= MCP_IDLE_TTL).then_some(id.clone())
+                })
+                .collect::<Vec<_>>();
+            for id in stale_ids {
+                if let Some(entry) = entries.remove(&id) {
+                    close_after_unlock.push(entry.provider);
+                }
+            }
+            for server in servers {
+                let transport = transport_label(&server.transport).to_owned();
+                if !server.enabled {
+                    diagnostics.push(McpServerDiagnostic {
+                        server_id: server.id.clone(),
+                        server_name: server.name.clone(),
+                        transport,
+                        enabled: false,
+                        status: "disabled".to_owned(),
+                        tool_count: 0,
+                        error_code: None,
+                        error_detail: None,
+                    });
+                    continue;
+                }
+                let fingerprint = server_fingerprint(server);
+                let replace = entries
+                    .get(&server.id)
+                    .is_some_and(|entry| entry.fingerprint != fingerprint);
+                if replace {
+                    if let Some(entry) = entries.remove(&server.id) {
+                        close_after_unlock.push(entry.provider);
+                    }
+                }
+                let entry = entries
+                    .entry(server.id.clone())
+                    .or_insert_with(|| PoolEntry {
+                        fingerprint: fingerprint.clone(),
+                        provider: Arc::new(McpCapabilityProvider::new(server.clone())),
+                        last_used: now,
+                    });
+                entry.last_used = now;
+                selected.push((server.clone(), entry.provider.clone()));
+            }
+            while entries.len() > MAX_POOLED_MCP_SERVERS {
+                let Some(oldest) = entries
+                    .iter()
+                    .min_by_key(|(_, entry)| entry.last_used)
+                    .map(|(id, _)| id.clone())
+                else {
+                    break;
+                };
+                if let Some(entry) = entries.remove(&oldest) {
+                    close_after_unlock.push(entry.provider);
+                }
+            }
+        }
+        for provider in close_after_unlock {
+            provider.close().await;
+        }
+
+        let mut providers: HashMap<String, Arc<dyn CapabilityProvider>> = HashMap::new();
+        let mut capabilities = Vec::new();
+        for (server, provider) in selected {
+            match provider.discover(false).await {
+                Ok(tools) => {
+                    diagnostics.push(McpServerDiagnostic {
+                        server_id: server.id.clone(),
+                        server_name: server.name.clone(),
+                        transport: transport_label(&server.transport).to_owned(),
+                        enabled: true,
+                        status: "ready".to_owned(),
+                        tool_count: tools.len(),
+                        error_code: None,
+                        error_detail: None,
+                    });
+                    capabilities.extend(tools);
+                    providers.insert(server.id, provider);
+                }
+                Err(error) => diagnostics.push(McpServerDiagnostic {
+                    server_id: server.id,
+                    server_name: server.name,
+                    transport: transport_label(&server.transport).to_owned(),
+                    enabled: true,
+                    status: discovery_failure_status(&error).to_owned(),
+                    tool_count: 0,
+                    error_code: Some(error.code().to_owned()),
+                    error_detail: Some(error.detail()),
+                }),
+            }
+        }
+        PreparedMcpProviders {
+            providers,
+            capabilities,
+            diagnostics,
+        }
+    }
+
+    pub async fn close_all(&self) {
+        let providers = {
+            let mut entries = self.entries.lock().await;
+            entries
+                .drain()
+                .map(|(_, entry)| entry.provider)
+                .collect::<Vec<_>>()
+        };
+        for provider in providers {
+            provider.close().await;
+        }
+    }
+}
+
+fn discovery_failure_status(error: &AppError) -> &'static str {
+    match error.code() {
+        "invalid_input" | "config" => "configuration_failed",
+        "MCP_STDIO_START_FAILED"
+        | "MCP_STDIO_INIT_TIMEOUT"
+        | "MCP_STDIO_INIT_FAILED"
+        | "MCP_HTTP_INIT_TIMEOUT"
+        | "MCP_HTTP_INIT_FAILED" => "connection_failed",
+        _ => "tool_discovery_failed",
+    }
+}
+
+fn server_fingerprint(server: &McpServerConfig) -> String {
+    let bytes = serde_json::to_vec(server).unwrap_or_default();
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 pub type McpToolDefinition = CapabilityDescriptor;
@@ -192,7 +697,7 @@ pub async fn call_tool(
         .find(|tool| tool.original_name == tool_name)
         .ok_or_else(|| AppError::NotFound(format!("MCP tool '{tool_name}'")))?;
     let result = client
-        .call_tool(&tool, arguments)
+        .call_tool(&tool, arguments, None)
         .await
         .and_then(|result| serde_json::to_string(&result).map_err(Into::into));
     client.close().await;
@@ -212,14 +717,20 @@ fn validate_schema(schema: &Value, instance: &Value, label: &str) -> Result<(), 
     Ok(())
 }
 
-async fn connect(server: &McpServerConfig) -> Result<RunningClient, AppError> {
+async fn connect(
+    server: &McpServerConfig,
+    handler: McpClientHandler,
+) -> Result<RunningClient, AppError> {
     match server.transport {
-        McpTransportKind::Stdio => connect_stdio(server).await,
-        McpTransportKind::StreamableHttp => connect_streamable_http(server).await,
+        McpTransportKind::Stdio => connect_stdio(server, handler).await,
+        McpTransportKind::StreamableHttp => connect_streamable_http(server, handler).await,
     }
 }
 
-async fn connect_stdio(server: &McpServerConfig) -> Result<RunningClient, AppError> {
+async fn connect_stdio(
+    server: &McpServerConfig,
+    handler: McpClientHandler,
+) -> Result<RunningClient, AppError> {
     if server.command.trim().is_empty() {
         return Err(AppError::InvalidInput(format!(
             "MCP server '{}' uses stdio transport but command is empty",
@@ -246,7 +757,7 @@ async fn connect_stdio(server: &McpServerConfig) -> Result<RunningClient, AppErr
             server.name
         ),
     })?;
-    tokio::time::timeout(Duration::from_secs(15), ().serve(transport))
+    tokio::time::timeout(Duration::from_secs(15), handler.serve(transport))
         .await
         .map_err(|_| AppError::Mcp {
             code: "MCP_STDIO_INIT_TIMEOUT",
@@ -264,7 +775,10 @@ async fn connect_stdio(server: &McpServerConfig) -> Result<RunningClient, AppErr
         })
 }
 
-async fn connect_streamable_http(server: &McpServerConfig) -> Result<RunningClient, AppError> {
+async fn connect_streamable_http(
+    server: &McpServerConfig,
+    handler: McpClientHandler,
+) -> Result<RunningClient, AppError> {
     let url = server
         .url
         .as_deref()
@@ -294,7 +808,7 @@ async fn connect_streamable_http(server: &McpServerConfig) -> Result<RunningClie
         .custom_headers(headers)
         .reinit_on_expired_session(true);
     let transport = StreamableHttpClientTransport::from_config(config);
-    tokio::time::timeout(Duration::from_secs(15), ().serve(transport))
+    tokio::time::timeout(Duration::from_secs(15), handler.serve(transport))
         .await
         .map_err(|_| AppError::Mcp {
             code: "MCP_HTTP_INIT_TIMEOUT",
@@ -376,7 +890,7 @@ fn sanitize(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{custom_headers, tool_name, validate_schema};
+    use super::{custom_headers, discovery_failure_status, tool_name, validate_schema};
     use crate::types::{McpHeader, McpServerConfig, McpTransportKind};
     use serde_json::json;
 
@@ -388,6 +902,28 @@ mod tests {
         assert_ne!(
             tool_name("git-server", "status/list"),
             tool_name("git_server", "status/list")
+        );
+    }
+
+    #[test]
+    fn discovery_diagnostics_distinguish_configuration_connection_and_catalog_failures() {
+        assert_eq!(
+            discovery_failure_status(&crate::AppError::InvalidInput("bad url".to_owned())),
+            "configuration_failed"
+        );
+        assert_eq!(
+            discovery_failure_status(&crate::AppError::Mcp {
+                code: "MCP_HTTP_INIT_FAILED",
+                detail: "connection refused".to_owned(),
+            }),
+            "connection_failed"
+        );
+        assert_eq!(
+            discovery_failure_status(&crate::AppError::Mcp {
+                code: "MCP_LIST_TOOLS_FAILED",
+                detail: "invalid response".to_owned(),
+            }),
+            "tool_discovery_failed"
         );
     }
 

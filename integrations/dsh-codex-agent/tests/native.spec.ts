@@ -41,7 +41,7 @@ describe('native N-API boundary', () => {
         requestTimeoutMs: 2_000,
         contextWindowTokens: 10_000,
         compactThresholdTokens: 8_000,
-        maxSteps: 8,
+        turnStepBudget: 8,
         systemPrompt: '',
       }),
       'sk-native-memory-only',

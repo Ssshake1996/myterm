@@ -8,6 +8,17 @@ const MAX_SKILLS: usize = 64;
 const MAX_SKILL_BYTES: usize = 64 * 1024;
 const MAX_TOTAL_BYTES: usize = 128 * 1024;
 
+#[derive(Clone, Debug)]
+pub struct LoadedSkill {
+    pub info: SkillInfo,
+    pub content: String,
+}
+
+pub struct RestoredSkills {
+    pub loaded: Vec<LoadedSkill>,
+    pub warnings: Vec<String>,
+}
+
 pub fn discover(directories: &[String]) -> Result<Vec<SkillInfo>, AppError> {
     let mut skills = Vec::new();
     for directory in directories {
@@ -62,6 +73,119 @@ pub fn load_content(
     let source = fs::read(&skill.path)?;
     let allowed = source.len().min(MAX_SKILL_BYTES).min(MAX_TOTAL_BYTES);
     Ok(String::from_utf8_lossy(&source[..allowed]).into_owned())
+}
+
+pub fn load_for_model(
+    directories: &[String],
+    enabled: &[String],
+    id: &str,
+) -> Result<LoadedSkill, AppError> {
+    if !enabled.iter().any(|enabled_id| enabled_id == id) {
+        return Err(AppError::NotFound(format!("enabled skill '{id}'")));
+    }
+    let info = discover(directories)?
+        .into_iter()
+        .find(|skill| skill.id == id)
+        .ok_or_else(|| AppError::NotFound(format!("skill '{id}'")))?;
+    if !info.model_invocable {
+        return Err(AppError::InvalidInput(format!(
+            "skill '{}' is configured as model_invocable=false and can only be loaded explicitly by the user",
+            info.name
+        )));
+    }
+    if !info.platforms.is_empty()
+        && !info.platforms.iter().any(|platform| {
+            matches!(
+                platform.trim().to_ascii_lowercase().as_str(),
+                "linux" | "unix" | "ssh" | "all" | "any" | "*"
+            )
+        })
+    {
+        return Err(AppError::InvalidInput(format!(
+            "skill '{}' does not declare support for Linux/SSH targets (platforms: {})",
+            info.name,
+            info.platforms.join(", ")
+        )));
+    }
+    let source = fs::read(&info.path)?;
+    let allowed = source.len().min(MAX_SKILL_BYTES).min(MAX_TOTAL_BYTES);
+    Ok(LoadedSkill {
+        info,
+        content: String::from_utf8_lossy(&source[..allowed]).into_owned(),
+    })
+}
+
+pub fn restore_for_model(
+    directories: &[String],
+    enabled: &[String],
+    ids: &[String],
+) -> RestoredSkills {
+    let mut loaded = Vec::new();
+    let mut warnings = Vec::new();
+    let mut remaining = MAX_TOTAL_BYTES;
+    for id in ids {
+        if remaining == 0 {
+            warnings.push(format!(
+                "active Skill context limit reached before restoring '{id}'"
+            ));
+            break;
+        }
+        match load_for_model(directories, enabled, id) {
+            Ok(mut skill) => {
+                if skill.content.len() > remaining {
+                    let mut end = remaining;
+                    while end > 0 && !skill.content.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    skill.content.truncate(end);
+                    warnings.push(format!(
+                        "active Skill '{}' was bounded to the remaining {} context bytes",
+                        skill.info.name, end
+                    ));
+                }
+                remaining = remaining.saturating_sub(skill.content.len());
+                loaded.push(skill);
+            }
+            Err(error) => warnings.push(format!(
+                "unable to restore active Skill '{id}': {}",
+                error.detail()
+            )),
+        }
+    }
+    RestoredSkills { loaded, warnings }
+}
+
+pub fn active_context(skills: &[LoadedSkill]) -> String {
+    if skills.is_empty() {
+        return String::new();
+    }
+    let sections = skills
+        .iter()
+        .map(|skill| {
+            format!(
+                "Active Skill '{}' (id: {}):\n{}",
+                skill.info.name, skill.info.id, skill.content
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    format!(
+        "The following Skills were explicitly loaded earlier in this persisted Goal. Their metadata constraints remain enforced for this Turn:\n{sections}"
+    )
+}
+
+pub fn allows_tool(skill: &SkillInfo, tool_name: &str) -> bool {
+    if skill.allowed_tools.is_empty() {
+        return true;
+    }
+    skill.allowed_tools.iter().any(|allowed| {
+        let allowed = allowed.trim();
+        allowed == "*"
+            || allowed == tool_name
+            || allowed
+                .strip_suffix('*')
+                .is_some_and(|prefix| tool_name.starts_with(prefix))
+    })
 }
 
 fn visit(directory: &Path, depth: u8, skills: &mut Vec<SkillInfo>) -> Result<(), AppError> {
@@ -131,26 +255,66 @@ fn frontmatter(source: &str) -> SkillMetadata {
         return SkillMetadata::default();
     }
     let mut metadata = SkillMetadata::default();
+    let mut list_key: Option<String> = None;
     for line in lines {
         let line = line.trim();
         if line == "---" {
             break;
         }
+        if let Some(item) = line.strip_prefix('-') {
+            let item = unquote(item.trim());
+            if !item.is_empty() {
+                match list_key.as_deref() {
+                    Some("platforms") => metadata.platforms.push(item),
+                    Some("allowed_tools") => metadata.allowed_tools.push(item),
+                    _ => {}
+                }
+            }
+            continue;
+        }
         let Some((key, value)) = line.split_once(':') else {
             continue;
         };
         let value = value.trim();
-        match key.trim() {
-            "name" => metadata.name = Some(unquote(value)),
-            "description" => metadata.description = Some(unquote(value)),
-            "platforms" => metadata.platforms = parse_list(value),
-            "allowed_tools" => metadata.allowed_tools = parse_list(value),
-            "risk" => metadata.risk = Some(unquote(value)),
-            "model_invocable" => metadata.model_invocable = value.parse().ok(),
+        let key = key.trim().replace('-', "_");
+        list_key = None;
+        match key.as_str() {
+            "name" => metadata.name = non_empty(value),
+            "description" => metadata.description = non_empty(value),
+            "platforms" => {
+                metadata.platforms = parse_list(value);
+                if value.is_empty() {
+                    list_key = Some(key);
+                }
+            }
+            "allowed_tools" => {
+                metadata.allowed_tools = parse_list(value);
+                if value.is_empty() {
+                    list_key = Some(key);
+                }
+            }
+            "risk" => metadata.risk = non_empty(value),
+            "model_invocable" => metadata.model_invocable = parse_bool(value),
+            "disable_model_invocation" => {
+                metadata.model_invocable = parse_bool(value).map(|disabled| !disabled)
+            }
             _ => {}
         }
     }
     metadata
+}
+
+fn non_empty(value: &str) -> Option<String> {
+    let value = unquote(value);
+    (!value.is_empty()).then_some(value)
+}
+
+fn parse_bool(value: &str) -> Option<bool> {
+    match unquote(value).to_ascii_lowercase().as_str() {
+        "true" | "yes" | "1" => Some(true),
+        "false" | "no" | "0" => Some(false),
+        _ => None,
+    }
 }
 
 fn unquote(value: &str) -> String {
@@ -158,6 +322,9 @@ fn unquote(value: &str) -> String {
 }
 
 fn parse_list(value: &str) -> Vec<String> {
+    if value.trim().is_empty() {
+        return Vec::new();
+    }
     value
         .trim()
         .trim_start_matches('[')
@@ -172,7 +339,7 @@ fn parse_list(value: &str) -> Vec<String> {
 mod tests {
     use std::fs;
 
-    use super::{discover, load_enabled};
+    use super::{allows_tool, discover, load_enabled, load_for_model};
 
     #[test]
     fn discovers_and_loads_selected_skill_files() -> Result<(), Box<dyn std::error::Error>> {
@@ -193,6 +360,52 @@ mod tests {
         assert!(!loaded.contains("Read logs first"));
         let content = super::load_content(&directories, &[skills[0].id.clone()], &skills[0].id)?;
         assert!(content.contains("Read logs first"));
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn parses_common_hyphenated_metadata_and_block_lists() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let root =
+            std::env::temp_dir().join(format!("myterm-skill-metadata-{}", uuid::Uuid::new_v4()));
+        let skill_dir = root.join("safe-linux");
+        fs::create_dir_all(&skill_dir)?;
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: Safe Linux\nplatforms:\n  - linux\n  - ssh\nallowed-tools:\n  - session_*\n  - terminal_context\nrisk: read-only\nmodel-invocable: yes\n---\n# Workflow\nInspect first.",
+        )?;
+
+        let directories = vec![root.to_string_lossy().into_owned()];
+        let skill = discover(&directories)?.pop().expect("skill");
+        assert_eq!(skill.platforms, ["linux", "ssh"]);
+        assert_eq!(skill.risk, "read-only");
+        assert!(skill.model_invocable);
+        assert!(allows_tool(&skill, "session_catalog"));
+        assert!(allows_tool(&skill, "terminal_context"));
+        assert!(!allows_tool(&skill, "remote_exec"));
+        assert!(load_for_model(&directories, &[skill.id.clone()], &skill.id).is_ok());
+
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn disable_model_invocation_metadata_is_enforced() -> Result<(), Box<dyn std::error::Error>> {
+        let root =
+            std::env::temp_dir().join(format!("myterm-skill-user-only-{}", uuid::Uuid::new_v4()));
+        let skill_dir = root.join("user-only");
+        fs::create_dir_all(&skill_dir)?;
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: User Only\ndisable-model-invocation: true\n---\n# Workflow",
+        )?;
+
+        let directories = vec![root.to_string_lossy().into_owned()];
+        let skill = discover(&directories)?.pop().expect("skill");
+        assert!(!skill.model_invocable);
+        assert!(load_for_model(&directories, &[skill.id.clone()], &skill.id).is_err());
 
         fs::remove_dir_all(root)?;
         Ok(())

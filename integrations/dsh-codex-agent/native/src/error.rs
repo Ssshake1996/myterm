@@ -35,8 +35,6 @@ pub enum CoreError {
     Tool { tool: String, detail: String },
     #[error("subagent failed for {thread_id}: {detail}")]
     Subagent { thread_id: String, detail: String },
-    #[error("agent loop exceeded {0} steps")]
-    StepLimit(usize),
     #[error("invalid model tool call: {0}")]
     InvalidToolCall(String),
 }
@@ -67,7 +65,6 @@ impl CoreError {
             Self::Cancelled(_) => "TURN_CANCELLED",
             Self::Tool { .. } => "TOOL_EXECUTION_FAILED",
             Self::Subagent { .. } => "SUBAGENT_FAILED",
-            Self::StepLimit(_) => "STEP_LIMIT",
             Self::InvalidToolCall(_) => "INVALID_TOOL_CALL",
         }
     }
@@ -84,7 +81,6 @@ impl CoreError {
             Self::Cancelled(_) => "turn",
             Self::Tool { .. } | Self::InvalidToolCall(_) => "tool",
             Self::Subagent { .. } => "subagent",
-            Self::StepLimit(_) => "agent_loop",
         }
     }
 
@@ -109,7 +105,6 @@ impl CoreError {
             Self::ThreadNotFound(id) | Self::ThreadBusy(id) => id.clone(),
             Self::Disposed => "runtime is disposed".to_owned(),
             Self::EmptyResponse => "the stream contained no text and no tool calls".to_owned(),
-            Self::StepLimit(limit) => format!("maximum step count {limit} was reached"),
         }
     }
 

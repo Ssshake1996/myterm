@@ -7,17 +7,22 @@ use std::{
     time::{Duration, Instant},
 };
 
+use dsh_codex_core::{CodexRuntime, CoreConfig, ModelTransport};
 use serde_json::{json, Value};
-use tokio::sync::{mpsc, oneshot, watch, Mutex};
+use tokio::sync::{mpsc, oneshot, watch, Mutex, Notify};
 
 use super::{
     builtin,
     capability::{CapabilityRegistry, EvidenceRecord},
-    domain::{now_ms, AgentConversation, AgentTask, AgentTaskState, ExecutionJob},
+    domain::{
+        now_ms, AgentConversation, AgentEvidence, AgentGoal, AgentGoalStatus, AgentInputMode,
+        AgentQueuedInput, AgentTask, AgentTaskState, ExecutionJob,
+    },
     dsh, hooks,
-    policy::PolicyContext,
+    mcp::McpConnectionManager,
+    policy::{PolicyAction, PolicyContext, ToolEffect},
     skills,
-    store::AgentStore,
+    store::{AgentStore, GoalUpdate},
 };
 use crate::{
     config::{ConfigService, CredentialVault},
@@ -36,6 +41,18 @@ use crate::{
 
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_ARTIFACT_BYTES: u64 = 50 * 1024 * 1024;
+const MAX_CONCURRENT_AGENT_RUNS: usize = 4;
+const MAX_CACHED_AGENT_RUNTIMES: usize = 12;
+const AGENT_RUNTIME_IDLE_TTL: Duration = Duration::from_secs(30 * 60);
+const MAX_NO_PROGRESS_CONTINUATIONS: u32 = 3;
+const MAX_WAIT_CAPTURE_BYTES: usize = 4 * 1024 * 1024;
+
+fn safe_artifact_key(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
 
 #[derive(Debug)]
 struct TerminalSendPlan {
@@ -362,28 +379,98 @@ pub struct AgentService {
     sessions: Arc<SessionManager>,
     sftp: Arc<SftpService>,
     store: Arc<AgentStore>,
-    active: Mutex<Option<ActiveAgentRun>>,
+    active: Mutex<HashMap<String, ActiveAgentRun>>,
+    active_changed: Notify,
     approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     host_facts: Mutex<HashMap<String, (Instant, Value)>>,
     jobs: Arc<Mutex<HashMap<String, JobRuntime>>>,
+    runtimes: Mutex<HashMap<String, RuntimeEntry>>,
+    mcp: Arc<McpConnectionManager>,
 }
 
 struct ActiveAgentRun {
-    conversation_id: String,
     turn_id: String,
     abort: watch::Sender<bool>,
     steer: mpsc::Sender<String>,
     sink: Arc<dyn AgentEventSink>,
 }
 
+struct RuntimeEntry {
+    fingerprint: String,
+    runtime: Arc<CodexRuntime>,
+    last_used: Instant,
+}
+
 struct JobRuntime {
     task_id: String,
+    goal_id: Option<String>,
     cancel: watch::Sender<bool>,
+}
+
+struct AgentTurnRequest {
+    run_id: String,
+    conversation_id: String,
+    goal_id: Option<String>,
+    continuation_index: u32,
+    profile_id: String,
+    prompt: String,
+    active_session_id: Option<String>,
+    sink: Arc<dyn AgentEventSink>,
+    permission: Option<crate::types::AgentPermissionMode>,
+}
+
+struct BackgroundJobRequest {
+    run_id: String,
+    call_id: String,
+    session_id: String,
+    command: String,
+    timeout_seconds: u64,
+    sink: Arc<dyn AgentEventSink>,
+    continuation_sink: Arc<dyn AgentEventSink>,
 }
 
 impl AgentService {
     pub(crate) fn config_path(&self) -> &std::path::Path {
         self.config.path()
+    }
+
+    pub(crate) fn store(&self) -> &AgentStore {
+        &self.store
+    }
+
+    pub(crate) fn mcp(&self) -> &McpConnectionManager {
+        &self.mcp
+    }
+
+    pub async fn shutdown(&self) {
+        {
+            let active = self.active.lock().await;
+            for run in active.values() {
+                let _ = run.abort.send(true);
+            }
+        }
+        {
+            let jobs = self.jobs.lock().await;
+            for job in jobs.values() {
+                let _ = job.cancel.send(true);
+            }
+        }
+        self.reject_pending_approvals().await;
+        let runtimes = {
+            let mut runtimes = self.runtimes.lock().await;
+            runtimes
+                .drain()
+                .map(|(_, entry)| entry.runtime)
+                .collect::<Vec<_>>()
+        };
+        for runtime in runtimes {
+            let _ = runtime.dispose().await;
+        }
+        self.mcp.close_all().await;
+        tracing::info!(
+            event = "agent_runtime_shutdown",
+            "Agent runtimes and MCP providers closed"
+        );
     }
 
     pub fn new(
@@ -397,17 +484,102 @@ impl AgentService {
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."))
             .join("agent.db");
+        let store = Arc::new(AgentStore::new(store_path));
+        let recovered = store.recover_stale_tasks(now_ms().saturating_add(1))?;
+        if recovered > 0 {
+            tracing::warn!(
+                recovered_turns = recovered,
+                "recovered interrupted Agent Turns; their Goals were paused for explicit resume"
+            );
+        }
         Ok(Self {
             config,
             vault,
             sessions,
             sftp,
-            store: Arc::new(AgentStore::new(store_path)),
-            active: Mutex::new(None),
+            store,
+            active: Mutex::new(HashMap::new()),
+            active_changed: Notify::new(),
             approvals: Mutex::new(HashMap::new()),
             host_facts: Mutex::new(HashMap::new()),
             jobs: Arc::new(Mutex::new(HashMap::new())),
+            runtimes: Mutex::new(HashMap::new()),
+            mcp: Arc::new(McpConnectionManager::default()),
         })
+    }
+
+    pub(crate) async fn runtime_for(
+        &self,
+        conversation_id: &str,
+        fingerprint: String,
+        config: CoreConfig,
+        transport: Arc<dyn ModelTransport>,
+    ) -> Result<Arc<CodexRuntime>, AppError> {
+        let now = Instant::now();
+        let active_conversations = self
+            .active
+            .lock()
+            .await
+            .keys()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        let mut stale = Vec::new();
+        let mut runtimes = self.runtimes.lock().await;
+        let stale_ids = runtimes
+            .iter()
+            .filter_map(|(id, entry)| {
+                (id != conversation_id
+                    && !active_conversations.contains(id)
+                    && now.duration_since(entry.last_used) >= AGENT_RUNTIME_IDLE_TTL)
+                    .then_some(id.clone())
+            })
+            .collect::<Vec<_>>();
+        for id in stale_ids {
+            if let Some(entry) = runtimes.remove(&id) {
+                stale.push(entry.runtime);
+            }
+        }
+        if let Some(entry) = runtimes.get_mut(conversation_id) {
+            if entry.fingerprint == fingerprint {
+                entry.last_used = now;
+                let runtime = entry.runtime.clone();
+                drop(runtimes);
+                for runtime in stale {
+                    let _ = runtime.dispose().await;
+                }
+                return Ok(runtime);
+            }
+        }
+        if let Some(entry) = runtimes.remove(conversation_id) {
+            stale.push(entry.runtime);
+        }
+        while runtimes.len() >= MAX_CACHED_AGENT_RUNTIMES {
+            let Some(oldest_id) = runtimes
+                .iter()
+                .filter(|(id, _)| !active_conversations.contains(*id))
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(id, _)| id.clone())
+            else {
+                break;
+            };
+            if let Some(entry) = runtimes.remove(&oldest_id) {
+                stale.push(entry.runtime);
+            }
+        }
+        let runtime = CodexRuntime::new(config, transport).map_err(dsh::core_error)?;
+        runtimes.insert(
+            conversation_id.to_owned(),
+            RuntimeEntry {
+                fingerprint,
+                runtime: runtime.clone(),
+                last_used: now,
+            },
+        );
+        drop(runtimes);
+        for stale_runtime in stale {
+            let _ = stale_runtime.dispose().await;
+        }
+        Ok(runtime)
     }
 
     pub async fn run(
@@ -461,8 +633,169 @@ impl AgentService {
         self.store.conversation_tasks(conversation_id)
     }
 
-    pub fn conversation_delete(&self, conversation_id: &str) -> Result<bool, AppError> {
-        self.store.delete_conversation(conversation_id)
+    pub fn conversation_goal(&self, conversation_id: &str) -> Result<Option<AgentGoal>, AppError> {
+        self.store.conversation_goal(conversation_id)
+    }
+
+    pub async fn queue_input(
+        &self,
+        conversation_id: &str,
+        input: String,
+    ) -> Result<AgentQueuedInput, AppError> {
+        let input = input.trim();
+        if input.is_empty() {
+            return Err(AppError::InvalidInput(
+                "queued Agent input is required".to_owned(),
+            ));
+        }
+        let goal = self.store.conversation_goal(conversation_id)?;
+        if goal.as_ref().is_none_or(|goal| goal.status.is_terminal()) {
+            return Err(AppError::Ai(
+                "当前对话没有可接收排队输入的活动 Goal".to_owned(),
+            ));
+        }
+        self.store.enqueue_input(
+            conversation_id,
+            goal.as_ref().map(|goal| goal.id.as_str()),
+            input,
+            AgentInputMode::Queue,
+        )
+    }
+
+    pub async fn pause_goal(&self, goal_id: &str) -> Result<AgentGoal, AppError> {
+        let goal = self
+            .store
+            .goal(goal_id)?
+            .ok_or_else(|| AppError::NotFound(format!("agent goal '{goal_id}'")))?;
+        let paused = self.store.update_goal(
+            goal_id,
+            GoalUpdate::new(AgentGoalStatus::Paused)
+                .current_turn(goal.current_turn_id.as_deref())
+                .checkpoint(goal.last_checkpoint.as_ref())
+                .blocked_reason(Some("Paused by user"))
+                .no_progress(goal.no_progress_count),
+        )?;
+        if let Some(active) = self.active.lock().await.get(&goal.conversation_id) {
+            let _ = active.abort.send(true);
+        }
+        Ok(paused)
+    }
+
+    pub fn resume_goal(&self, goal_id: &str) -> Result<AgentGoal, AppError> {
+        let goal = self
+            .store
+            .goal(goal_id)?
+            .ok_or_else(|| AppError::NotFound(format!("agent goal '{goal_id}'")))?;
+        self.store.update_goal(
+            goal_id,
+            GoalUpdate::new(AgentGoalStatus::Active)
+                .current_turn(goal.current_turn_id.as_deref())
+                .checkpoint(goal.last_checkpoint.as_ref())
+                .no_progress(goal.no_progress_count),
+        )
+    }
+
+    pub async fn cancel_goal(&self, goal_id: &str) -> Result<AgentGoal, AppError> {
+        let goal = self
+            .store
+            .goal(goal_id)?
+            .ok_or_else(|| AppError::NotFound(format!("agent goal '{goal_id}'")))?;
+        let canceled = self.store.update_goal(
+            goal_id,
+            GoalUpdate::new(AgentGoalStatus::Canceled)
+                .current_turn(goal.current_turn_id.as_deref())
+                .checkpoint(goal.last_checkpoint.as_ref())
+                .no_progress(goal.no_progress_count),
+        )?;
+        if let Some(active) = self.active.lock().await.get(&goal.conversation_id) {
+            let _ = active.abort.send(true);
+        }
+        Ok(canceled)
+    }
+
+    pub async fn conversation_delete(&self, conversation_id: &str) -> Result<bool, AppError> {
+        if self.active.lock().await.contains_key(conversation_id) {
+            return Err(AppError::Ai(
+                "正在运行的 Agent 对话不能删除，请先停止或等待当前 Turn 完成".to_owned(),
+            ));
+        }
+        if self
+            .store
+            .running_job_count_for_conversation(conversation_id)?
+            > 0
+        {
+            return Err(AppError::Ai(
+                "对话仍有后台 Job 正在运行，请先等待完成或取消 Job".to_owned(),
+            ));
+        }
+        let (task_ids, goal_ids) = self.store.conversation_storage_ids(conversation_id)?;
+        let cached_runtime = self
+            .runtimes
+            .lock()
+            .await
+            .get(conversation_id)
+            .map(|entry| entry.runtime.clone());
+        let core_delete = if let Some(runtime) = cached_runtime.as_ref() {
+            runtime.delete_thread_tree(conversation_id).await
+        } else {
+            dsh_codex_core::delete_persisted_thread_tree(
+                self.config_path()
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .join("dsh-codex-agent"),
+                conversation_id,
+            )
+        };
+        if let Err(error) = core_delete {
+            if !matches!(error, dsh_codex_core::CoreError::ThreadNotFound(_)) {
+                return Err(dsh::core_error(error));
+            }
+        }
+        let deleted = self.store.delete_conversation(conversation_id)?;
+        if !deleted {
+            return Ok(false);
+        }
+        if let Some(entry) = self.runtimes.lock().await.remove(conversation_id) {
+            let _ = entry.runtime.dispose().await;
+        }
+        self.remove_conversation_artifacts(&task_ids, &goal_ids);
+        Ok(true)
+    }
+
+    fn remove_conversation_artifacts(&self, task_ids: &[String], goal_ids: &[String]) {
+        let root = self
+            .store
+            .path()
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("artifacts");
+        for (kind, id, path) in task_ids.iter().map(|id| ("task", id, root.join(id))).chain(
+            goal_ids
+                .iter()
+                .map(|id| ("goal", id, root.join("goals").join(id))),
+        ) {
+            if !safe_artifact_key(id) {
+                tracing::warn!(
+                    event = "agent_artifact_cleanup_skipped",
+                    kind,
+                    id,
+                    "refusing to delete an artifact path with an unsafe persisted id"
+                );
+                continue;
+            }
+            if let Err(error) = fs::remove_dir_all(&path) {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!(
+                        event = "agent_artifact_cleanup_failed",
+                        kind,
+                        id,
+                        path = %path.display(),
+                        %error,
+                        "unable to remove deleted conversation artifacts"
+                    );
+                }
+            }
+        }
     }
 
     pub async fn run_in_conversation(
@@ -490,58 +823,268 @@ impl AgentService {
             }
             None => self.create_conversation(profile_id, Some(&prompt))?.id,
         };
-        self.run_with_task_id(
-            uuid::Uuid::new_v4().to_string(),
+        let mut goal = match self.store.conversation_goal(&conversation_id)? {
+            Some(goal) if !goal.status.is_terminal() => goal,
+            _ => self.store.create_goal(&conversation_id, &prompt, None)?,
+        };
+        if goal.status != AgentGoalStatus::Active {
+            goal = self.store.update_goal(
+                &goal.id,
+                GoalUpdate::new(AgentGoalStatus::Active).no_progress(goal.no_progress_count),
+            )?;
+        }
+
+        let mut next_prompt = prompt;
+        loop {
+            let turn_id = uuid::Uuid::new_v4().to_string();
+            goal = self.store.update_goal(
+                &goal.id,
+                GoalUpdate::new(AgentGoalStatus::Active)
+                    .current_turn(Some(&turn_id))
+                    .no_progress(goal.no_progress_count),
+            )?;
+            let result = self
+                .run_with_task_id(AgentTurnRequest {
+                    run_id: turn_id,
+                    conversation_id: conversation_id.clone(),
+                    goal_id: Some(goal.id.clone()),
+                    continuation_index: goal.continuation_count,
+                    profile_id: profile_id.to_owned(),
+                    prompt: next_prompt,
+                    active_session_id: active_session_id.clone(),
+                    sink: sink.clone(),
+                    permission,
+                })
+                .await;
+
+            let mut completed = match result {
+                Ok(completed) => completed,
+                Err(error) => {
+                    let detail = error.detail();
+                    let _ = self.store.update_goal(
+                        &goal.id,
+                        GoalUpdate::new(AgentGoalStatus::Failed)
+                            .current_turn(goal.current_turn_id.as_deref())
+                            .checkpoint(Some(&json!({ "phase": "turn", "error": detail })))
+                            .last_error(Some(&detail))
+                            .no_progress(goal.no_progress_count),
+                    );
+                    return Err(error);
+                }
+            };
+
+            let token_total = goal.tokens_used.saturating_add(completed.total_tokens);
+            if goal
+                .token_budget
+                .is_some_and(|budget| token_total >= budget)
+            {
+                completed.finish_reason = "budget_limited".to_owned();
+                self.store.update_goal(
+                    &goal.id,
+                    GoalUpdate::new(AgentGoalStatus::BudgetLimited)
+                        .current_turn(Some(&completed.turn_id))
+                        .tokens(completed.total_tokens)
+                        .checkpoint(Some(&json!({
+                            "reason": "token_budget",
+                            "tokensUsed": token_total,
+                        })))
+                        .blocked_reason(Some("Goal token budget reached"))
+                        .no_progress(goal.no_progress_count),
+                )?;
+                return Ok(completed);
+            }
+
+            match completed.finish_reason.as_str() {
+                "continuation_required" => {
+                    let no_progress_count = if completed.tool_calls == 0 {
+                        goal.no_progress_count.saturating_add(1)
+                    } else {
+                        0
+                    };
+                    if no_progress_count >= MAX_NO_PROGRESS_CONTINUATIONS {
+                        completed.finish_reason = "loop_detected".to_owned();
+                        self.store.update_goal(
+                            &goal.id,
+                            GoalUpdate::new(AgentGoalStatus::Blocked)
+                                .current_turn(Some(&completed.turn_id))
+                                .tokens(completed.total_tokens)
+                                .checkpoint(Some(&json!({
+                                    "reason": "no_progress",
+                                    "continuations": no_progress_count,
+                                })))
+                                .blocked_reason(Some(
+                                    "Agent reached repeated continuation boundaries without tool progress",
+                                ))
+                                .no_progress(no_progress_count),
+                        )?;
+                        return Ok(completed);
+                    }
+                    goal = self.store.update_goal(
+                        &goal.id,
+                        GoalUpdate::new(AgentGoalStatus::Active)
+                            .current_turn(Some(&completed.turn_id))
+                            .tokens(completed.total_tokens)
+                            .continuation(1)
+                            .checkpoint(Some(&json!({
+                                "reason": "turn_step_budget",
+                                "turnId": completed.turn_id,
+                                "steps": completed.steps,
+                                "modelRequests": completed.model_requests,
+                                "toolCalls": completed.tool_calls,
+                            })))
+                            .no_progress(no_progress_count),
+                    )?;
+                    next_prompt = format!(
+                        "Continue the persisted Goal without repeating completed work. Goal: {}. Read the existing Thread history and latest tool evidence, then continue from the last verified checkpoint.",
+                        goal.objective
+                    );
+                }
+                "stop" => {
+                    if let Some(queued) = self.store.consume_next_input(&conversation_id)? {
+                        goal = self.store.update_goal(
+                            &goal.id,
+                            GoalUpdate::new(AgentGoalStatus::Active)
+                                .current_turn(Some(&completed.turn_id))
+                                .tokens(completed.total_tokens)
+                                .continuation(1)
+                                .checkpoint(Some(&json!({
+                                    "reason": "queued_user_input",
+                                    "inputId": queued.id,
+                                }))),
+                        )?;
+                        next_prompt = queued.content;
+                        continue;
+                    }
+                    let persisted = self
+                        .store
+                        .goal(&goal.id)?
+                        .ok_or_else(|| AppError::NotFound(format!("agent goal '{}'", goal.id)))?;
+                    if persisted.status != AgentGoalStatus::Active {
+                        completed.finish_reason = persisted.status.as_str().to_owned();
+                        self.store.update_goal(
+                            &goal.id,
+                            GoalUpdate::new(persisted.status)
+                                .current_turn(Some(&completed.turn_id))
+                                .tokens(completed.total_tokens)
+                                .checkpoint(persisted.last_checkpoint.as_ref())
+                                .last_error(persisted.last_error.as_deref())
+                                .blocked_reason(persisted.blocked_reason.as_deref())
+                                .no_progress(persisted.no_progress_count),
+                        )?;
+                        return Ok(completed);
+                    }
+                    self.store.update_goal(
+                        &goal.id,
+                        GoalUpdate::new(AgentGoalStatus::Completed)
+                            .current_turn(Some(&completed.turn_id))
+                            .tokens(completed.total_tokens)
+                            .checkpoint(Some(&json!({ "reason": "model_stop" }))),
+                    )?;
+                    return Ok(completed);
+                }
+                "aborted" => {
+                    let persisted = self
+                        .store
+                        .goal(&goal.id)?
+                        .ok_or_else(|| AppError::NotFound(format!("agent goal '{}'", goal.id)))?;
+                    let status = match persisted.status {
+                        AgentGoalStatus::Paused | AgentGoalStatus::Canceled => persisted.status,
+                        _ => AgentGoalStatus::Canceled,
+                    };
+                    completed.finish_reason = status.as_str().to_owned();
+                    self.store.update_goal(
+                        &goal.id,
+                        GoalUpdate::new(status)
+                            .current_turn(Some(&completed.turn_id))
+                            .tokens(completed.total_tokens)
+                            .checkpoint(Some(&json!({
+                                "reason": if status == AgentGoalStatus::Paused {
+                                    "user_pause"
+                                } else {
+                                    "user_abort"
+                                }
+                            })))
+                            .blocked_reason(persisted.blocked_reason.as_deref())
+                            .no_progress(persisted.no_progress_count),
+                    )?;
+                    return Ok(completed);
+                }
+                _ => {
+                    self.store.update_goal(
+                        &goal.id,
+                        GoalUpdate::new(AgentGoalStatus::Failed)
+                            .current_turn(Some(&completed.turn_id))
+                            .tokens(completed.total_tokens)
+                            .checkpoint(Some(&json!({ "reason": completed.finish_reason })))
+                            .last_error(Some(&format!(
+                                "Turn finished with {}",
+                                completed.finish_reason
+                            )))
+                            .no_progress(goal.no_progress_count),
+                    )?;
+                    return Ok(completed);
+                }
+            }
+        }
+    }
+
+    async fn run_with_task_id(
+        self: &Arc<Self>,
+        request: AgentTurnRequest,
+    ) -> Result<AgentRunResult, AppError> {
+        let AgentTurnRequest {
+            run_id,
             conversation_id,
+            goal_id,
+            continuation_index,
             profile_id,
             prompt,
             active_session_id,
             sink,
             permission,
-        )
-        .await
-    }
-
-    pub async fn run_with_task_id(
-        self: &Arc<Self>,
-        run_id: String,
-        conversation_id: String,
-        profile_id: &str,
-        prompt: String,
-        active_session_id: Option<String>,
-        sink: Arc<dyn AgentEventSink>,
-        permission: Option<crate::types::AgentPermissionMode>,
-    ) -> Result<AgentRunResult, AppError> {
+        } = request;
         if prompt.trim().is_empty() {
             return Err(AppError::InvalidInput(
                 "agent prompt is required".to_owned(),
             ));
         }
-        let profile = self.ai_profile(profile_id)?;
+        let profile = self.ai_profile(&profile_id)?;
         let mut settings = self.config.agent_settings()?;
         if let Some(permission) = permission {
             settings.permission_mode = permission;
         }
-        self.store
-            .recover_stale_tasks(now_ms() - Duration::from_secs(300).as_millis() as i64)?;
         let (abort_tx, abort_rx) = watch::channel(false);
         let (steer_tx, steer_rx) = mpsc::channel(32);
         let mut active = self.active.lock().await;
-        if active.is_some() {
+        if active.contains_key(&conversation_id) {
             return Err(AppError::Ai(
-                "another agent run is already active".to_owned(),
+                "this conversation already has an active agent run".to_owned(),
             ));
         }
-        let api_key = self
-            .vault
-            .get(&profile.api_key_ref)?
-            .ok_or_else(|| AppError::Ai("API key is not configured".to_owned()))?;
+        if active.len() >= MAX_CONCURRENT_AGENT_RUNS {
+            return Err(AppError::Ai(format!(
+                "agent concurrency limit reached ({MAX_CONCURRENT_AGENT_RUNS})"
+            )));
+        }
+        let model_routes = crate::ai::routing::resolve_model_routes(
+            self.config.as_ref(),
+            self.vault.as_ref(),
+            &profile,
+        )?;
+        if model_routes.is_empty() {
+            return Err(AppError::Ai(
+                "没有启用任何 AI 模型，请在 AI 服务设置中添加主模型".to_owned(),
+            ));
+        }
         let timestamp = now_ms();
         let turn_index = self.store.next_turn_index(&conversation_id)?;
+        let goal_id_for_run = goal_id.clone();
         self.store.create_task(&AgentTask {
             id: run_id.clone(),
             conversation_id: conversation_id.clone(),
+            goal_id,
             turn_index,
+            continuation_index,
             profile_id: profile.id.clone(),
             // The active UI session is only a task-time candidate. Persisting it
             // here would incorrectly describe the whole conversation as bound
@@ -559,18 +1102,24 @@ impl AgentService {
         })?;
         self.store
             .transition_task(&run_id, AgentTaskState::Running, None, 0, None)?;
+        let continuation_sink = sink.clone();
         let sink: Arc<dyn AgentEventSink> = Arc::new(PersistedEventSink {
             store: self.store.clone(),
             downstream: sink,
-            secrets: vec![api_key.clone()],
+            secrets: model_routes
+                .iter()
+                .map(|route| route.api_key.clone())
+                .collect(),
         });
-        *active = Some(ActiveAgentRun {
-            conversation_id: conversation_id.clone(),
-            turn_id: run_id.clone(),
-            abort: abort_tx.clone(),
-            steer: steer_tx,
-            sink: sink.clone(),
-        });
+        active.insert(
+            conversation_id.clone(),
+            ActiveAgentRun {
+                turn_id: run_id.clone(),
+                abort: abort_tx.clone(),
+                steer: steer_tx,
+                sink: sink.clone(),
+            },
+        );
         drop(active);
         let store = self.store.clone();
         let polled_task_id = run_id.clone();
@@ -601,15 +1150,21 @@ impl AgentService {
             prompt,
             active_session_id,
             sink.clone(),
+            continuation_sink,
             abort_rx,
-            api_key,
+            model_routes,
             run_id.clone(),
             conversation_id.clone(),
             steer_rx,
         )
         .await;
-        if !matches!(&result, Ok(completed) if completed.finish_reason == "stop") {
-            self.cancel_jobs_for_task(&run_id).await;
+        if !matches!(&result, Ok(completed) if matches!(completed.finish_reason.as_str(), "stop" | "continuation_required"))
+        {
+            if let Some(goal_id) = goal_id_for_run.as_deref() {
+                self.cancel_jobs_for_goal(goal_id).await;
+            } else {
+                self.cancel_jobs_for_task(&run_id).await;
+            }
         }
         let stop_results = hooks::run(
             &self.config.agent_settings()?.hooks,
@@ -627,12 +1182,12 @@ impl AgentService {
         }
         let _ = poll_stop_tx.send(true);
         let _ = cancellation_poll.await;
-        *self.active.lock().await = None;
-        self.reject_pending_approvals().await;
+        self.active.lock().await.remove(&conversation_id);
+        self.active_changed.notify_waiters();
         match &result {
             Ok(completed) => {
                 let state = match completed.finish_reason.as_str() {
-                    "stop" => AgentTaskState::Succeeded,
+                    "stop" | "continuation_required" => AgentTaskState::Succeeded,
                     "aborted" => AgentTaskState::Canceled,
                     _ => AgentTaskState::Failed,
                 };
@@ -676,14 +1231,8 @@ impl AgentService {
         }
         let active = self.active.lock().await;
         let active = active
-            .as_ref()
+            .get(conversation_id)
             .ok_or_else(|| AppError::Ai("没有正在运行的 Agent 回合".to_owned()))?;
-        if active.conversation_id != conversation_id {
-            return Err(AppError::Ai(format!(
-                "当前运行中的对话是 '{}'，不能把追加要求发送到 '{}'",
-                active.conversation_id, conversation_id
-            )));
-        }
         let mut event = event(
             &active.turn_id,
             "user_steer",
@@ -734,7 +1283,7 @@ impl AgentService {
     }
 
     pub async fn is_busy(&self) -> bool {
-        self.active.lock().await.is_some()
+        !self.active.lock().await.is_empty()
     }
 
     pub async fn cancel_job(&self, job_id: &str) -> Result<ExecutionJob, AppError> {
@@ -766,10 +1315,19 @@ impl AgentService {
     }
 
     pub async fn abort(&self) {
-        if let Some(active) = self.active.lock().await.as_ref() {
+        for active in self.active.lock().await.values() {
             let _ = active.abort.send(true);
         }
         self.reject_pending_approvals().await;
+    }
+
+    pub async fn abort_conversation(&self, conversation_id: &str) -> Result<(), AppError> {
+        let active = self.active.lock().await;
+        let active = active
+            .get(conversation_id)
+            .ok_or_else(|| AppError::Ai("该对话没有正在运行的 Agent 回合".to_owned()))?;
+        let _ = active.abort.send(true);
+        Ok(())
     }
 
     pub(crate) async fn wait_for_approval(
@@ -931,7 +1489,7 @@ impl AgentService {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn execute_builtin_tool(
-        &self,
+        self: &Arc<Self>,
         run_id: &str,
         call_id: &str,
         name: &str,
@@ -939,6 +1497,7 @@ impl AgentService {
         session_id: Option<&str>,
         settings: &AgentSettings,
         sink: Arc<dyn AgentEventSink>,
+        continuation_sink: Arc<dyn AgentEventSink>,
         abort: watch::Receiver<bool>,
     ) -> Result<String, AppError> {
         match name {
@@ -998,11 +1557,12 @@ impl AgentService {
                     .unwrap_or(1_200)
                     .clamp(500, 5_000);
                 let evidence_refs = argument_string_array(&arguments, "evidence_refs")?;
+                let _operation = self.sessions.lock_operation(session_id).await?;
                 let mut results = Vec::new();
                 let mut stopped = false;
                 for command in commands {
                     let result = self
-                        .execute_cli_command(
+                        .execute_cli_command_locked(
                             session_id,
                             &command,
                             timeout_seconds,
@@ -1038,6 +1598,7 @@ impl AgentService {
                     .get("input_mode")
                     .and_then(Value::as_str)
                     .unwrap_or("complete_line");
+                let _operation = self.sessions.lock_operation(session_id).await?;
                 let input = self.sessions.lock_input(session_id).await?;
                 let screen = self.sessions.screen_snapshot(session_id)?;
                 let plan = terminal_send_plan(command, newline, input_mode, screen.as_ref())?;
@@ -1075,14 +1636,15 @@ impl AgentService {
                     .unwrap_or(false)
                 {
                     return self
-                        .start_background_job(
-                            run_id,
-                            call_id,
-                            session_id,
-                            command,
+                        .start_background_job(BackgroundJobRequest {
+                            run_id: run_id.to_owned(),
+                            call_id: call_id.to_owned(),
+                            session_id: session_id.to_owned(),
+                            command: command.to_owned(),
                             timeout_seconds,
                             sink,
-                        )
+                            continuation_sink,
+                        })
                         .await;
                 }
                 Ok(serde_json::to_string(
@@ -1152,6 +1714,7 @@ impl AgentService {
                 }
                 let text = arguments.get("text").and_then(Value::as_str);
                 let payload = terminal_edit_payload(operation, count, text)?;
+                let _operation = self.sessions.lock_operation(session_id).await?;
                 let input = self.sessions.lock_input(session_id).await?;
                 input.write(payload.as_bytes()).await?;
                 drop(input);
@@ -1196,6 +1759,11 @@ impl AgentService {
                     "job": job,
                     "cancelRequested": requested,
                 }))?)
+            }
+            "session_wait_until" => {
+                let session_id = require_session(selected_session_id(&arguments, session_id))?;
+                self.wait_until(run_id, call_id, session_id, &arguments, sink, abort)
+                    .await
             }
             "session_info" => {
                 let requested_session_id = arguments.get("session_id").and_then(Value::as_str);
@@ -1352,6 +1920,7 @@ impl AgentService {
                 let path = argument_str(&arguments, "path")?;
                 let content = argument_str(&arguments, "content")?;
                 let expected_hash = arguments.get("expected_hash").and_then(Value::as_str);
+                let _operation = self.sessions.lock_operation(session_id).await?;
                 Ok(serde_json::to_string(
                     &self
                         .sftp
@@ -1370,6 +1939,7 @@ impl AgentService {
                         AppError::InvalidInput("tool argument 'replace' is required".to_owned())
                     })?;
                 let expected_hash = argument_str(&arguments, "expected_hash")?;
+                let _operation = self.sessions.lock_operation(session_id).await?;
                 let current = self
                     .sftp
                     .file_read(session_id, path, 0, 1024 * 1024)
@@ -1468,6 +2038,193 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
         evidence_refs: Vec<String>,
         abort: watch::Receiver<bool>,
     ) -> Result<Value, AppError> {
+        let _operation = self.sessions.lock_operation(session_id).await?;
+        self.execute_cli_command_locked(
+            session_id,
+            command,
+            timeout_seconds,
+            quiet_ms,
+            evidence_refs,
+            abort,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn wait_until(
+        &self,
+        run_id: &str,
+        call_id: &str,
+        session_id: &str,
+        arguments: &Value,
+        sink: Arc<dyn AgentEventSink>,
+        mut abort: watch::Receiver<bool>,
+    ) -> Result<String, AppError> {
+        let command = argument_str(arguments, "command")?;
+        let condition = arguments
+            .get("condition")
+            .and_then(Value::as_str)
+            .unwrap_or("exit_code_zero");
+        let expected = arguments
+            .get("expected")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !matches!(
+            condition,
+            "exit_code_zero"
+                | "stdout_contains"
+                | "stdout_not_contains"
+                | "stdout_equals"
+                | "stderr_contains"
+                | "stderr_not_contains"
+        ) {
+            return Err(AppError::InvalidInput(format!(
+                "unsupported wait condition '{condition}'"
+            )));
+        }
+        if condition != "exit_code_zero" && expected.is_empty() {
+            return Err(AppError::InvalidInput(format!(
+                "wait condition '{condition}' requires a non-empty expected value"
+            )));
+        }
+        let read_check = super::policy::evaluate_tool(
+            "remote_exec",
+            &json!({ "command": command }),
+            PolicyContext {
+                mode: crate::types::AgentPermissionMode::ReadOnly,
+                environment: SessionEnvironment::Production,
+                is_root: false,
+            },
+        );
+        let observational_execute = read_check.effect == ToolEffect::Execute
+            && !read_check.commands.is_empty()
+            && read_check
+                .commands
+                .iter()
+                .all(|name| matches!(name.as_str(), "test" | "[" | "true" | "false"));
+        if read_check.action != PolicyAction::Allow && !observational_execute {
+            return Err(AppError::InvalidInput(format!(
+                "session_wait_until only accepts a statically parsed read-only observation command; analysis: {}",
+                read_check.reason
+            )));
+        }
+
+        let interval = Duration::from_secs(
+            argument_u64(arguments, "interval_seconds")
+                .unwrap_or(3)
+                .clamp(1, 30),
+        );
+        let timeout = Duration::from_secs(
+            argument_u64(arguments, "timeout_seconds")
+                .unwrap_or(300)
+                .clamp(1, 3_600),
+        );
+        let poll_timeout = Duration::from_secs(
+            argument_u64(arguments, "poll_timeout_seconds")
+                .unwrap_or(15)
+                .clamp(1, 60),
+        );
+        let started = Instant::now();
+        let mut attempts = 0_u32;
+        let mut last_progress = Instant::now() - Duration::from_secs(10);
+        loop {
+            if *abort.borrow() {
+                return Err(AppError::Agent("session wait canceled".to_owned()));
+            }
+            attempts = attempts.saturating_add(1);
+            let capture = Arc::new(WaitExecCapture::default());
+            let result = self
+                .sessions
+                .remote_exec(
+                    session_id,
+                    command,
+                    poll_timeout.min(timeout.saturating_sub(started.elapsed())),
+                    abort.clone(),
+                    capture.clone(),
+                )
+                .await?;
+            let (stdout, stderr, output_truncated) = capture.snapshot()?;
+            let matched = match condition {
+                "exit_code_zero" => result.exit_code == Some(0),
+                "stdout_contains" => stdout.contains(expected),
+                "stdout_not_contains" => !stdout.contains(expected),
+                "stdout_equals" => stdout.trim_end() == expected,
+                "stderr_contains" => stderr.contains(expected),
+                "stderr_not_contains" => !stderr.contains(expected),
+                _ => false,
+            };
+            if matched {
+                return Ok(serde_json::to_string(&json!({
+                    "sessionId": session_id,
+                    "command": command,
+                    "condition": condition,
+                    "expected": expected,
+                    "matched": true,
+                    "attempts": attempts,
+                    "elapsedMs": started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                    "execution": result,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "outputTruncated": output_truncated,
+                }))?);
+            }
+            if output_truncated {
+                return Err(AppError::Agent(format!(
+                    "session_wait_until poll output exceeded {MAX_WAIT_CAPTURE_BYTES} bytes before the condition matched; narrow the observation command"
+                )));
+            }
+            if started.elapsed() >= timeout {
+                return Ok(serde_json::to_string(&json!({
+                    "sessionId": session_id,
+                    "command": command,
+                    "condition": condition,
+                    "expected": expected,
+                    "matched": false,
+                    "timedOut": true,
+                    "attempts": attempts,
+                    "elapsedMs": started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                    "execution": result,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                }))?);
+            }
+            if last_progress.elapsed() >= Duration::from_secs(5) {
+                let mut progress = event(
+                    run_id,
+                    "session_wait_progress",
+                    Some(format!("等待条件 · 第 {attempts} 次检查")),
+                );
+                progress.call_id = Some(call_id.to_owned());
+                progress.tool_name = Some("session_wait_until".to_owned());
+                progress.arguments = Some(json!({
+                    "sessionId": session_id,
+                    "attempts": attempts,
+                    "elapsedMs": started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                    "lastExitCode": result.exit_code,
+                }));
+                sink.send(progress)?;
+                last_progress = Instant::now();
+            }
+            tokio::select! {
+                changed = abort.changed() => {
+                    if changed.is_err() || *abort.borrow() {
+                        return Err(AppError::Agent("session wait canceled".to_owned()));
+                    }
+                }
+                _ = tokio::time::sleep(interval.min(timeout.saturating_sub(started.elapsed()))) => {}
+            }
+        }
+    }
+
+    async fn execute_cli_command_locked(
+        &self,
+        session_id: &str,
+        command: &str,
+        timeout_seconds: u64,
+        quiet_ms: u64,
+        evidence_refs: Vec<String>,
+        abort: watch::Receiver<bool>,
+    ) -> Result<Value, AppError> {
         let input = self.sessions.lock_input(session_id).await?;
         let before_transcript = self.sessions.buffer_snapshot(session_id)?;
         let before_screen = self.sessions.screen_snapshot(session_id)?;
@@ -1548,13 +2305,22 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
         capability_id: &str,
         raw: &Value,
     ) -> Result<EvidenceRecord, AppError> {
+        let task = self
+            .store
+            .task(run_id)?
+            .ok_or_else(|| AppError::NotFound(format!("agent task '{run_id}'")))?;
+        let goal_id = task
+            .goal_id
+            .as_deref()
+            .ok_or_else(|| AppError::Agent("MCP evidence requires a persisted Goal".to_owned()))?;
         let directory = self
             .store
             .path()
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join("artifacts")
-            .join(run_id)
+            .join("goals")
+            .join(goal_id)
             .join("evidence");
         fs::create_dir_all(&directory)?;
         let path = directory.join(format!("{evidence_id}.json"));
@@ -1572,6 +2338,16 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
             });
         }
         fs::write(&path, &bytes)?;
+        self.store.save_evidence(&AgentEvidence {
+            id: evidence_id.to_owned(),
+            goal_id: goal_id.to_owned(),
+            conversation_id: task.conversation_id,
+            task_id: run_id.to_owned(),
+            capability_id: capability_id.to_owned(),
+            artifact_path: path.to_string_lossy().into_owned(),
+            bytes: bytes.len() as u64,
+            created_at_ms: now_ms(),
+        })?;
         Ok(EvidenceRecord {
             id: evidence_id.to_owned(),
             capability_id: capability_id.to_owned(),
@@ -1652,6 +2428,7 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
         sink: Arc<dyn AgentEventSink>,
         abort: watch::Receiver<bool>,
     ) -> Result<Value, AppError> {
+        let _operation = self.sessions.lock_operation(session_id).await?;
         let artifact_root = self
             .store
             .path()
@@ -1687,34 +2464,47 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
     }
 
     async fn start_background_job(
-        &self,
-        run_id: &str,
-        call_id: &str,
-        session_id: &str,
-        command: &str,
-        timeout_seconds: u64,
-        sink: Arc<dyn AgentEventSink>,
+        self: &Arc<Self>,
+        request: BackgroundJobRequest,
     ) -> Result<String, AppError> {
+        let BackgroundJobRequest {
+            run_id,
+            call_id,
+            session_id,
+            command,
+            timeout_seconds,
+            sink,
+            continuation_sink,
+        } = request;
+        let operation_guard = self.sessions.lock_operation(&session_id).await?;
         let job_id = uuid::Uuid::new_v4().to_string();
+        let task = self
+            .store
+            .task(&run_id)?
+            .ok_or_else(|| AppError::NotFound(format!("agent task '{run_id}'")))?;
         let artifact_root = self
             .store
             .path()
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join("artifacts")
-            .join(run_id)
+            .join("goals")
+            .join(task.goal_id.as_deref().unwrap_or(&run_id))
+            .join("jobs")
             .join(&job_id);
         let capture = Arc::new(ExecCapture::new(
             artifact_root.clone(),
-            run_id,
+            &run_id,
             &job_id,
             "remote_exec",
             sink.clone(),
         )?);
         let job = ExecutionJob {
             id: job_id.clone(),
-            task_id: run_id.to_owned(),
-            tool_call_id: call_id.to_owned(),
+            task_id: run_id.clone(),
+            goal_id: task.goal_id.clone(),
+            conversation_id: Some(task.conversation_id.clone()),
+            tool_call_id: call_id.clone(),
             state: "running".to_owned(),
             exit_code: None,
             signal: None,
@@ -1723,8 +2513,8 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
             artifact_path: Some(artifact_root.to_string_lossy().into_owned()),
         };
         self.store.job_started(&job)?;
-        let mut started = event(run_id, "job_started", Some("running".to_owned()));
-        started.call_id = Some(call_id.to_owned());
+        let mut started = event(&run_id, "job_started", Some("running".to_owned()));
+        started.call_id = Some(call_id.clone());
         started.tool_name = Some("remote_exec".to_owned());
         started.arguments = Some(serde_json::to_value(&job)?);
         sink.send(started)?;
@@ -1732,7 +2522,8 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
         self.jobs.lock().await.insert(
             job_id.clone(),
             JobRuntime {
-                task_id: run_id.to_owned(),
+                task_id: run_id.clone(),
+                goal_id: task.goal_id.clone(),
                 cancel: cancel_tx,
             },
         );
@@ -1740,12 +2531,18 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
         let sessions = self.sessions.clone();
         let store = self.store.clone();
         let jobs = self.jobs.clone();
+        let service = self.clone();
         let spawned_job_id = job_id.clone();
-        let spawned_task_id = run_id.to_owned();
-        let spawned_call_id = call_id.to_owned();
-        let spawned_session_id = session_id.to_owned();
-        let spawned_command = command.to_owned();
+        let spawned_task_id = run_id;
+        let spawned_goal_id = task.goal_id.clone();
+        let spawned_conversation_id = task.conversation_id.clone();
+        let spawned_profile_id = task.profile_id.clone();
+        let spawned_permission = task.permission_mode;
+        let spawned_call_id = call_id;
+        let spawned_session_id = session_id;
+        let spawned_command = command;
         tokio::spawn(async move {
+            let _operation_guard = operation_guard;
             let result = sessions
                 .remote_exec(
                     &spawned_session_id,
@@ -1798,6 +2595,19 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
             finished.call_id = Some(spawned_call_id);
             finished.arguments = Some(payload);
             let _ = sink.send(finished);
+            if let Some(goal_id) = spawned_goal_id {
+                service
+                    .resume_waiting_goal_after_job(
+                        &goal_id,
+                        &spawned_conversation_id,
+                        &spawned_profile_id,
+                        spawned_permission,
+                        &spawned_job_id,
+                        state,
+                        continuation_sink,
+                    )
+                    .await;
+            }
         });
 
         Ok(serde_json::to_string(&json!({
@@ -1807,12 +2617,100 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
         }))?)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    async fn resume_waiting_goal_after_job(
+        self: &Arc<Self>,
+        goal_id: &str,
+        conversation_id: &str,
+        profile_id: &str,
+        permission: crate::types::AgentPermissionMode,
+        job_id: &str,
+        job_state: &str,
+        sink: Arc<dyn AgentEventSink>,
+    ) {
+        // The job may complete while the Turn that started it is still
+        // publishing its final checkpoint. Wait for the conversation slot
+        // event instead of polling or imposing an arbitrary long-task timeout.
+        loop {
+            let idle = self.active_changed.notified();
+            tokio::pin!(idle);
+            idle.as_mut().enable();
+            if !self.active.lock().await.contains_key(conversation_id) {
+                break;
+            }
+            idle.await;
+        }
+        let goal = match self.store.goal(goal_id) {
+            Ok(Some(goal)) => goal,
+            Ok(None) => return,
+            Err(error) => {
+                tracing::error!(
+                    event = "goal_auto_resume_failed",
+                    goal_id,
+                    job_id,
+                    error_code = error.code(),
+                    error_detail = %error.detail(),
+                    "unable to read Goal after background job completion"
+                );
+                return;
+            }
+        };
+        if goal.status != AgentGoalStatus::WaitingExternal {
+            tracing::debug!(
+                event = "goal_auto_resume_skipped",
+                goal_id,
+                job_id,
+                status = goal.status.as_str(),
+                reason = "goal_not_waiting_external",
+                "background job completion does not require an automatic continuation"
+            );
+            return;
+        }
+        let prompt = format!(
+            "Background execution job {job_id} reached terminal state '{job_state}'. Continue the persisted Goal from its checkpoint. Read job_status and the required job_output ranges, verify the result, then continue or report the exact failure."
+        );
+        tracing::info!(
+            event = "goal_auto_resume_started",
+            goal_id,
+            conversation_id,
+            job_id,
+            job_state,
+            "automatically continuing Goal after background job completion"
+        );
+        if let Err(error) = self
+            .run_in_conversation(
+                profile_id,
+                Some(conversation_id.to_owned()),
+                prompt,
+                None,
+                sink,
+                Some(permission),
+            )
+            .await
+        {
+            tracing::error!(
+                event = "goal_auto_resume_failed",
+                goal_id,
+                conversation_id,
+                job_id,
+                error_code = error.code(),
+                error_detail = %error.detail(),
+                "automatic Goal continuation failed"
+            );
+        }
+    }
+
     fn task_job(&self, run_id: &str, job_id: &str) -> Result<ExecutionJob, AppError> {
         let job = self
             .store
             .job(job_id)?
             .ok_or_else(|| AppError::NotFound(format!("execution job '{job_id}'")))?;
-        if job.task_id != run_id {
+        let task = self
+            .store
+            .task(run_id)?
+            .ok_or_else(|| AppError::NotFound(format!("agent task '{run_id}'")))?;
+        let same_goal = task.goal_id.is_some() && task.goal_id == job.goal_id;
+        if job.task_id != run_id && !same_goal {
             return Err(AppError::NotFound(format!("execution job '{job_id}'")));
         }
         Ok(job)
@@ -1821,6 +2719,16 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
     async fn cancel_jobs_for_task(&self, run_id: &str) {
         let jobs = self.jobs.lock().await;
         for runtime in jobs.values().filter(|job| job.task_id == run_id) {
+            let _ = runtime.cancel.send(true);
+        }
+    }
+
+    async fn cancel_jobs_for_goal(&self, goal_id: &str) {
+        let jobs = self.jobs.lock().await;
+        for runtime in jobs
+            .values()
+            .filter(|job| job.goal_id.as_deref() == Some(goal_id))
+        {
             let _ = runtime.cancel.send(true);
         }
     }
@@ -1877,6 +2785,20 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
 
 pub(crate) fn tool_definitions(registry: &CapabilityRegistry, prompt: &str) -> Vec<Value> {
     let mut tools = vec![
+        function_tool(
+            "goal_update",
+            "Persist the current Goal checkpoint and lifecycle status. Call this when the Goal is complete, waiting for a material user clarification, blocked, waiting on an external condition, or explicitly failed. Do not mark completed until the requested outcome has been verified.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "status": { "type": "string", "enum": ["active", "waiting_approval", "waiting_external", "blocked", "completed", "failed"] },
+                    "checkpoint": { "description": "Compact structured checkpoint containing completed work, verified evidence, pending work, and safe resume information" },
+                    "reason": { "type": "string", "description": "Exact unresolved decision or reason for waiting_approval, blocked, waiting_external, or failed states" }
+                },
+                "required": ["status"],
+                "additionalProperties": false
+            }),
+        ),
         function_tool(
             "remote_exec",
             "Run a non-interactive command on the selected SSH session (or the active session by default) with separate stdout, stderr, exit status, timeout, cancellation, and full output artifacts.",
@@ -2170,7 +3092,7 @@ pub(crate) fn tool_definitions(registry: &CapabilityRegistry, prompt: &str) -> V
         ),
         function_tool(
             "evidence_read",
-            "Read a byte range from the exact raw result artifact for one MCP evidence id returned earlier in the current task.",
+            "Read a byte range from the exact raw result artifact for one external capability evidence id returned earlier in the current Goal.",
             json!({
                 "type": "object",
                 "properties": {
@@ -2179,6 +3101,72 @@ pub(crate) fn tool_definitions(registry: &CapabilityRegistry, prompt: &str) -> V
                     "limit": { "type": "integer", "minimum": 1, "maximum": 65536, "default": 65536 }
                 },
                 "required": ["evidence_id"],
+                "additionalProperties": false
+            }),
+        ),
+        function_tool(
+            "session_wait_until",
+            "Poll one statically read-only command on a selected SSH session until an exact condition matches or the timeout expires. Use this to coordinate target A with an observable prerequisite on target B without generating repeated short model requests.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "description": "A statically parsed read-only observation command" },
+                    "condition": { "type": "string", "enum": ["exit_code_zero", "stdout_contains", "stdout_not_contains", "stdout_equals", "stderr_contains", "stderr_not_contains"], "default": "exit_code_zero" },
+                    "expected": { "type": "string", "description": "Required except for exit_code_zero" },
+                    "interval_seconds": { "type": "integer", "minimum": 1, "maximum": 30, "default": 3 },
+                    "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 3600, "default": 300 },
+                    "poll_timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 15 }
+                },
+                "required": ["command"],
+                "additionalProperties": false
+            }),
+        ),
+        function_tool(
+            "capability_resource_list",
+            "List MCP resources through the unified capability provider layer. Omit provider_id to inspect every ready provider; exact provider errors are preserved per provider.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "provider_id": { "type": "string", "description": "Optional exact provider id from mcp_status or capability_search" }
+                },
+                "additionalProperties": false
+            }),
+        ),
+        function_tool(
+            "capability_resource_read",
+            "Read one exact MCP resource URI through its provider. The immutable raw response is persisted as Goal-scoped evidence and large content must be paged with evidence_read.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "provider_id": { "type": "string" },
+                    "uri": { "type": "string" }
+                },
+                "required": ["provider_id", "uri"],
+                "additionalProperties": false
+            }),
+        ),
+        function_tool(
+            "capability_prompt_list",
+            "List reusable MCP prompts through the unified capability provider layer. Omit provider_id to inspect every ready provider.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "provider_id": { "type": "string" }
+                },
+                "additionalProperties": false
+            }),
+        ),
+        function_tool(
+            "capability_prompt_get",
+            "Resolve one exact MCP prompt with Schema-compatible arguments. The immutable result is persisted as Goal-scoped evidence.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "provider_id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "arguments": { "type": "object", "default": {} }
+                },
+                "required": ["provider_id", "name"],
                 "additionalProperties": false
             }),
         ),
@@ -2254,6 +3242,7 @@ pub(crate) fn tool_definitions(registry: &CapabilityRegistry, prompt: &str) -> V
 fn add_explicit_session_targeting(tools: &mut [Value]) {
     const SESSION_TARGETED_TOOLS: &[&str] = &[
         "remote_exec",
+        "session_wait_until",
         "terminal_context",
         "cli_execute",
         "cli_execute_batch",
@@ -2335,7 +3324,7 @@ fn function_tool(name: &str, description: &str, parameters: Value) -> Value {
 }
 
 pub(crate) fn plugin_id_for_tool(name: &str) -> &'static str {
-    if name == "session_connect" {
+    if matches!(name, "session_connect" | "session_wait_until") {
         builtin::MULTI_SSH_COORDINATOR_ID
     } else {
         "dsh-codex-agent"
@@ -2529,6 +3518,54 @@ fn shell_quote(value: &str) -> String {
 
 const PREVIEW_EDGE_BYTES: usize = 64 * 1024;
 
+#[derive(Default)]
+struct WaitExecCapture {
+    stdout: StdMutex<WaitStreamCapture>,
+    stderr: StdMutex<WaitStreamCapture>,
+}
+
+#[derive(Default)]
+struct WaitStreamCapture {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+impl WaitExecCapture {
+    fn snapshot(&self) -> Result<(String, String, bool), AppError> {
+        let stdout = self
+            .stdout
+            .lock()
+            .map_err(|_| AppError::Agent("wait stdout capture lock is poisoned".to_owned()))?;
+        let stderr = self
+            .stderr
+            .lock()
+            .map_err(|_| AppError::Agent("wait stderr capture lock is poisoned".to_owned()))?;
+        Ok((
+            String::from_utf8_lossy(&stdout.bytes).into_owned(),
+            String::from_utf8_lossy(&stderr.bytes).into_owned(),
+            stdout.truncated || stderr.truncated,
+        ))
+    }
+}
+
+impl ExecOutputSink for WaitExecCapture {
+    fn send(&self, stream: ExecStream, data: &[u8]) -> Result<(), AppError> {
+        let capture = match stream {
+            ExecStream::Stdout => &self.stdout,
+            ExecStream::Stderr => &self.stderr,
+        };
+        let mut capture = capture
+            .lock()
+            .map_err(|_| AppError::Agent("wait output capture lock is poisoned".to_owned()))?;
+        let remaining = MAX_WAIT_CAPTURE_BYTES.saturating_sub(capture.bytes.len());
+        capture
+            .bytes
+            .extend_from_slice(&data[..data.len().min(remaining)]);
+        capture.truncated |= data.len() > remaining;
+        Ok(())
+    }
+}
+
 struct ExecCapture {
     run_id: String,
     call_id: String,
@@ -2685,14 +3722,6 @@ pub(crate) fn event(run_id: &str, event_type: &str, message: Option<String>) -> 
     }
 }
 
-pub(crate) fn mcp_error_event(run_id: &str, server_name: &str, error: &AppError) -> AgentEvent {
-    let mut failure = event(run_id, "mcp_error", Some(format!("MCP · {server_name}")));
-    failure.content = Some(error.detail());
-    failure.is_error = Some(true);
-    failure.error_code = Some(error.code().to_owned());
-    failure
-}
-
 fn redact_event(mut event: AgentEvent, secrets: &[String]) -> AgentEvent {
     event.message = event.message.map(|value| redact_text(&value, secrets));
     event.content = event.content.map(|value| redact_text(&value, secrets));
@@ -2760,8 +3789,44 @@ mod tests {
     #[test]
     fn built_in_tools_and_limits_are_explicit() {
         let tools = tool_definitions(&CapabilityRegistry::default(), "");
-        assert_eq!(tools.len(), 23);
-        assert_eq!(tools[0]["function"]["name"], "remote_exec");
+        let names = tools
+            .iter()
+            .filter_map(|tool| tool["function"]["name"].as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            [
+                "goal_update",
+                "remote_exec",
+                "job_status",
+                "job_output",
+                "job_cancel",
+                "terminal_context",
+                "cli_execute",
+                "cli_execute_batch",
+                "terminal_send",
+                "terminal_edit",
+                "session_info",
+                "session_catalog",
+                "session_connect",
+                "list_directory",
+                "file_stat",
+                "file_read",
+                "file_search",
+                "file_write",
+                "file_patch",
+                "host_facts",
+                "runbook",
+                "skill_load",
+                "mcp_status",
+                "evidence_read",
+                "session_wait_until",
+                "capability_resource_list",
+                "capability_resource_read",
+                "capability_prompt_list",
+                "capability_prompt_get",
+            ]
+        );
         assert!(tools
             .iter()
             .any(|tool| tool["function"]["name"] == "session_catalog"));
@@ -2797,7 +3862,6 @@ mod tests {
             .any(|tool| tool["function"]["name"] == "mcp_status"));
         let settings = AgentSettings::default();
         assert_eq!(settings.profile, "dsh-codex-agent");
-        assert_eq!(settings.max_steps, 64);
     }
 
     #[test]

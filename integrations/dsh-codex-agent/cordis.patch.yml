@@ -89,5 +89,4 @@
         requestTimeoutMs: 120000
         contextWindowTokens: 128000
         compactThresholdTokens: 96000
-        maxSteps: 64
         externalMcp: []

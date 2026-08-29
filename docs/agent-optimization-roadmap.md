@@ -2,6 +2,17 @@
 
 本文记录 Agent 的直接改进，以及后续保持轻量内核时最值得投入的优化。路线按风险、收益和对现有插件边界的影响排序；它不是把 myterm 扩展成通用编排平台的清单。
 
+## 0.11.0 已落地：普通任务自动 Goal 与统一 CapabilityProvider
+
+- 每个普通输入自动创建或复用 Goal；64 Step 变为单 Turn 的 `continuation_required` 让出边界，宿主从 checkpoint 自动续跑，默认无隐藏 Goal Token 总预算。
+- Goal 可暂停、恢复、等待用户、等待外部 Job、阻塞、完成、失败或取消；后台 Job 通过事件通知唤醒，不依赖固定轮询。
+- Job、Evidence 和激活 Skill 可跨 Turn/重启恢复；删除 Conversation 时递归清理 Core Thread 树和 artifact。
+- MCP stdio/streamable-http 共用 CapabilityProvider、连接池、Tools/Resources/Prompts、Schema 校验、进度和 Goal Evidence；副作用调用失败不自动重放。
+- 模型路由可跨已保存 Provider，配合有限重试、流式不重放、熔断和完全自适应上下文。
+- 多 SSH 增加每 Session 状态锁和 `session_wait_until`，用一个只读工具调用表达跨目标条件等待。
+
+取舍：该方案比只提高 Step 上限多一层持久状态，但真正覆盖了等待、恢复和重启；比完整 codex app-server 少继承一批未使用依赖和网络出口，但上游 Goal 能力需要审计后手工同步。
+
 ## 0.10.0 已落地：Result Capsule 与增量 Checkpoint v2
 
 - 工具原始结果从模型消息中分离，使用 `tool_results` 索引和独立 artifact 保存字节数、SHA-256、来源工具及不可变原文；小于等于 8 KiB 的结果保持原生消息，避免所有调用都增加一层包装。
@@ -72,11 +83,11 @@
 | 上下文预算与结果引用（已完成） | 长 stdout、MCP schema 和 Skill 不会撑满模型上下文，成本更可预测 | 引用读取可能增加一次工具调用；Reducer 的领域提取规则要持续补测试 | 保持不可变原文 + Result Capsule + `result_read`，禁止用头尾截断替代证据 |
 | 可恢复的重试策略 | 网络瞬态错误可有限重试，权限拒绝和非零退出不会被错误重放 | 重试可能重复副作用；必须和幂等性绑定 | 只允许模型请求、只读探针和明确幂等工具重试，写操作默认不重试 |
 
-### P2：多目标与长任务
+### P2：Provisioning 与更强完成判定
 
-1. 多 SSH target graph：一个 Task 显式绑定 A/B/C，读操作可有界并发，副作用默认串行；每一步记录目标、前置条件和观察证据。
-2. Checkpoint/resume：在工具边界保存 plan hash、输入摘要和完成证据；恢复时重新验证目标身份，不自动重放未知副作用。
-3. Skill 驱动 provisioning：Skill 只生成和校验安装计划，写盘、电源和引导动作交给虚拟化、云、MAAS 或 Redfish/BMC 插件；当前 SSH 不能作为重装后的唯一控制面。
+1. 结构化远端 HTTP：固定 execution origin、凭据引用、响应 artifact、幂等和审计，不把自由 `curl` 包装成伪结构化工具。
+2. Skill 驱动 provisioning：Skill 只生成和校验安装计划，写盘、电源和引导动作交给虚拟化、云、MAAS 或 Redfish/BMC 插件；当前 SSH 不能作为重装后的唯一控制面。
+3. 变更完成判定：为常见服务、配置和部署增加可复用验证器，但不演进为通用 DAG。
 4. 进程外插件：在 JSONL 协议稳定后增加签名、信任、命令路径白名单、环境过滤、资源上限和崩溃回收。没有这些前置条件，不启用任意第三方进程。
 
 ## 明确暂不做

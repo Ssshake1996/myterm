@@ -11,6 +11,11 @@ const ipcMocks = vi.hoisted(() => ({
   agentConversationDelete: vi.fn(),
   agentConversationList: vi.fn(),
   agentConversationTasks: vi.fn(),
+  agentGoalCancel: vi.fn(),
+  agentGoalGet: vi.fn(),
+  agentGoalPause: vi.fn(),
+  agentGoalResume: vi.fn(),
+  agentInputQueue: vi.fn(),
   agentRun: vi.fn(),
   agentSteer: vi.fn(),
   agentSettingsGet: vi.fn(),
@@ -72,6 +77,20 @@ describe("AiPanel Agent trace", () => {
     ipcMocks.agentConversationDelete.mockResolvedValue(true);
     ipcMocks.agentConversationList.mockResolvedValue([]);
     ipcMocks.agentConversationTasks.mockResolvedValue([]);
+    ipcMocks.agentGoalGet.mockResolvedValue(null);
+    ipcMocks.agentGoalCancel.mockImplementation(async (goal) => goal);
+    ipcMocks.agentGoalPause.mockImplementation(async (goal) => goal);
+    ipcMocks.agentGoalResume.mockImplementation(async (goal) => goal);
+    ipcMocks.agentInputQueue.mockResolvedValue({
+      id: "queued-1",
+      conversationId: "conversation-1",
+      goalId: "goal-1",
+      content: "queued",
+      mode: "queue",
+      state: "queued",
+      createdAtMs: Date.now(),
+      consumedAtMs: null,
+    });
     ipcMocks.agentTaskEvents.mockResolvedValue([]);
     ipcMocks.agentAbort.mockResolvedValue(undefined);
     ipcMocks.agentApprove.mockResolvedValue(undefined);
@@ -323,7 +342,9 @@ describe("AiPanel Agent trace", () => {
       {
         id: "saved-task-1",
         conversationId: "saved-conversation-1",
+        goalId: "saved-goal-1",
         turnIndex: 1,
+        continuationIndex: 0,
         profileId: "ai-1",
         prompt: "检查旧任务",
         state: "succeeded",

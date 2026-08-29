@@ -25,6 +25,16 @@ pub use responses_transport::ResponsesTransport;
 pub use runtime::{CodexRuntime, HostBridge};
 pub use types::*;
 
+pub fn delete_persisted_thread_tree(
+    state_dir: impl AsRef<std::path::Path>,
+    root_thread_id: &str,
+) -> Result<(), CoreError> {
+    let store = store::ThreadStore::open(state_dir)?;
+    let result = store.delete_thread_tree(root_thread_id);
+    let _ = store.close();
+    result
+}
+
 type HostCallback = ThreadsafeFunction<String, Promise<String>>;
 
 struct NapiHostBridge {

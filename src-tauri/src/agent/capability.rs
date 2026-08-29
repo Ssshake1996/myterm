@@ -6,10 +6,21 @@ use std::{
     path::PathBuf,
 };
 
+use async_trait::async_trait;
 use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::AppError;
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityProgress {
+    pub progress: f64,
+    pub total: Option<f64>,
+    pub message: Option<String>,
+}
+
+pub type CapabilityProgressSink = std::sync::Arc<dyn Fn(CapabilityProgress) + Send + Sync>;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,6 +67,63 @@ pub struct CapabilityDescriptor {
     pub input_schema: Value,
     pub output_schema: Option<Value>,
     pub annotations: Option<Value>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CapabilityInvocationResult {
+    pub raw: Value,
+    pub structured_content: Option<Value>,
+    pub is_error: bool,
+}
+
+/// Transport-neutral capability provider contract.
+///
+/// The Agent loop only depends on this interface. MCP, built-in, or future
+/// providers may therefore change their connection lifecycle without adding
+/// provider-specific branches to the model-facing execution path.
+#[async_trait]
+pub trait CapabilityProvider: Send + Sync {
+    fn id(&self) -> &str;
+    fn name(&self) -> &str;
+    fn kind(&self) -> &str;
+    fn transport(&self) -> &str;
+
+    async fn discover(&self, refresh: bool) -> Result<Vec<CapabilityDescriptor>, AppError>;
+
+    async fn invoke(
+        &self,
+        capability: &CapabilityDescriptor,
+        arguments: Value,
+        progress: Option<CapabilityProgressSink>,
+    ) -> Result<CapabilityInvocationResult, AppError>;
+
+    async fn list_resources(&self) -> Result<Value, AppError> {
+        Err(AppError::NotFound(format!(
+            "capability provider '{}' does not expose resources",
+            self.id()
+        )))
+    }
+
+    async fn read_resource(&self, _uri: &str) -> Result<Value, AppError> {
+        Err(AppError::NotFound(format!(
+            "capability provider '{}' does not expose resources",
+            self.id()
+        )))
+    }
+
+    async fn list_prompts(&self) -> Result<Value, AppError> {
+        Err(AppError::NotFound(format!(
+            "capability provider '{}' does not expose prompts",
+            self.id()
+        )))
+    }
+
+    async fn get_prompt(&self, _name: &str, _arguments: Value) -> Result<Value, AppError> {
+        Err(AppError::NotFound(format!(
+            "capability provider '{}' does not expose prompts",
+            self.id()
+        )))
+    }
 }
 
 impl CapabilityDescriptor {
@@ -225,6 +293,10 @@ pub struct EvidenceLedger {
 impl EvidenceLedger {
     pub fn insert(&mut self, record: EvidenceRecord) {
         self.records.insert(record.id.clone(), record);
+    }
+
+    pub fn contains(&self, id: &str) -> bool {
+        self.records.contains_key(id)
     }
 
     pub fn validate_refs(&self, refs: &[String]) -> Result<(), AppError> {

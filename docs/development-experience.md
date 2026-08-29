@@ -658,3 +658,40 @@ Provider 回退也确实已经写入 SQLite，但运行时把“是否复用”�
 - 配置指纹测试确认尾部斜杠归一化不误触发新探测，而 Base URL、模型或认证方式变化都会失效旧缓存。
 - schema 测试从包含 `context_mode` 的 v3 JSON 打开，确认写回 v4 且删除旧字段；日志保留测试只删除过期 `myterm.log*`，不触碰同目录其他文件。
 - 可复用经验：持久状态应以“能力域”而非界面选项建模；频繁 checkpoint 写入属于数据更新，用户事件只应表达状态转移。UI 与内核若各自定义“有效配置”，迟早会出现“能运行但显示不可用”的分裂事实。
+
+## 21. 普通任务自动 Goal 与可持续 Agent 控制面（0.11.0）
+
+### 问题确认
+
+`maximum step count 64 was reached` 不是用户任务真的失败，而是精简 Codex Core 把单个 Turn 的安全边界误暴露成了整个任务上限。只提高常量会延迟问题：外部等待、应用重启、运行中追加要求、后台 Job 完成和多 SSH 协同仍没有统一的恢复单位。另一方面，直接接回完整 codex app-server 会把登录、云任务、Telemetry、插件市场等未使用能力带入轻量桌面产品。
+
+### 方案比较
+
+| 方案 | 优点 | 缺点 | 结论 |
+|---|---|---|---|
+| 把 64 改成更大的固定数 | 修改最小 | 仍会在更晚的位置失败；无法解决等待、恢复和可观测性；大数还会掩盖循环 | 不采用 |
+| 精简 Core 上增加 Goal 控制面 | 保留已审计依赖图；普通输入自动支持续跑；可独立管理等待和恢复 | 需要明确 Goal/Conversation/Turn 的所有权和状态迁移 | 采用 |
+| 恢复完整 codex app-server | 上游长任务能力最全 | 包体、依赖、网络出口和状态所有者显著膨胀；与裁剪目标冲突 | 排除 |
+
+### 实现决定
+
+1. 每个普通输入自动创建或复用 Goal，用户无需输入 `/goal`。Conversation 是可见上下文边界，Turn 是 Core 的可让出执行段，Goal 才是完成/失败的单位。
+2. Core 达到 64 Step 时返回 `continuation_required`；宿主把当前 Turn 记为成功让出并自动续跑，不再生成 `StepLimit` 错误。默认 Goal 不设置隐藏 Token 总预算。
+3. 澄清不是失败。系统 Prompt 要求先安全只读发现；仍存在会改变执行路径的目标、范围、结果或风险歧义时，持久化 `waiting_approval` 和准确问题，允许多轮确认后继续同一 Goal。
+4. 后台 Job 使用事件驱动通知唤醒 Goal。回调先注册 `Notify` 再检查活动状态，避免“任务刚结束、通知刚错过”的竞态；删除固定轮询和任意等待超时。
+5. Job、Evidence 和激活 Skill 都改为 Goal 级，可以跨 Turn 恢复。原始工具/MCP 结果与模型投影分离，后续 Turn 通过引用读取，不重新执行副作用工具。
+6. MCP 重构为统一 CapabilityProvider，stdio 与 streamable-http 共用 Tools/Resources/Prompts、连接池、Schema 校验、进度和 Evidence。发现类操作可重连一次，工具调用失败不自动重放。
+7. 模型路由允许单个模型引用另一份 Provider 配置；瞬时请求有限重试，流式输出后不重放，连续失败熔断。上下文协议、窗口和压缩阈值完全自适应，不让用户维护第二套运行策略。
+8. 同一 SSH Session 的状态变更用独立锁串行，不同 Session 可并发；`session_wait_until` 用一个有界只读工具调用表达跨主机等待，减少短小模型轮次。
+9. 删除 Conversation 前检查活动 Turn/Job，并递归清理 Root/Subagent Thread 树、审计索引和原始 artifact，避免“UI 历史删了但磁盘证据永久留下”。
+10. Release 门禁先重建当前 N-API 二进制再运行 Harness 测试。源码测试通过但加载旧 `.node` 的问题说明：原生边界测试必须把产物新鲜度当成测试前置条件。
+
+### 验证与可复用经验
+
+- Core 测试覆盖 Step 让出、连续 checkpoint、三次压缩重试、Subagent、Result Capsule 和持久线程树删除。
+- 宿主测试覆盖 Goal 状态机、重启恢复、Job/Evidence/Skill 持久化、Provider 路由、MCP Transport/Schema/诊断、CLI 空格与多 SSH 目标选择。
+- 前端测试覆盖新对话、运行中 steer/queue、Shift+Enter、Goal 状态、模型 Provider、全自适应设置和真实错误详情。
+- 可复用经验一：长任务能力的核心不是“允许更多 Step”，而是把进展、等待和恢复放到比单次模型循环更稳定的状态层。
+- 可复用经验二：内部安全边界应产生可恢复的 yield，而不是直接升级成用户可见失败；循环保护应判断无进展，而不是只数步数。
+- 可复用经验三：外部工具调用不能自动重放副作用，但连接状态可以在失败后失效并在下一次显式调用重建；可靠性与幂等性必须分开设计。
+- 可复用经验四：用户不阅读代码时，稳定字段日志、精确错误、checkpoint 和 artifact 引用就是维护接口，不能把它们当调试期临时输出。

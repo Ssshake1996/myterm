@@ -261,6 +261,63 @@ impl ThreadStore {
         Ok(())
     }
 
+    pub fn thread_tree_ids(&self, root_id: &str) -> Result<Vec<String>, CoreError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "WITH RECURSIVE tree(id, depth) AS (
+                    SELECT id, 0 FROM threads WHERE id = ?1
+                    UNION ALL
+                    SELECT edges.child_id, tree.depth + 1
+                    FROM graph_edges edges JOIN tree ON edges.parent_id = tree.id
+                 )
+                 SELECT id FROM tree ORDER BY depth DESC, id ASC",
+            )
+            .map_err(store_error("prepare_thread_tree"))?;
+        statement
+            .query_map([root_id], |row| row.get::<_, String>(0))
+            .map_err(store_error("query_thread_tree"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(store_error("read_thread_tree"))
+    }
+
+    pub fn delete_thread_tree(&self, root_id: &str) -> Result<(), CoreError> {
+        let ids = self.thread_tree_ids(root_id)?;
+        if ids.is_empty() {
+            return Err(CoreError::ThreadNotFound(root_id.to_owned()));
+        }
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(store_error("delete_thread_tree_begin"))?;
+        let mut artifact_paths = Vec::new();
+        for id in &ids {
+            let mut statement = transaction
+                .prepare("SELECT raw_path FROM tool_results WHERE thread_id = ?1")
+                .map_err(store_error("prepare_thread_tree_artifacts"))?;
+            artifact_paths.extend(
+                statement
+                    .query_map([id], |row| row.get::<_, String>(0))
+                    .map_err(store_error("query_thread_tree_artifacts"))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(store_error("read_thread_tree_artifacts"))?,
+            );
+            transaction
+                .execute("DELETE FROM audit_events WHERE thread_id = ?1", [id])
+                .map_err(store_error("delete_thread_tree_audit"))?;
+            transaction
+                .execute("DELETE FROM threads WHERE id = ?1", [id])
+                .map_err(store_error("delete_thread_tree_thread"))?;
+        }
+        transaction
+            .commit()
+            .map_err(store_error("delete_thread_tree_commit"))?;
+        for path in artifact_paths {
+            let _ = fs::remove_file(path);
+        }
+        Ok(())
+    }
+
     pub fn append_message(&self, thread_id: &str, message: &ChatMessage) -> Result<i64, CoreError> {
         let serialized = serde_json::to_string(message).map_err(|error| CoreError::Store {
             operation: "serialize_message",
@@ -896,6 +953,50 @@ mod tests {
         let reopened = ThreadStore::open(temp.path()).unwrap();
         assert!(reopened.thread_exists("root").unwrap());
         assert_eq!(reopened.graph_edges("root").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn deleting_a_root_thread_removes_its_subagent_tree_and_raw_artifacts() {
+        let temp = TempDir::new().unwrap();
+        let store = ThreadStore::open(temp.path()).unwrap();
+        store.create_thread("root", None, "root", None).unwrap();
+        store
+            .create_thread("child", Some("root"), "worker", None)
+            .unwrap();
+        let raw = "x".repeat(9 * 1024);
+        let reduced = reduce_tool_result(
+            "result-child",
+            "query",
+            &json!({"query": "x"}),
+            &raw,
+            "completed",
+            false,
+            "inspect child",
+        )
+        .unwrap();
+        store
+            .append_tool_result(
+                "child",
+                "call-child",
+                "query",
+                &ChatMessage {
+                    role: MessageRole::Tool,
+                    content: Some(reduced.projected_content),
+                    tool_calls: Vec::new(),
+                    tool_call_id: Some("call-child".to_owned()),
+                },
+                &raw,
+                &reduced.capsule,
+            )
+            .unwrap();
+        let raw_path = store.tool_result("child", "result-child").unwrap().raw_path;
+        assert!(raw_path.exists());
+
+        store.delete_thread_tree("root").unwrap();
+
+        assert!(!store.thread_exists("root").unwrap());
+        assert!(!store.thread_exists("child").unwrap());
+        assert!(!raw_path.exists());
     }
 
     #[test]

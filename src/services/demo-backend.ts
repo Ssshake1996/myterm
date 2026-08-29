@@ -1,6 +1,8 @@
 import type {
   AgentConversation,
   AgentEvent,
+  AgentGoal,
+  AgentQueuedInput,
   AgentRunResult,
   AgentSettings,
   AiChatResult,
@@ -320,6 +322,7 @@ class DemoBackend {
   private agentAborted = false;
   private approvals = new Map<string, (approved: boolean) => void>();
   private agentConversations: AgentConversation[] = [];
+  private agentGoals = new Map<string, AgentGoal>();
 
   async appThemeGet() {
     return this.theme;
@@ -836,6 +839,26 @@ class DemoBackend {
     const runId = crypto.randomUUID();
     const conversationId =
       requestedConversationId ?? (await this.agentConversationCreate(profileId, prompt)).id;
+    const existingGoal = this.agentGoals.get(conversationId);
+    const now = Date.now();
+    this.agentGoals.set(conversationId, {
+      id: existingGoal?.id ?? crypto.randomUUID(),
+      conversationId,
+      objective:
+        existingGoal?.status === "completed" ? prompt : (existingGoal?.objective ?? prompt),
+      status: "active",
+      tokenBudget: null,
+      tokensUsed: existingGoal?.tokensUsed ?? 0,
+      continuationCount: existingGoal?.continuationCount ?? 0,
+      currentTurnId: runId,
+      createdAtMs: existingGoal?.createdAtMs ?? now,
+      updatedAtMs: now,
+      completedAtMs: null,
+      lastCheckpoint: existingGoal?.lastCheckpoint ?? null,
+      lastError: null,
+      blockedReason: null,
+      noProgressCount: 0,
+    });
     const callId = crypto.randomUUID();
     let sequence = 0;
     const emit = (event: Omit<AgentEvent, "schemaVersion" | "sequence" | "createdAtMs">) => {
@@ -951,6 +974,16 @@ class DemoBackend {
         : "已读取活动会话信息，当前连接可用，可以继续执行终端排查。";
     emit({ eventType: "assistant", runId, step: 2, content: answer });
     emit({ eventType: "complete", runId, step: 2, message: "stop" });
+    const goal = this.agentGoals.get(conversationId);
+    if (goal) {
+      this.agentGoals.set(conversationId, {
+        ...goal,
+        status: "completed",
+        tokensUsed: goal.tokensUsed + 356,
+        updatedAtMs: Date.now(),
+        completedAtMs: Date.now(),
+      });
+    }
     emit({
       eventType: "runtime_metrics",
       runId,
@@ -1000,7 +1033,53 @@ class DemoBackend {
     this.agentConversations = this.agentConversations.filter(
       (conversation) => conversation.id !== conversationId,
     );
+    this.agentGoals.delete(conversationId);
     return this.agentConversations.length !== before;
+  }
+
+  async agentGoalGet(conversationId: string) {
+    return structuredClone(this.agentGoals.get(conversationId) ?? null);
+  }
+
+  async agentInputQueue(conversationId: string, input: string): Promise<AgentQueuedInput> {
+    const goal = this.agentGoals.get(conversationId);
+    if (!goal) throw new Error("当前对话没有活动 Goal");
+    return {
+      id: crypto.randomUUID(),
+      conversationId,
+      goalId: goal.id,
+      content: input,
+      mode: "queue",
+      state: "queued",
+      createdAtMs: Date.now(),
+      consumedAtMs: null,
+    };
+  }
+
+  async agentGoalPause(goalId: string) {
+    return this.updateDemoGoal(goalId, "paused");
+  }
+
+  async agentGoalResume(goalId: string) {
+    return this.updateDemoGoal(goalId, "active");
+  }
+
+  async agentGoalCancel(goalId: string) {
+    return this.updateDemoGoal(goalId, "canceled");
+  }
+
+  private updateDemoGoal(goalId: string, status: AgentGoal["status"]) {
+    const entry = [...this.agentGoals.entries()].find(([, goal]) => goal.id === goalId);
+    if (!entry) throw new Error("Goal 不存在");
+    const [conversationId, goal] = entry;
+    const updated = {
+      ...goal,
+      status,
+      updatedAtMs: Date.now(),
+      completedAtMs: ["completed", "failed", "canceled"].includes(status) ? Date.now() : null,
+    } satisfies AgentGoal;
+    this.agentGoals.set(conversationId, updated);
+    return structuredClone(updated);
   }
 
   async agentSteer(conversationId: string, _input: string) {
@@ -1014,7 +1093,7 @@ class DemoBackend {
     resolve(approved);
   }
 
-  async agentAbort() {
+  async agentAbort(_conversationId: string | null = null) {
     this.agentAborted = true;
     for (const resolve of this.approvals.values()) resolve(false);
     this.approvals.clear();

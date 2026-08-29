@@ -56,18 +56,14 @@ describe("AiSettings", () => {
     );
   });
 
-  it("keeps provider context adaptive and persists model token limits", async () => {
+  it("keeps context management fully adaptive without manual token controls", async () => {
     ipcMocks.aiProfileSave.mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<AiSettings profile={null} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     expect(screen.queryByRole("combobox", { name: "Agent 上下文协议" })).not.toBeInTheDocument();
-    const windowInput = screen.getByRole("spinbutton", { name: "主模型上下文窗口 Token" });
-    const thresholdInput = screen.getByRole("spinbutton", { name: "主模型压缩阈值 Token" });
-    await user.clear(windowInput);
-    await user.type(windowInput, "64000");
-    await user.clear(thresholdInput);
-    await user.type(thresholdInput, "48000");
+    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+    expect(screen.getByText(/上下文窗口、压缩时机/u)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "保存配置" }));
 
     expect(ipcMocks.aiProfileSave).toHaveBeenCalledWith(
@@ -75,8 +71,6 @@ describe("AiSettings", () => {
         models: expect.arrayContaining([
           expect.objectContaining({
             role: "primary",
-            context_window_tokens: 64000,
-            compact_threshold_tokens: 48000,
           }),
         ]),
       }),
@@ -230,7 +224,7 @@ describe("AiSettings", () => {
     await user.type(prompt, "reply with pong");
     await user.click(screen.getByRole("button", { name: "测试模型" }));
 
-    expect(ipcMocks.aiTestModel).toHaveBeenCalledWith("ai-test", "model-a", "reply with pong");
+    expect(ipcMocks.aiTestModel).toHaveBeenCalledWith("ai-test", "primary", "reply with pong");
     expect(await screen.findByText("测试成功 · model-a · 128 ms")).toBeInTheDocument();
     expect(screen.getByText("hello from model-a")).toBeInTheDocument();
   });
@@ -284,7 +278,7 @@ describe("AiSettings", () => {
   });
 
   it("previews current JSON edits and can refresh/open the local config", async () => {
-    ipcMocks.aiConfigJson.mockResolvedValue({ version: 4, ai_profiles: [] });
+    ipcMocks.aiConfigJson.mockResolvedValue({ version: 5, ai_profiles: [] });
     ipcMocks.configOpenLocal.mockResolvedValue("C:\\Users\\test\\config.json");
     const user = userEvent.setup();
     render(<AiSettings profile={null} onClose={vi.fn()} onSaved={vi.fn()} />);
@@ -292,7 +286,7 @@ describe("AiSettings", () => {
     expect(screen.getByText("当前编辑内容（实时）")).toBeInTheDocument();
     expect(screen.getByText(/"ai_profiles"/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "刷新后端 JSON" }));
-    expect((await screen.findAllByText(/"version": 4/)).length).toBeGreaterThanOrEqual(2);
+    expect((await screen.findAllByText(/"version": 5/)).length).toBeGreaterThanOrEqual(2);
     await user.click(screen.getByRole("button", { name: "在本地打开" }));
     expect(ipcMocks.configOpenLocal).toHaveBeenCalledTimes(1);
   });

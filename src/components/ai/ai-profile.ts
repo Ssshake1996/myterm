@@ -16,6 +16,7 @@ export function effectiveAiModels(profile: Pick<AiProfile, "models" | "model">):
           id: "primary",
           name: "主模型",
           model: legacyModel,
+          provider_profile_id: undefined,
           role: "primary",
           enabled: true,
         },

@@ -1,9 +1,9 @@
 # myterm Linux Agent 开发计划
 
-> v0.9.1 实施边界：桌面端已切换到唯一内置运行时 `dsh-codex-agent`。本文早期关于 `profile`、`bundles`、`enabled_plugins` 和用户可调 `max_steps` 的描述属于历史方案，不再是桌面端配置契约；Skill/MCP/权限和多 SSH 工具边界继续有效。
+> v0.11.0 实施边界：桌面端使用唯一内置运行时 `dsh-codex-agent`，并在精简 Codex Core 上增加轻量 Goal 控制面。普通任务自动获得续跑能力；`profile`、`bundles`、`enabled_plugins` 和用户可调 `max_steps` 仍不是桌面配置契约。
 
-> 文档状态：`0.6.3` 删除 myterm 自身 CLI/REST 后的后续实施计划
-> 当前产品基线：`0.6.3`
+> 文档状态：`0.11.0` 已交付能力与后续 OS provisioning 计划
+> 当前产品基线：`0.11.0`
 > 对应说明书：[`linux-agent-specification.md`](linux-agent-specification.md)
 > 专项方案：[`multi-ssh-os-installation-plan.md`](multi-ssh-os-installation-plan.md)
 > 研究依据：[`linux-agent-improvement-study.md`](linux-agent-improvement-study.md)
@@ -43,11 +43,11 @@ myterm 保持轻量桌面 SSH 终端定位，在已经交付的单主机 Linux A
 
 ## 4. 当前基线
 
-### 4.0 插件化内核（0.7.0 已交付）
+### 4.0 Goal + 精简 Codex Core（0.11.0 已交付）
 
-Agent Loop 已收敛为轻量运行时：模型请求、循环保护、权限、审批、取消、审计和事件流留在内核，工具和扩展能力通过 `PluginRegistry` 挂载。当前注册的插件为 `builtin.tools`、`builtin.skills`、`builtin.mcp`、`builtin.hooks` 和 `builtin.model.openai`。
+桌面宿主持久化 Goal、输入队列、后台 Job、Evidence 和 Goal Skill；精简 Codex Core 独占 Thread/Turn、模型历史、工具调用顺序、Checkpoint 和 Subagent Graph。Core 的 64 Step 只作为 Turn 让出边界，宿主收到 `continuation_required` 后自动续跑，因此用户不需要 `/goal` 或长短任务选择。
 
-插件采用 manifest + descriptor + execute 三段契约。工具事件包含 `pluginId`，Agent 设置持久化 `profile`、`bundles` 和 `enabled_plugins`；空列表表示桌面默认 profile，非空列表用于缩小能力集合。Skill 和 MCP 仍然经过统一权限管线，不能通过插件边界提升权限。
+SSH/文件等内置工具仍由宿主提供；MCP 通过统一 CapabilityProvider 接入 stdio/streamable-http Tools、Resources 和 Prompts。Skill 和 MCP 共用权限、取消、输出限制、Evidence 和审计，不能提升权限。
 
 本阶段选择进程内注册表的原因是延迟、内存和取消路径最小，适合桌面第一版；代价是尚未提供第三方进程隔离。`agent/protocol.rs` 已提供版本化 JSONL 消息契约，但在签名、信任、命令路径、环境过滤、超时和崩溃回收明确前，不自动运行外部插件。
 
@@ -60,6 +60,9 @@ Agent Loop 已收敛为轻量运行时：模型请求、循环保护、权限、
 - `remote_exec`、后台 Job、主机事实、远端文件读写、tree-sitter Bash 权限策略和证据式完成。
 - 本地 `SKILL.md`、stdio/streamable-http MCP、Hooks、上下文压缩、工具时间线和 0.7.0 插件运行时。
 - Agent 输入框 `Enter` 提交、`Shift+Enter` 换行、IME 组合保护，以及向上拖至面板一半的可调高度。
+- 自动 Goal、Turn 续跑、澄清等待、后台 Job 事件唤醒、重启恢复和运行中 steer/queue。
+- 跨 Provider 模型路由、全自适应上下文、Result Capsule、Goal Evidence/Skill 和 MCP Resources/Prompts。
+- 多 SSH 自动连接、显式 Session 目标、同会话写锁、跨会话并发和 `session_wait_until` 条件协同。
 
 ### 4.2 `0.6.3` 删除项
 
@@ -73,9 +76,7 @@ Agent Loop 已收敛为轻量运行时：模型请求、循环保护、权限、
 
 ### 4.3 尚未交付
 
-- 一个 Task 绑定多个 SSH profile。
-- 工具级 `target_alias`、每目标连接池/锁和跨主机证据。
-- `remote_http_request` 与 `wait_condition`。
+- 独立结构化 `remote_http_request`（当前可通过明确 SSH 来源执行受控 CLI/HTTP 命令）。
 - Provisioning plan、状态机、provider adapter 和 OS 安装 Skill。
 - 物理机、虚拟化平台或云控制面接入。
 
@@ -84,9 +85,10 @@ Agent Loop 已收敛为轻量运行时：模型请求、循环保护、权限、
 | 版本 | 里程碑 | 核心交付 | 依赖 |
 |---|---|---|---|
 | `0.6.3` | R0 产品面收敛 | 删除本机 CLI/REST、迁移旧数据、多行与可调输入区、文档重构 | `0.6.2` |
-| `0.7.0` | M1 多 SSH 内核 | 多目标 Task、alias、连接 owner、锁、事件和 UI 目标展示 | R0 |
-| `0.8.0` | M2 远端 CLI/REST 协同 | `remote_http_request`、`wait_condition`、A/B 门控流程 | M1 |
-| `0.9.0` | M3 Provisioning 骨架 | plan、状态机、fake adapter、两阶段审批、安装 Skill plan-only | M2 |
+| `0.7.0-0.10.1` | Agent 基线演进 | 插件边界、多 SSH、Conversation/Turn、Provider Context、Result Capsule | R0 |
+| `0.11.0` | Goal 控制面 | 普通任务自动 Goal、透明续跑、Job/Evidence/Skill 恢复、统一 MCP、跨 Provider 路由 | 既有 Core |
+| 后续 | M2 远端 HTTP 协同 | `remote_http_request` 与来源/凭据/幂等契约 | `0.11.0` |
+| 后续 | M3 Provisioning 骨架 | plan、状态机、fake adapter、两阶段审批、安装 Skill plan-only | M2 |
 | `1.0.0` 候选 | M4 Ubuntu VM 安装 | 一个 VM adapter、Autoinstall、SSH 身份重建和验收 | M3 |
 | 后续 | M5 物理机与更多 OS | MAAS/Redfish、RHEL、Windows、云 provider | M4 稳定后 |
 

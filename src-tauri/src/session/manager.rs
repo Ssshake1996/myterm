@@ -60,6 +60,7 @@ struct ManagedSession {
     buffer: Arc<TerminalBuffer>,
     screen: RwLock<Option<TerminalScreenSnapshot>>,
     input_lock: Arc<tokio::sync::Mutex<()>>,
+    operation_lock: Arc<tokio::sync::Mutex<()>>,
     control: SessionControl,
 }
 
@@ -181,6 +182,7 @@ impl SessionManager {
             buffer,
             screen: RwLock::new(None),
             input_lock: Arc::new(tokio::sync::Mutex::new(())),
+            operation_lock: Arc::new(tokio::sync::Mutex::new(())),
             control,
         });
         self.sessions
@@ -236,6 +238,16 @@ impl SessionManager {
             session,
             _guard: guard,
         })
+    }
+
+    /// Serialize state-changing Agent operations per SSH session while still
+    /// allowing unrelated sessions to progress concurrently.
+    pub async fn lock_operation(
+        &self,
+        session_id: &str,
+    ) -> Result<tokio::sync::OwnedMutexGuard<()>, AppError> {
+        let session = self.get(session_id)?;
+        Ok(session.operation_lock.clone().lock_owned().await)
     }
 
     pub async fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<(), AppError> {

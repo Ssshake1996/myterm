@@ -102,12 +102,12 @@ Update-VersionFiles
 Invoke-Step "Frontend tests (single thread)" 'npm test -- --pool=threads --poolOptions.threads.singleThread' $projectRoot
 Invoke-Step "Frontend lint" 'npm run lint' $projectRoot
 Invoke-Step "Frontend build" 'npm run build' $projectRoot
+Invoke-Step "dsh-codex-agent native and Harness gate" 'npm run test:codex-harness' $projectRoot
 Invoke-Step "Rust format" 'cargo fmt --all -- --check' (Join-Path $projectRoot "src-tauri")
 Invoke-Step "Rust type check" 'cargo check -j 1' (Join-Path $projectRoot "src-tauri")
 
 if ($RunRustTests) {
-  Invoke-Step "Codex Core Rust tests" 'cargo test -j 1' (Join-Path $projectRoot "integrations\dsh-codex-agent\native")
-  Invoke-Step "Rust tests" 'cargo test -j 1' (Join-Path $projectRoot "src-tauri")
+  Invoke-Step "Desktop host Rust tests" 'cargo test -j 1' (Join-Path $projectRoot "src-tauri")
 }
 
 $env:CARGO_BUILD_JOBS = "1"

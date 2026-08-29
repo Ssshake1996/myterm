@@ -8,7 +8,7 @@ use tauri::{
 
 use crate::{
     agent::{
-        domain::{AgentConversation, AgentTask},
+        domain::{AgentConversation, AgentGoal, AgentQueuedInput, AgentTask},
         mcp,
         service::AgentEventSink,
         skills,
@@ -622,13 +622,62 @@ pub fn agent_conversation_tasks(
 }
 
 #[tauri::command]
-pub fn agent_conversation_delete(
+pub fn agent_goal_get(
+    state: State<'_, AppState>,
+    conversation_id: String,
+) -> Result<Option<AgentGoal>, IpcError> {
+    state
+        .agent
+        .conversation_goal(&conversation_id)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn agent_input_queue(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    input: String,
+) -> Result<AgentQueuedInput, IpcError> {
+    state
+        .agent
+        .queue_input(&conversation_id, input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn agent_goal_pause(
+    state: State<'_, AppState>,
+    goal_id: String,
+) -> Result<AgentGoal, IpcError> {
+    state.agent.pause_goal(&goal_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn agent_goal_resume(
+    state: State<'_, AppState>,
+    goal_id: String,
+) -> Result<AgentGoal, IpcError> {
+    state.agent.resume_goal(&goal_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn agent_goal_cancel(
+    state: State<'_, AppState>,
+    goal_id: String,
+) -> Result<AgentGoal, IpcError> {
+    state.agent.cancel_goal(&goal_id).await.map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn agent_conversation_delete(
     state: State<'_, AppState>,
     conversation_id: String,
 ) -> Result<bool, IpcError> {
     state
         .agent
         .conversation_delete(&conversation_id)
+        .await
         .map_err(Into::into)
 }
 
@@ -659,9 +708,20 @@ pub async fn agent_approve(
 }
 
 #[tauri::command]
-pub async fn agent_abort(state: State<'_, AppState>) -> Result<(), IpcError> {
-    state.agent.abort().await;
-    Ok(())
+pub async fn agent_abort(
+    state: State<'_, AppState>,
+    conversation_id: Option<String>,
+) -> Result<(), IpcError> {
+    if let Some(conversation_id) = conversation_id {
+        state
+            .agent
+            .abort_conversation(&conversation_id)
+            .await
+            .map_err(Into::into)
+    } else {
+        state.agent.abort().await;
+        Ok(())
+    }
 }
 
 #[tauri::command]

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{watch, Mutex};
 
 use crate::{
+    ai::routing::resolve_model_routes,
     config::{ConfigService, CredentialVault, DEFAULT_SYSTEM_PROMPT},
     session::manager::SessionManager,
     types::{AiAuthMode, AiMessage, AiProfile, AiRole},
@@ -250,20 +251,41 @@ impl AiService {
                 ));
             }
         };
-        let selected_model = model.trim();
-        if !profile
-            .effective_models()
-            .iter()
-            .any(|candidate| candidate.model == selected_model)
+        let selected_route = model.trim();
+        let routes = match resolve_model_routes(self.config.as_ref(), self.vault.as_ref(), &profile)
         {
+            Ok(routes) => routes,
+            Err(error) => {
+                return Ok(failed_model_test(
+                    "resolve_model_route",
+                    error.code(),
+                    format!("解析模型 Provider 路由 · {}", error.code()),
+                    error.detail(),
+                    "",
+                ));
+            }
+        };
+        let route = routes
+            .iter()
+            .find(|candidate| candidate.model.id == selected_route)
+            .cloned()
+            .or_else(|| {
+                // Backward compatibility for callers saved before route ids
+                // were introduced.
+                routes
+                    .into_iter()
+                    .find(|candidate| candidate.model.model == selected_route)
+            });
+        let Some(route) = route else {
             return Ok(failed_model_test(
                 "validate_model",
                 "model_not_configured",
                 "校验测试模型 · model_not_configured",
-                format!("模型 '{selected_model}' 未在当前 AI 配置中启用"),
+                format!("模型路由 '{selected_route}' 未在当前 AI 配置中启用"),
                 "",
             ));
-        }
+        };
+        let selected_model = route.model.model.as_str();
         let prompt = prompt.trim();
         if prompt.is_empty() {
             return Ok(failed_model_test(
@@ -274,28 +296,8 @@ impl AiService {
                 "",
             ));
         }
-        let key = match self.vault.get(&profile.api_key_ref) {
-            Ok(Some(value)) if !value.trim().is_empty() => value,
-            Ok(_) => {
-                return Ok(failed_model_test(
-                    "read_api_key",
-                    "api_key_missing",
-                    "读取 API Key · api_key_missing",
-                    "API Key 未配置：请填写 API Key 并保存配置".to_owned(),
-                    "",
-                ));
-            }
-            Err(error) => {
-                return Ok(failed_model_test(
-                    "read_api_key",
-                    error.code(),
-                    format!("读取 API Key · {}", error.code()),
-                    error.detail(),
-                    "",
-                ));
-            }
-        };
-        let chat_endpoint = match endpoint(&profile.base_url, "chat/completions") {
+        let key = route.api_key;
+        let chat_endpoint = match endpoint(&route.provider.base_url, "chat/completions") {
             Ok(endpoint) => endpoint,
             Err(error) => {
                 return Ok(failed_model_test(
@@ -327,10 +329,14 @@ impl AiService {
             stream: false,
         };
         let started = std::time::Instant::now();
-        let response = match with_auth(self.client.post(chat_endpoint.clone()), &profile, &key)
-            .json(&request)
-            .send()
-            .await
+        let response = match with_auth(
+            self.client.post(chat_endpoint.clone()),
+            &route.provider,
+            &key,
+        )
+        .json(&request)
+        .send()
+        .await
         {
             Ok(response) => response,
             Err(error) => {
@@ -471,14 +477,12 @@ impl AiService {
             },
         });
         request_messages.extend(messages);
-        let key = self
-            .vault
-            .get(&profile.api_key_ref)?
-            .ok_or_else(|| AppError::Ai("API key is not configured".to_owned()))?;
         let started = std::time::Instant::now();
-        let chat_endpoint = endpoint(&profile.base_url, "chat/completions")?;
-        let candidates = profile.effective_models();
-        if candidates.is_empty() {
+        let mut routes = resolve_model_routes(self.config.as_ref(), self.vault.as_ref(), &profile)?;
+        if !profile.routing.fallback_on_error {
+            routes.truncate(1);
+        }
+        if routes.is_empty() {
             return Err(AppError::Ai(
                 "没有启用任何 AI 模型，请在配置中添加主模型".to_owned(),
             ));
@@ -486,12 +490,11 @@ impl AiService {
         let mut failures = Vec::new();
         let mut selected_model = String::new();
         let mut response = None;
-        for (index, candidate) in candidates.iter().enumerate() {
-            if index > 0 && !profile.routing.fallback_on_error {
-                break;
-            }
+        let mut selected_endpoint = None;
+        for route in &routes {
+            let chat_endpoint = endpoint(&route.provider.base_url, "chat/completions")?;
             let request = ChatRequest {
-                model: &candidate.model,
+                model: &route.model.model,
                 messages: request_messages
                     .iter()
                     .map(|message| RequestMessage {
@@ -505,16 +508,20 @@ impl AiService {
                     .collect(),
                 stream: true,
             };
-            let attempt = with_auth(self.client.post(chat_endpoint.clone()), &profile, &key)
-                .json(&request)
-                .send()
-                .await;
+            let attempt = with_auth(
+                self.client.post(chat_endpoint.clone()),
+                &route.provider,
+                &route.api_key,
+            )
+            .json(&request)
+            .send()
+            .await;
             let candidate_response = match attempt {
                 Ok(value) => value,
                 Err(error) => {
                     failures.push(format!(
                         "{}: {}",
-                        candidate.model,
+                        route.model.model,
                         format_transport_failure(error, &chat_endpoint)
                     ));
                     continue;
@@ -527,18 +534,21 @@ impl AiService {
                 })?;
                 failures.push(format!(
                     "{}: {}",
-                    candidate.model,
-                    format_http_failure(status, &body, &chat_endpoint, &key)
+                    route.model.model,
+                    format_http_failure(status, &body, &chat_endpoint, &route.api_key)
                 ));
                 continue;
             }
-            selected_model = candidate.model.clone();
+            selected_model = route.model.model.clone();
+            selected_endpoint = Some(chat_endpoint);
             response = Some(candidate_response);
             break;
         }
         let mut response = response.ok_or_else(|| {
             AppError::Ai(format!("所有启用模型均请求失败:\n{}", failures.join("\n")))
         })?;
+        let selected_endpoint = selected_endpoint
+            .ok_or_else(|| AppError::Ai("模型路由成功但未记录请求地址".to_owned()))?;
         let mut decoder = SseDecoder::default();
         loop {
             let chunk = tokio::select! {
@@ -549,7 +559,7 @@ impl AiService {
                     }
                     continue;
                 }
-                chunk = response.chunk() => chunk.map_err(|error| AppError::Ai(format_transport_failure(error, &chat_endpoint)))?,
+                chunk = response.chunk() => chunk.map_err(|error| AppError::Ai(format_transport_failure(error, &selected_endpoint)))?,
             };
             let Some(chunk) = chunk else {
                 break;
@@ -1028,6 +1038,7 @@ mod tests {
                 id: "primary".to_owned(),
                 name: "主模型".to_owned(),
                 model: "model".to_owned(),
+                provider_profile_id: None,
                 role: AiModelRole::Primary,
                 enabled: true,
                 context_window_tokens: None,

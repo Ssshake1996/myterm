@@ -13,8 +13,12 @@ pub struct CoreConfig {
     pub context_window_tokens: usize,
     #[serde(default = "default_compact_threshold_tokens")]
     pub compact_threshold_tokens: usize,
-    #[serde(default = "default_max_steps")]
-    pub max_steps: usize,
+    #[serde(
+        default = "default_turn_step_budget",
+        rename = "turnStepBudget",
+        alias = "maxSteps"
+    )]
+    pub turn_step_budget: usize,
     #[serde(default)]
     pub system_prompt: String,
 }
@@ -31,7 +35,7 @@ fn default_compact_threshold_tokens() -> usize {
     96_000
 }
 
-fn default_max_steps() -> usize {
+fn default_turn_step_budget() -> usize {
     64
 }
 
@@ -57,8 +61,8 @@ impl CoreConfig {
                     .to_owned(),
             );
         }
-        if self.max_steps == 0 {
-            return Err("maxSteps must be greater than zero".to_owned());
+        if self.turn_step_budget == 0 {
+            return Err("turnStepBudget must be greater than zero".to_owned());
         }
         Ok(())
     }

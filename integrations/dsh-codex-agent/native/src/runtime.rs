@@ -107,6 +107,27 @@ impl CodexRuntime {
         self.store.delete_thread(thread_id)
     }
 
+    pub async fn delete_thread_tree(&self, root_thread_id: &str) -> Result<(), CoreError> {
+        let ids = self.store.thread_tree_ids(root_thread_id)?;
+        if ids.is_empty() {
+            return Err(CoreError::ThreadNotFound(root_thread_id.to_owned()));
+        }
+        let active = self.active_turns.lock().await;
+        if ids.iter().any(|id| active.contains_key(id)) {
+            return Err(CoreError::ThreadBusy(root_thread_id.to_owned()));
+        }
+        drop(active);
+        let subagents = self.subagents.lock().await;
+        if ids
+            .iter()
+            .any(|id| subagents.get(id).is_some_and(|task| !task.is_finished()))
+        {
+            return Err(CoreError::ThreadBusy(root_thread_id.to_owned()));
+        }
+        drop(subagents);
+        self.store.delete_thread_tree(root_thread_id)
+    }
+
     pub fn thread_snapshot(&self, thread_id: &str) -> Result<ThreadSnapshot, CoreError> {
         self.store.thread_snapshot(thread_id)
     }
@@ -249,7 +270,7 @@ impl CodexRuntime {
         let mut saw_usage = false;
         let mut model_requests = 0;
         let mut tool_call_count = 0;
-        for step in 1..=self.config.max_steps {
+        for step in 1..=self.config.turn_step_budget {
             if cancellation.is_cancelled() {
                 return Err(CoreError::Cancelled(format!(
                     "thread {thread_id} was cancelled"
@@ -445,7 +466,15 @@ impl CodexRuntime {
                 }
             }
         }
-        Err(CoreError::StepLimit(self.config.max_steps))
+        Ok(TurnResult {
+            thread_id: thread_id.to_owned(),
+            text: combined_text,
+            finish_reason: "continuation_required".to_owned(),
+            usage: saw_usage.then_some(total_usage),
+            steps: self.config.turn_step_budget,
+            model_requests,
+            tool_calls: tool_call_count,
+        })
     }
 
     fn apply_pending_steering(
@@ -1987,7 +2016,7 @@ mod tests {
             request_timeout_ms: 1_000,
             context_window_tokens: threshold + 100,
             compact_threshold_tokens: threshold,
-            max_steps: 8,
+            turn_step_budget: 8,
             system_prompt: "test".to_owned(),
         }
     }
@@ -2583,6 +2612,69 @@ mod tests {
         assert_eq!(result.model_requests, 2);
         assert_eq!(result.tool_calls, 2);
         assert_eq!(result.usage.unwrap().total_tokens, 14);
+    }
+
+    #[tokio::test]
+    async fn turn_step_budget_yields_a_resumable_continuation_instead_of_failing() {
+        let temp = TempDir::new().unwrap();
+        let transport = MockTransport::new(vec![
+            Ok(ModelResponse {
+                text: String::new(),
+                tool_calls: vec![ToolCall {
+                    index: 0,
+                    id: "inspect-1".to_owned(),
+                    name: "inspect".to_owned(),
+                    arguments: "{}".to_owned(),
+                }],
+                finish_reason: "tool_calls".to_owned(),
+                usage: Some(TokenUsage {
+                    prompt_tokens: 2,
+                    completion_tokens: 1,
+                    total_tokens: 3,
+                }),
+                provider_context: None,
+            }),
+            Ok(text_response("done")),
+        ]);
+        let mut runtime_config = config(&temp, 10_000);
+        runtime_config.turn_step_budget = 1;
+        let runtime = CodexRuntime::new(runtime_config, transport).unwrap();
+        runtime.create_thread("root", None, None, "root").unwrap();
+        let host = Arc::new(MockHost::default());
+        host.tool_results
+            .lock()
+            .unwrap()
+            .push_back(ToolExecutionResult {
+                content: "verified".to_owned(),
+                is_error: false,
+                status: "completed".to_owned(),
+            });
+
+        let boundary = runtime
+            .run_turn(
+                "root",
+                "inspect",
+                vec![ToolDefinition {
+                    name: "inspect".to_owned(),
+                    description: "inspect".to_owned(),
+                    parameters: json!({"type":"object"}),
+                    parallel_safe: true,
+                }],
+                host.clone(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(boundary.finish_reason, "continuation_required");
+        assert_eq!(boundary.steps, 1);
+        assert_eq!(boundary.tool_calls, 1);
+
+        let completed = runtime
+            .run_turn("root", "continue", Vec::new(), host)
+            .await
+            .unwrap();
+        assert_eq!(completed.finish_reason, "stop");
+        assert_eq!(completed.text, "done");
+        assert!(runtime.thread_snapshot("root").unwrap().message_count >= 5);
     }
 
     #[tokio::test]

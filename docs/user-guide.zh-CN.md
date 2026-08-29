@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.10.1。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.11.0。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -173,7 +173,7 @@ AI 服务设置支持多个模型角色：
 - 瞬时网络、超时或服务端错误只在当前请求回退 Chat Completions，不会被错误记为永久不支持；后续请求仍可重新探测。
 - Base URL、模型或认证方式发生变化时会生成新的无敏感信息能力指纹，自动重新探测，不复用旧网关的结论。
 
-每个模型可单独设置“上下文窗口”和“压缩阈值”，阈值必须小于窗口。未填写时默认为 128000 Token 窗口和 75% 压缩阈值。预算不仅计算聊天消息，还计算系统 Prompt、工具 Schema、当前 checkpoint 和模型输出预留。Responses 上下文可用时不再重复运行本地压缩；本地 Checkpoint v2 每次只读取上一份 checkpoint 和尚未压缩的新消息，通过持久化引用恢复用户纠正、精确 CLI 命令和空格、工具事实、Evidence 引用、未解决项和权限状态，不把全部历史重新交给模型总结。压缩失败会把上一次 JSON 校验错误加入重试请求；初次请求后最多再重试 3 次，仍失败才以原始错误终止当前 Turn。
+上下文窗口、协议与压缩阈值由运行时完全自适应，AI 服务设置中不再提供人工 Token 参数。预算同时计算聊天消息、系统 Prompt、工具 Schema、当前 checkpoint 和模型输出预留。Responses 上下文可用时不重复运行本地压缩；本地 Checkpoint v2 每次只读取上一份 checkpoint 和尚未压缩的新消息，通过持久化引用恢复用户纠正、精确 CLI 命令和空格、工具事实、Evidence 引用、未解决项和权限状态，不把全部历史重新交给模型总结。压缩失败会把上一次 JSON 校验错误加入重试请求；初次请求后最多再重试 3 次，仍失败才终止当前 Turn，Goal 仍保留可恢复状态。
 
 安装版默认把 INFO 级结构化 JSON 日志写入 `%APPDATA%\myterm\logs\myterm.log.YYYY-MM-DD`，按天滚动并保留 14 天。使用 `myterm.exe --debug` 启动时会记录更细的 Provider 探测、缓存命中和回退决策；日志包含稳定事件名、对话、Provider 指纹、错误阶段、错误码和原始诊断，但不会记录 API Key。Core 同时把每次 Provider checkpoint 状态写入 `dsh-codex-agent/codex-core.sqlite3` 的本地审计表，便于维护 AI 交叉定位界面事件、运行日志与持久状态。
 
@@ -220,12 +220,18 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 
 执行时间线会显示模型决策、工具、参数摘要、审批状态、stdout、stderr、结果和最终答复。任务会写入本地 SQLite，关闭面板或重新打开应用后仍可查询历史。
 
+每个普通输入都会自动创建或复用一个内部 Goal。用户不需要输入 `/goal`，也不需要预先判断任务是长任务还是短任务：短任务通常在一个 Turn 内结束；一个 Turn 到达内部 64 步让出边界时不会再报 `maximum step count`，宿主会保存 checkpoint 并自动创建下一 Turn 继续，直到完成、等待用户、等待外部条件、失败或取消。该边界用于让出和恢复，不是整个 Goal 的步骤上限；默认 Goal 也没有隐藏的 Token 总预算。
+
+Agent 会先做不产生副作用的现场读取。若目标、范围、预期结果或安全边界仍不明确，而且不同答案会实质改变执行路径，Goal 会进入“等待用户”并显示准确问题。允许多轮澄清；用户的回答继续同一个 Goal，已经验证的步骤和证据不会重做。
+
 - `Enter` 提交任务，`Shift+Enter` 在任务中插入换行；中文输入法正在组词时按 `Enter` 不会误提交。
 - 输入区顶部有水平拖柄。向上拖动可扩大输入区，向下拖动可恢复，最大不超过 Agent 面板高度的一半。
 - 聚焦拖柄后可用 `↑`/`↓` 逐级调整，`Home` 恢复最小高度，`End` 扩大到允许的最大高度。
 - Agent 标题栏的“新对话”会在后端创建独立 Conversation，不再只清空前端。同一 Conversation 中的后续发送会创建新 Turn，上一轮的要求、用户纠正、工具结果和精确命令会按上下文策略恢复。
 - “对话历史”展开后使用独立边框、背景和阴影，按 Conversation 显示标题、Turn 数和更新时间；选中后会恢复该对话的全部 Turn 时间线。
-- Turn 运行期间输入框仍可使用，发送按钮会变为“追加要求”。追加内容先写入当前 Turn 的审计事件，再在下一次模型决策边界生效；“停止”为独立按钮。
+- Turn 运行期间输入框仍可使用。“立即调整”会把新要求持久化并在最近的模型决策边界注入当前 Turn；“排队执行”会在当前 Turn 结束后作为下一条输入继续同一 Goal；“停止”为独立按钮。
+- Goal 状态条显示目标、状态、续跑次数、Token 用量与 checkpoint，可暂停、继续或取消。等待用户时应直接回答时间线中的问题；等待外部 Job 时完成事件会自动唤醒同一 Goal。
+- 删除对话会拒绝仍在运行或仍有后台 Job 的 Conversation；允许删除时会同时清理 Root/Subagent Thread、审计索引和原始结果 artifact，避免历史磁盘文件长期残留。
 
 ### 推荐任务写法
 
@@ -272,7 +278,7 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 - `job_status`、`job_output`、`job_cancel`：管理后台执行任务。
 - `capability_search`、`capability_invoke`、`capability_invoke_batch`：搜索并调用任务启动时发现的外部能力。
 - `mcp_status`：读取每个已配置 MCP 服务器在本任务启动时的状态，包括启用状态、Transport、连接/工具发现阶段、工具数量、稳定错误码和服务端原始详情；不需要 SSH 会话。
-- `evidence_read`：按 offset 读取 MCP 原始证据文件；证据只在当前任务内有效。
+- `evidence_read`：按 offset 读取 MCP 原始证据文件；证据只在当前 Goal 内有效，可跨 Turn 恢复，但不能跨 Goal 引用。
 
 活动 SSH 不再是 Agent Task 的默认绑定，只是界面提供给模型的候选元数据。通用问答、MCP 配置/诊断、Capability 发现、Skill 和任务历史不应调用会话工具；用户明确说“当前终端”“这台服务器”或等价表述时，模型可在本次调用中设置 `use_active_session=true`。用户说出服务器名称或环境时，Agent 应先用 `session_catalog` 找到目标，必要时用 `session_connect` 建立连接，再把返回的 `session_id` 传给终端上下文、命令、主机事实、Runbook、SFTP 和文件工具。没有 `session_id` 且没有显式启用活动候选时，工具会直接返回目标缺失错误，不会静默使用当前焦点。
 
@@ -309,7 +315,7 @@ MCP 支持 `stdio` 和 `streamable-http` 两种传输。添加服务器时先选
 
 - 测试成功后会显示工具数量；点击“查看详情”可展开每个工具的 Capability ID、完整名称、标题、说明、所属服务器、Transport、Input/Output Schema 和 annotations，也可复制完整 JSON 结果。
 - Agent 调用 MCP 工具时仍经过统一权限、取消、输出限制和审计管线；两种传输对 Agent 暴露相同的工具目录和调用接口。
-- MCP 工具统一进入当前任务的 Capability Registry。小型目录直接提供；大型目录按任务语义和 Schema 大小选择最相关能力，同时始终提供 `capability_search`，不再使用固定的 48 工具切换阈值。
+- MCP 工具统一进入当前 Goal 的 Capability Registry。小型目录直接提供；大型目录按任务语义和 Schema 大小选择最相关能力，并提供能力搜索/调用入口，不使用固定工具数量阈值。
 - `capability_invoke` 会先按服务端 Input Schema 校验参数；服务声明 Output Schema 时，也会校验 `structuredContent`。MCP 返回会统一规范化为 `structuredContent`、由所有文本块合并出的 `textContent`、`isError` 和读取状态，不要求模型解析 SDK 包装层；`isError=true` 会保留为工具失败，不会包装成成功文本。
 - 每次调用的完整原始返回值都会保存为 Evidence artifact。模型看到 evidence id、来源、结构化内容、规范化文本、错误状态和文件位置；内容过长或 `readRequired=true` 时使用 `evidence_read` 分段读取到 `eof`。根据 MCP 结果生成产品 CLI 命令时，Agent 会把对应 evidence id 写入 `cli_execute.evidence_refs`，宿主拒绝不存在或跨任务的引用。
 - 不要在普通命令参数中直接写密钥；优先使用受控环境或系统凭据方案。
@@ -336,7 +342,7 @@ MCP 支持 `stdio` 和 `streamable-http` 两种传输。添加服务器时先选
 
 `dsh-codex-agent` 使用内置版本化系统 Prompt。AI 服务设置里的 System Prompt 会作为附加任务指令，不会替换 Agent 的核心规则。核心规则包括证据优先、完整读取长输出、目标会话确认、权限边界、Skill/MCP 不得绕过策略，以及不确定时不能猜测。
 
-MCP 能力不是写死在 Prompt 中。每次 Agent 任务启动时，myterm 会连接已启用的 MCP 服务器并发现工具，保留名称、标题、说明、Input/Output Schema、annotations、服务器和 Transport，并生成稳定 Capability ID。工具目录为空时，Agent 不得虚构 MCP 能力；目录较大或当前任务没有直接暴露目标工具时，先使用 `capability_search`，再用准确 ID 调用 `capability_invoke` 或 `capability_invoke_batch`。当前运行时不默认假设 MCP Resources 或 Prompts 存在，只有实际发现并注册的能力才可使用。
+MCP 能力不是写死在 Prompt 中。每次 Goal 需要外部能力时，myterm 会通过统一 CapabilityProvider 连接已启用服务器并发现 Tools、Resources 和 Prompts，保留名称、标题、说明、Input/Output Schema、annotations、服务器和 Transport，并生成稳定 Capability ID。工具目录为空时，Agent 不得虚构能力；目录较大或当前任务没有直接暴露目标工具时，先搜索目录，再用准确 ID 调用。Resources 使用实际 URI 列出/读取，Prompts 使用服务端名称和 Schema 参数获取；完整原始返回会作为 Goal Evidence 保存。
 
 ## 远端 CLI 与 REST 操作
 

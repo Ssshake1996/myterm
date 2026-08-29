@@ -50,12 +50,27 @@ pub struct PolicyContext {
 
 pub fn evaluate_tool(name: &str, arguments: &Value, context: PolicyContext) -> PolicyDecision {
     match name {
-        "terminal_context" | "session_info" | "session_catalog" | "session_connect"
-        | "list_directory" | "file_stat" | "file_read" | "file_search" | "host_facts"
-        | "runbook" | "job_status" | "job_output" | "mcp_status" | "capability_search"
-        | "evidence_read" | "skill_load" => {
-            decide(Analysis::read("built-in read-only tool"), context)
-        }
+        "goal_update"
+        | "terminal_context"
+        | "session_info"
+        | "session_catalog"
+        | "session_connect"
+        | "list_directory"
+        | "file_stat"
+        | "file_read"
+        | "file_search"
+        | "host_facts"
+        | "runbook"
+        | "job_status"
+        | "job_output"
+        | "mcp_status"
+        | "capability_search"
+        | "capability_resource_list"
+        | "capability_resource_read"
+        | "capability_prompt_list"
+        | "capability_prompt_get"
+        | "evidence_read"
+        | "skill_load" => decide(Analysis::read("built-in read-only tool"), context),
         "job_cancel" => decide(
             Analysis {
                 effect: ToolEffect::Execute,
@@ -94,7 +109,7 @@ pub fn evaluate_tool(name: &str, arguments: &Value, context: PolicyContext) -> P
                 context,
             )
         }
-        "remote_exec" | "terminal_send" | "cli_execute" => {
+        "remote_exec" | "terminal_send" | "cli_execute" | "session_wait_until" => {
             let command = arguments
                 .get("command")
                 .and_then(Value::as_str)
