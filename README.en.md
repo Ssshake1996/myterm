@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.10.0`
+Current version: `0.10.1`
 
 ## Core Features
 
@@ -69,10 +69,11 @@ task input -> model decision -> tool call -> result -> continue -> final answer
 - For interactive product CLIs, `cli_execute` locks terminal input, inspects the real xterm cursor line, sends only the missing suffix of the complete intended command, and waits for a prompt, interaction, quiet fallback, or timeout boundary in one host transaction. `cli_execute_batch` groups 1-8 independent known commands into one tool call, avoiding duplicated input and many tiny model requests.
 - The timeline records model-request, tool-call, and token counts for each turn. Independent read-only calls can execute concurrently within one model round, while dependent or effectful operations remain serial.
 - AI profiles persist as versioned JSON. A profile can define primary, analysis, and fallback models; when enabled, failed model requests fail over in role order and the Agent timeline records the selected model.
-- A Provider Context Adapter supports both Responses and Chat Completions. Auto mode prefers `previous_response_id` plus native provider compaction, then persistently falls back to local checkpoint + tail when a gateway is confirmed unsupported.
+- A Provider Context Adapter supports both Responses and Chat Completions without a manual protocol selector. It prefers `previous_response_id` plus native provider compaction, persistently falls back across conversations by provider-configuration fingerprint when unsupported, and automatically probes again after the Base URL, model, or authentication mode changes.
 - Per-model context-window and compaction thresholds are configurable. Local Checkpoint v2 merges only the previous checkpoint plus the new tail, then injects persisted user corrections, literal CLI commands, facts, and Evidence by exact reference instead of replaying all raw history during every compaction.
 - Tool, terminal, file, MCP, and query outputs larger than 8 KiB are stored separately with SHA-256 integrity metadata. The model receives a Result Capsule with a `resultId`, sourced facts, and exact excerpts, and can use read-only `result_read` for focused literal search or paging without truncating evidence or re-running a side-effecting tool.
 - Chat Completions budgeting includes the system prompt, tool schemas, messages, checkpoint, and output reserve. A failed compaction is retried with the previous validation error, and the turn stops only after the initial attempt plus three failed retries.
+- Installed builds write daily structured JSON diagnostics locally and retain 14 days. Starting with `--debug` enables DEBUG-level provider probe, cache-hit, fallback, and exact-error records with stable fields for AI-assisted maintenance.
 
 ### Permissions and Safety
 

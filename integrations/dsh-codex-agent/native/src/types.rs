@@ -296,7 +296,6 @@ pub enum RuntimeEvent {
         thread_id: String,
         provider_id: String,
         mode: ProviderContextMode,
-        reused: bool,
         unsupported: bool,
     },
     SubagentStatus {

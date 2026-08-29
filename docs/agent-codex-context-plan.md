@@ -118,7 +118,7 @@ AgentConversation（稳定，多轮）
 当前实现统一定义两种 provider 上下文状态：
 
 1. `responses`：保存 `previous_response_id` 和本地已覆盖消息序号，后续请求只发送新增消息，并使用 Responses 的 `context_management` 压缩。
-2. `local_rollout`：仅支持 Chat Completions 或用户强制本地模式时，发送最新 checkpoint、checkpoint 之后的消息和动态上下文。
+2. `local_rollout`：Provider 被自动确认仅支持 Chat Completions，或 Responses 本轮发生瞬时故障时，发送最新 checkpoint、checkpoint 之后的消息和动态上下文。
 
 本地事件、工具结果与 Artifact 始终是权威审计记录；provider 游标只是可重建的加速状态。能力探测失败不能让仅支持 Chat Completions 的配置失效。
 
@@ -139,7 +139,7 @@ AgentConversation（稳定，多轮）
 - 历史弹窗按 conversation 聚合，可展开查看每个 turn。
 - 运行时输入框保持可编辑，发送操作变为“追加要求”。
 - 时间线显示追加要求被接收、进入哪个 turn、何时被模型消费。
-- 调试详情显示本次请求是 `new`、`reused`、`compacted` 或 `local fallback`，但不泄露 API Key。
+- AI 设置不暴露协议选择器；调试详情与本地 JSON 日志记录本次请求是 `probe`、`responses`、`cached_local_rollout` 或 `transient_fallback`，但不泄露 API Key。
 
 ## 5. CLI 空格纠正如何进入上下文
 
@@ -167,7 +167,7 @@ AgentConversation（稳定，多轮）
 1. 同一 conversation 的下一轮能读取上一轮用户纠正；新建 conversation 后不能串入旧约束。
 2. CLI 四个精确前缀案例均有 Rust 回归测试，空格按字节一致。
 3. turn 运行时可以追加要求，且下一次模型决策必须包含该要求。
-4. Responses 模式只发送增量和 provider cursor；Chat 模式只发送 checkpoint + tail。
+4. 自动选中 Responses 时只发送增量和 provider cursor；自动选中 Chat 时只发送 checkpoint + tail。
 5. 原生或本地压缩后，用户约束、精确命令、工具证据和未完成事项不丢失。
 6. 压缩初次请求加 3 次重试均失败后，结束 turn 并显示原始错误链。
 7. 大终端输出、文件和 MCP 结果使用 Result Capsule 与 Artifact/Evidence 引用，不在每次模型请求中重复传输；`result_read` 可按查询或分页恢复原文。
@@ -179,10 +179,17 @@ AgentConversation（稳定，多轮）
 - Agent SQLite schema 升级为 v5，增加持久 Conversation、Turn 序号和旧任务迁移；旧任务各自变为独立单回合 Conversation。
 - Core thread id 稳定使用 `conversation_id`，每次发送生成新 Turn；重启 runtime 会从 SQLite 恢复消息、checkpoint 和 provider cursor。
 - 运行中可追加要求；追加内容先写入 Agent 事件，再经有界 mailbox 在下一次决策前消费。无未消费追加时才允许结束 Turn。
-- Provider Context Adapter 实现 `auto` / `responses` / `local_rollout` 配置。Auto 对明确不支持结果持久回退，对瞬时错误保留后续重试机会。
+- Provider Context Adapter 统一采用自适应策略，不再保存用户选择的协议字段。明确不支持结果按 Provider 配置指纹跨对话持久回退，瞬时错误只影响当前请求并保留后续重试机会。
 - Responses 运输实现增量 input、function call/output、`previous_response_id`、usage 和 provider checkpoint；Chat Completions 保留 SSE 流式输出。两条路径都遵守 Bearer 或原始 Authorization API Key 配置。
 - 本地压缩使用严格 JSON checkpoint，并从已持久工具调用中反向注入 `cli_execute` / `cli_execute_batch` 完整命令，防止摘要改写空格。
 - 前端按 Conversation 创建、删除、恢复历史，显示上下文模式和 steering 状态，并为每个模型配置窗口/压缩阈值。
+
+## 9. 0.10.1 完全自适应实施结果
+
+- 删除前后端 `context_mode` 配置和协议下拉框；schema v4 首次打开旧配置时会去掉该历史字段。
+- Provider 能力键由配置 ID、模型项 ID以及 Base URL、模型、认证方式的 SHA-256 短指纹组成。指纹不泄露 Endpoint 或模型原文，相关配置变化会自然触发重新探测。
+- Provider checkpoint 仍在每次模型响应后更新 `through_seq`；`unsupported` 能力跨对话聚合，只有全局能力或当前模式真正变化时才投影到用户时间线，解决持久回退提示反复出现的问题。
+- 每次 checkpoint 写入 SQLite 审计事件；安装版默认写结构化 JSON 日志，DEBUG 级进一步记录探测、缓存命中、瞬时回退和完整错误链。
 
 本版本仍不增加云端长期记忆、工作流 DAG 或云端 Skill 市场。Responses 当前采用完整 JSON 响应，Chat Completions 保持 SSE 增量文本；这一取舍优先保证续接、工具调用和兼容回退的正确性，后续可在不改 Conversation 存储契约的前提下增加 Responses SSE。
 

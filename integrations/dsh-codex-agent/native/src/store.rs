@@ -511,6 +511,35 @@ impl ThreadStore {
             .collect()
     }
 
+    pub fn unsupported_provider_ids(&self) -> Result<Vec<String>, CoreError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT DISTINCT provider_id FROM provider_contexts
+                 WHERE unsupported = 1 ORDER BY provider_id",
+            )
+            .map_err(store_error("prepare_unsupported_provider_ids"))?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(store_error("unsupported_provider_ids"))?;
+        rows.map(|row| row.map_err(store_error("read_unsupported_provider_id")))
+            .collect()
+    }
+
+    pub fn provider_is_unsupported(&self, provider_id: &str) -> Result<bool, CoreError> {
+        Ok(self
+            .connection()?
+            .query_row(
+                "SELECT 1 FROM provider_contexts
+                 WHERE provider_id = ?1 AND unsupported = 1 LIMIT 1",
+                [provider_id],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(store_error("provider_is_unsupported"))?
+            .is_some())
+    }
+
     pub fn save_provider_context(
         &self,
         thread_id: &str,
@@ -896,6 +925,37 @@ mod tests {
         assert_eq!(contexts[0].cursor.as_deref(), Some("resp_123"));
         assert_eq!(contexts[0].through_seq, 7);
         assert_eq!(contexts[0].mode, ProviderContextMode::Responses);
+    }
+
+    #[test]
+    fn unsupported_provider_capability_is_discoverable_across_threads() {
+        let temp = TempDir::new().unwrap();
+        let store = ThreadStore::open(temp.path()).unwrap();
+        store.create_thread("first", None, "root", None).unwrap();
+        store.create_thread("second", None, "root", None).unwrap();
+        store
+            .save_provider_context(
+                "first",
+                &ProviderContext {
+                    provider_id: "profile:model:fingerprint".to_owned(),
+                    mode: ProviderContextMode::LocalRollout,
+                    cursor: None,
+                    through_seq: 1,
+                    unsupported: true,
+                },
+            )
+            .unwrap();
+
+        assert!(
+            store
+                .provider_is_unsupported("profile:model:fingerprint")
+                .unwrap()
+        );
+        assert_eq!(
+            store.unsupported_provider_ids().unwrap(),
+            vec!["profile:model:fingerprint"]
+        );
+        assert!(store.provider_contexts("second").unwrap().is_empty());
     }
 
     #[test]

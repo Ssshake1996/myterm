@@ -17,7 +17,7 @@ npm run release -- -Version 0.10.0 -RunRustTests
 2. 同步 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`Cargo.lock`、Tauri 配置和文档中的版本号。
 3. 使用单线程 Vitest 执行前端测试，避免 Windows 多 Worker 抢占内存。
 4. 执行 Biome lint、Vite 类型检查和前端生产构建。
-5. 执行 `cargo fmt --check` 和 `cargo check -j 1`。
+5. 执行 `cargo fmt --check` 和 `cargo check -j 1`；传入 `-RunRustTests` 时，分别单线程执行 `dsh-codex-core` 和桌面宿主的 Rust 测试，避免依赖 crate 的测试被漏掉。
 6. 使用 `npm run build:release` 生成新的 NSIS 安装器和便携 ZIP。Rust 构建固定使用 `CARGO_BUILD_JOBS=1`，不复用旧版本二进制。
 7. 执行 `npm run check:dist`，检查包体积、便携包内容和必需文件。
 8. 启动本次新构建的便携版 35 秒，采样私有内存、工作集和句柄；若私有内存持续增加超过 8 MiB 或句柄增加超过 32，则终止发布。

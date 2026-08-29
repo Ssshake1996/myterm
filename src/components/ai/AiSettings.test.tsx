@@ -56,15 +56,12 @@ describe("AiSettings", () => {
     );
   });
 
-  it("persists the provider context mode and model token limits", async () => {
+  it("keeps provider context adaptive and persists model token limits", async () => {
     ipcMocks.aiProfileSave.mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<AiSettings profile={null} onClose={vi.fn()} onSaved={vi.fn()} />);
 
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "Agent 上下文协议" }),
-      "local_rollout",
-    );
+    expect(screen.queryByRole("combobox", { name: "Agent 上下文协议" })).not.toBeInTheDocument();
     const windowInput = screen.getByRole("spinbutton", { name: "主模型上下文窗口 Token" });
     const thresholdInput = screen.getByRole("spinbutton", { name: "主模型压缩阈值 Token" });
     await user.clear(windowInput);
@@ -75,7 +72,6 @@ describe("AiSettings", () => {
 
     expect(ipcMocks.aiProfileSave).toHaveBeenCalledWith(
       expect.objectContaining({
-        context_mode: "local_rollout",
         models: expect.arrayContaining([
           expect.objectContaining({
             role: "primary",
@@ -288,7 +284,7 @@ describe("AiSettings", () => {
   });
 
   it("previews current JSON edits and can refresh/open the local config", async () => {
-    ipcMocks.aiConfigJson.mockResolvedValue({ version: 2, ai_profiles: [] });
+    ipcMocks.aiConfigJson.mockResolvedValue({ version: 4, ai_profiles: [] });
     ipcMocks.configOpenLocal.mockResolvedValue("C:\\Users\\test\\config.json");
     const user = userEvent.setup();
     render(<AiSettings profile={null} onClose={vi.fn()} onSaved={vi.fn()} />);
@@ -296,7 +292,7 @@ describe("AiSettings", () => {
     expect(screen.getByText("当前编辑内容（实时）")).toBeInTheDocument();
     expect(screen.getByText(/"ai_profiles"/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "刷新后端 JSON" }));
-    expect((await screen.findAllByText(/"version": 2/)).length).toBeGreaterThanOrEqual(2);
+    expect((await screen.findAllByText(/"version": 4/)).length).toBeGreaterThanOrEqual(2);
     await user.click(screen.getByRole("button", { name: "在本地打开" }));
     expect(ipcMocks.configOpenLocal).toHaveBeenCalledTimes(1);
   });

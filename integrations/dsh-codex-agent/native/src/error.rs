@@ -88,6 +88,13 @@ impl CoreError {
         }
     }
 
+    pub fn diagnostic_code(&self) -> &str {
+        match self {
+            Self::Model { code, .. } => code,
+            _ => self.code(),
+        }
+    }
+
     pub fn detail(&self) -> String {
         match self {
             Self::Configuration(detail)
@@ -116,7 +123,7 @@ impl CoreError {
             _ => (None, None),
         };
         serde_json::to_string(&ErrorEnvelope {
-            code: self.code(),
+            code: self.diagnostic_code(),
             phase: self.phase(),
             message: self.to_string(),
             status,

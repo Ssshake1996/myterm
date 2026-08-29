@@ -219,14 +219,14 @@ impl CodexRuntime {
                     Some(thread_id),
                     "turn_failed",
                     &json!({
-                        "code": error.code(),
+                        "code": error.diagnostic_code(),
                         "phase": error.phase(),
                         "detail": error.detail(),
                     }),
                 )?;
                 host.emit(RuntimeEvent::Error {
                     thread_id: thread_id.to_owned(),
-                    code: error.code().to_owned(),
+                    code: error.diagnostic_code().to_owned(),
                     phase: error.phase().to_owned(),
                     detail: error.detail(),
                 });
@@ -265,7 +265,25 @@ impl CodexRuntime {
                 .into_iter()
                 .map(|(seq, message)| SequencedMessage { seq, message })
                 .collect();
-            let provider_contexts = self.store.provider_contexts(thread_id)?;
+            let mut provider_contexts = self.store.provider_contexts(thread_id)?;
+            for provider_id in self.store.unsupported_provider_ids()? {
+                if let Some(context) = provider_contexts
+                    .iter_mut()
+                    .find(|context| context.provider_id == provider_id)
+                {
+                    context.mode = ProviderContextMode::LocalRollout;
+                    context.cursor = None;
+                    context.unsupported = true;
+                } else {
+                    provider_contexts.push(ProviderContext {
+                        provider_id,
+                        mode: ProviderContextMode::LocalRollout,
+                        cursor: None,
+                        through_seq: -1,
+                        unsupported: true,
+                    });
+                }
+            }
             let delta_host = host.clone();
             let delta_thread = thread_id.to_owned();
             let on_delta: DeltaSink = Arc::new(move |delta| {
@@ -316,6 +334,8 @@ impl CodexRuntime {
                 },
             )?;
             if let Some(update) = response.provider_context.as_ref() {
+                let capability_was_known = update.unsupported
+                    && self.store.provider_is_unsupported(&update.provider_id)?;
                 let previous = self
                     .store
                     .provider_contexts(thread_id)?
@@ -329,16 +349,34 @@ impl CodexRuntime {
                     unsupported: update.unsupported,
                 };
                 self.store.save_provider_context(thread_id, &context)?;
-                host.emit(RuntimeEvent::ProviderContextUpdated {
-                    thread_id: thread_id.to_owned(),
-                    provider_id: context.provider_id,
-                    mode: context.mode,
-                    reused: previous
-                        .as_ref()
-                        .and_then(|value| value.cursor.as_ref())
-                        .is_some(),
-                    unsupported: context.unsupported,
+                let state_changed = previous.as_ref().is_none_or(|value| {
+                    value.mode != context.mode || value.unsupported != context.unsupported
                 });
+                let timeline_state_changed = state_changed && !capability_was_known;
+                self.store.audit(
+                    Some(thread_id),
+                    "provider_context_checkpoint",
+                    &json!({
+                        "providerId": context.provider_id,
+                        "mode": context.mode,
+                        "unsupported": context.unsupported,
+                        "stateChanged": state_changed,
+                        "timelineStateChanged": timeline_state_changed,
+                        "capabilityPreviouslyKnown": capability_was_known,
+                        "hasCursor": context.cursor.is_some(),
+                        "throughSeq": context.through_seq,
+                        "previousMode": previous.as_ref().map(|value| &value.mode),
+                        "previousUnsupported": previous.as_ref().map(|value| value.unsupported),
+                    }),
+                )?;
+                if timeline_state_changed {
+                    host.emit(RuntimeEvent::ProviderContextUpdated {
+                        thread_id: thread_id.to_owned(),
+                        provider_id: context.provider_id,
+                        mode: context.mode,
+                        unsupported: context.unsupported,
+                    });
+                }
             }
             if response.tool_calls.is_empty() {
                 let first = tokio::time::timeout(Duration::from_millis(25), steering.recv())
@@ -992,7 +1030,7 @@ impl CodexRuntime {
                 .stream(attempt_request, cancellation.clone(), None)
                 .await
                 .map_err(|error| CoreError::CompactionFailed {
-                    code: error.code().to_owned(),
+                    code: error.diagnostic_code().to_owned(),
                     detail: error.to_json(),
                 })
                 .and_then(|response| {
@@ -1027,7 +1065,7 @@ impl CodexRuntime {
                         thread_id: thread_id.to_owned(),
                         retry: attempt + 1,
                         max_retries: COMPACTION_MAX_RETRIES,
-                        code: error.code().to_owned(),
+                        code: error.diagnostic_code().to_owned(),
                         detail: error.detail(),
                     });
                     self.store.audit(
@@ -1036,7 +1074,7 @@ impl CodexRuntime {
                         &json!({
                             "retry": attempt + 1,
                             "maxRetries": COMPACTION_MAX_RETRIES,
-                            "code": error.code(),
+                            "code": error.diagnostic_code(),
                             "detail": error.detail(),
                         }),
                     )?;
@@ -1061,7 +1099,7 @@ impl CodexRuntime {
                 });
                 host.emit(RuntimeEvent::CompactionFailed {
                     thread_id: thread_id.to_owned(),
-                    code: error.code().to_owned(),
+                    code: error.diagnostic_code().to_owned(),
                     detail: error.detail(),
                 });
                 return Err(error);
@@ -1529,7 +1567,7 @@ mod tests {
     use super::*;
     use crate::{
         model_transport::DeltaSink,
-        types::{ModelResponse, TokenUsage},
+        types::{ModelResponse, ProviderContextUpdate, TokenUsage},
     };
     use tempfile::TempDir;
 
@@ -1966,6 +2004,119 @@ mod tests {
             }),
             provider_context: None,
         }
+    }
+
+    #[tokio::test]
+    async fn unchanged_provider_context_state_is_only_emitted_once() {
+        let temp = TempDir::new().unwrap();
+        let provider_context = || ProviderContextUpdate {
+            provider_id: "profile:model:endpoint".to_owned(),
+            mode: ProviderContextMode::LocalRollout,
+            cursor: None,
+            unsupported: true,
+        };
+        let transport = MockTransport::new(vec![
+            Ok(ModelResponse {
+                text: String::new(),
+                tool_calls: vec![ToolCall {
+                    index: 0,
+                    id: "read-1".to_owned(),
+                    name: "inspect".to_owned(),
+                    arguments: "{}".to_owned(),
+                }],
+                finish_reason: "tool_calls".to_owned(),
+                usage: None,
+                provider_context: Some(provider_context()),
+            }),
+            Ok(ModelResponse {
+                provider_context: Some(provider_context()),
+                ..text_response("done")
+            }),
+        ]);
+        let runtime = CodexRuntime::new(config(&temp, 10_000), transport).unwrap();
+        runtime.create_thread("root", None, None, "root").unwrap();
+        let host = Arc::new(MockHost::default());
+        host.tool_results
+            .lock()
+            .unwrap()
+            .push_back(ToolExecutionResult {
+                content: "ok".to_owned(),
+                is_error: false,
+                status: "completed".to_owned(),
+            });
+
+        runtime
+            .run_turn(
+                "root",
+                "inspect",
+                vec![ToolDefinition {
+                    name: "inspect".to_owned(),
+                    description: "inspect".to_owned(),
+                    parameters: json!({"type": "object"}),
+                    parallel_safe: false,
+                }],
+                host.clone(),
+            )
+            .await
+            .unwrap();
+
+        let update_count = host
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| matches!(event, RuntimeEvent::ProviderContextUpdated { .. }))
+            .count();
+        assert_eq!(update_count, 1);
+    }
+
+    #[tokio::test]
+    async fn unsupported_provider_capability_is_reused_without_a_new_conversation_notice() {
+        let temp = TempDir::new().unwrap();
+        let provider_context = || ProviderContextUpdate {
+            provider_id: "profile:model:fingerprint".to_owned(),
+            mode: ProviderContextMode::LocalRollout,
+            cursor: None,
+            unsupported: true,
+        };
+        let transport = MockTransport::new(vec![
+            Ok(ModelResponse {
+                provider_context: Some(provider_context()),
+                ..text_response("first")
+            }),
+            Ok(ModelResponse {
+                provider_context: Some(provider_context()),
+                ..text_response("second")
+            }),
+        ]);
+        let runtime = CodexRuntime::new(config(&temp, 10_000), transport.clone()).unwrap();
+        runtime.create_thread("first", None, None, "root").unwrap();
+        runtime.create_thread("second", None, None, "root").unwrap();
+
+        runtime
+            .run_turn("first", "first", Vec::new(), Arc::new(MockHost::default()))
+            .await
+            .unwrap();
+        let second_host = Arc::new(MockHost::default());
+        runtime
+            .run_turn("second", "second", Vec::new(), second_host.clone())
+            .await
+            .unwrap();
+
+        let requests = transport.requests.lock().unwrap();
+        assert!(requests[1].provider_contexts.iter().any(|context| {
+            context.provider_id == "profile:model:fingerprint" && context.unsupported
+        }));
+        assert_eq!(
+            second_host
+                .events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|event| matches!(event, RuntimeEvent::ProviderContextUpdated { .. }))
+                .count(),
+            0
+        );
     }
 
     #[test]

@@ -43,6 +43,7 @@ import { useUiStore } from "../../store/ui";
 import { Icon } from "../shell/Icon";
 import { AgentSettings } from "./AgentSettings";
 import { AiSettings } from "./AiSettings";
+import { aiProfileModelLabel } from "./ai-profile";
 import { MarkdownContent } from "./MarkdownContent";
 
 const DEFAULT_AGENT_SETTINGS: AgentSettingsValue = {
@@ -723,10 +724,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         >
           {profiles.map((profile) => (
             <option key={profile.id} value={profile.id}>
-              {profile.name} ·{" "}
-              {profile.models?.find((model) => model.role === "primary")?.model ??
-                profile.model ??
-                "未配置模型"}
+              {profile.name} · {aiProfileModelLabel(profile)}
             </option>
           ))}
         </select>

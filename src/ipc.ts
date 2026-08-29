@@ -101,7 +101,6 @@ export type TerminalPalette = "graphite_gold" | "forest_amber" | "midnight_contr
 export type AiAuthMode = "bearer" | "api_key";
 
 export type AiModelRole = "primary" | "analysis" | "fallback";
-export type AiContextMode = "auto" | "responses" | "local_rollout";
 
 export interface AiModelConfig {
   id: string;
@@ -124,7 +123,6 @@ export interface AiProfile {
   base_url: string;
   api_key_ref: string;
   auth_mode: AiAuthMode;
-  context_mode?: AiContextMode;
   /** Legacy field; new configuration is stored in models. */
   model?: string;
   system_prompt: string;

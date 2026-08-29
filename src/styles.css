@@ -3971,6 +3971,19 @@ input:checked + .toggle-track > span {
   gap: 8px;
 }
 
+.ai-context-adaptive-note {
+  padding: 9px 10px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--green);
+  border-radius: 4px;
+  background: var(--surface-control);
+}
+
+.ai-context-adaptive-note > span {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
 .field-label-row,
 .ai-model-actions {
   display: flex;

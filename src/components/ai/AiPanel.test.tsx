@@ -185,6 +185,31 @@ describe("AiPanel Agent trace", () => {
     expect(screen.getByText("任务完成")).toBeInTheDocument();
   });
 
+  it("shows an enabled routed model when the primary row was deleted", async () => {
+    ipcMocks.aiProfileList.mockResolvedValue([
+      {
+        ...aiProfile,
+        model: undefined,
+        models: [
+          {
+            id: "analysis",
+            name: "分析模型",
+            model: "analysis-model",
+            role: "analysis",
+            enabled: true,
+          },
+        ],
+      },
+    ]);
+
+    render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
+
+    expect(
+      await screen.findByRole("option", { name: "Ops AI · analysis-model" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("未配置模型")).not.toBeInTheDocument();
+  });
+
   it("pauses for tool approval in confirmation mode", async () => {
     ipcMocks.agentSettingsGet.mockResolvedValue({ ...settings, permission_mode: "confirm" });
     ipcMocks.agentRun.mockImplementation(

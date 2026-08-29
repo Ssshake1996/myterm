@@ -40,7 +40,7 @@ Operating contract:
 - When a product-specific CLI command is uncertain, gather the required MCP evidence first, parse the returned structuredContent or textContent into the exact command and parameters, and include its evidence id in cli_execute.evidence_refs. Query independent facts together; do not split them into many short calls. If no reliable capability is available, say what is unknown instead of guessing.
 - In one model response, request all independent read-only tools needed for the current decision. Keep dependent actions sequential and never batch a later command whose arguments depend on an earlier result.
 - Reply in the user's language. Separate observed evidence, inference, proposed action, risk, and the final result."#;
-pub const CONFIG_SCHEMA_VERSION: u32 = 3;
+pub const CONFIG_SCHEMA_VERSION: u32 = 4;
 const ENVIRONMENT_SCHEMA_VERSION: u32 = 1;
 const ENVIRONMENT_DIRECTORY_NAME: &str = "environments";
 const ENVIRONMENT_FILE_SUFFIX: &str = ".environments.json";
@@ -517,22 +517,33 @@ fn migrate_config(config: &mut AppConfig) -> bool {
 }
 
 fn normalize_ai_profile(profile: &mut AiProfile) -> bool {
-    if !profile.models.is_empty() {
-        return false;
+    let mut changed = false;
+    if profile.models.is_empty() && !profile.model.trim().is_empty() {
+        profile.models.push(AiModelConfig {
+            id: "primary".to_owned(),
+            name: "主模型".to_owned(),
+            model: profile.model.trim().to_owned(),
+            role: AiModelRole::Primary,
+            enabled: true,
+            context_window_tokens: None,
+            compact_threshold_tokens: None,
+        });
+        changed = true;
     }
-    if profile.model.trim().is_empty() {
-        return false;
-    }
-    profile.models.push(AiModelConfig {
-        id: "primary".to_owned(),
-        name: "主模型".to_owned(),
-        model: profile.model.trim().to_owned(),
-        role: AiModelRole::Primary,
-        enabled: true,
-        context_window_tokens: None,
-        compact_threshold_tokens: None,
+    let has_primary = profile.models.iter().any(|model| {
+        model.enabled && !model.model.trim().is_empty() && model.role == AiModelRole::Primary
     });
-    true
+    if !has_primary {
+        if let Some(model) = profile
+            .models
+            .iter_mut()
+            .find(|model| model.enabled && !model.model.trim().is_empty())
+        {
+            model.role = AiModelRole::Primary;
+            changed = true;
+        }
+    }
+    changed
 }
 
 fn write_atomic(path: &Path, value: &AppConfig) -> Result<(), AppError> {
@@ -618,7 +629,8 @@ mod tests {
         validate_environment_group_name, AppConfig, ConfigService, DEFAULT_AGENT_SYSTEM_PROMPT,
     };
     use crate::types::{
-        AppFontScale, AppTheme, AuthMethod, SessionProfile, SessionTarget, TerminalPalette,
+        AiAuthMode, AiModelConfig, AiModelRole, AiProfile, AiRoutingConfig, AppFontScale, AppTheme,
+        AuthMethod, SessionProfile, SessionTarget, TerminalPalette,
     };
     use serde_json::Value;
     use std::fs;
@@ -660,6 +672,39 @@ mod tests {
         assert!(config_json.get("profiles").is_none());
         let reloaded = ConfigService::open(path)?;
         assert_eq!(reloaded.profile_list()?.len(), 2);
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn saving_ai_profile_promotes_the_first_enabled_model_to_primary(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let root = test_root();
+        let path = root.join("config.json");
+        let service = ConfigService::open(path)?;
+        service.ai_profile_save(AiProfile {
+            id: "ai".to_owned(),
+            name: "Gateway".to_owned(),
+            base_url: "https://gateway.example/v1".to_owned(),
+            api_key_ref: "ai.ai.key".to_owned(),
+            auth_mode: AiAuthMode::Bearer,
+            model: String::new(),
+            system_prompt: String::new(),
+            context_lines: 0,
+            models: vec![AiModelConfig {
+                id: "analysis".to_owned(),
+                name: "分析模型".to_owned(),
+                model: "analysis-model".to_owned(),
+                role: AiModelRole::Analysis,
+                enabled: true,
+                context_window_tokens: None,
+                compact_threshold_tokens: None,
+            }],
+            routing: AiRoutingConfig::default(),
+        })?;
+
+        let saved = service.ai_profile_list()?.remove(0);
+        assert_eq!(saved.models[0].role, AiModelRole::Primary);
         fs::remove_dir_all(root)?;
         Ok(())
     }
@@ -828,7 +873,7 @@ mod tests {
         assert_eq!(profile.models[0].model, "legacy-model");
         assert_eq!(
             serde_json::from_str::<Value>(&fs::read_to_string(&path)?)?["version"],
-            3
+            4
         );
         let raw = serde_json::from_str::<Value>(&fs::read_to_string(path)?)?;
         let agent = raw
@@ -841,6 +886,49 @@ mod tests {
         assert!(!agent.contains_key("max_steps"));
         assert_eq!(service.agent_settings()?.profile, "dsh-codex-agent");
         assert_eq!(service.agent_settings()?.max_steps, 64);
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_manual_provider_context_mode_is_removed_on_open(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let root = test_root();
+        fs::create_dir_all(&root)?;
+        let path = root.join("config.json");
+        fs::write(
+            &path,
+            r#"{
+              "version": 3,
+              "quick_commands": [],
+              "ai_profiles": [{
+                "id": "adaptive",
+                "name": "Adaptive",
+                "base_url": "https://example.test/v1",
+                "api_key_ref": "ai.adaptive.key",
+                "auth_mode": "bearer",
+                "context_mode": "local_rollout",
+                "system_prompt": "",
+                "models": [{
+                  "id": "primary",
+                  "name": "主模型",
+                  "model": "model-a",
+                  "role": "primary",
+                  "enabled": true
+                }],
+                "routing": { "fallback_on_error": true, "analysis_threshold_chars": 32000 }
+              }],
+              "settings": {},
+              "agent": {}
+            }"#,
+        )?;
+
+        let service = ConfigService::open(path.clone())?;
+        assert_eq!(service.ai_profile_list()?.len(), 1);
+        let raw = fs::read_to_string(&path)?;
+        assert!(!raw.contains("context_mode"));
+        assert_eq!(serde_json::from_str::<Value>(&raw)?["version"], 4);
+
         fs::remove_dir_all(root)?;
         Ok(())
     }

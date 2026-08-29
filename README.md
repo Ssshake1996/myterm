@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.10.0`
+当前版本：`0.10.1`
 
 ## 核心功能
 
@@ -69,10 +69,11 @@ Agent 使用类似 Claude Code 的循环：
 - 对交互式产品 CLI，`cli_execute` 在同一个后端事务中锁定输入、读取 xterm 真实光标行、只发送完整目标命令的缺失后缀，并等待提示符、交互、静默兜底或超时边界；`cli_execute_batch` 可把 1-8 条互不依赖的已知命令合并为一次工具调用，避免 `showshow system...` 和大量短请求。
 - Agent 会在任务时间线记录本轮模型请求数、工具调用数和 Token 用量；独立只读工具可在同一模型轮次并发执行，有副作用或存在依赖的步骤仍保持串行。
 - AI 配置以版本化 JSON 持久化。一个配置可定义主模型、分析模型和备用模型；启用自动切换后，模型请求失败会按角色顺序切换并在 Agent 时间线标出实际使用的模型。
-- Provider Context Adapter 统一支持 Responses 和 Chat Completions：自动模式优先复用 `previous_response_id` 与服务端原生压缩，确认网关不支持后持久回退到本地 checkpoint + tail，不会每轮重复探测。
+- Provider Context Adapter 统一支持 Responses 和 Chat Completions：无需手工选择协议，运行时优先复用 `previous_response_id` 与服务端原生压缩，确认网关不支持后按 Provider 配置指纹跨对话持久回退到本地 checkpoint + tail；Base URL、模型或认证方式变化会自动重新探测。
 - AI 设置可按模型配置上下文窗口和压缩阈值；本地 Checkpoint v2 只合并“上一份 checkpoint + 新增 tail”，并按持久化引用注入用户纠正、原样 CLI 命令、工具事实和 Evidence，不再为每次压缩重放全部原始历史。
 - 超过 8 KiB 的终端、文件、MCP 和查询结果原文单独落盘并记录 SHA-256；模型收到的是带 `resultId`、来源事实和精确摘录的 Result Capsule。需要核实时使用只读 `result_read` 按字面搜索或分页读取原始结果，不截断事实，也不重新执行可能有副作用的工具。
 - Chat Completions 的上下文预算同时计入系统 Prompt、工具 Schema、消息、checkpoint 和输出预留；压缩请求若失败会携带上一次校验错误重试，初次请求加 3 次重试仍失败才终止当前 Turn。
+- 安装版默认写入按天滚动的本地 JSON 诊断日志并保留 14 天；`--debug` 提升为 DEBUG 级，Provider 探测、缓存命中、回退和精确错误均使用稳定字段，方便维护 AI 直接读取定位。
 
 ### 权限与安全策略
 

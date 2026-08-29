@@ -259,15 +259,6 @@ pub enum AiModelRole {
     Fallback,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum AiContextMode {
-    #[default]
-    Auto,
-    Responses,
-    LocalRollout,
-}
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AiModelConfig {
     pub id: String,
@@ -312,8 +303,6 @@ pub struct AiProfile {
     pub api_key_ref: String,
     #[serde(default)]
     pub auth_mode: AiAuthMode,
-    #[serde(default)]
-    pub context_mode: AiContextMode,
     /// Legacy single-model field. It is migrated into `models.primary` and is
     /// retained only so existing config.json files remain readable.
     #[serde(default, skip_serializing)]

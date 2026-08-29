@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.10.0。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.10.1。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -162,17 +162,20 @@ AI 服务设置支持多个模型角色：
 - 分析模型：用于后续高复杂度分析或作为第二候选模型。
 - 备用模型：主模型请求失败时的兜底模型。
 
-启用“失败时自动切换”后，后端会按主模型、分析模型、备用模型顺序尝试；每次 Agent 运行会在时间线显示实际选中的模型。前端保存的表单会转换为版本化 JSON，配置文件只保存模型、路由、提示词和凭据引用，不保存 API Key 原文。旧版本只有 `model` 字段的配置会在首次打开时自动迁移为 `models.primary`。
+启用“失败时自动切换”后，后端会按主模型、分析模型、备用模型顺序尝试；每次 Agent 运行会在时间线显示实际选中的模型。删除当前主模型后，第一个仍启用且非空的模型会自动成为主模型，Agent 下拉框与后端执行使用同一套有效模型规则。前端保存的表单会转换为版本化 JSON，配置文件只保存模型、路由、提示词和凭据引用，不保存 API Key 原文。旧版本只有 `model` 字段的配置会在首次打开时自动迁移为 `models.primary`。
 
-### Agent 上下文协议
+### Agent 自适应上下文
 
-AI 服务设置的“Agent 上下文协议”提供三种模式：
+上下文协议不再作为 AI 设置项交给用户选择。dsh-codex-agent 会按实际 Provider 能力自动决定：
 
-- 自动：首选 Responses API，持久化 `previous_response_id` 并只发送新增消息。当网关明确返回 404、405、501，或返回表明 Responses/原生压缩不支持的 400 时，该 provider 的结果会持久化，后续 Turn 直接使用 Chat Completions 本地上下文。瞬时网络错误不会被记为永久不支持。
-- Responses：强制使用 Responses 增量续接与服务端压缩；网关不支持时显示原始请求错误，不自动降级。
-- 本地上下文：使用 Chat Completions，达到阈值时生成版本化 JSON checkpoint，之后只提交 checkpoint 和它之后的消息。
+- 优先尝试 Responses API，保存 `previous_response_id` 并只发送新增消息。
+- 网关明确返回 404、405、501，或返回表明 Responses/原生压缩不支持的 400 时，按 Provider 配置指纹跨对话持久记住该能力，后续 Turn 直接使用 Chat Completions 本地 checkpoint，不会重复显示同一条回退提示。
+- 瞬时网络、超时或服务端错误只在当前请求回退 Chat Completions，不会被错误记为永久不支持；后续请求仍可重新探测。
+- Base URL、模型或认证方式发生变化时会生成新的无敏感信息能力指纹，自动重新探测，不复用旧网关的结论。
 
 每个模型可单独设置“上下文窗口”和“压缩阈值”，阈值必须小于窗口。未填写时默认为 128000 Token 窗口和 75% 压缩阈值。预算不仅计算聊天消息，还计算系统 Prompt、工具 Schema、当前 checkpoint 和模型输出预留。Responses 上下文可用时不再重复运行本地压缩；本地 Checkpoint v2 每次只读取上一份 checkpoint 和尚未压缩的新消息，通过持久化引用恢复用户纠正、精确 CLI 命令和空格、工具事实、Evidence 引用、未解决项和权限状态，不把全部历史重新交给模型总结。压缩失败会把上一次 JSON 校验错误加入重试请求；初次请求后最多再重试 3 次，仍失败才以原始错误终止当前 Turn。
+
+安装版默认把 INFO 级结构化 JSON 日志写入 `%APPDATA%\myterm\logs\myterm.log.YYYY-MM-DD`，按天滚动并保留 14 天。使用 `myterm.exe --debug` 启动时会记录更细的 Provider 探测、缓存命中和回退决策；日志包含稳定事件名、对话、Provider 指纹、错误阶段、错误码和原始诊断，但不会记录 API Key。Core 同时把每次 Provider checkpoint 状态写入 `dsh-codex-agent/codex-core.sqlite3` 的本地审计表，便于维护 AI 交叉定位界面事件、运行日志与持久状态。
 
 ### 大型查询结果与 Result Capsule
 

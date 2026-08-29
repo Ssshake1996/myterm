@@ -106,6 +106,7 @@ Invoke-Step "Rust format" 'cargo fmt --all -- --check' (Join-Path $projectRoot "
 Invoke-Step "Rust type check" 'cargo check -j 1' (Join-Path $projectRoot "src-tauri")
 
 if ($RunRustTests) {
+  Invoke-Step "Codex Core Rust tests" 'cargo test -j 1' (Join-Path $projectRoot "integrations\dsh-codex-agent\native")
   Invoke-Step "Rust tests" 'cargo test -j 1' (Join-Path $projectRoot "src-tauri")
 }
 

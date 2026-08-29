@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   type AiAuthMode,
-  type AiContextMode,
   type AiErrorDiagnostic,
   type AiModelConfig,
   type AiModelRole,
@@ -18,6 +17,7 @@ import {
 } from "../../ipc";
 import { useUiStore } from "../../store/ui";
 import { Modal } from "../shell/Modal";
+import { aiProfileModelLabel, effectiveAiModels, ensurePrimaryAiModel } from "./ai-profile";
 
 const PRESETS = [
   { name: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
@@ -82,7 +82,6 @@ export function AiSettings({
     profile?.routing?.fallback_on_error ?? true,
   );
   const [authMode, setAuthMode] = useState<AiAuthMode>(profile?.auth_mode ?? "bearer");
-  const [contextMode, setContextMode] = useState<AiContextMode>(profile?.context_mode ?? "auto");
   const [systemPrompt, setSystemPrompt] = useState(profile?.system_prompt ?? "");
   const [apiKey, setApiKey] = useState("");
   const [testing, setTesting] = useState(false);
@@ -90,9 +89,7 @@ export function AiSettings({
   const [testDetailsOpen, setTestDetailsOpen] = useState(false);
   const [testPrompt, setTestPrompt] = useState("hi");
   const [testModel, setTestModel] = useState(
-    profile?.models?.find((item) => item.role === "primary" && item.enabled)?.model ??
-      profile?.model ??
-      "",
+    profile ? (effectiveAiModels(profile)[0]?.model ?? "") : "",
   );
   const [modelTesting, setModelTesting] = useState(false);
   const [modelTestResult, setModelTestResult] = useState<AiModelTestResult | null>(null);
@@ -109,9 +106,11 @@ export function AiSettings({
     base_url: baseUrl.trim().replace(/\/$/, ""),
     api_key_ref: profile?.api_key_ref ?? `ai.${id}.key`,
     auth_mode: authMode,
-    context_mode: contextMode,
     system_prompt: systemPrompt,
-    models: models.map((item) => ({ ...item, model: item.model.trim() })),
+    models: ensurePrimaryAiModel(models).map((item) => ({
+      ...item,
+      model: item.model.trim(),
+    })),
     routing: {
       ...DEFAULT_ROUTING,
       fallback_on_error: fallbackOnError,
@@ -120,7 +119,7 @@ export function AiSettings({
 
   const draftJson = JSON.stringify(
     {
-      version: 2,
+      version: 4,
       ai_profiles: [currentProfile()],
       note: "API key is stored in the OS credential vault",
     },
@@ -353,21 +352,13 @@ export function AiSettings({
             </select>
             <small>Bearer Token 适用于 OpenAI 兼容网关；API Key 保留原始密钥头值。</small>
           </label>
-          <label className="field field-span">
-            <span>Agent 上下文协议</span>
-            <select
-              aria-label="Agent 上下文协议"
-              onChange={(event) => setContextMode(event.target.value as AiContextMode)}
-              value={contextMode}
-            >
-              <option value="auto">自动 · 优先 Responses，确认不支持后回退本地上下文</option>
-              <option value="responses">Responses · 原生增量上下文与压缩</option>
-              <option value="local_rollout">本地上下文 · Chat Completions checkpoint + tail</option>
-            </select>
+          <div className="field field-span ai-context-adaptive-note">
+            <span>Agent 上下文</span>
             <small>
-              自动模式会持久化能力探测结果；内网兼容网关不支持 Responses 时不会在每轮重复探测。
+              完全自适应：优先使用 Provider 原生增量上下文；确认不支持后自动记忆能力并切换本地
+              checkpoint，无需手工选择协议。
             </small>
-          </label>
+          </div>
           <label className="field field-span">
             <span>System Prompt</span>
             <textarea
@@ -438,7 +429,9 @@ export function AiSettings({
                       className="button button-ghost"
                       onClick={() =>
                         setModels((current) =>
-                          current.filter((_, candidateIndex) => candidateIndex !== index),
+                          ensurePrimaryAiModel(
+                            current.filter((_, candidateIndex) => candidateIndex !== index),
+                          ),
                         )
                       }
                       type="button"
@@ -726,10 +719,7 @@ export function AiSettings({
               <div className="saved-ai-profile-list">
                 {profiles.map((candidate) => {
                   const active = candidate.id === activeProfileId;
-                  const model =
-                    candidate.models?.find((item) => item.role === "primary")?.model ??
-                    candidate.model ??
-                    "未配置模型";
+                  const model = aiProfileModelLabel(candidate);
                   return (
                     <div className="saved-ai-profile-row" key={candidate.id}>
                       <span>

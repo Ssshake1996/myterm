@@ -11,6 +11,7 @@ use dsh_codex_core::{
     ToolDefinition, ToolExecutionResult, ToolInvocation,
 };
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, watch, Mutex};
 use tokio_util::sync::CancellationToken;
 
@@ -23,9 +24,10 @@ use super::{
     service::{self, AgentEventSink, AgentService},
 };
 use crate::{
+    ai::service::redact_and_bound,
     config::DEFAULT_AGENT_SYSTEM_PROMPT,
     types::{
-        AgentEvent, AgentPermissionMode, AgentRunResult, AgentSettings, AiAuthMode, AiContextMode,
+        AgentEvent, AgentPermissionMode, AgentRunResult, AgentSettings, AiAuthMode, AiModelConfig,
         AiProfile,
     },
     AppError,
@@ -178,11 +180,12 @@ pub(crate) async fn run(
         max_steps: CORE_MAX_STEPS,
         system_prompt,
     };
+    let diagnostic_secret: Arc<str> = Arc::from(api_key.as_str());
     let transports = models
         .iter()
         .filter(|candidate| candidate.enabled)
         .map(|candidate| {
-            let provider_id = format!("{}:{}:{}", profile.id, candidate.id, candidate.model);
+            let provider_id = provider_context_id(&profile, candidate);
             let authorization = match profile.auth_mode {
                 AiAuthMode::Bearer => format!("Bearer {api_key}"),
                 AiAuthMode::ApiKey => api_key.clone(),
@@ -204,7 +207,7 @@ pub(crate) async fn run(
             .map_err(core_error)?;
             Ok(ProviderTransport {
                 provider_id,
-                context_mode: profile.context_mode,
+                diagnostic_secret: diagnostic_secret.clone(),
                 chat,
                 responses,
             })
@@ -345,7 +348,7 @@ pub(crate) async fn run(
         Err(error) => {
             let mut failed = service::event(&run_id, "complete", Some("failed".to_owned()));
             failed.content = Some(error.detail());
-            failed.error_code = Some(error.code().to_owned());
+            failed.error_code = Some(error.diagnostic_code().to_owned());
             failed.is_error = Some(true);
             sink.send(failed)?;
             Err(core_error(error))
@@ -393,7 +396,7 @@ impl ModelTransport for ProviderContextAdapter {
 
 struct ProviderTransport {
     provider_id: String,
-    context_mode: AiContextMode,
+    diagnostic_secret: Arc<str>,
     chat: ChatCompletionsTransport,
     responses: ResponsesTransport,
 }
@@ -410,12 +413,27 @@ impl ProviderTransport {
             .iter()
             .find(|context| context.provider_id == self.provider_id);
         let previously_unsupported = checkpoint.is_some_and(|context| context.unsupported);
-        let try_responses = request.provider_context_enabled
-            && self.context_mode != AiContextMode::LocalRollout
-            && !previously_unsupported;
+        let try_responses = request.provider_context_enabled && !previously_unsupported;
         let mut responses_error = None;
         let mut unsupported = previously_unsupported;
+        if previously_unsupported {
+            tracing::debug!(
+                event = "provider_context_route",
+                thread_id = %request.thread_id,
+                provider_id = %self.provider_id,
+                decision = "cached_local_rollout",
+                persistent = true,
+                "provider context capability cache hit"
+            );
+        }
         if try_responses {
+            tracing::debug!(
+                event = "provider_context_probe",
+                thread_id = %request.thread_id,
+                provider_id = %self.provider_id,
+                decision = "try_responses",
+                "probing provider context capability"
+            );
             match self
                 .responses
                 .stream(request.clone(), cancellation.clone(), on_text_delta.clone())
@@ -425,9 +443,18 @@ impl ProviderTransport {
                 Err(CoreError::Cancelled(detail)) => return Err(CoreError::Cancelled(detail)),
                 Err(error) => {
                     unsupported = responses_unsupported(&error);
-                    if self.context_mode == AiContextMode::Responses {
-                        return Err(error);
-                    }
+                    let error = redact_model_error(error, self.diagnostic_secret.as_ref());
+                    tracing::warn!(
+                        event = "provider_context_probe_failed",
+                        thread_id = %request.thread_id,
+                        provider_id = %self.provider_id,
+                        error_code = error.diagnostic_code(),
+                        error_phase = error.phase(),
+                        error_detail = %error.to_json(),
+                        persistent = unsupported,
+                        fallback = "chat_completions",
+                        "Responses capability probe failed; applying adaptive fallback"
+                    );
                     responses_error = Some(error.to_json());
                 }
             }
@@ -449,6 +476,7 @@ impl ProviderTransport {
                 Ok(response)
             }
             Err(error) => {
+                let error = redact_model_error(error, self.diagnostic_secret.as_ref());
                 if let Some(responses_error) = responses_error {
                     Err(CoreError::Model {
                         phase: "provider_context_fallback",
@@ -465,6 +493,41 @@ impl ProviderTransport {
                 }
             }
         }
+    }
+}
+
+fn provider_context_id(profile: &AiProfile, model: &AiModelConfig) -> String {
+    let auth_mode = match profile.auth_mode {
+        AiAuthMode::Bearer => "bearer",
+        AiAuthMode::ApiKey => "api_key",
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(b"provider-context-v1\0");
+    hasher.update(profile.base_url.trim().trim_end_matches('/').as_bytes());
+    hasher.update(b"\0");
+    hasher.update(model.model.trim().as_bytes());
+    hasher.update(b"\0");
+    hasher.update(auth_mode.as_bytes());
+    let fingerprint = format!("{:x}", hasher.finalize());
+    format!("{}:{}:{}", profile.id, model.id, &fingerprint[..16])
+}
+
+fn redact_model_error(error: CoreError, secret: &str) -> CoreError {
+    match error {
+        CoreError::Model {
+            phase,
+            code,
+            status,
+            detail,
+            response_body,
+        } => CoreError::Model {
+            phase,
+            code,
+            status,
+            detail: redact_and_bound(&detail, secret),
+            response_body: response_body.map(|body| redact_and_bound(&body, secret)),
+        },
+        other => other,
     }
 }
 
@@ -1149,7 +1212,6 @@ fn map_runtime_event(run_id: &str, event: RuntimeEvent) -> Option<AgentEvent> {
         RuntimeEvent::ProviderContextUpdated {
             provider_id,
             mode,
-            reused,
             unsupported,
             ..
         } => {
@@ -1160,10 +1222,8 @@ fn map_runtime_event(run_id: &str, event: RuntimeEvent) -> Option<AgentEvent> {
             let mut event = service::event(
                 run_id,
                 "context_state",
-                Some(if reused {
-                    format!("复用 {mode} provider 上下文")
-                } else if unsupported {
-                    "Provider 不支持 Responses，已持久回退本地上下文".to_owned()
+                Some(if unsupported {
+                    "上下文已自动切换为本地 checkpoint".to_owned()
                 } else {
                     format!("使用 {mode} provider 上下文")
                 }),
@@ -1171,8 +1231,9 @@ fn map_runtime_event(run_id: &str, event: RuntimeEvent) -> Option<AgentEvent> {
             event.arguments = Some(json!({
                 "providerId": provider_id,
                 "mode": mode,
-                "reused": reused,
                 "unsupported": unsupported,
+                "adaptive": true,
+                "persistence": if unsupported { "conversation_provider" } else { "checkpoint" },
             }));
             event
         }
@@ -1221,8 +1282,13 @@ fn app_error(error: AppError) -> CoreError {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_agent_system_prompt, capability_result_packet, stop_and_drain_cancel_task};
+    use super::{
+        build_agent_system_prompt, capability_result_packet, provider_context_id,
+        redact_model_error, stop_and_drain_cancel_task,
+    };
     use crate::agent::capability::{CapabilityDescriptor, McpServerDiagnostic};
+    use crate::types::{AiAuthMode, AiModelConfig, AiModelRole, AiProfile, AiRoutingConfig};
+    use dsh_codex_core::CoreError;
     use serde_json::json;
     use std::{future::pending, time::Duration};
 
@@ -1235,6 +1301,67 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), stop_and_drain_cancel_task(watcher))
             .await
             .expect("cancel watcher should be stopped after the turn completes");
+    }
+
+    #[test]
+    fn provider_context_cache_key_tracks_endpoint_model_and_auth_configuration() {
+        let model = AiModelConfig {
+            id: "primary".to_owned(),
+            name: "主模型".to_owned(),
+            model: "model-a".to_owned(),
+            role: AiModelRole::Primary,
+            enabled: true,
+            context_window_tokens: None,
+            compact_threshold_tokens: None,
+        };
+        let mut profile = AiProfile {
+            id: "profile".to_owned(),
+            name: "Gateway".to_owned(),
+            base_url: "https://gateway.example/v1/".to_owned(),
+            api_key_ref: "ai.profile.key".to_owned(),
+            auth_mode: AiAuthMode::Bearer,
+            model: String::new(),
+            system_prompt: String::new(),
+            context_lines: 0,
+            models: vec![model.clone()],
+            routing: AiRoutingConfig::default(),
+        };
+
+        let original = provider_context_id(&profile, &model);
+        profile.base_url = "https://gateway.example/v1".to_owned();
+        assert_eq!(provider_context_id(&profile, &model), original);
+
+        profile.base_url = "https://gateway-2.example/v1".to_owned();
+        assert_ne!(provider_context_id(&profile, &model), original);
+
+        profile.base_url = "https://gateway.example/v1".to_owned();
+        let mut next_model = model.clone();
+        next_model.model = "model-b".to_owned();
+        assert_ne!(provider_context_id(&profile, &next_model), original);
+
+        profile.auth_mode = AiAuthMode::ApiKey;
+        assert_ne!(provider_context_id(&profile, &model), original);
+        assert!(!original.contains("gateway.example"));
+        assert!(!original.contains("model-a"));
+    }
+
+    #[test]
+    fn provider_diagnostics_keep_exact_errors_but_redact_the_api_key() {
+        let error = redact_model_error(
+            CoreError::Model {
+                phase: "responses_request",
+                code: "http_401".to_owned(),
+                status: Some(401),
+                detail: "Authorization rejected for sk-secret-value".to_owned(),
+                response_body: Some(r#"{"error":"sk-secret-value invalid"}"#.to_owned()),
+            },
+            "sk-secret-value",
+        );
+        let diagnostic = error.to_json();
+        assert!(diagnostic.contains("http_401"));
+        assert!(diagnostic.contains("401"));
+        assert!(!diagnostic.contains("sk-secret-value"));
+        assert!(diagnostic.contains("[REDACTED]"));
     }
 
     #[test]

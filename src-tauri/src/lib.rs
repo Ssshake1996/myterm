@@ -7,7 +7,11 @@ pub mod session;
 pub mod sftp;
 pub mod types;
 
-use std::sync::Arc;
+use std::{
+    path::Path,
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 
 use agent::service::AgentService;
 use ai::service::AiService;
@@ -132,7 +136,11 @@ impl From<AppError> for IpcError {
 
 #[cfg(test)]
 mod error_tests {
-    use super::{AppError, IpcError};
+    use super::{remove_stale_logs, AppError, IpcError};
+    use std::{
+        fs,
+        time::{Duration, SystemTime},
+    };
 
     #[test]
     fn ipc_error_preserves_original_detail_without_category_summary() {
@@ -159,6 +167,27 @@ mod error_tests {
         assert_eq!(diagnostic.stage, "transport");
         assert_eq!(diagnostic.code, "SSH_CONNECT_FAILED");
         assert_eq!(diagnostic.detail, "connection refused");
+    }
+
+    #[test]
+    fn log_retention_only_removes_old_myterm_log_files() -> Result<(), Box<dyn std::error::Error>> {
+        let root = std::env::temp_dir().join(format!("myterm-log-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root)?;
+        let log = root.join("myterm.log.2026-08-01");
+        let unrelated = root.join("keep.txt");
+        fs::write(&log, "structured log")?;
+        fs::write(&unrelated, "keep")?;
+
+        remove_stale_logs(
+            &root,
+            SystemTime::now() + Duration::from_secs(15 * 24 * 60 * 60),
+            Duration::from_secs(14 * 24 * 60 * 60),
+        );
+
+        assert!(!log.exists());
+        assert!(unrelated.exists());
+        fs::remove_dir_all(root)?;
+        Ok(())
     }
 }
 
@@ -211,7 +240,7 @@ pub fn run() {
     let _log_guard = match init_logging(debug) {
         Ok(guard) => guard,
         Err(error) => {
-            eprintln!("Unable to initialize debug logging: {error}");
+            eprintln!("Unable to initialize logging: {error}");
             None
         }
     };
@@ -340,21 +369,53 @@ pub fn run() {
 }
 
 fn init_logging(debug: bool) -> Result<Option<WorkerGuard>, AppError> {
-    if !debug {
-        return Ok(None);
-    }
     let log_dir = dirs::config_dir()
         .ok_or_else(|| AppError::Config("operating system config directory is unavailable".into()))?
         .join("myterm")
         .join("logs");
     std::fs::create_dir_all(&log_dir)?;
-    let appender = tracing_appender::rolling::daily(log_dir, "myterm.log");
+    remove_stale_logs(
+        &log_dir,
+        SystemTime::now(),
+        Duration::from_secs(14 * 24 * 60 * 60),
+    );
+    let appender = tracing_appender::rolling::daily(&log_dir, "myterm.log");
     let (writer, guard) = tracing_appender::non_blocking(appender);
     tracing_subscriber::fmt()
+        .json()
+        .flatten_event(true)
         .with_ansi(false)
-        .with_max_level(tracing::Level::DEBUG)
+        .with_max_level(if debug {
+            tracing::Level::DEBUG
+        } else {
+            tracing::Level::INFO
+        })
         .with_writer(writer)
         .try_init()
         .map_err(|error| AppError::Config(format!("logging subscriber: {error}")))?;
     Ok(Some(guard))
+}
+
+fn remove_stale_logs(directory: &Path, now: SystemTime, retention: Duration) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with("myterm.log")
+        {
+            continue;
+        }
+        let Ok(modified) = entry.metadata().and_then(|metadata| metadata.modified()) else {
+            continue;
+        };
+        if now
+            .duration_since(modified)
+            .is_ok_and(|age| age > retention)
+        {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
