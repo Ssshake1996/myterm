@@ -4,10 +4,10 @@
 
 ```powershell
 cd F:\myterm
-npm run release -- -Version 0.9.6
+npm run release -- -Version 0.10.0 -RunRustTests
 ```
 
-把 `0.9.6` 换成下一个三段式版本号。脚本会自动更新版本文件、执行校验、构建安装包、生成便携包和 SHA256，并推送 GitHub Release。
+把 `0.10.0` 换成下一个三段式版本号。脚本会自动更新版本文件、执行校验、构建安装包、生成便携包和 SHA256，并推送 GitHub Release。除非只做本地诊断，不要临时拼接另一套发布命令。
 
 ## 脚本执行顺序
 
@@ -30,7 +30,7 @@ npm run release -- -Version 0.9.6
 需要检查本地产物但不创建 GitHub Release 时：
 
 ```powershell
-npm run release -- -Version 0.9.6 -SkipPublish
+npm run release -- -Version 0.10.0 -SkipPublish -RunRustTests
 ```
 
 该模式仍会提交、打标签并推送代码；如果连 Git 操作也不希望执行，应直接使用：
@@ -45,7 +45,7 @@ npm run check:dist
 默认发布流程使用 `cargo check`，因为 Windows Debug 测试链接会构建大型桌面依赖。具备足够虚拟内存和完整工具链时，可以额外执行：
 
 ```powershell
-npm run release -- -Version 0.9.6 -RunRustTests
+npm run release -- -Version 0.10.0 -RunRustTests
 ```
 
 Rust 测试失败时脚本不会创建 Release。不能通过跳过失败、复用旧 EXE 或把旧产物改名来发布。
@@ -53,7 +53,9 @@ Rust 测试失败时脚本不会创建 Release。不能通过跳过失败、复�
 ## 构建环境约束
 
 - Node、npm、Rust、Cargo、Tauri CLI、NSIS 必须可执行。
+- 仓库根目录 `.cargo/config.toml` 默认启用 `aws-lc-sys` 随 crate 提供的 Windows x64 预编译汇编对象，因此干净构建不要求全局安装 NASM，同时保留 Release 的汇编优化。若未来升级 TLS 后端或改为其他目标架构，必须先做一次无缓存构建验证再调整该设置。
 - Windows 建议保留充足页面文件，并避免同时运行多个 `vite`、`vitest`、`rustc` 编译进程。
+- 若 `src-tauri/target/debug` 因长期增量构建异常膨胀，可在确认路径后执行 `cargo clean --profile dev`；该命令只清理可再生成的 dev 构建缓存，不删除源码、配置或 `target/release` 安装产物。
 - `dist-release` 是本地发布输出目录并被 Git 忽略；Release 上传的是脚本刚生成的文件。
 - GitHub 发布需要 `gh auth login` 或 Git Credential Manager 中存在 `github.com` 凭据。
 - 运行时内存采样只判断明显持续增长，不替代长时间压力测试和干净 Windows 虚拟机验收。

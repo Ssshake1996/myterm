@@ -1,17 +1,17 @@
 # myterm Codex 对话上下文重构方案
 
-> 文档状态：0.9.11 已实施，同时作为后续回归基线  
+> 文档状态：0.10.0 已实施，包含 Result Capsule 与增量 Checkpoint v2
 > 适用范围：`dsh-codex-agent` 对话、模型请求、压缩、追加要求与任务历史
 
 ## 1. 结论
 
-当前实现不等同于完整的 Codex 上下文方案。
+0.10.0 的当前实现采用本地可审计事实源、Provider Context Adapter 和增量 Checkpoint，并不声称等同于完整 Codex App Server。
 
 - `dsh-codex-core` 已具备本地 thread、message、summary 和压缩数据结构。
 - myterm 每次发送都会创建新的 `run_id` 和新的 core thread，上一轮用户修正不会自动进入下一轮。
 - “新建对话”目前只清空前端展示，没有创建或切换持久 conversation。
-- 单个 Task 内，在触发压缩前，每次模型决策都会重发该 Task 的全部有效消息；触发阈值后才改为本地摘要加增量消息。
-- 当前压缩是自定义 Chat Completions 摘要，不是 Codex 的 thread/turn/steer 协议，也不是 Responses API 的原生不透明 compaction item。
+- Chat Completions 在首次触发压缩前仍需发送有效消息；触发后只发送 Checkpoint v2 与新增 tail，大工具结果使用 Result Capsule 投影。
+- 本地压缩是严格的 Chat Completions checkpoint 协议，不冒充 Responses API 的原生不透明 compaction item；Responses provider 仍优先使用自身续接状态。
 
 因此，本方案把“对话身份”“一次用户回合”“一次执行任务”分开，并在 provider 层兼容原生 Responses 上下文和本地 Chat 回退。
 
@@ -170,7 +170,7 @@ AgentConversation（稳定，多轮）
 4. Responses 模式只发送增量和 provider cursor；Chat 模式只发送 checkpoint + tail。
 5. 原生或本地压缩后，用户约束、精确命令、工具证据和未完成事项不丢失。
 6. 压缩初次请求加 3 次重试均失败后，结束 turn 并显示原始错误链。
-7. 大终端输出和 MCP 结果使用 Artifact/Evidence 引用，不在每次模型请求中重复传输。
+7. 大终端输出、文件和 MCP 结果使用 Result Capsule 与 Artifact/Evidence 引用，不在每次模型请求中重复传输；`result_read` 可按查询或分页恢复原文。
 8. 模型故障切换不得重放已经产生副作用的工具调用。
 9. 停止、应用重启和 provider 断线后，对话与 turn 状态可恢复或明确标记为中断。
 
@@ -185,3 +185,11 @@ AgentConversation（稳定，多轮）
 - 前端按 Conversation 创建、删除、恢复历史，显示上下文模式和 steering 状态，并为每个模型配置窗口/压缩阈值。
 
 本版本仍不增加云端长期记忆、工作流 DAG 或云端 Skill 市场。Responses 当前采用完整 JSON 响应，Chat Completions 保持 SSE 增量文本；这一取舍优先保证续接、工具调用和兼容回退的正确性，后续可在不改 Conversation 存储契约的前提下增加 Responses SSE。
+
+## 8. 0.10.0 Result Capsule 与 Checkpoint v2 实施结果
+
+- Core 将大于 8 KiB 的工具原文保存为不可变 artifact 和 `tool_results` 索引，消息只保存版本化 Capsule；小结果不增加包装层。
+- Capsule 包含 `resultId`、状态、字节数、SHA-256、来源事实和精确摘录。`result_read` 支持字面搜索或 UTF-8 安全分页，且不重新执行原工具。
+- 每次本地压缩只发送上一 checkpoint、新 tail、可用事实和结果目录。模型选择引用，宿主校验引用并注入精确用户消息、CLI 命令和事实。
+- 已完成查询噪声允许被丢弃；仍可能复查的原始证据通过 `resultRefs` 留在 checkpoint。不存在“为了保险把所有查询结果一直重发”的固定流程。
+- 预算包含 system prompt、工具 schema、消息、checkpoint、协议开销和输出预留。压缩重试会携带上一轮严格 JSON 校验错误，全部失败时不推进压缩序号。

@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.9.14`
+当前版本：`0.10.0`
 
 ## 核心功能
 
@@ -70,7 +70,9 @@ Agent 使用类似 Claude Code 的循环：
 - Agent 会在任务时间线记录本轮模型请求数、工具调用数和 Token 用量；独立只读工具可在同一模型轮次并发执行，有副作用或存在依赖的步骤仍保持串行。
 - AI 配置以版本化 JSON 持久化。一个配置可定义主模型、分析模型和备用模型；启用自动切换后，模型请求失败会按角色顺序切换并在 Agent 时间线标出实际使用的模型。
 - Provider Context Adapter 统一支持 Responses 和 Chat Completions：自动模式优先复用 `previous_response_id` 与服务端原生压缩，确认网关不支持后持久回退到本地 checkpoint + tail，不会每轮重复探测。
-- AI 设置可按模型配置上下文窗口和压缩阈值；本地 checkpoint 以版本化 JSON 保留目标、约束、用户纠正、原样 CLI 命令、工具事实、Evidence 引用和未解决项。
+- AI 设置可按模型配置上下文窗口和压缩阈值；本地 Checkpoint v2 只合并“上一份 checkpoint + 新增 tail”，并按持久化引用注入用户纠正、原样 CLI 命令、工具事实和 Evidence，不再为每次压缩重放全部原始历史。
+- 超过 8 KiB 的终端、文件、MCP 和查询结果原文单独落盘并记录 SHA-256；模型收到的是带 `resultId`、来源事实和精确摘录的 Result Capsule。需要核实时使用只读 `result_read` 按字面搜索或分页读取原始结果，不截断事实，也不重新执行可能有副作用的工具。
+- Chat Completions 的上下文预算同时计入系统 Prompt、工具 Schema、消息、checkpoint 和输出预留；压缩请求若失败会携带上一次校验错误重试，初次请求加 3 次重试仍失败才终止当前 Turn。
 
 ### 权限与安全策略
 

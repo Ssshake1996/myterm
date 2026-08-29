@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.9.14。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.10.0。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -172,7 +172,13 @@ AI 服务设置的“Agent 上下文协议”提供三种模式：
 - Responses：强制使用 Responses 增量续接与服务端压缩；网关不支持时显示原始请求错误，不自动降级。
 - 本地上下文：使用 Chat Completions，达到阈值时生成版本化 JSON checkpoint，之后只提交 checkpoint 和它之后的消息。
 
-每个模型可单独设置“上下文窗口”和“压缩阈值”，阈值必须小于窗口。未填写时默认为 128000 Token 窗口和 75% 压缩阈值。Responses 上下文可用时不再重复运行本地压缩；本地 checkpoint 会保留目标、约束、用户纠正、精确 CLI 命令和空格、工具事实、Evidence 引用、未解决项和权限状态。压缩失败初次请求后最多再重试 3 次，仍失败才以原始错误终止当前 Turn。
+每个模型可单独设置“上下文窗口”和“压缩阈值”，阈值必须小于窗口。未填写时默认为 128000 Token 窗口和 75% 压缩阈值。预算不仅计算聊天消息，还计算系统 Prompt、工具 Schema、当前 checkpoint 和模型输出预留。Responses 上下文可用时不再重复运行本地压缩；本地 Checkpoint v2 每次只读取上一份 checkpoint 和尚未压缩的新消息，通过持久化引用恢复用户纠正、精确 CLI 命令和空格、工具事实、Evidence 引用、未解决项和权限状态，不把全部历史重新交给模型总结。压缩失败会把上一次 JSON 校验错误加入重试请求；初次请求后最多再重试 3 次，仍失败才以原始错误终止当前 Turn。
+
+### 大型查询结果与 Result Capsule
+
+终端输出、文件内容、MCP 返回或其他工具结果超过 8 KiB 时，dsh-codex-agent 会把不可变原文单独保存，并记录字节数和 SHA-256；对话上下文只加入版本化 Result Capsule。Capsule 包含 `resultId`、工具名、状态、与当前任务相关的来源事实、精确摘录以及是否需要继续读取，不会用任意“头部 + 尾部”截断代替原文。
+
+当 Capsule 已足以回答问题时，Agent 直接使用其中带来源的事实；需要核对某个参数、错误行或遗漏区域时，Agent 调用只读 `result_read`：可以用 `query` 对原文做不区分大小写的字面行搜索，也可以用 `offset` / `limit` 分页读取。该工具只读取已落盘结果，不会重新执行 SSH、MCP 或写操作。已经完成且与后续目标无关的查询噪声允许从下一份 checkpoint 中删除；仍可能复查的结果则通过 `resultRefs` 保留 `resultId`。
 
 ### 完整终端输出
 

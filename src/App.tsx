@@ -17,7 +17,6 @@ import {
   appFontScaleSave,
   appThemeGet,
   appThemeSave,
-  environmentMigrationReport,
   getAppInfo,
   isDesktopRuntime,
   onSessionState,
@@ -101,21 +100,6 @@ export function App() {
         notify(error instanceof Error ? error.message : "会话配置读取失败", "error"),
       );
   }, [notify, openProfile, setFontScale, setTerminalFontSize, setTerminalPalette, setTheme]);
-
-  useEffect(() => {
-    void environmentMigrationReport()
-      .then((report) => {
-        if (!report) return;
-        const renames = report.renamedGroups.map((item) => `${item.from} → ${item.to}`).join("；");
-        notify(
-          `已迁移 ${report.migratedProfiles} 个环境配置${renames ? `；分组更名：${renames}` : ""}`,
-          "success",
-        );
-      })
-      .catch((error) =>
-        notify(error instanceof Error ? error.message : "环境配置迁移结果读取失败", "error"),
-      );
-  }, [notify]);
 
   const selectTheme = async (nextTheme: AppTheme) => {
     const previousTheme = theme;

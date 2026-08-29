@@ -3,6 +3,7 @@ mod chat_completions_transport;
 mod error;
 mod model_transport;
 mod responses_transport;
+mod result_reducer;
 mod runtime;
 mod store;
 mod types;

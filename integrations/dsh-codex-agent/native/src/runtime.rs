@@ -26,6 +26,7 @@ const COMPACTION_RETRY_DELAYS_MS: [u64; COMPACTION_MAX_RETRIES] = [100, 250, 500
 use crate::{
     error::CoreError,
     model_transport::{DeltaSink, ModelTransport},
+    result_reducer::{ResultCapsule, ResultFact, reduce_tool_result},
     store::ThreadStore,
     types::{
         ChatMessage, CoreConfig, GraphEdge, MessageRole, ModelRequest, ProviderContext,
@@ -255,7 +256,7 @@ impl CodexRuntime {
                 )));
             }
             self.apply_pending_steering(thread_id, &host, &mut steering, None)?;
-            self.maybe_compact(thread_id, host.clone(), cancellation.clone())
+            self.maybe_compact(thread_id, &model_tools, host.clone(), cancellation.clone())
                 .await?;
             let messages = self.effective_messages(thread_id)?;
             let sequenced_messages = self
@@ -461,6 +462,7 @@ impl CodexRuntime {
             })?
         };
         let arguments_summary = summarize_json(&arguments, 512);
+        let user_intent = self.latest_user_intent(thread_id)?;
         host.emit(RuntimeEvent::ToolRequested {
             thread_id: thread_id.to_owned(),
             call_id: call.id.clone(),
@@ -484,26 +486,47 @@ impl CodexRuntime {
             }
             "wait_agent" => self.wait_agent(thread_id, &arguments, host.clone()).await?,
             "cancel_agent" => self.cancel_agent(&arguments).await?,
+            "result_read" => self.read_result(thread_id, &arguments)?,
             _ => {
                 let invocation = ToolInvocation {
                     thread_id: thread_id.to_owned(),
                     call_id: call.id.clone(),
                     name: call.name.clone(),
-                    arguments,
+                    arguments: arguments.clone(),
                     target: None,
                 };
                 host.execute_tool(invocation).await?
             }
         };
 
-        self.store.append_message(
+        let result_id = format!("result-{}", Uuid::new_v4());
+        let reduced = reduce_tool_result(
+            &result_id,
+            &call.name,
+            &arguments,
+            &result.content,
+            &result.status,
+            result.is_error,
+            &user_intent,
+        )
+        .map_err(|error| CoreError::Tool {
+            tool: call.name.clone(),
+            detail: format!("unable to build result capsule: {error}"),
+        })?;
+        let projected_bytes = reduced.projected_content.len();
+        let read_required = reduced.capsule.read_required;
+        self.store.append_tool_result(
             thread_id,
+            &call.id,
+            &call.name,
             &ChatMessage {
                 role: MessageRole::Tool,
-                content: Some(result.content.clone()),
+                content: Some(reduced.projected_content),
                 tool_calls: Vec::new(),
                 tool_call_id: Some(call.id.clone()),
             },
+            &result.content,
+            &reduced.capsule,
         )?;
         self.store.audit(
             Some(thread_id),
@@ -513,6 +536,10 @@ impl CodexRuntime {
                 "name": call.name,
                 "isError": result.is_error,
                 "status": result.status,
+                "resultId": result_id,
+                "rawBytes": result.content.len(),
+                "projectedBytes": projected_bytes,
+                "readRequired": read_required,
             }),
         )?;
         host.emit(RuntimeEvent::ToolCompleted {
@@ -522,6 +549,127 @@ impl CodexRuntime {
             is_error: result.is_error,
         });
         Ok(())
+    }
+
+    fn latest_user_intent(&self, thread_id: &str) -> Result<String, CoreError> {
+        Ok(self
+            .store
+            .load_messages(thread_id)?
+            .into_iter()
+            .rev()
+            .find_map(|(_, message)| {
+                (message.role == MessageRole::User)
+                    .then_some(message.content)
+                    .flatten()
+            })
+            .unwrap_or_default())
+    }
+
+    fn read_result(
+        &self,
+        thread_id: &str,
+        arguments: &Value,
+    ) -> Result<ToolExecutionResult, CoreError> {
+        let args: ResultReadArgs = serde_json::from_value(arguments.clone()).map_err(|error| {
+            CoreError::InvalidToolCall(format!("result_read arguments: {error}"))
+        })?;
+        let record = self.store.tool_result(thread_id, &args.result_id)?;
+        let limit = args.limit.unwrap_or(6 * 1024).clamp(1, 6 * 1024);
+        let content = if let Some(query) = args.query.as_deref() {
+            if query.trim().is_empty() {
+                return Err(CoreError::InvalidToolCall(
+                    "result_read query must not be empty".to_owned(),
+                ));
+            }
+            if query.len() > 512 {
+                return Err(CoreError::InvalidToolCall(
+                    "result_read query must not exceed 512 bytes".to_owned(),
+                ));
+            }
+            let source =
+                std::fs::read_to_string(&record.raw_path).map_err(|error| CoreError::Store {
+                    operation: "read_tool_result_search",
+                    detail: error.to_string(),
+                })?;
+            let query_lower = query.to_ascii_lowercase();
+            let mut matches = Vec::new();
+            let mut total_matches = 0_usize;
+            let mut selected_bytes = 0_usize;
+            let mut source_offset = 0_usize;
+            for (index, raw_line) in source.split_inclusive('\n').enumerate() {
+                let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
+                let line = line.strip_suffix('\r').unwrap_or(line);
+                if !line.to_ascii_lowercase().contains(&query_lower) {
+                    source_offset = source_offset.saturating_add(raw_line.len());
+                    continue;
+                }
+                total_matches = total_matches.saturating_add(1);
+                let match_offset = line
+                    .to_ascii_lowercase()
+                    .find(&query_lower)
+                    .unwrap_or_default();
+                let remaining = limit.saturating_sub(selected_bytes);
+                if matches.len() < 50 && remaining >= query.len().saturating_add(96) {
+                    let text_budget = remaining.saturating_sub(96);
+                    let (excerpt, excerpt_start, truncated) =
+                        bounded_match_excerpt(line, match_offset, query.len(), text_budget);
+                    selected_bytes = selected_bytes
+                        .saturating_add(excerpt.len())
+                        .saturating_add(96);
+                    matches.push(json!({
+                        "line": index + 1,
+                        "byteOffset": source_offset.saturating_add(match_offset),
+                        "excerptByteOffset": source_offset.saturating_add(excerpt_start),
+                        "truncated": truncated,
+                        "text": excerpt,
+                    }));
+                }
+                source_offset = source_offset.saturating_add(raw_line.len());
+            }
+            json!({
+                "resultId": record.result_id,
+                "tool": record.tool_name,
+                "query": query,
+                "matchCount": total_matches,
+                "returnedMatches": matches.len(),
+                "readMore": total_matches > matches.len(),
+                "matches": matches,
+                "rawBytes": record.raw_bytes,
+                "rawSha256": record.raw_sha256,
+            })
+        } else {
+            let source =
+                std::fs::read_to_string(&record.raw_path).map_err(|error| CoreError::Store {
+                    operation: "read_tool_result_artifact",
+                    detail: error.to_string(),
+                })?;
+            let requested_start = usize::try_from(args.offset.unwrap_or(0))
+                .unwrap_or(usize::MAX)
+                .min(source.len());
+            let mut start = requested_start;
+            while start < source.len() && !source.is_char_boundary(start) {
+                start += 1;
+            }
+            let mut end = start.saturating_add(limit).min(source.len());
+            while end > start && !source.is_char_boundary(end) {
+                end -= 1;
+            }
+            json!({
+                "resultId": record.result_id,
+                "tool": record.tool_name,
+                "offset": start,
+                "nextOffset": end,
+                "rawBytes": record.raw_bytes,
+                "eof": end >= source.len(),
+                "content": &source[start..end],
+                "rawSha256": record.raw_sha256,
+            })
+        };
+        Ok(ToolExecutionResult {
+            content: content.to_string(),
+            is_error: false,
+            status: "completed".to_owned(),
+        })
     }
 
     fn spawn_agent<'a>(
@@ -724,6 +872,7 @@ impl CodexRuntime {
     async fn maybe_compact(
         &self,
         thread_id: &str,
+        tools: &[ToolDefinition],
         host: Arc<dyn HostBridge>,
         cancellation: CancellationToken,
     ) -> Result<(), CoreError> {
@@ -741,24 +890,69 @@ impl CodexRuntime {
         }
         let state = self.store.compaction_state(thread_id)?;
         let messages = self.store.load_messages(thread_id)?;
-        let effective = messages
+        let tail = messages
             .iter()
             .filter(|(seq, _)| *seq > state.compacted_through_seq)
+            .cloned()
+            .collect::<Vec<_>>();
+        let effective_messages = tail
+            .iter()
             .map(|(_, message)| message.clone())
             .collect::<Vec<_>>();
-        let estimated_tokens = estimate_tokens(&effective, state.summary.as_deref());
-        if estimated_tokens < self.config.compact_threshold_tokens {
+        let estimated_tokens = estimate_prompt_tokens(
+            &self.config.system_prompt,
+            tools,
+            &effective_messages,
+            state.summary.as_deref(),
+        );
+        let output_reserve = output_reserve_tokens(self.config.context_window_tokens);
+        let input_budget = self
+            .config
+            .context_window_tokens
+            .saturating_sub(output_reserve)
+            .max(1);
+        let effective_threshold = self.config.compact_threshold_tokens.min(input_budget);
+        if estimated_tokens < effective_threshold {
             return Ok(());
         }
         host.emit(RuntimeEvent::CompactionStarted {
             thread_id: thread_id.to_owned(),
             estimated_tokens,
         });
-        let transcript =
-            serde_json::to_string(&messages).map_err(|error| CoreError::CompactionFailed {
-                code: "TRANSCRIPT_SERIALIZATION".to_owned(),
-                detail: error.to_string(),
-            })?;
+        let capsules = self
+            .store
+            .tool_result_capsules_after(thread_id, state.compacted_through_seq)?;
+        let available_facts = capsules
+            .iter()
+            .flat_map(|capsule| capsule.facts.iter().cloned())
+            .collect::<Vec<_>>();
+        let transcript = serde_json::to_string(&json!({
+            "previousCheckpoint": state
+                .summary
+                .as_deref()
+                .and_then(|summary| serde_json::from_str::<Value>(summary).ok()),
+            "messages": tail
+                .iter()
+                .map(|(seq, message)| json!({ "seq": seq, "message": message }))
+                .collect::<Vec<_>>(),
+            "availableFacts": available_facts,
+            "availableResults": capsules
+                .iter()
+                .map(|capsule| json!({
+                    "resultId": capsule.result_id,
+                    "tool": capsule.tool,
+                    "status": capsule.status,
+                    "isError": capsule.is_error,
+                    "summary": capsule.summary,
+                    "rawBytes": capsule.raw_bytes,
+                    "rawSha256": capsule.raw_sha256,
+                }))
+                .collect::<Vec<_>>(),
+        }))
+        .map_err(|error| CoreError::CompactionFailed {
+            code: "TRANSCRIPT_SERIALIZATION".to_owned(),
+            detail: error.to_string(),
+        })?;
         let compact_request = ModelRequest {
             provider_context_enabled: false,
             thread_id: thread_id.to_owned(),
@@ -766,7 +960,7 @@ impl CodexRuntime {
             messages: vec![
                 ChatMessage::text(
                     MessageRole::System,
-                    "Create a versioned local conversation checkpoint. Return strict JSON only with these fields: {\"version\":1,\"summary\":\"...\",\"goals\":[],\"constraints\":[],\"userCorrections\":[],\"literalCommands\":[],\"toolFacts\":[],\"evidenceRefs\":[],\"unresolved\":[],\"permissionState\":null}. Preserve exact commands and whitespace as JSON strings; never rewrite or normalize them. Preserve goals, decisions, paths, tool facts, failures, permissions, evidence references, user corrections, and unresolved work. Do not request tools.",
+                    "Create an incremental local conversation checkpoint from previousCheckpoint plus only the new sequenced messages and result facts. Return strict JSON only with these fields: {\"version\":2,\"summary\":\"...\",\"goals\":[],\"constraints\":[],\"userCorrectionRefs\":[],\"factRefs\":[],\"resultRefs\":[],\"unresolved\":[],\"permissionState\":null}. userCorrectionRefs must contain message seq values whose exact user text is a durable correction. factRefs must contain exact available fact ids still needed for goals, decisions, failures, generated commands, or unresolved work. resultRefs retain exact result ids when opaque evidence may need a later result_read. Empty factRefs and resultRefs are valid when the new query output is completed noise. Never copy or rewrite command strings, facts, or evidence: the host injects their exact persisted values from the selected references. Preserve active goals, decisions, paths, permissions, failures, and unresolved work. Drop completed query noise. Do not request tools.",
                 ),
                 ChatMessage::text(MessageRole::User, transcript),
             ],
@@ -775,7 +969,7 @@ impl CodexRuntime {
             provider_contexts: Vec::new(),
             compact_threshold_tokens: self.config.compact_threshold_tokens,
         };
-        let mut last_error = None;
+        let mut last_error: Option<CoreError> = None;
         let mut summary = None;
         for attempt in 0..=COMPACTION_MAX_RETRIES {
             if cancellation.is_cancelled() {
@@ -783,9 +977,19 @@ impl CodexRuntime {
                     "thread {thread_id} was cancelled during compaction"
                 )));
             }
+            let mut attempt_request = compact_request.clone();
+            if let Some(previous_error) = last_error.as_ref() {
+                attempt_request.messages.push(ChatMessage::text(
+                    MessageRole::System,
+                    format!(
+                        "The previous checkpoint attempt failed validation. Correct this exact error and return the complete strict JSON object again:\n{}",
+                        previous_error.detail()
+                    ),
+                ));
+            }
             let attempt_result = self
                 .transport
-                .stream(compact_request.clone(), cancellation.clone(), None)
+                .stream(attempt_request, cancellation.clone(), None)
                 .await
                 .map_err(|error| CoreError::CompactionFailed {
                     code: error.code().to_owned(),
@@ -798,11 +1002,15 @@ impl CodexRuntime {
                             detail: "compaction model returned a tool call".to_owned(),
                         });
                     }
-                    validate_checkpoint(&response.text, &messages).map_err(|detail| {
-                        CoreError::CompactionFailed {
-                            code: "SUMMARY_VALIDATION".to_owned(),
-                            detail,
-                        }
+                    validate_checkpoint(
+                        &response.text,
+                        &messages,
+                        state.summary.as_deref(),
+                        &capsules,
+                    )
+                    .map_err(|detail| CoreError::CompactionFailed {
+                        code: "SUMMARY_VALIDATION".to_owned(),
+                        detail,
                     })
                 });
             match attempt_result {
@@ -859,7 +1067,10 @@ impl CodexRuntime {
                 return Err(error);
             }
         };
-        let through_seq = messages.last().map(|(seq, _)| *seq).unwrap_or(-1);
+        let through_seq = tail
+            .last()
+            .map(|(seq, _)| *seq)
+            .unwrap_or(state.compacted_through_seq);
         let revision =
             self.store
                 .commit_compaction(thread_id, &summary, messages.len(), through_seq)?;
@@ -938,7 +1149,7 @@ fn merge_tools(mut host_tools: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
     host_tools.retain(|tool| {
         !matches!(
             tool.name.as_str(),
-            "spawn_agent" | "wait_agent" | "cancel_agent"
+            "spawn_agent" | "wait_agent" | "cancel_agent" | "result_read"
         )
     });
     host_tools.extend(internal_tool_definitions());
@@ -988,10 +1199,31 @@ fn internal_tool_definitions() -> Vec<ToolDefinition> {
             }),
             parallel_safe: false,
         },
+        ToolDefinition {
+            name: "result_read".to_owned(),
+            description: "Read or search the exact locally persisted raw result behind a result capsule. Use result_id from a large tool result. A literal query returns exact matching lines; without query, read a bounded byte range. This is read-only and never re-executes the original tool.".to_owned(),
+            parameters: json!({
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["result_id"],
+                "properties": {
+                    "result_id": { "type": "string" },
+                    "query": { "type": "string", "maxLength": 512, "description": "Optional case-insensitive literal search over the complete raw result" },
+                    "offset": { "type": "integer", "minimum": 0, "default": 0 },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 6144, "default": 6144 }
+                }
+            }),
+            parallel_safe: true,
+        },
     ]
 }
 
-fn estimate_tokens(messages: &[ChatMessage], summary: Option<&str>) -> usize {
+fn estimate_prompt_tokens(
+    system_prompt: &str,
+    tools: &[ToolDefinition],
+    messages: &[ChatMessage],
+    summary: Option<&str>,
+) -> usize {
     let message_bytes = messages
         .iter()
         .map(|message| {
@@ -1000,7 +1232,51 @@ fn estimate_tokens(messages: &[ChatMessage], summary: Option<&str>) -> usize {
                 .unwrap_or_default()
         })
         .sum::<usize>();
-    (message_bytes + summary.map(str::len).unwrap_or_default()).div_ceil(4)
+    let tool_bytes = serde_json::to_vec(tools)
+        .map(|value| value.len())
+        .unwrap_or_default();
+    let protocol_bytes = messages
+        .len()
+        .saturating_mul(64)
+        .saturating_add(tools.len().saturating_mul(96));
+    (message_bytes
+        + system_prompt.len()
+        + summary.map(str::len).unwrap_or_default()
+        + tool_bytes
+        + protocol_bytes)
+        .div_ceil(4)
+}
+
+fn output_reserve_tokens(context_window_tokens: usize) -> usize {
+    if context_window_tokens < 4_096 {
+        return context_window_tokens / 10;
+    }
+    (context_window_tokens / 8).clamp(2_048, 16_384)
+}
+
+fn bounded_match_excerpt(
+    line: &str,
+    match_offset: usize,
+    match_bytes: usize,
+    budget: usize,
+) -> (&str, usize, bool) {
+    if line.len() <= budget {
+        return (line, 0, false);
+    }
+    let budget = budget.max(match_bytes).min(line.len());
+    let before = budget.saturating_sub(match_bytes) / 2;
+    let mut start = match_offset.saturating_sub(before);
+    let mut end = start.saturating_add(budget).min(line.len());
+    if end == line.len() {
+        start = end.saturating_sub(budget);
+    }
+    while start < line.len() && !line.is_char_boundary(start) {
+        start += 1;
+    }
+    while end > start && !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    (&line[start..end], start, true)
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1016,9 +1292,17 @@ struct LocalCheckpoint {
     #[serde(default)]
     user_corrections: Vec<String>,
     #[serde(default)]
+    user_correction_refs: Vec<i64>,
+    #[serde(default)]
     literal_commands: Vec<String>,
     #[serde(default)]
     tool_facts: Vec<String>,
+    #[serde(default)]
+    facts: Vec<ResultFact>,
+    #[serde(default)]
+    fact_refs: Vec<String>,
+    #[serde(default)]
+    result_refs: Vec<String>,
     #[serde(default)]
     evidence_refs: Vec<String>,
     #[serde(default)]
@@ -1028,10 +1312,15 @@ struct LocalCheckpoint {
 }
 
 fn checkpoint_version() -> u8 {
-    1
+    2
 }
 
-fn validate_checkpoint(raw: &str, messages: &[(i64, ChatMessage)]) -> Result<String, String> {
+fn validate_checkpoint(
+    raw: &str,
+    messages: &[(i64, ChatMessage)],
+    previous_summary: Option<&str>,
+    capsules: &[ResultCapsule],
+) -> Result<String, String> {
     if raw.trim().is_empty() {
         return Err("compaction response was empty".to_owned());
     }
@@ -1044,15 +1333,116 @@ fn validate_checkpoint(raw: &str, messages: &[(i64, ChatMessage)]) -> Result<Str
     if raw.len() > 256_000 {
         return Err("summary exceeds 256000 bytes".to_owned());
     }
-    checkpoint.version = 1;
+    let previous =
+        previous_summary.and_then(|value| serde_json::from_str::<LocalCheckpoint>(value).ok());
+    checkpoint.version = 2;
     checkpoint.summary = summary.to_owned();
+    if let Some(previous) = previous.as_ref() {
+        merge_unique(
+            &mut checkpoint.constraints,
+            previous.constraints.iter().cloned(),
+        );
+        merge_unique(
+            &mut checkpoint.user_corrections,
+            previous.user_corrections.iter().cloned(),
+        );
+        merge_unique(
+            &mut checkpoint.user_correction_refs,
+            previous.user_correction_refs.iter().copied(),
+        );
+        merge_unique(
+            &mut checkpoint.tool_facts,
+            previous.tool_facts.iter().cloned(),
+        );
+    }
+    let message_by_seq = messages
+        .iter()
+        .map(|(seq, message)| (*seq, message))
+        .collect::<HashMap<_, _>>();
+    for seq in checkpoint.user_correction_refs.clone() {
+        let message = message_by_seq
+            .get(&seq)
+            .ok_or_else(|| format!("userCorrectionRefs contains unknown message seq {seq}"))?;
+        if message.role != MessageRole::User {
+            return Err(format!(
+                "userCorrectionRefs seq {seq} does not reference a user message"
+            ));
+        }
+        let text = message
+            .content
+            .as_ref()
+            .ok_or_else(|| format!("userCorrectionRefs seq {seq} has no text"))?;
+        if !checkpoint.user_corrections.contains(text) {
+            checkpoint.user_corrections.push(text.clone());
+        }
+    }
+    for correction in &checkpoint.user_corrections {
+        if !messages.iter().any(|(_, message)| {
+            message.role == MessageRole::User && message.content.as_deref() == Some(correction)
+        }) && previous
+            .as_ref()
+            .is_none_or(|prior| !prior.user_corrections.contains(correction))
+        {
+            return Err(format!(
+                "user correction is not an exact persisted user message: {correction:?}"
+            ));
+        }
+    }
     for command in exact_cli_commands(messages) {
         if !checkpoint.literal_commands.contains(&command) {
             checkpoint.literal_commands.push(command);
         }
     }
+    let mut available_facts = HashMap::<String, ResultFact>::new();
+    if let Some(previous) = previous.as_ref() {
+        for fact in &previous.facts {
+            available_facts.insert(fact.id.clone(), fact.clone());
+        }
+    }
+    for fact in capsules.iter().flat_map(|capsule| capsule.facts.iter()) {
+        available_facts.insert(fact.id.clone(), fact.clone());
+    }
+    checkpoint.facts.clear();
+    checkpoint.evidence_refs.clear();
+    let mut available_results = capsules
+        .iter()
+        .map(|capsule| capsule.result_id.clone())
+        .collect::<Vec<_>>();
+    if let Some(previous) = previous.as_ref() {
+        merge_unique(
+            &mut available_results,
+            previous.evidence_refs.iter().cloned(),
+        );
+    }
+    for result_id in &checkpoint.result_refs {
+        if !available_results.contains(result_id) {
+            return Err(format!(
+                "resultRefs contains unknown result id {result_id:?}"
+            ));
+        }
+        if !checkpoint.evidence_refs.contains(result_id) {
+            checkpoint.evidence_refs.push(result_id.clone());
+        }
+    }
+    for fact_id in &checkpoint.fact_refs {
+        let fact = available_facts
+            .get(fact_id)
+            .ok_or_else(|| format!("factRefs contains unknown fact id {fact_id:?}"))?;
+        checkpoint.facts.push(fact.clone());
+        if !checkpoint.evidence_refs.contains(&fact.source.result_id) {
+            checkpoint.evidence_refs.push(fact.source.result_id.clone());
+        }
+    }
     serde_json::to_string(&checkpoint)
         .map_err(|error| format!("unable to serialize validated checkpoint: {error}"))
+}
+
+fn merge_unique<T: PartialEq>(target: &mut Vec<T>, values: impl IntoIterator<Item = T>) {
+    for value in values {
+        if !target.contains(&value) {
+            target.push(value);
+        }
+    }
 }
 
 fn exact_cli_commands(messages: &[(i64, ChatMessage)]) -> Vec<String> {
@@ -1114,6 +1504,15 @@ struct WaitAgentArgs {
 #[serde(deny_unknown_fields)]
 struct CancelAgentArgs {
     thread_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResultReadArgs {
+    result_id: String,
+    query: Option<String>,
+    offset: Option<u64>,
+    limit: Option<usize>,
 }
 
 #[cfg(test)]
@@ -1572,21 +1971,21 @@ mod tests {
     #[test]
     fn compaction_summary_validation_rejects_empty_and_non_strict_payloads() {
         assert_eq!(
-            validate_checkpoint("", &[]).unwrap_err(),
+            validate_checkpoint("", &[], None, &[]).unwrap_err(),
             "compaction response was empty"
         );
         assert!(
-            validate_checkpoint(r#"{"summary":""}"#, &[])
+            validate_checkpoint(r#"{"summary":""}"#, &[], None, &[])
                 .unwrap_err()
                 .contains("summary field is empty")
         );
         assert!(
-            validate_checkpoint(r#"{"summary":"ok","extra":true}"#, &[])
+            validate_checkpoint(r#"{"summary":"ok","extra":true}"#, &[], None, &[])
                 .unwrap_err()
                 .contains("strict checkpoint JSON")
         );
         assert!(
-            validate_checkpoint("plain text", &[])
+            validate_checkpoint("plain text", &[], None, &[])
                 .unwrap_err()
                 .contains("strict checkpoint JSON")
         );
@@ -1608,10 +2007,110 @@ mod tests {
                 tool_call_id: None,
             },
         )];
-        let checkpoint = validate_checkpoint(r#"{"summary":"keep command"}"#, &messages).unwrap();
+        let checkpoint =
+            validate_checkpoint(r#"{"summary":"keep command"}"#, &messages, None, &[]).unwrap();
         let value: Value = serde_json::from_str(&checkpoint).unwrap();
-        assert_eq!(value["version"], 1);
+        assert_eq!(value["version"], 2);
         assert_eq!(value["literalCommands"][0], "show system general");
+    }
+
+    #[test]
+    fn checkpoint_v2_resolves_corrections_and_facts_from_persisted_sources() {
+        let messages = vec![(
+            7,
+            ChatMessage::text(MessageRole::User, "参数之间必须保留空格"),
+        )];
+        let raw = json!({"filesystem": "/data", "usage": "92%"}).to_string();
+        let reduced = reduce_tool_result(
+            "result-fact",
+            "remote_exec",
+            &json!({"command": "df -h /data"}),
+            &raw,
+            "completed",
+            false,
+            "检查 /data 使用率",
+        )
+        .unwrap();
+        let usage = reduced
+            .capsule
+            .facts
+            .iter()
+            .find(|fact| fact.value == "92%")
+            .unwrap();
+        let checkpoint = validate_checkpoint(
+            &json!({
+                "version": 2,
+                "summary": "retain the exact correction and disk fact",
+                "userCorrectionRefs": [7],
+                "factRefs": [usage.id],
+                "resultRefs": ["result-fact"],
+            })
+            .to_string(),
+            &messages,
+            None,
+            &[reduced.capsule],
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&checkpoint).unwrap();
+        assert_eq!(value["version"], 2);
+        assert_eq!(value["userCorrections"][0], "参数之间必须保留空格");
+        assert_eq!(value["facts"][0]["value"], "92%");
+        assert_eq!(value["evidenceRefs"][0], "result-fact");
+    }
+
+    #[test]
+    fn checkpoint_can_drop_completed_query_noise() {
+        let raw = json!({"rows": [1, 2, 3]}).to_string();
+        let reduced = reduce_tool_result(
+            "result-noise",
+            "remote_exec",
+            &json!({"command": "list completed records"}),
+            &raw.repeat(4_000),
+            "completed",
+            false,
+            "列出已完成记录",
+        )
+        .unwrap();
+        let checkpoint = validate_checkpoint(
+            r#"{"version":2,"summary":"query completed","factRefs":[],"resultRefs":[]}"#,
+            &[],
+            None,
+            &[reduced.capsule],
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&checkpoint).unwrap();
+        assert_eq!(value["facts"], json!([]));
+        assert_eq!(value["evidenceRefs"], json!([]));
+    }
+
+    #[test]
+    fn checkpoint_rejects_unknown_result_reference() {
+        let error = validate_checkpoint(
+            r#"{"version":2,"summary":"keep evidence","resultRefs":["missing"]}"#,
+            &[],
+            None,
+            &[],
+        )
+        .unwrap_err();
+        assert!(error.contains("unknown result id"));
+    }
+
+    #[test]
+    fn prompt_estimate_includes_system_prompt_and_tool_schemas() {
+        let message = ChatMessage::text(MessageRole::User, "inspect");
+        let without_tools = estimate_prompt_tokens("system", &[], &[message.clone()], None);
+        let with_tools = estimate_prompt_tokens(
+            "system",
+            &[ToolDefinition {
+                name: "large_tool".to_owned(),
+                description: "x".repeat(4_000),
+                parameters: json!({"type":"object","properties":{"query":{"type":"string"}}}),
+                parallel_safe: true,
+            }],
+            &[message],
+            None,
+        );
+        assert!(with_tools > without_tools + 900);
     }
 
     #[tokio::test]
@@ -1667,6 +2166,137 @@ mod tests {
             requests[1].messages.last().unwrap().role,
             MessageRole::Tool
         ));
+    }
+
+    #[tokio::test]
+    async fn large_tool_results_are_projected_as_capsules_and_remain_searchable() {
+        let temp = TempDir::new().unwrap();
+        let transport = MockTransport::new(vec![
+            Ok(ModelResponse {
+                text: String::new(),
+                tool_calls: vec![ToolCall {
+                    index: 0,
+                    id: "call-large".to_owned(),
+                    name: "inspect_logs".to_owned(),
+                    arguments: r#"{"query":"needle"}"#.to_owned(),
+                }],
+                finish_reason: "tool_calls".to_owned(),
+                usage: None,
+                provider_context: None,
+            }),
+            Ok(text_response("done")),
+        ]);
+        let runtime = CodexRuntime::new(config(&temp, 100_000), transport.clone()).unwrap();
+        runtime.create_thread("root", None, None, "root").unwrap();
+        let host = Arc::new(MockHost::default());
+        let mut lines = (0..1_000)
+            .map(|index| format!("INFO request {index} completed"))
+            .collect::<Vec<_>>();
+        lines.push("ERROR needle disk is 92% full".to_owned());
+        let raw = lines.join("\n");
+        host.tool_results
+            .lock()
+            .unwrap()
+            .push_back(ToolExecutionResult {
+                content: raw.clone(),
+                is_error: false,
+                status: "completed".to_owned(),
+            });
+        runtime
+            .run_turn(
+                "root",
+                "find the needle error",
+                vec![ToolDefinition {
+                    name: "inspect_logs".to_owned(),
+                    description: "inspect logs".to_owned(),
+                    parameters: json!({"type":"object"}),
+                    parallel_safe: true,
+                }],
+                host,
+            )
+            .await
+            .unwrap();
+
+        let requests = transport.requests.lock().unwrap();
+        let projected = requests[1]
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == MessageRole::Tool)
+            .and_then(|message| message.content.as_deref())
+            .unwrap();
+        assert!(projected.len() < raw.len());
+        assert!(!projected.contains("INFO request 999 completed"));
+        let capsule: Value = serde_json::from_str(projected).unwrap();
+        assert_eq!(capsule["readRequired"], true);
+        let result_id = capsule["resultId"].as_str().unwrap();
+        drop(requests);
+
+        let searched = runtime
+            .read_result("root", &json!({"result_id": result_id, "query": "needle"}))
+            .unwrap();
+        assert!(searched.content.contains("ERROR needle disk is 92% full"));
+        assert_eq!(
+            std::fs::read_to_string(
+                runtime
+                    .store()
+                    .tool_result("root", result_id)
+                    .unwrap()
+                    .raw_path
+            )
+            .unwrap(),
+            raw
+        );
+
+        let one_line_raw = json!({
+            "padding": "x".repeat(16 * 1024),
+            "target": "needle-inside-minified-json",
+        })
+        .to_string();
+        let one_line = reduce_tool_result(
+            "result-one-line",
+            "inspect_json",
+            &json!({"query": "needle-inside-minified-json"}),
+            &one_line_raw,
+            "completed",
+            false,
+            "find needle-inside-minified-json",
+        )
+        .unwrap();
+        runtime
+            .store()
+            .append_tool_result(
+                "root",
+                "call-one-line",
+                "inspect_json",
+                &ChatMessage {
+                    role: MessageRole::Tool,
+                    content: Some(one_line.projected_content),
+                    tool_calls: Vec::new(),
+                    tool_call_id: Some("call-one-line".to_owned()),
+                },
+                &one_line_raw,
+                &one_line.capsule,
+            )
+            .unwrap();
+        let searched = runtime
+            .read_result(
+                "root",
+                &json!({
+                    "result_id": "result-one-line",
+                    "query": "needle-inside-minified-json",
+                }),
+            )
+            .unwrap();
+        let searched: Value = serde_json::from_str(&searched.content).unwrap();
+        assert_eq!(searched["matchCount"], 1);
+        assert_eq!(searched["matches"][0]["truncated"], true);
+        assert!(
+            searched["matches"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("needle-inside-minified-json")
+        );
     }
 
     #[tokio::test]
@@ -1865,6 +2495,50 @@ mod tests {
                 .unwrap_or_default()
                 .contains("compact state")
         }));
+    }
+
+    #[tokio::test]
+    async fn repeated_compaction_uses_previous_checkpoint_plus_only_new_tail() {
+        let temp = TempDir::new().unwrap();
+        let transport = MockTransport::new(vec![
+            Ok(text_response(
+                r#"{"version":2,"summary":"first checkpoint"}"#,
+            )),
+            Ok(text_response("first answer")),
+            Ok(text_response(
+                r#"{"version":2,"summary":"second checkpoint"}"#,
+            )),
+            Ok(text_response("second answer")),
+        ]);
+        let runtime = CodexRuntime::new(config(&temp, 1), transport.clone()).unwrap();
+        runtime
+            .create_thread("conversation", None, None, "root")
+            .unwrap();
+        runtime
+            .run_turn(
+                "conversation",
+                "first original input",
+                Vec::new(),
+                Arc::new(MockHost::default()),
+            )
+            .await
+            .unwrap();
+        runtime
+            .run_turn(
+                "conversation",
+                "second incremental input",
+                Vec::new(),
+                Arc::new(MockHost::default()),
+            )
+            .await
+            .unwrap();
+
+        let requests = transport.requests.lock().unwrap();
+        let second_compaction_payload = requests[2].messages[1].content.as_deref().unwrap();
+        assert!(second_compaction_payload.contains("first checkpoint"));
+        assert!(second_compaction_payload.contains("first answer"));
+        assert!(second_compaction_payload.contains("second incremental input"));
+        assert!(!second_compaction_payload.contains("first original input"));
     }
 
     #[tokio::test]

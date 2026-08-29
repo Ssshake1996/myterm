@@ -160,11 +160,6 @@ export interface AiModelTestResult {
   error?: AiErrorDiagnostic;
 }
 
-export interface EnvironmentMigrationReport {
-  migratedProfiles: number;
-  renamedGroups: Array<{ from: string; to: string }>;
-}
-
 export interface AiErrorDiagnostic {
   stage: string;
   code: string;
@@ -700,11 +695,6 @@ export async function aiProfileList(): Promise<AiProfile[]> {
 export async function aiConfigJson(): Promise<Record<string, unknown>> {
   if (!isDesktopRuntime) return demoBackend.aiConfigJson();
   return invoke<Record<string, unknown>>("ai_config_json");
-}
-
-export async function environmentMigrationReport(): Promise<EnvironmentMigrationReport | null> {
-  if (!isDesktopRuntime) return null;
-  return invoke<EnvironmentMigrationReport | null>("environment_migration_report");
 }
 
 export async function configOpenLocal(): Promise<string> {

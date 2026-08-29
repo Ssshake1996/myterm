@@ -1,5 +1,6 @@
 use std::{
-    fs,
+    fs::{self, OpenOptions},
+    io::Write,
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard},
@@ -11,6 +12,7 @@ use serde_json::Value;
 
 use crate::{
     error::CoreError,
+    result_reducer::ResultCapsule,
     types::{ChatMessage, GraphEdge, ProviderContext, ProviderContextMode, ThreadSnapshot},
 };
 
@@ -19,6 +21,15 @@ pub struct CompactionState {
     pub summary: Option<String>,
     pub compacted_through_seq: i64,
     pub revision: u64,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ToolResultRecord {
+    pub(crate) result_id: String,
+    pub(crate) tool_name: String,
+    pub(crate) raw_path: PathBuf,
+    pub(crate) raw_bytes: u64,
+    pub(crate) raw_sha256: String,
 }
 
 pub struct ThreadStore {
@@ -112,7 +123,7 @@ impl ThreadStore {
                     payload_json TEXT NOT NULL,
                     created_at_ms INTEGER NOT NULL
                  );
-                 CREATE TABLE IF NOT EXISTS provider_contexts (
+                  CREATE TABLE IF NOT EXISTS provider_contexts (
                     thread_id TEXT NOT NULL,
                     provider_id TEXT NOT NULL,
                     mode TEXT NOT NULL,
@@ -121,8 +132,22 @@ impl ThreadStore {
                     unsupported INTEGER NOT NULL DEFAULT 0,
                     updated_at_ms INTEGER NOT NULL,
                     PRIMARY KEY(thread_id, provider_id),
-                    FOREIGN KEY(thread_id) REFERENCES threads(id) ON DELETE CASCADE
-                 );",
+                     FOREIGN KEY(thread_id) REFERENCES threads(id) ON DELETE CASCADE
+                  );
+                  CREATE TABLE IF NOT EXISTS tool_results (
+                     result_id TEXT PRIMARY KEY,
+                     thread_id TEXT NOT NULL,
+                     call_id TEXT NOT NULL,
+                     tool_name TEXT NOT NULL,
+                     message_seq INTEGER NOT NULL,
+                     raw_path TEXT NOT NULL,
+                     raw_bytes INTEGER NOT NULL,
+                     raw_sha256 TEXT NOT NULL,
+                     capsule_json TEXT NOT NULL,
+                     created_at_ms INTEGER NOT NULL,
+                     UNIQUE(thread_id, call_id),
+                     FOREIGN KEY(thread_id) REFERENCES threads(id) ON DELETE CASCADE
+                  );",
             )
             .map_err(store_error("migrate"))?;
         let has_graph_summary_revision = {
@@ -201,6 +226,16 @@ impl ThreadStore {
 
     pub fn delete_thread(&self, id: &str) -> Result<(), CoreError> {
         let connection = self.connection()?;
+        let artifact_paths = {
+            let mut statement = connection
+                .prepare("SELECT raw_path FROM tool_results WHERE thread_id = ?1")
+                .map_err(store_error("prepare_thread_artifacts"))?;
+            statement
+                .query_map([id], |row| row.get::<_, String>(0))
+                .map_err(store_error("query_thread_artifacts"))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(store_error("read_thread_artifacts"))?
+        };
         let children: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM graph_edges WHERE parent_id = ?1",
@@ -219,6 +254,9 @@ impl ThreadStore {
             .map_err(store_error("delete_thread"))?;
         if changed != 1 {
             return Err(CoreError::ThreadNotFound(id.to_owned()));
+        }
+        for path in artifact_paths {
+            let _ = fs::remove_file(path);
         }
         Ok(())
     }
@@ -257,6 +295,167 @@ impl ThreadStore {
             .commit()
             .map_err(store_error("append_message_commit"))?;
         Ok(seq)
+    }
+
+    pub(crate) fn append_tool_result(
+        &self,
+        thread_id: &str,
+        call_id: &str,
+        tool_name: &str,
+        message: &ChatMessage,
+        raw: &str,
+        capsule: &ResultCapsule,
+    ) -> Result<i64, CoreError> {
+        let serialized_message =
+            serde_json::to_string(message).map_err(|error| CoreError::Store {
+                operation: "serialize_tool_result_message",
+                detail: error.to_string(),
+            })?;
+        let serialized_capsule =
+            serde_json::to_string(capsule).map_err(|error| CoreError::Store {
+                operation: "serialize_tool_result_capsule",
+                detail: error.to_string(),
+            })?;
+        let artifact_directory = self
+            .path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("tool-results");
+        fs::create_dir_all(&artifact_directory).map_err(|error| CoreError::Store {
+            operation: "create_tool_result_directory",
+            detail: error.to_string(),
+        })?;
+        let raw_path = artifact_directory.join(format!("{}.txt", capsule.result_id));
+        let temporary_path = artifact_directory.join(format!("{}.tmp", capsule.result_id));
+        let artifact_result = (|| {
+            let mut artifact = OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&temporary_path)
+                .map_err(|error| CoreError::Store {
+                    operation: "create_tool_result_artifact",
+                    detail: error.to_string(),
+                })?;
+            artifact
+                .write_all(raw.as_bytes())
+                .and_then(|_| artifact.sync_all())
+                .map_err(|error| CoreError::Store {
+                    operation: "write_tool_result_artifact",
+                    detail: error.to_string(),
+                })?;
+            drop(artifact);
+            fs::rename(&temporary_path, &raw_path).map_err(|error| CoreError::Store {
+                operation: "commit_tool_result_artifact",
+                detail: error.to_string(),
+            })
+        })();
+        if artifact_result.is_err() {
+            let _ = fs::remove_file(&temporary_path);
+        }
+        artifact_result?;
+        let now = now_ms();
+        let mut connection = self.connection()?;
+        let transaction = connection
+            .transaction()
+            .map_err(store_error("append_tool_result_begin"))?;
+        let seq: i64 = transaction
+            .query_row(
+                "SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE thread_id = ?1",
+                [thread_id],
+                |row| row.get(0),
+            )
+            .map_err(store_error("next_tool_result_seq"))?;
+        let result = (|| {
+            transaction
+                .execute(
+                    "INSERT INTO messages(thread_id, seq, message_json, created_at_ms)
+                     VALUES(?1, ?2, ?3, ?4)",
+                    params![thread_id, seq, serialized_message, now],
+                )
+                .map_err(store_error("append_tool_result_message"))?;
+            transaction
+                .execute(
+                    "INSERT INTO tool_results(
+                        result_id, thread_id, call_id, tool_name, message_seq,
+                        raw_path, raw_bytes, raw_sha256, capsule_json, created_at_ms
+                     ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                    params![
+                        capsule.result_id,
+                        thread_id,
+                        call_id,
+                        tool_name,
+                        seq,
+                        raw_path.to_string_lossy(),
+                        raw.len() as i64,
+                        capsule.raw_sha256,
+                        serialized_capsule,
+                        now,
+                    ],
+                )
+                .map_err(store_error("append_tool_result_record"))?;
+            transaction
+                .execute(
+                    "UPDATE threads SET updated_at_ms = ?2 WHERE id = ?1",
+                    params![thread_id, now],
+                )
+                .map_err(store_error("touch_tool_result_thread"))?;
+            transaction
+                .commit()
+                .map_err(store_error("append_tool_result_commit"))?;
+            Ok(seq)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&raw_path);
+        }
+        result
+    }
+
+    pub(crate) fn tool_result(
+        &self,
+        thread_id: &str,
+        result_id: &str,
+    ) -> Result<ToolResultRecord, CoreError> {
+        let connection = self.connection()?;
+        connection
+            .query_row(
+                "SELECT result_id, tool_name, raw_path, raw_bytes, raw_sha256
+                 FROM tool_results WHERE thread_id = ?1 AND result_id = ?2",
+                params![thread_id, result_id],
+                tool_result_from_row,
+            )
+            .optional()
+            .map_err(store_error("load_tool_result"))?
+            .ok_or_else(|| CoreError::InvalidToolCall(format!("unknown result_id {result_id:?}")))
+    }
+
+    pub(crate) fn tool_result_capsules_after(
+        &self,
+        thread_id: &str,
+        message_seq: i64,
+    ) -> Result<Vec<ResultCapsule>, CoreError> {
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT capsule_json FROM tool_results
+                 WHERE thread_id = ?1 AND message_seq > ?2 ORDER BY message_seq ASC",
+            )
+            .map_err(store_error("prepare_tool_result_capsules"))?;
+        let rows = statement
+            .query_map(params![thread_id, message_seq], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(store_error("load_tool_result_capsules"))?;
+        let mut capsules = Vec::new();
+        for row in rows {
+            let serialized = row.map_err(store_error("read_tool_result_capsule"))?;
+            capsules.push(
+                serde_json::from_str(&serialized).map_err(|error| CoreError::Store {
+                    operation: "deserialize_tool_result_capsule",
+                    detail: error.to_string(),
+                })?,
+            );
+        }
+        Ok(capsules)
     }
 
     pub fn load_messages(&self, thread_id: &str) -> Result<Vec<(i64, ChatMessage)>, CoreError> {
@@ -599,6 +798,16 @@ fn store_error(operation: &'static str) -> impl FnOnce(rusqlite::Error) -> CoreE
     }
 }
 
+fn tool_result_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ToolResultRecord> {
+    Ok(ToolResultRecord {
+        result_id: row.get(0)?,
+        tool_name: row.get(1)?,
+        raw_path: PathBuf::from(row.get::<_, String>(2)?),
+        raw_bytes: row.get::<_, i64>(3)? as u64,
+        raw_sha256: row.get(4)?,
+    })
+}
+
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -609,7 +818,9 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::result_reducer::reduce_tool_result;
     use crate::types::{MessageRole, ProviderContext, ProviderContextMode};
+    use serde_json::json;
     use tempfile::TempDir;
 
     #[test]
@@ -706,5 +917,45 @@ mod tests {
         assert_eq!(revision, 1);
         assert_eq!(store.thread_snapshot("child").unwrap().summary_revision, 1);
         assert_eq!(store.graph_edges("root").unwrap()[0].summary_revision, 1);
+    }
+
+    #[test]
+    fn tool_results_keep_raw_artifacts_separate_from_projected_messages() {
+        let temp = TempDir::new().unwrap();
+        let store = ThreadStore::open(temp.path()).unwrap();
+        store.create_thread("root", None, "root", None).unwrap();
+        let raw = json!({
+            "rows": (0..800).map(|index| json!({"name": format!("item-{index}"), "status": "ok"})).collect::<Vec<_>>()
+        })
+        .to_string();
+        let reduced = reduce_tool_result(
+            "result-test",
+            "query",
+            &json!({"query": "item-700"}),
+            &raw,
+            "completed",
+            false,
+            "find item-700",
+        )
+        .unwrap();
+        let message = ChatMessage {
+            role: MessageRole::Tool,
+            content: Some(reduced.projected_content.clone()),
+            tool_calls: Vec::new(),
+            tool_call_id: Some("call-1".to_owned()),
+        };
+        store
+            .append_tool_result("root", "call-1", "query", &message, &raw, &reduced.capsule)
+            .unwrap();
+
+        let stored_message = store.load_messages("root").unwrap().remove(0).1;
+        assert_eq!(
+            stored_message.content.as_deref(),
+            Some(reduced.projected_content.as_str())
+        );
+        assert!(!stored_message.content.unwrap().contains("item-799"));
+        let record = store.tool_result("root", "result-test").unwrap();
+        assert_eq!(fs::read_to_string(record.raw_path).unwrap(), raw);
+        assert_eq!(record.raw_sha256, reduced.capsule.raw_sha256);
     }
 }

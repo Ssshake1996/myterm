@@ -1,0 +1,4 @@
+[env]
+# aws-lc-sys ships audited Windows x64 assembly objects. Using them keeps clean builds
+# reproducible on developer and release machines without requiring a global NASM install.
+AWS_LC_SYS_PREBUILT_NASM = { value = "1", force = false }
