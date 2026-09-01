@@ -9,14 +9,14 @@ describe("AI profile model routing", () => {
       name: "Gateway",
       base_url: "https://gateway.example/v1",
       api_key_ref: "ai.profile.key",
-      auth_mode: "bearer",
+      reasoning_effort: "high",
       system_prompt: "",
       models: [
         {
-          id: "analysis",
-          name: "分析模型",
-          model: "analysis-model",
-          role: "analysis",
+          id: "fallback",
+          name: "备用模型",
+          model: "fallback-model",
+          role: "fallback",
           enabled: true,
         },
         {
@@ -29,16 +29,16 @@ describe("AI profile model routing", () => {
       ],
     };
 
-    expect(aiProfileModelLabel(profile)).toBe("analysis-model");
+    expect(aiProfileModelLabel(profile)).toBe("fallback-model");
   });
 
   it("promotes an enabled model after the primary row is deleted", () => {
     const models = ensurePrimaryAiModel([
       {
-        id: "analysis",
-        name: "分析模型",
-        model: "analysis-model",
-        role: "analysis",
+        id: "fallback",
+        name: "备用模型",
+        model: "fallback-model",
+        role: "fallback",
         enabled: true,
       },
     ]);

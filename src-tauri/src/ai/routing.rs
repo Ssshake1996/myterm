@@ -33,7 +33,7 @@ pub(crate) fn resolve_model_routes(
                 .cloned()
                 .ok_or_else(|| {
                     AppError::InvalidInput(format!(
-                        "AI 模型路由 '{}' 引用的 Provider 配置 '{}' 不存在",
+                        "AI 模型路由 '{}' 引用的 DeepSeek 服务 '{}' 不存在",
                         model.name, provider_id
                     ))
                 })?;
@@ -42,7 +42,7 @@ pub(crate) fn resolve_model_routes(
                 .filter(|value| !value.trim().is_empty())
                 .ok_or_else(|| {
                     AppError::Ai(format!(
-                        "AI 模型路由 '{}' 的 Provider '{}' 未配置 API Key",
+                        "AI 模型路由 '{}' 的 DeepSeek 服务 '{}' 未配置 API Key",
                         model.name, provider.name
                     ))
                 })?;
@@ -61,7 +61,7 @@ mod tests {
 
     use crate::{
         config::{ConfigService, CredentialVault, MemoryVault},
-        types::{AiAuthMode, AiModelConfig, AiModelRole, AiProfile, AiRoutingConfig},
+        types::{AiModelConfig, AiModelRole, AiProfile, AiReasoningEffort, AiRoutingConfig},
     };
 
     use super::resolve_model_routes;
@@ -72,10 +72,8 @@ mod tests {
             name: name.to_owned(),
             base_url: format!("https://{id}.example.test/v1"),
             api_key_ref: format!("ai.{id}.key"),
-            auth_mode: AiAuthMode::Bearer,
-            model: String::new(),
+            reasoning_effort: AiReasoningEffort::High,
             system_prompt: String::new(),
-            context_lines: 0,
             models: vec![AiModelConfig {
                 id: "primary".to_owned(),
                 name: "主模型".to_owned(),
@@ -83,8 +81,6 @@ mod tests {
                 provider_profile_id: None,
                 role: AiModelRole::Primary,
                 enabled: true,
-                context_window_tokens: None,
-                compact_threshold_tokens: None,
             }],
             routing: AiRoutingConfig::default(),
         }
@@ -95,17 +91,15 @@ mod tests {
         let root = std::env::temp_dir().join(format!("myterm-routing-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&root)?;
         let config = ConfigService::open(root.join("config.json"))?;
-        let mut primary = profile("primary", "Primary", "gpt-primary");
+        let mut primary = profile("primary", "Primary", "deepseek-primary");
         let provider = profile("backup", "Backup Provider", "unused-default");
         primary.models.push(AiModelConfig {
             id: "fallback".to_owned(),
             name: "备用模型".to_owned(),
-            model: "gpt-backup".to_owned(),
+            model: "deepseek-backup".to_owned(),
             provider_profile_id: Some(provider.id.clone()),
             role: AiModelRole::Fallback,
             enabled: true,
-            context_window_tokens: None,
-            compact_threshold_tokens: None,
         });
         config.ai_profile_save(provider.clone())?;
         config.ai_profile_save(primary.clone())?;
@@ -116,7 +110,7 @@ mod tests {
         let routes = resolve_model_routes(&config, vault.as_ref(), &primary)?;
         assert_eq!(routes.len(), 2);
         assert_eq!(routes[1].provider.id, provider.id);
-        assert_eq!(routes[1].model.model, "gpt-backup");
+        assert_eq!(routes[1].model.model, "deepseek-backup");
         assert_eq!(routes[1].api_key, "backup-secret");
         fs::remove_dir_all(root)?;
         Ok(())

@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.11.1`
+Current version: `0.11.2`
 
 ## Core Features
 
@@ -70,8 +70,8 @@ task input -> model decision -> tool call -> result -> continue -> final answer
 - Terminal context is an unbounded-by-line transcript reader: the Agent follows `offset`, `nextOffset`, and `eof` ranges until a complete `cat`, log, or command output has been read. Long remote stdout/stderr stays in artifacts and remains page-readable.
 - For interactive product CLIs, `cli_execute` locks terminal input, inspects the real xterm cursor line, sends only the missing suffix of the complete intended command, and waits for a prompt, interaction, quiet fallback, or timeout boundary in one host transaction. `cli_execute_batch` groups 1-8 independent known commands into one tool call, avoiding duplicated input and many tiny model requests.
 - The timeline records ACP-observable steps, tool calls, and runtime state. Remote effectful or dependent operations remain serialized by myterm.
-- AI profiles persist as versioned JSON. A profile can define primary, analysis, and fallback models, and each route may reference another saved Provider profile. Failures can therefore fall through models and Providers in role order while the timeline records the exact route used.
-- AI configuration is converted into official Harness `llm-pi-ai` Provider JSON. If the primary model fails, myterm starts the next configured primary/analysis/fallback route, including routes that reference another Provider profile.
+- DeepSeek services persist as versioned JSON and can define a primary model plus ordered fallbacks. A route may reference another saved DeepSeek service, and the timeline records the exact route used.
+- Agent model traffic runs through the official `@deepseek-ai/dsh-llm-deepseek` package and its fixed `deepseek-official` route.
 - Context windows and compaction are managed automatically by DeepSeek Harness durable Sessions, token metering, checkpoints, tool-result pruning, and compaction; the AI settings expose no manual compaction selector.
 - Long terminal, file, and background-job output remains available through myterm paging tools with `offset`, `nextOffset`, and `eof`, without a fixed terminal-line limit. Harness compresses irrelevant query noise under context pressure.
 - Installed builds write daily structured JSON diagnostics locally and retain 14 days. Starting with `--debug` enables stable fields for Harness process, ACP phase, model route, Host MCP, and exact-error records.
@@ -95,13 +95,12 @@ Hard-deny commands, production/root escalation, output limits, audit records, an
 - The read-only `mcp_status` tool reports every configured server's enabled state, transport, connection/tool-discovery stage, tool count, stable error code, and original provider detail without requiring an SSH session.
 - Bounded deterministic lifecycle Hooks are supported and cannot lower core permissions.
 
-### Plugin Agent Kernel
+### DeepSeek Harness Agent Kernel
 
-- The Agent loop remains a small runtime for Goal/Turn lifecycle, model decisions, effect-aware scheduling, result feedback, and loop protection. SSH/file built-ins stay host-owned while MCP is isolated behind CapabilityProvider, keeping transports, pools, and server protocol out of Core.
-- The desktop profile currently mounts built-in SSH/session tools, local Skills, stdio/streamable-http MCP, lifecycle Hooks, and the OpenAI-compatible model adapter.
-- Each plugin exposes a manifest, version, dependency hints, and tool descriptors. Tool calls carry the plugin id into the event timeline and audit record.
-- The Agent settings panel lists mounted plugins and lets the user narrow the enabled set. An empty enabled list means the default desktop profile.
-- `src-tauri/src/agent/protocol.rs` defines a versioned line-delimited JSON contract for future out-of-process plugins. This release does not install or execute unknown third-party plugin code automatically.
+- Official DeepSeek Harness exclusively owns the Agent loop, durable Sessions, Goals, checkpoints, compaction, local tools, and Skills; myterm does not maintain a second model loop.
+- The official native DeepSeek Provider owns model protocol, streaming, reasoning effort, retries, and provider error codes. myterm injects only the credential reference, Base URL, model, and System Prompt.
+- The myterm Host MCP supplies SSH, CLI, SFTP, multi-SSH, and external MCP capabilities through the existing target, permission, approval, cancellation, diagnostic, and audit boundaries.
+- The Agent panel exposes Session, Goal, Checkpoint, Compaction, Skill, Host MCP, permission, and tool events instead of legacy loop-step or compatibility-provider controls.
 
 ### Remote CLI, REST, and Multi-SSH
 
@@ -117,7 +116,7 @@ See the [Multi-SSH and Skill-driven OS Installation Plan](docs/multi-ssh-os-inst
 - Persistent light, eye-care, and dark themes also update the terminal canvas.
 - The terminal offers three command-color templates—Graphite Gold (stable contrast), Forest Amber (low blue light), and Midnight Contrast (strong separation). Typed commands use the accent color while command output keeps the body color.
 - Seven persistent UI scale levels from 90% through 200% uniformly enlarge sidebars, headings, panels, dialogs, and xterm content. SSH and local terminals also expose a `12-22px` base font size; the effective terminal size is the base size multiplied by the UI scale, applied immediately without reconnecting.
-- AI profiles support `Bearer Token` (`Authorization: Bearer sk-...`) and raw `API Key` (`Authorization: sk-...`) header modes.
+- DeepSeek API keys are always sent by the native Provider as `Authorization: Bearer ...`; the legacy generic authentication-mode selector is gone.
 - AI and Agent HTTPS traffic uses Rustls with native operating-system roots, including enterprise, intranet, and security-proxy CAs installed in the system trust store.
 - Failed connection tests and Agent runs first show the failing stage and stable error code; opening details reveals the raw HTTP status, endpoint, response body, transport error, stderr, exit code, timeout, and call stack. Only secrets are redacted and diagnostics are bounded; provider responses are not replaced with guesses.
 - A compact 34px session strip and full-height sidebar work across desktop and narrow windows.
@@ -139,7 +138,7 @@ React UI
 ```
 
 - `src/`: React UI, state, and typed IPC boundary.
-- `src-tauri/`: Rust services, Agent core, and the Tauri desktop entry point.
+- `src-tauri/`: Rust host services, Agent control plane, Host MCP, and the Tauri desktop entry point.
 - `myterm-spec/`: product, architecture, milestone, and acceptance specifications.
 - `myterm-prototype/`: early static interaction prototype.
 - `docs/`: user guide, Agent specifications, development plan, and experience record.

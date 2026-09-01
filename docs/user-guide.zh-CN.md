@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.11.1。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 DeepSeek Harness Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.11.2。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 DeepSeek Harness Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -137,14 +137,11 @@ docker compose up -d
 - “终端基础字号”提供 `12px` 到 `22px` 档位。终端实际字号等于“基础字号 × 界面倍率”，例如 `13px × 150% = 19.5px`。调整后立即重新适配终端列数和行数，不会断开或重连 SSH/本地终端。
 - 两项设置都会保存到应用配置，重启 myterm 后继续生效；配置失败会恢复到修改前的值。
 
-### AI 认证方式
+### DeepSeek API Key
 
-AI 服务设置中的“认证方式”决定请求头格式，API Key 本身仍只保存到操作系统凭据库：
+AI 服务设置不再提供通用认证方式选择。API Key 只保存到操作系统凭据库；模型获取、模型测试和 Agent 运行均以 `Authorization: Bearer <API Key>` 认证。保存配置后可分别使用“获取模型”和“测试模型”验证，日志和 Agent 事件会继续脱敏，不显示密钥。
 
-- `Bearer Token`：发送 `Authorization: Bearer sk-xxxx`，默认兼容 OpenAI、DeepSeek 和大多数 OpenAI 兼容网关。
-- `API Key`：发送 `Authorization: sk-xxxx`，适用于要求原始密钥值的网关。
-
-模型获取、模型测试、普通对话和 Agent 工具循环共享该配置。修改认证方式后点击“保存配置”，再分别使用“获取模型”和“测试模型”验证；日志和 Agent 事件会继续脱敏，不显示密钥。
+如果内网网关使用不同的认证协议，需要先在网关侧提供 DeepSeek Provider 可用的 Bearer 接口；myterm 不再为单个网关维护另一套模型传输分支。
 
 ### 系统证书与内网 HTTPS
 
@@ -156,13 +153,14 @@ myterm 在启动时创建 HTTPS 客户端并读取系统根证书。新安装或
 
 ### 多模型与 JSON 配置
 
-AI 服务设置支持多个模型角色：
+AI 服务设置支持多个模型角色和 DeepSeek 服务路由：
 
 - 主模型：默认负责普通对话和 Agent 决策。
-- 分析模型：用于后续高复杂度分析或作为第二候选模型。
 - 备用模型：主模型请求失败时的兜底模型。
 
-启用“失败时自动切换”后，后端会按主模型、分析模型、备用模型顺序尝试；每次 Agent 运行会在时间线显示实际选中的模型。删除当前主模型后，第一个仍启用且非空的模型会自动成为主模型，Agent 下拉框与后端执行使用同一套有效模型规则。前端保存的表单会转换为版本化 JSON，配置文件只保存模型、路由、提示词和凭据引用，不保存 API Key 原文。旧版本只有 `model` 字段的配置会在首次打开时自动迁移为 `models.primary`。
+启用“失败时自动切换”后，后端会按主模型、备用模型顺序尝试；模型也可以引用另一份已保存 DeepSeek 服务。每次 Agent 运行会在时间线显示实际选中的模型。删除当前主模型后，第一个仍启用且非空的模型会自动成为主模型，Agent 下拉框与后端执行使用同一套有效模型规则。前端表单会转换为 schema v6 JSON，配置文件只保存 Base URL、推理强度、模型、路由、提示词和凭据引用，不保存 API Key 原文。
+
+v0.11.2 不迁移旧兼容 Provider 的 AI 服务配置。升级后若 AI 服务列表为空，请重新保存 DeepSeek 服务；服务器、环境、快捷命令、Skill、MCP 和系统凭据不受影响。
 
 ### Agent 自适应上下文
 
@@ -190,13 +188,14 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 
 ## AI 配置
 
-打开 Agent 面板右上角的 AI 服务设置，填写 OpenAI 兼容服务的 Provider、模型、Base URL 和 API Key。
+打开 Agent 面板右上角的 AI 服务设置，选择 DeepSeek 官方预设或 DeepSeek 网关，并填写服务名称、模型、Base URL、API Key 和推理强度。
 
-- Base URL 只有主机路径时，myterm 会按 OpenAI 兼容约定补充 `/v1`。
+- Base URL 按填写值原样交给官方 DeepSeek Provider，不自动补充 `/v1`。官方服务可填写 `https://api.deepseek.com`；私有网关需要把实际 API 前缀完整写入 Base URL。
 - API Key 写入系统凭据库，普通配置只保存凭据引用。
 - “获取模型”调用当前服务的模型列表端点，显示完整模型对象、Endpoint 和原始 JSON，不代表已验证推理能力。
-- “测试模型”使用当前选择的已启用模型发送一次真实 Chat Completions 请求；提示词可编辑，默认为 `hi`，结果显示模型返回正文、实际模型、耗时、Endpoint、原始 JSON 或完整错误详情。
+- “测试模型”使用当前选择的已启用模型发送一次真实 DeepSeek Chat Completions 请求；提示词可编辑，默认为 `hi`，结果显示模型返回正文、实际模型、耗时、Endpoint、原始 JSON 或完整错误详情。
 - “已保存配置”列出历史 AI 服务配置；当前 Agent 正在使用的配置需先切换后才能删除，删除配置不会删除对话历史。
+- Agent 运行固定使用官方 `dsh-llm-deepseek` 的 `deepseek-official` 路由；“获取模型”和“测试模型”是保存前的独立诊断，不建立第二套 Agent 循环。
 - 不要把 API Key 写入 Skill、MCP 参数、快捷命令、日志或截图。
 
 ## Agent 基本流程

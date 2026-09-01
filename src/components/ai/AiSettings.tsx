@@ -1,11 +1,11 @@
 import { useState } from "react";
 import {
-  type AiAuthMode,
   type AiErrorDiagnostic,
   type AiModelConfig,
   type AiModelRole,
   type AiModelTestResult,
   type AiProfile,
+  type AiReasoningEffort,
   type AiTestResult,
   aiConfigJson,
   aiFetchModels,
@@ -20,18 +20,15 @@ import { Modal } from "../shell/Modal";
 import { aiProfileModelLabel, effectiveAiModels, ensurePrimaryAiModel } from "./ai-profile";
 
 const PRESETS = [
-  { name: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
-  { name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
-  { name: "Ollama 本地", baseUrl: "http://localhost:11434/v1", model: "qwen2.5" },
-  { name: "自定义", baseUrl: "https://gateway.example.com/v1", model: "" },
+  { name: "DeepSeek 官方", baseUrl: "https://api.deepseek.com", model: "deepseek-chat" },
+  { name: "DeepSeek 网关", baseUrl: "https://gateway.example.com/v1", model: "" },
 ] as const;
 
-const DEFAULT_ROUTING = { fallback_on_error: true, analysis_threshold_chars: 32000 };
+const DEFAULT_ROUTING = { fallback_on_error: true };
 
 function defaultModels(model: string): AiModelConfig[] {
   return [
     { id: "primary", name: "主模型", model, role: "primary", enabled: true },
-    { id: "analysis", name: "分析模型", model: "", role: "analysis", enabled: false },
     { id: "fallback", name: "备用模型", model: "", role: "fallback", enabled: false },
   ];
 }
@@ -73,15 +70,17 @@ export function AiSettings({
   onSaved,
 }: AiSettingsProps) {
   const notify = useUiStore((state) => state.notify);
-  const [name, setName] = useState(profile?.name ?? "DeepSeek");
-  const [baseUrl, setBaseUrl] = useState(profile?.base_url ?? "https://api.deepseek.com/v1");
+  const [name, setName] = useState(profile?.name ?? "DeepSeek 官方");
+  const [baseUrl, setBaseUrl] = useState(profile?.base_url ?? "https://api.deepseek.com");
   const [models, setModels] = useState<AiModelConfig[]>(
-    profile?.models?.length ? profile.models : defaultModels(profile?.model ?? "deepseek-chat"),
+    profile?.models?.length ? profile.models : defaultModels("deepseek-chat"),
   );
   const [fallbackOnError, setFallbackOnError] = useState(
     profile?.routing?.fallback_on_error ?? true,
   );
-  const [authMode, setAuthMode] = useState<AiAuthMode>(profile?.auth_mode ?? "bearer");
+  const [reasoningEffort, setReasoningEffort] = useState<AiReasoningEffort>(
+    profile?.reasoning_effort ?? "high",
+  );
   const [systemPrompt, setSystemPrompt] = useState(profile?.system_prompt ?? "");
   const [apiKey, setApiKey] = useState("");
   const [testing, setTesting] = useState(false);
@@ -103,9 +102,9 @@ export function AiSettings({
   const currentProfile = (): AiProfile => ({
     id,
     name: name.trim(),
-    base_url: baseUrl.trim().replace(/\/$/, ""),
+    base_url: baseUrl.trim().replace(/\/+$/u, ""),
     api_key_ref: profile?.api_key_ref ?? `ai.${id}.key`,
-    auth_mode: authMode,
+    reasoning_effort: reasoningEffort,
     system_prompt: systemPrompt,
     models: ensurePrimaryAiModel(models).map((item) => ({
       ...item,
@@ -123,7 +122,12 @@ export function AiSettings({
 
   const draftJson = JSON.stringify(
     {
-      version: 5,
+      version: 6,
+      runtime: {
+        agent: "@deepseek-ai/dsh-acp",
+        model_provider: "@deepseek-ai/dsh-llm-deepseek",
+        provider_route: "deepseek-official",
+      },
       ai_profiles: [currentProfile()],
       note: "API key is stored in the OS credential vault",
     },
@@ -141,7 +145,7 @@ export function AiSettings({
       !baseUrl.trim() ||
       !models.some((item) => item.enabled && item.model.trim())
     ) {
-      notify("名称、Base URL 和至少一个启用模型不能为空", "error");
+      notify("DeepSeek 服务名称、Base URL 和至少一个启用模型不能为空", "error");
       return;
     }
     setSaving(true);
@@ -150,7 +154,7 @@ export function AiSettings({
       await aiProfileSave(next, apiKey || undefined);
       setApiKey("");
       onSaved(next);
-      notify("AI 配置已保存", "success");
+      notify("DeepSeek 服务配置已保存", "success");
       onClose();
     } catch (error) {
       notify(errorMessage(error, "保存失败：未返回可读的错误信息"), "error");
@@ -192,7 +196,7 @@ export function AiSettings({
       } catch (error) {
         setTestResult({
           ok: false,
-          error: diagnosticFromThrownError(error, "save_profile", "保存 AI 配置"),
+          error: diagnosticFromThrownError(error, "save_profile", "保存 DeepSeek 配置"),
         });
         return;
       }
@@ -228,7 +232,7 @@ export function AiSettings({
       } catch (error) {
         setModelTestResult({
           ok: false,
-          error: diagnosticFromThrownError(error, "save_profile", "保存 AI 配置"),
+          error: diagnosticFromThrownError(error, "save_profile", "保存 DeepSeek 配置"),
         });
         return;
       }
@@ -247,16 +251,16 @@ export function AiSettings({
 
   const deleteSavedProfile = async (candidate: AiProfile) => {
     if (candidate.id === activeProfileId) return;
-    if (!window.confirm(`确认删除 AI 配置“${candidate.name}”吗？此操作不会删除对话历史。`)) {
+    if (!window.confirm(`确认删除 DeepSeek 服务“${candidate.name}”吗？此操作不会删除对话历史。`)) {
       return;
     }
     setDeletingProfileId(candidate.id);
     try {
       await aiProfileDelete(candidate.id);
       onDeleted?.(candidate.id);
-      notify(`已删除 AI 配置：${candidate.name}`, "success");
+      notify(`已删除 DeepSeek 服务：${candidate.name}`, "success");
     } catch (error) {
-      notify(errorMessage(error, "删除 AI 配置失败：未返回可读的错误信息"), "error");
+      notify(errorMessage(error, "删除 DeepSeek 服务失败：未返回可读的错误信息"), "error");
     } finally {
       setDeletingProfileId(null);
     }
@@ -282,19 +286,19 @@ export function AiSettings({
       onClose={onClose}
       className="modal-ai-settings"
       size="large"
-      title="AI 服务设置"
+      title="DeepSeek 服务设置"
     >
       <div className="ai-settings-scroll">
         <div className="ai-settings-form">
           <div className="field field-span">
-            <span>服务商预设</span>
+            <span>DeepSeek 接入方式</span>
             <div className="preset-row">
               {PRESETS.map((preset) => (
                 <button
                   className={baseUrl === preset.baseUrl ? "is-active" : ""}
                   key={preset.name}
                   onClick={() => {
-                    setName(preset.name === "自定义" ? "公司网关" : preset.name);
+                    setName(preset.name);
                     setBaseUrl(preset.baseUrl);
                     setModels((current) => {
                       const next = current.length ? [...current] : defaultModels(preset.model);
@@ -313,12 +317,13 @@ export function AiSettings({
             </div>
           </div>
           <label className="field">
-            <span>配置名称</span>
+            <span>服务名称</span>
             <input onChange={(event) => setName(event.target.value)} value={name} />
           </label>
           <label className="field field-span">
             <span>Base URL</span>
             <input onChange={(event) => setBaseUrl(event.target.value)} value={baseUrl} />
+            <small>官方地址无需填写 /v1；私有 DeepSeek 网关如需路径前缀，请直接写入 URL。</small>
           </label>
           <label className="field field-span">
             <span>API Key</span>
@@ -329,27 +334,50 @@ export function AiSettings({
               type="password"
               value={apiKey}
             />
-            <small>密钥不会写入配置文件、日志或前端存储。</small>
+            <small>
+              由原生 DeepSeek Provider 以 Bearer 方式发送；密钥不会进入配置、日志或前端存储。
+            </small>
           </label>
           <label className="field field-span">
-            <span>认证方式</span>
+            <span>推理强度</span>
             <select
-              aria-label="AI 认证方式"
-              onChange={(event) => setAuthMode(event.target.value as AiAuthMode)}
-              value={authMode}
+              aria-label="DeepSeek 推理强度"
+              onChange={(event) => setReasoningEffort(event.target.value as AiReasoningEffort)}
+              value={reasoningEffort}
             >
-              <option value="bearer">Bearer Token · Authorization: Bearer sk-...</option>
-              <option value="api_key">API Key · Authorization: sk-...</option>
+              <option value="off">关闭 · 低延迟任务</option>
+              <option value="low">低 · 简单排查</option>
+              <option value="high">高 · 默认运维任务</option>
+              <option value="max">最大 · 复杂长任务</option>
             </select>
-            <small>Bearer Token 适用于 OpenAI 兼容网关；API Key 保留原始密钥头值。</small>
+            <small>直接映射到 DeepSeek Harness 的 reasoningEffort，由原生 Provider 执行。</small>
           </label>
-          <div className="field field-span ai-context-adaptive-note">
-            <span>Agent 上下文</span>
-            <small>
-              完全自适应：优先使用 Provider 原生增量上下文；确认不支持后自动记忆能力并切换本地
-              checkpoint，无需手工选择协议。
-            </small>
-          </div>
+          <section className="field field-span harness-capability-band" aria-label="Harness 能力">
+            <span>
+              <strong>Session</strong>
+              <small>持久会话</small>
+            </span>
+            <span>
+              <strong>Goal</strong>
+              <small>长任务续跑</small>
+            </span>
+            <span>
+              <strong>Checkpoint</strong>
+              <small>语义持久化</small>
+            </span>
+            <span>
+              <strong>Compaction</strong>
+              <small>自动压缩</small>
+            </span>
+            <span>
+              <strong>Skill</strong>
+              <small>本地发现</small>
+            </span>
+            <span>
+              <strong>Host MCP</strong>
+              <small>SSH / CLI / SFTP</small>
+            </span>
+          </section>
           <label className="field field-span">
             <span>System Prompt</span>
             <textarea
@@ -362,7 +390,7 @@ export function AiSettings({
           <div className="field field-span ai-model-routing">
             <div className="field-label-row">
               <span>模型路由</span>
-              <small>主模型优先；请求失败时按分析模型、备用模型顺序切换。</small>
+              <small>主模型优先；失败时按备用模型顺序启动新的原生 Harness 路由。</small>
             </div>
             <div className="ai-model-list">
               {models.map((item, index) => (
@@ -381,7 +409,6 @@ export function AiSettings({
                     value={item.role}
                   >
                     <option value="primary">主模型</option>
-                    <option value="analysis">分析模型</option>
                     <option value="fallback">备用模型</option>
                   </select>
                   <input
@@ -399,7 +426,7 @@ export function AiSettings({
                     value={item.model}
                   />
                   <select
-                    aria-label={`${item.name}Provider`}
+                    aria-label={`${item.name}DeepSeek 服务`}
                     onChange={(event) =>
                       setModels((current) =>
                         current.map((candidate, candidateIndex) =>
@@ -412,10 +439,10 @@ export function AiSettings({
                         ),
                       )
                     }
-                    title="该模型请求使用的服务地址、认证方式和密钥"
+                    title="该模型请求使用的 DeepSeek 地址和密钥"
                     value={item.provider_profile_id ?? ""}
                   >
-                    <option value="">当前 Provider · {name || "未命名"}</option>
+                    <option value="">当前服务 · {name || "未命名"}</option>
                     {profiles
                       .filter((candidate) => candidate.id !== id)
                       .map((candidate) => (
@@ -488,7 +515,7 @@ export function AiSettings({
               </label>
             </div>
             <small>
-              上下文窗口、压缩时机和 Provider 原生/本地 checkpoint 切换均由 Agent
+              Session、checkpoint、token 计量、工具结果修剪和 compaction 由 DeepSeek Harness
               自适应处理；终端输出按 offset/nextOffset 分段读取，不按固定行数截断。
             </small>
           </div>
@@ -590,7 +617,7 @@ export function AiSettings({
                     <option key={item.id} value={item.id}>
                       {item.name} · {item.model}
                       {item.provider_profile_id
-                        ? ` · ${profiles.find((candidate) => candidate.id === item.provider_profile_id)?.name ?? "未知 Provider"}`
+                        ? ` · ${profiles.find((candidate) => candidate.id === item.provider_profile_id)?.name ?? "未知 DeepSeek 服务"}`
                         : ""}
                     </option>
                   ))}
@@ -682,9 +709,9 @@ export function AiSettings({
             ) : null}
           </section>
           {profiles.length ? (
-            <section className="saved-ai-profiles" aria-label="已保存 AI 配置">
+            <section className="saved-ai-profiles" aria-label="已保存 DeepSeek 服务">
               <div className="field-label-row">
-                <span>已保存配置</span>
+                <span>已保存 DeepSeek 服务</span>
                 <small>当前使用的配置需先在 Agent 面板切换后才能删除。</small>
               </div>
               <div className="saved-ai-profile-list">
@@ -701,7 +728,7 @@ export function AiSettings({
                         <span className="saved-ai-profile-active">当前使用</span>
                       ) : (
                         <button
-                          aria-label={`删除 AI 配置 ${candidate.name}`}
+                          aria-label={`删除 DeepSeek 服务 ${candidate.name}`}
                           className="button button-danger"
                           disabled={deletingProfileId !== null}
                           onClick={() => void deleteSavedProfile(candidate)}

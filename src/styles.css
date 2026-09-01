@@ -2051,6 +2051,53 @@ button:disabled {
   font-size: 10px;
 }
 
+.harness-runtime-strip {
+  min-height: 42px;
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 1px;
+  padding: 1px;
+  border-bottom: 1px solid var(--border);
+  background: var(--border-soft);
+}
+
+.harness-runtime-strip > span {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 5px 7px;
+  background: var(--surface-deep);
+}
+
+.harness-runtime-strip strong,
+.harness-runtime-strip small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.harness-runtime-strip strong {
+  color: var(--text-soft);
+  font: 700 8px/1 "Cascadia Mono", Consolas, monospace;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.harness-runtime-strip small {
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.harness-runtime-strip > .is-ready strong {
+  color: var(--green-strong);
+}
+
+.harness-runtime-strip > .is-running strong {
+  color: var(--gold);
+}
+
 .privacy-mark {
   color: var(--text-muted);
   font: 7px/1 "Cascadia Mono", Consolas, monospace;
@@ -4137,17 +4184,35 @@ input:checked + .toggle-track > span {
   gap: 8px;
 }
 
-.ai-context-adaptive-note {
-  padding: 9px 10px;
-  border: 1px solid var(--border-soft);
-  border-left: 3px solid var(--green);
-  border-radius: 4px;
+.harness-capability-band {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 1px;
+  padding: 1px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--border-soft);
+}
+
+.harness-capability-band > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 9px 8px;
   background: var(--surface-control);
 }
 
-.ai-context-adaptive-note > span {
-  color: var(--text-soft);
-  font-weight: 600;
+.harness-capability-band strong {
+  color: var(--green-strong);
+  font: 700 9px/1 "Cascadia Mono", Consolas, monospace;
+  letter-spacing: 0.03em;
+}
+
+.harness-capability-band small {
+  color: var(--text-muted);
+  font-size: 8px;
+  white-space: nowrap;
 }
 
 .field-label-row,
@@ -4358,6 +4423,10 @@ input:checked + .toggle-track > span {
 
   .ai-model-probe-controls {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .harness-capability-band {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -5063,6 +5132,10 @@ input:checked + .toggle-track > span {
   .form-grid,
   .ai-settings-form {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .harness-runtime-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .mcp-fields {

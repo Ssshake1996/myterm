@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AiProfile } from "../../ipc";
 import { AiSettings } from "./AiSettings";
 
 const ipcMocks = vi.hoisted(() => ({
@@ -21,37 +22,40 @@ const ipcMocks = vi.hoisted(() => ({
 
 vi.mock("../../ipc", () => ipcMocks);
 
+function deepSeekProfile(
+  id = "ai-test",
+  name = "DeepSeek Gateway",
+  model = "deepseek-chat",
+): AiProfile {
+  return {
+    id,
+    name,
+    base_url: "https://gateway.example/v1",
+    api_key_ref: `ai.${id}.key`,
+    reasoning_effort: "high",
+    system_prompt: "",
+    models: [{ id: "primary", name: "主模型", model, role: "primary", enabled: true }],
+    routing: { fallback_on_error: true },
+  };
+}
+
 describe("AiSettings", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
   });
 
-  it("saves an explicit raw API key authentication mode", async () => {
+  it("saves the native DeepSeek reasoning effort without an authentication mode", async () => {
     ipcMocks.aiProfileSave.mockResolvedValue(undefined);
     const user = userEvent.setup();
-    render(
-      <AiSettings
-        profile={{
-          id: "ai-test",
-          name: "Gateway",
-          base_url: "https://gateway.example/v1",
-          api_key_ref: "ai.ai-test.key",
-          auth_mode: "bearer",
-          model: "model",
-          system_prompt: "",
-          context_lines: 80,
-        }}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-      />,
-    );
+    render(<AiSettings profile={deepSeekProfile()} onClose={vi.fn()} onSaved={vi.fn()} />);
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "AI 认证方式" }), "api_key");
+    expect(screen.queryByRole("combobox", { name: "AI 认证方式" })).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "DeepSeek 推理强度" }), "max");
     await user.click(screen.getByRole("button", { name: "保存配置" }));
 
     expect(ipcMocks.aiProfileSave).toHaveBeenCalledWith(
-      expect.objectContaining({ auth_mode: "api_key" }),
+      expect.objectContaining({ reasoning_effort: "max" }),
       undefined,
     );
   });
@@ -63,7 +67,8 @@ describe("AiSettings", () => {
 
     expect(screen.queryByRole("combobox", { name: "Agent 上下文协议" })).not.toBeInTheDocument();
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
-    expect(screen.getByText(/上下文窗口、压缩时机/u)).toBeInTheDocument();
+    expect(screen.getByText("Compaction")).toBeInTheDocument();
+    expect(screen.getByText(/Session、checkpoint、token 计量/u)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "保存配置" }));
 
     expect(ipcMocks.aiProfileSave).toHaveBeenCalledWith(
@@ -86,22 +91,7 @@ describe("AiSettings", () => {
         'HTTP 401 Unauthorized\nEndpoint: https://gateway.example/v1/models\nResponse body:\n{"error":"invalid key"}',
     });
     const user = userEvent.setup();
-    render(
-      <AiSettings
-        profile={{
-          id: "ai-test",
-          name: "Gateway",
-          base_url: "https://gateway.example/v1",
-          api_key_ref: "ai.ai-test.key",
-          auth_mode: "bearer",
-          model: "model",
-          system_prompt: "",
-          context_lines: 80,
-        }}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-      />,
-    );
+    render(<AiSettings profile={deepSeekProfile()} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "获取模型" }));
 
@@ -137,22 +127,7 @@ describe("AiSettings", () => {
       },
     });
     const user = userEvent.setup();
-    render(
-      <AiSettings
-        profile={{
-          id: "ai-test",
-          name: "Gateway",
-          base_url: "https://gateway.example/v1",
-          api_key_ref: "ai.ai-test.key",
-          auth_mode: "bearer",
-          model: "model",
-          system_prompt: "",
-          context_lines: 80,
-        }}
-        onClose={vi.fn()}
-        onSaved={vi.fn()}
-      />,
-    );
+    render(<AiSettings profile={deepSeekProfile()} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "获取模型" }));
 
@@ -204,16 +179,7 @@ describe("AiSettings", () => {
     const user = userEvent.setup();
     render(
       <AiSettings
-        profile={{
-          id: "ai-test",
-          name: "Gateway",
-          base_url: "https://gateway.example/v1",
-          api_key_ref: "ai.ai-test.key",
-          auth_mode: "bearer",
-          model: "model-a",
-          system_prompt: "",
-          context_lines: 80,
-        }}
+        profile={deepSeekProfile("ai-test", "DeepSeek Gateway", "model-a")}
         onClose={vi.fn()}
         onSaved={vi.fn()}
       />,
@@ -234,26 +200,8 @@ describe("AiSettings", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const onDeleted = vi.fn();
     const profiles = [
-      {
-        id: "active",
-        name: "当前配置",
-        base_url: "https://active.example/v1",
-        api_key_ref: "ai.active.key",
-        auth_mode: "bearer" as const,
-        model: "active-model",
-        system_prompt: "",
-        context_lines: 80,
-      },
-      {
-        id: "legacy",
-        name: "旧配置",
-        base_url: "https://legacy.example/v1",
-        api_key_ref: "ai.legacy.key",
-        auth_mode: "bearer" as const,
-        model: "legacy-model",
-        system_prompt: "",
-        context_lines: 80,
-      },
+      deepSeekProfile("active", "当前服务", "deepseek-chat"),
+      deepSeekProfile("backup", "备用服务", "deepseek-reasoner"),
     ];
     const user = userEvent.setup();
     render(
@@ -268,17 +216,19 @@ describe("AiSettings", () => {
     );
 
     expect(screen.getByText("当前使用")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "删除 AI 配置 当前配置" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "删除 AI 配置 旧配置" }));
+    expect(
+      screen.queryByRole("button", { name: "删除 DeepSeek 服务 当前服务" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "删除 DeepSeek 服务 备用服务" }));
 
     expect(confirm).toHaveBeenCalledTimes(1);
-    expect(ipcMocks.aiProfileDelete).toHaveBeenCalledWith("legacy");
-    expect(onDeleted).toHaveBeenCalledWith("legacy");
+    expect(ipcMocks.aiProfileDelete).toHaveBeenCalledWith("backup");
+    expect(onDeleted).toHaveBeenCalledWith("backup");
     confirm.mockRestore();
   });
 
   it("previews current JSON edits and can refresh/open the local config", async () => {
-    ipcMocks.aiConfigJson.mockResolvedValue({ version: 5, ai_profiles: [] });
+    ipcMocks.aiConfigJson.mockResolvedValue({ version: 6, ai_profiles: [] });
     ipcMocks.configOpenLocal.mockResolvedValue("C:\\Users\\test\\config.json");
     const user = userEvent.setup();
     render(<AiSettings profile={null} onClose={vi.fn()} onSaved={vi.fn()} />);
@@ -286,7 +236,7 @@ describe("AiSettings", () => {
     expect(screen.getByText("当前编辑内容（实时）")).toBeInTheDocument();
     expect(screen.getByText(/"ai_profiles"/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "刷新后端 JSON" }));
-    expect((await screen.findAllByText(/"version": 5/)).length).toBeGreaterThanOrEqual(2);
+    expect((await screen.findAllByText(/"version": 6/)).length).toBeGreaterThanOrEqual(2);
     await user.click(screen.getByRole("button", { name: "在本地打开" }));
     expect(ipcMocks.configOpenLocal).toHaveBeenCalledTimes(1);
   });

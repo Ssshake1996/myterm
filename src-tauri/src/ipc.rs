@@ -13,17 +13,16 @@ use crate::{
         service::AgentEventSink,
         skills,
     },
-    ai::service::{AiChatResult, AiModelTestResult, AiTestResult, DeltaSink},
+    ai::service::{AiModelTestResult, AiTestResult},
     quick_commands::{
         self, QuickCommandImportPreview, QuickCommandImportResult, QuickCommandImportStrategy,
     },
     session::{local::detect_shells, manager::OutputSink, profile},
     sftp::service::local_entries,
     types::{
-        AgentEvent, AgentPluginInfo, AgentRunResult, AgentSettings, AiMessage, AiProfile,
-        AppFontScale, AppTheme, McpServerConfig, McpToolInfo, QuickCommand, RemoteEntry,
-        SessionInfo, SessionProfile, SkillInfo, TerminalPalette, TerminalScreenSnapshot,
-        TransferId,
+        AgentEvent, AgentPluginInfo, AgentRunResult, AgentSettings, AiProfile, AppFontScale,
+        AppTheme, McpServerConfig, McpToolInfo, QuickCommand, RemoteEntry, SessionInfo,
+        SessionProfile, SkillInfo, TerminalPalette, TerminalScreenSnapshot, TransferId,
     },
     AppError, AppState, IpcError,
 };
@@ -35,16 +34,6 @@ impl OutputSink for TerminalChannel {
         self.0
             .send(Response::new(data.to_vec()))
             .map_err(|error| AppError::Session(format!("terminal channel closed: {error}")))
-    }
-}
-
-struct AiChannel(Channel<String>);
-
-impl DeltaSink for AiChannel {
-    fn send(&self, delta: &str) -> Result<(), AppError> {
-        self.0
-            .send(delta.to_owned())
-            .map_err(|error| AppError::Ai(format!("AI channel closed: {error}")))
     }
 }
 
@@ -500,32 +489,6 @@ pub async fn ai_test_model(
         .test_model(&profile_id, &model, &prompt)
         .await
         .map_err(Into::into)
-}
-
-#[tauri::command]
-pub async fn ai_chat(
-    state: State<'_, AppState>,
-    profile_id: String,
-    messages: Vec<AiMessage>,
-    attach_session_id: Option<String>,
-    on_delta: Channel<String>,
-) -> Result<AiChatResult, IpcError> {
-    state
-        .ai
-        .chat(
-            &profile_id,
-            messages,
-            attach_session_id.as_deref(),
-            Arc::new(AiChannel(on_delta)),
-        )
-        .await
-        .map_err(Into::into)
-}
-
-#[tauri::command]
-pub async fn ai_abort(state: State<'_, AppState>) -> Result<(), IpcError> {
-    state.ai.abort().await;
-    Ok(())
 }
 
 #[tauri::command]

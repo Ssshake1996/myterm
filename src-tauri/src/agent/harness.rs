@@ -21,15 +21,12 @@ use super::{
 use crate::{
     ai::routing::ResolvedAiModelRoute,
     config::DEFAULT_AGENT_SYSTEM_PROMPT,
-    types::{AgentPermissionMode, AgentRunResult, AgentSettings, AiAuthMode, AiProfile},
+    types::{AgentPermissionMode, AgentRunResult, AgentSettings, AiProfile, AiReasoningEffort},
     AppError,
 };
 
 const ACP_PROTOCOL_VERSION: u64 = 1;
-const HARNESS_PROVIDER_ID: &str = "myterm-provider";
 const STDERR_LIMIT: usize = 64 * 1024;
-const DEFAULT_CONTEXT_WINDOW: u32 = 128_000;
-const DEFAULT_MAX_TOKENS: u32 = 16_384;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run(
@@ -441,17 +438,16 @@ impl AcpProcess {
                 launcher.display()
             )));
         }
-        let provider_json = provider_json(&launch.route)?;
+        let deepseek_config_json = deepseek_config_json(&launch.route)?;
         let mut command = Command::new(&launch.node);
         command
             .arg(&launcher)
             .current_dir(&launch.workspace)
             .env("DSH_HOME", &launch.state_dir)
             .env("MYTERM_HARNESS_CWD", &launch.workspace)
-            .env("MYTERM_HARNESS_PROVIDER", HARNESS_PROVIDER_ID)
             .env("MYTERM_HARNESS_MODEL", &launch.route.model.model)
-            .env("MYTERM_HARNESS_PROVIDERS_JSON", provider_json)
-            .env("MYTERM_HARNESS_API_KEY", &launch.route.api_key)
+            .env("MYTERM_HARNESS_DEEPSEEK_CONFIG_JSON", deepseek_config_json)
+            .env("MYTERM_HARNESS_DEEPSEEK_API_KEY", &launch.route.api_key)
             .env(
                 "MYTERM_HARNESS_PERMISSION_MODE",
                 harness_permission_mode(launch.permission_mode),
@@ -850,34 +846,30 @@ impl TurnMetrics {
     }
 }
 
-fn provider_json(route: &ResolvedAiModelRoute) -> Result<String, AppError> {
-    let context_window = route
-        .model
-        .context_window_tokens
-        .unwrap_or(DEFAULT_CONTEXT_WINDOW);
-    let max_tokens = DEFAULT_MAX_TOKENS.min(context_window.saturating_div(4).max(1024));
-    let base_url = crate::ai::service::endpoint(&route.provider.base_url, "")?
+fn deepseek_config_json(route: &ResolvedAiModelRoute) -> Result<String, AppError> {
+    let base_url = reqwest::Url::parse(&route.provider.base_url)
+        .map_err(|error| AppError::InvalidInput(format!("invalid DeepSeek base URL: {error}")))?
         .to_string()
         .trim_end_matches('/')
         .to_owned();
-    let mut provider = json!({
-        "displayName": route.provider.name,
-        "apiKeyEnv": "MYTERM_HARNESS_API_KEY",
-        "api": "openai-completions",
+    Ok(serde_json::to_string(&json!({
+        "apiKeyEnv": "MYTERM_HARNESS_DEEPSEEK_API_KEY",
         "baseURL": base_url,
+        "reasoningEffort": reasoning_effort(route.provider.reasoning_effort),
         "models": [{
             "id": route.model.model,
             "name": route.model.name,
-            "contextWindow": context_window,
-            "maxTokens": max_tokens,
         }],
-    });
-    if route.provider.auth_mode == AiAuthMode::ApiKey {
-        provider["headers"] = json!({"Authorization": route.api_key});
+    }))?)
+}
+
+fn reasoning_effort(value: AiReasoningEffort) -> &'static str {
+    match value {
+        AiReasoningEffort::Off => "off",
+        AiReasoningEffort::Low => "low",
+        AiReasoningEffort::High => "high",
+        AiReasoningEffort::Max => "max",
     }
-    Ok(serde_json::to_string(
-        &json!({HARNESS_PROVIDER_ID: provider}),
-    )?)
 }
 
 fn redact_secret(value: &str, secret: &str) -> String {
@@ -1028,13 +1020,13 @@ fn aborted_result(run_id: &str, conversation_id: &str) -> AgentRunResult {
 mod tests {
     use serde_json::Value;
 
-    use super::{build_system_prompt, map_stop_reason, provider_json};
+    use super::{build_system_prompt, deepseek_config_json, map_stop_reason};
     use crate::{
         ai::routing::ResolvedAiModelRoute,
-        types::{AiAuthMode, AiModelConfig, AiModelRole, AiProfile, AiRoutingConfig},
+        types::{AiModelConfig, AiModelRole, AiProfile, AiReasoningEffort, AiRoutingConfig},
     };
 
-    fn route(auth_mode: AiAuthMode) -> ResolvedAiModelRoute {
+    fn route(reasoning_effort: AiReasoningEffort) -> ResolvedAiModelRoute {
         ResolvedAiModelRoute {
             model: AiModelConfig {
                 id: "primary".to_owned(),
@@ -1043,18 +1035,14 @@ mod tests {
                 provider_profile_id: None,
                 role: AiModelRole::Primary,
                 enabled: true,
-                context_window_tokens: Some(32_000),
-                compact_threshold_tokens: None,
             },
             provider: AiProfile {
                 id: "provider-a".to_owned(),
                 name: "Provider A".to_owned(),
                 base_url: "https://gateway.example".to_owned(),
                 api_key_ref: "vault-ref".to_owned(),
-                auth_mode,
-                model: String::new(),
+                reasoning_effort,
                 system_prompt: String::new(),
-                context_lines: 0,
                 models: Vec::new(),
                 routing: AiRoutingConfig::default(),
             },
@@ -1063,32 +1051,21 @@ mod tests {
     }
 
     #[test]
-    fn provider_json_uses_pinned_openai_compatible_route() {
+    fn provider_json_uses_native_deepseek_contract() {
         let value: Value =
-            serde_json::from_str(&provider_json(&route(AiAuthMode::Bearer)).unwrap())
+            serde_json::from_str(&deepseek_config_json(&route(AiReasoningEffort::Max)).unwrap())
                 .expect("provider JSON");
-        let provider = &value["myterm-provider"];
-        assert_eq!(provider["api"], "openai-completions");
-        assert_eq!(provider["baseURL"], "https://gateway.example/v1");
-        assert_eq!(provider["apiKeyEnv"], "MYTERM_HARNESS_API_KEY");
-        assert_eq!(provider["models"][0]["contextWindow"], 32_000);
-        assert!(provider.get("headers").is_none());
-    }
-
-    #[test]
-    fn raw_api_key_mode_overrides_the_authorization_header() {
-        let value: Value =
-            serde_json::from_str(&provider_json(&route(AiAuthMode::ApiKey)).unwrap())
-                .expect("provider JSON");
-        assert_eq!(
-            value["myterm-provider"]["headers"]["Authorization"],
-            "secret-value"
-        );
+        assert_eq!(value["baseURL"], "https://gateway.example");
+        assert_eq!(value["apiKeyEnv"], "MYTERM_HARNESS_DEEPSEEK_API_KEY");
+        assert_eq!(value["reasoningEffort"], "max");
+        assert_eq!(value["models"][0]["id"], "model-a");
+        assert!(value.get("api").is_none());
+        assert!(value.get("headers").is_none());
     }
 
     #[test]
     fn system_prompt_keeps_host_tool_contract_and_appends_user_instructions() {
-        let mut profile = route(AiAuthMode::Bearer).provider;
+        let mut profile = route(AiReasoningEffort::High).provider;
         profile.system_prompt = "Prefer concise evidence.".to_owned();
         let prompt = build_system_prompt(&profile);
         assert!(prompt.contains("myterm-host-tools"));

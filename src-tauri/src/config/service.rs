@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::{
     types::{
-        AgentSettings, AiModelConfig, AiModelRole, AiProfile, AppFontScale, AppTheme, QuickCommand,
+        AgentSettings, AiModelRole, AiProfile, AppFontScale, AppTheme, QuickCommand,
         SessionProfile, TerminalPalette,
     },
     AppError,
@@ -29,7 +29,7 @@ pub const DEFAULT_AGENT_SYSTEM_PROMPT: &str = r#"You are the myterm operations A
 - Follow the selected permission mode. Read-only cannot change state; user-confirm asks through myterm; full access still obeys hard-deny rules.
 - Treat every normal request as potentially long-running. Use Harness goals, checkpoints, compaction, retry, and resumable sessions as needed; users do not need to select a long-task mode or use /goal.
 - Ask concise clarification questions only when a material decision cannot be discovered safely. Reply in the user's language."#;
-pub const CONFIG_SCHEMA_VERSION: u32 = 5;
+pub const CONFIG_SCHEMA_VERSION: u32 = 6;
 const ENVIRONMENT_SCHEMA_VERSION: u32 = 1;
 const ENVIRONMENT_DIRECTORY_NAME: &str = "environments";
 const ENVIRONMENT_FILE_SUFFIX: &str = ".environments.json";
@@ -245,7 +245,7 @@ impl ConfigService {
                     .any(|model| model.provider_profile_id.as_deref().map(str::trim) == Some(id))
         }) {
             return Err(AppError::InvalidInput(format!(
-                "AI Provider 配置 '{}' 正被模型路由 '{}' 引用，请先解除引用再删除",
+                "DeepSeek 服务 '{}' 正被模型路由 '{}' 引用，请先解除引用再删除",
                 id, owner.name
             )));
         }
@@ -510,7 +510,18 @@ fn legacy_agent_fields_present(path: &Path) -> bool {
 }
 
 fn migrate_config(config: &mut AppConfig) -> bool {
-    let mut changed = config.version < CONFIG_SCHEMA_VERSION;
+    let previous_version = config.version;
+    let mut changed = previous_version < CONFIG_SCHEMA_VERSION;
+    if previous_version < CONFIG_SCHEMA_VERSION && !config.ai_profiles.is_empty() {
+        config.ai_profiles.clear();
+        changed = true;
+        tracing::info!(
+            event = "deepseek_native_ai_config_reset",
+            previous_version,
+            current_version = CONFIG_SCHEMA_VERSION,
+            "Removed pre-native-provider AI profiles; DeepSeek service must be configured again"
+        );
+    }
     config.version = CONFIG_SCHEMA_VERSION;
     for profile in &mut config.ai_profiles {
         changed |= normalize_ai_profile(profile);
@@ -520,19 +531,6 @@ fn migrate_config(config: &mut AppConfig) -> bool {
 
 fn normalize_ai_profile(profile: &mut AiProfile) -> bool {
     let mut changed = false;
-    if profile.models.is_empty() && !profile.model.trim().is_empty() {
-        profile.models.push(AiModelConfig {
-            id: "primary".to_owned(),
-            name: "主模型".to_owned(),
-            model: profile.model.trim().to_owned(),
-            provider_profile_id: None,
-            role: AiModelRole::Primary,
-            enabled: true,
-            context_window_tokens: None,
-            compact_threshold_tokens: None,
-        });
-        changed = true;
-    }
     for model in &mut profile.models {
         let normalized = model
             .provider_profile_id
@@ -580,7 +578,7 @@ fn validate_ai_profile(profile: &AiProfile, existing: &[AiProfile]) -> Result<()
         };
         if !existing.iter().any(|candidate| candidate.id == provider_id) {
             return Err(AppError::InvalidInput(format!(
-                "模型路由 '{}' 引用的 AI Provider 配置 '{}' 不存在",
+                "模型路由 '{}' 引用的 DeepSeek 服务 '{}' 不存在",
                 model.name, provider_id
             )));
         }
@@ -671,8 +669,8 @@ mod tests {
         validate_environment_group_name, AppConfig, ConfigService, DEFAULT_AGENT_SYSTEM_PROMPT,
     };
     use crate::types::{
-        AiAuthMode, AiModelConfig, AiModelRole, AiProfile, AiRoutingConfig, AppFontScale, AppTheme,
-        AuthMethod, SessionProfile, SessionTarget, TerminalPalette,
+        AiModelConfig, AiModelRole, AiProfile, AiReasoningEffort, AiRoutingConfig, AppFontScale,
+        AppTheme, AuthMethod, SessionProfile, SessionTarget, TerminalPalette,
     };
     use serde_json::Value;
     use std::fs;
@@ -729,19 +727,15 @@ mod tests {
             name: "Gateway".to_owned(),
             base_url: "https://gateway.example/v1".to_owned(),
             api_key_ref: "ai.ai.key".to_owned(),
-            auth_mode: AiAuthMode::Bearer,
-            model: String::new(),
+            reasoning_effort: AiReasoningEffort::High,
             system_prompt: String::new(),
-            context_lines: 0,
             models: vec![AiModelConfig {
-                id: "analysis".to_owned(),
-                name: "分析模型".to_owned(),
-                model: "analysis-model".to_owned(),
+                id: "fallback".to_owned(),
+                name: "备用模型".to_owned(),
+                model: "fallback-model".to_owned(),
                 provider_profile_id: None,
-                role: AiModelRole::Analysis,
+                role: AiModelRole::Fallback,
                 enabled: true,
-                context_window_tokens: None,
-                compact_threshold_tokens: None,
             }],
             routing: AiRoutingConfig::default(),
         })?;
@@ -881,7 +875,8 @@ mod tests {
     }
 
     #[test]
-    fn legacy_ai_model_is_migrated_to_json_model_roles() -> Result<(), Box<dyn std::error::Error>> {
+    fn pre_native_ai_profiles_are_removed_instead_of_migrated(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let root = test_root();
         fs::create_dir_all(&root)?;
         let path = root.join("config.json");
@@ -910,13 +905,10 @@ mod tests {
             }"#,
         )?;
         let service = ConfigService::open(path.clone())?;
-        let profile = service.ai_profile_list()?.remove(0);
-        assert_eq!(profile.models.len(), 1);
-        assert_eq!(profile.models[0].role, crate::types::AiModelRole::Primary);
-        assert_eq!(profile.models[0].model, "legacy-model");
+        assert!(service.ai_profile_list()?.is_empty());
         assert_eq!(
             serde_json::from_str::<Value>(&fs::read_to_string(&path)?)?["version"],
-            5
+            6
         );
         let raw = serde_json::from_str::<Value>(&fs::read_to_string(path)?)?;
         let agent = raw
@@ -933,8 +925,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_manual_provider_context_mode_is_removed_on_open(
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn old_ai_provider_shape_is_not_retained_on_open() -> Result<(), Box<dyn std::error::Error>> {
         let root = test_root();
         fs::create_dir_all(&root)?;
         let path = root.join("config.json");
@@ -966,10 +957,10 @@ mod tests {
         )?;
 
         let service = ConfigService::open(path.clone())?;
-        assert_eq!(service.ai_profile_list()?.len(), 1);
+        assert!(service.ai_profile_list()?.is_empty());
         let raw = fs::read_to_string(&path)?;
         assert!(!raw.contains("context_mode"));
-        assert_eq!(serde_json::from_str::<Value>(&raw)?["version"], 5);
+        assert_eq!(serde_json::from_str::<Value>(&raw)?["version"], 6);
 
         fs::remove_dir_all(root)?;
         Ok(())
@@ -985,10 +976,8 @@ mod tests {
             name: "Backup Provider".to_owned(),
             base_url: "https://backup.example/v1".to_owned(),
             api_key_ref: "ai.provider-backup.key".to_owned(),
-            auth_mode: AiAuthMode::Bearer,
-            model: String::new(),
+            reasoning_effort: AiReasoningEffort::High,
             system_prompt: String::new(),
-            context_lines: 0,
             models: vec![AiModelConfig {
                 id: "provider-default".to_owned(),
                 name: "Provider Default".to_owned(),
@@ -996,8 +985,6 @@ mod tests {
                 provider_profile_id: None,
                 role: AiModelRole::Primary,
                 enabled: true,
-                context_window_tokens: None,
-                compact_threshold_tokens: None,
             }],
             routing: AiRoutingConfig::default(),
         };

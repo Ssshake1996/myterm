@@ -33,14 +33,17 @@ for (const marker of [
   "@deepseek-ai/dsh-agent-loop",
   "@deepseek-ai/dsh-compaction-basic",
   "@deepseek-ai/dsh-goal",
+  "@deepseek-ai/dsh-llm-deepseek",
   "@deepseek-ai/dsh-skill-filesystem",
   "@deepseek-ai/dsh-tool-pwsh",
   "@deepseek-ai/dsh-tool-fs",
 ]) {
   if (!profile.includes(marker)) findings.push(`profile plugin is missing: ${marker}`);
 }
-if (!profile.includes("MYTERM_HARNESS_PROVIDERS_JSON"))
-  findings.push("provider JSON injection is missing");
+if (!profile.includes("MYTERM_HARNESS_DEEPSEEK_CONFIG_JSON"))
+  findings.push("DeepSeek provider config injection is missing");
+if (!profile.includes("provider: deepseek-official"))
+  findings.push("ACP does not use the native deepseek-official route");
 if (!profile.includes("MYTERM_HARNESS_SYSTEM_PROMPT"))
   findings.push("system prompt injection is missing");
 if (!profile.includes("MYTERM_HARNESS_SKILL_DIRS_JSON"))
@@ -55,7 +58,7 @@ const report = {
   acpProtocolVersion: lock.acpProtocolVersion,
   excludedSurfaces: lock.excludedSurfaces,
   enabledToolPacks: lock.enabledToolPacks,
-  note: "Official Harness owns provider networking. myterm adds only a loopback authenticated Streamable HTTP MCP bridge for host tools.",
+  note: "Official DeepSeek Harness and dsh-llm-deepseek own model networking. myterm adds only a loopback authenticated Streamable HTTP MCP bridge for host tools.",
   findings,
 };
 

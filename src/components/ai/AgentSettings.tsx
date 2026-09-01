@@ -256,7 +256,9 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
         <div className="plugin-profile-summary">
           <span className="agent-runtime-badge">内置运行时</span>
           <strong>DeepSeek Harness</strong>
-          <small>官方 ACP · Agent Loop · Goal · Compaction · Skill · MCP</small>
+          <small>
+            官方 ACP · 原生 DeepSeek Provider · Session · Goal · Compaction · Skill · MCP
+          </small>
         </div>
 
         {tab === "execution" ? (

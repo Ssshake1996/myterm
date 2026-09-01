@@ -244,19 +244,20 @@ pub struct QuickCommand {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum AiAuthMode {
+pub enum AiModelRole {
     #[default]
-    Bearer,
-    ApiKey,
+    Primary,
+    Fallback,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum AiModelRole {
+pub enum AiReasoningEffort {
+    Off,
+    Low,
     #[default]
-    Primary,
-    Analysis,
-    Fallback,
+    High,
+    Max,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -264,37 +265,26 @@ pub struct AiModelConfig {
     pub id: String,
     pub name: String,
     pub model: String,
-    /// Optional AI profile whose endpoint, authentication mode, and vault key
-    /// provide this route. `None` means the containing profile.
+    /// Optional DeepSeek service whose endpoint and vault key provide this
+    /// route. `None` means the containing service.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_profile_id: Option<String>,
     #[serde(default)]
     pub role: AiModelRole,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
-    #[serde(default)]
-    pub context_window_tokens: Option<u32>,
-    #[serde(default)]
-    pub compact_threshold_tokens: Option<u32>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AiRoutingConfig {
     #[serde(default = "enabled_by_default")]
     pub fallback_on_error: bool,
-    #[serde(default = "default_analysis_threshold")]
-    pub analysis_threshold_chars: u32,
-}
-
-fn default_analysis_threshold() -> u32 {
-    32_000
 }
 
 impl Default for AiRoutingConfig {
     fn default() -> Self {
         Self {
             fallback_on_error: true,
-            analysis_threshold_chars: default_analysis_threshold(),
         }
     }
 }
@@ -306,15 +296,8 @@ pub struct AiProfile {
     pub base_url: String,
     pub api_key_ref: String,
     #[serde(default)]
-    pub auth_mode: AiAuthMode,
-    /// Legacy single-model field. It is migrated into `models.primary` and is
-    /// retained only so existing config.json files remain readable.
-    #[serde(default, skip_serializing)]
-    pub model: String,
+    pub reasoning_effort: AiReasoningEffort,
     pub system_prompt: String,
-    /// Legacy fixed line limit. Agent and chat no longer use this field.
-    #[serde(default, skip_serializing)]
-    pub context_lines: u32,
     #[serde(default)]
     pub models: Vec<AiModelConfig>,
     #[serde(default)]
@@ -323,18 +306,6 @@ pub struct AiProfile {
 
 impl AiProfile {
     pub fn effective_models(&self) -> Vec<AiModelConfig> {
-        if self.models.is_empty() && !self.model.trim().is_empty() {
-            return vec![AiModelConfig {
-                id: "primary".to_owned(),
-                name: "主模型".to_owned(),
-                model: self.model.clone(),
-                provider_profile_id: None,
-                role: AiModelRole::Primary,
-                enabled: true,
-                context_window_tokens: None,
-                compact_threshold_tokens: None,
-            }];
-        }
         let mut models = self
             .models
             .iter()
@@ -343,8 +314,7 @@ impl AiProfile {
             .collect::<Vec<_>>();
         models.sort_by_key(|model| match model.role {
             AiModelRole::Primary => 0,
-            AiModelRole::Analysis => 1,
-            AiModelRole::Fallback => 2,
+            AiModelRole::Fallback => 1,
         });
         models
     }
@@ -540,18 +510,4 @@ pub struct AgentSteerResult {
     pub conversation_id: String,
     pub turn_id: String,
     pub accepted: bool,
-}
-
-#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AiRole {
-    System,
-    User,
-    Assistant,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct AiMessage {
-    pub role: AiRole,
-    pub content: String,
 }

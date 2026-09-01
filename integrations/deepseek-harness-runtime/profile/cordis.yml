@@ -15,10 +15,9 @@
 - id: llm
   name: '@deepseek-ai/dsh-llm'
 
-- id: llm-pi-ai
-  name: '@deepseek-ai/dsh-llm-pi-ai'
-  config:
-    providers: !!js JSON.parse(process.env.MYTERM_HARNESS_PROVIDERS_JSON ?? '{}')
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config: !!js JSON.parse(process.env.MYTERM_HARNESS_DEEPSEEK_CONFIG_JSON ?? '{}')
 
 - id: session
   name: '@deepseek-ai/dsh-session'
@@ -201,6 +200,6 @@
   name: '@deepseek-ai/dsh-acp'
   inject: [agents, llm, sessionPersistence, sessions]
   config:
-    provider: !!js process.env.MYTERM_HARNESS_PROVIDER
+    provider: deepseek-official
     model: !!js process.env.MYTERM_HARNESS_MODEL
     sessionListPageSize: 100

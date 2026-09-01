@@ -2,8 +2,8 @@
 
 > 2026-09-01 实施边界：桌面端使用官方 DeepSeek Harness ACP 作为唯一 Agent 内核；Harness 提供 Agent Loop、Goal、压缩、本地工具和 Skill，myterm Host MCP 提供 SSH/CLI/SFTP、多 SSH 与外部 MCP。普通任务自动获得持久会话能力，不提供用户可调 `max_steps`。
 
-> 文档状态：`0.11.1` 已交付能力与后续 OS provisioning 计划
-> 当前产品基线：`0.11.1`
+> 文档状态：`0.11.2` 已交付能力与后续 OS provisioning 计划
+> 当前产品基线：`0.11.2`
 > 对应说明书：[`linux-agent-specification.md`](linux-agent-specification.md)
 > 专项方案：[`multi-ssh-os-installation-plan.md`](multi-ssh-os-installation-plan.md)
 > 研究依据：[`linux-agent-improvement-study.md`](linux-agent-improvement-study.md)
@@ -61,8 +61,9 @@ Harness Local Tools 提供本机 Shell/文件能力；SSH/CLI/SFTP、多 SSH 和
 - 本地 `SKILL.md`、stdio/streamable-http MCP、Hooks、上下文压缩、工具时间线和 0.7.0 插件运行时。
 - Agent 输入框 `Enter` 提交、`Shift+Enter` 换行、IME 组合保护，以及向上拖至面板一半的可调高度。
 - 自动 Goal、持久 Harness Session、澄清等待、后台 Job、重启恢复和运行中“响应后继续/排队执行”。
-- 跨 Provider 模型路由、官方 Harness compaction/Goal/Skill、本地工具，以及 Host MCP 包装的 MCP Tools/Resources/Prompts。
+- 原生 DeepSeek 主/备用模型路由、官方 Harness compaction/Goal/Skill、本地工具，以及 Host MCP 包装的 MCP Tools/Resources/Prompts。
 - 多 SSH 自动连接、显式 Session 目标、同会话写锁、跨会话并发和 `session_wait_until` 条件协同。
+- 官方 `dsh-llm-deepseek` Provider、固定 `deepseek-official` 路由、Bearer 凭据注入和 Harness 生命周期状态界面。
 
 ### 4.2 `0.6.3` 删除项
 
@@ -87,7 +88,8 @@ Harness Local Tools 提供本机 Shell/文件能力；SSH/CLI/SFTP、多 SSH 和
 | `0.6.3` | R0 产品面收敛 | 删除本机 CLI/REST、迁移旧数据、多行与可调输入区、文档重构 | `0.6.2` |
 | `0.7.0-0.10.1` | Agent 基线演进 | 插件边界、多 SSH、Conversation/Turn、Provider Context、Result Capsule | R0 |
 | `0.11.0` | Goal 控制面 | 普通任务自动 Goal、透明续跑、Job/Evidence/Skill 恢复、统一 MCP、跨 Provider 路由 | 既有 Core |
-| 开发版 | 官方 Harness 迁移 | ACP sidecar、Harness 本地工具、Host MCP、持久 Session、私有 Node 打包 | `0.11.0` 产品控制面 |
+| `0.11.1` | 官方 Harness 迁移 | ACP sidecar、Harness 本地工具、Host MCP、持久 Session、私有 Node 打包 | `0.11.0` 产品控制面 |
+| `0.11.2` | 原生 DeepSeek Provider | 官方 Provider、精简 AI schema、Harness 能力界面和通用运行时契约检查 | `0.11.1` |
 | 后续 | M2 远端 HTTP 协同 | `remote_http_request` 与来源/凭据/幂等契约 | `0.11.0` |
 | 后续 | M3 Provisioning 骨架 | plan、状态机、fake adapter、两阶段审批、安装 Skill plan-only | M2 |
 | `1.0.0` 候选 | M4 Ubuntu VM 安装 | 一个 VM adapter、Autoinstall、SSH 身份重建和验收 | M3 |

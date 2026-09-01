@@ -48,10 +48,12 @@ const aiProfile = {
   name: "Ops AI",
   base_url: "https://api.example.test/v1",
   api_key_ref: "ai.ai-1.key",
-  auth_mode: "bearer" as const,
-  model: "ops-model",
+  reasoning_effort: "high" as const,
   system_prompt: "",
-  context_lines: 80,
+  models: [
+    { id: "primary", name: "主模型", model: "ops-model", role: "primary" as const, enabled: true },
+  ],
+  routing: { fallback_on_error: true },
 };
 
 const settings = {
@@ -208,13 +210,12 @@ describe("AiPanel Agent trace", () => {
     ipcMocks.aiProfileList.mockResolvedValue([
       {
         ...aiProfile,
-        model: undefined,
         models: [
           {
-            id: "analysis",
-            name: "分析模型",
-            model: "analysis-model",
-            role: "analysis",
+            id: "fallback",
+            name: "备用模型",
+            model: "fallback-model",
+            role: "fallback",
             enabled: true,
           },
         ],
@@ -224,7 +225,7 @@ describe("AiPanel Agent trace", () => {
     render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
 
     expect(
-      await screen.findByRole("option", { name: "Ops AI · analysis-model" }),
+      await screen.findByRole("option", { name: "Ops AI · fallback-model" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("未配置模型")).not.toBeInTheDocument();
   });

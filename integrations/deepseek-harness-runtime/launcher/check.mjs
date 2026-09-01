@@ -7,10 +7,21 @@ const lock = JSON.parse(await readFile(join(root, "harness.lock.json"), "utf8"))
 const installed = JSON.parse(
   await readFile(join(root, "node_modules", "@deepseek-ai", "dsh-acp", "package.json"), "utf8"),
 );
+const provider = JSON.parse(
+  await readFile(
+    join(root, "node_modules", "@deepseek-ai", "dsh-llm-deepseek", "package.json"),
+    "utf8",
+  ),
+);
 
 if (installed.version !== lock.harnessVersion) {
   throw new Error(
     `DeepSeek Harness version mismatch: lock=${lock.harnessVersion}, installed=${installed.version}`,
+  );
+}
+if (provider.version !== lock.harnessVersion) {
+  throw new Error(
+    `DeepSeek provider version mismatch: lock=${lock.harnessVersion}, installed=${provider.version}`,
   );
 }
 
@@ -19,6 +30,8 @@ process.stdout.write(
     ok: true,
     harnessPackage: lock.harnessPackage,
     harnessVersion: lock.harnessVersion,
+    modelProvider: "@deepseek-ai/dsh-llm-deepseek",
+    providerRoute: "deepseek-official",
     acpProtocolVersion: lock.acpProtocolVersion,
     profile: lock.profile,
     excludedSurfaces: lock.excludedSurfaces,

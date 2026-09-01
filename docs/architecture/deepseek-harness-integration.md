@@ -39,7 +39,9 @@ React Agent 面板
 
 ## 模型与系统 Prompt
 
-前端 AI 配置仍保存为 myterm JSON，API Key 只从凭据库读取。每条模型路由在启动时转换为 Harness `llm-pi-ai` provider JSON；Bearer 模式使用 `apiKeyEnv`，原始 API Key 模式显式覆盖 `Authorization` Header。主模型失败时由 myterm 按已配置路由启动下一条 Harness 路由。
+前端 AI 配置仍保存为 myterm JSON，API Key 只从凭据库读取。每条模型路由在启动时转换为官方 `dsh-llm-deepseek` 配置，并固定交给 `deepseek-official` 路由；myterm 只注入 `apiKeyEnv`、精确 Base URL、推理强度和模型列表，认证由原生 Provider 以 Bearer 方式处理。主模型失败时由 myterm 按已配置的备用模型和备用 DeepSeek 服务启动下一条 Harness 路由。
+
+AI 配置 schema 为 v6，只保留原生 Provider 所需字段。开发阶段不迁移旧兼容 Provider 配置；首次打开 v6 时旧 AI 服务会被清空，用户需要重新保存 DeepSeek 服务，服务器、环境、快捷命令、Skill、MCP 和系统凭据不受影响。
 
 系统 Prompt 真实进入模型上下文：Rust 把内置 myterm Agent 契约与用户配置的附加 System Prompt 合并到 `MYTERM_HARNESS_SYSTEM_PROMPT`，官方 `dsh-system-prompt` 插件通过 `persona` 字段注入。运行时检查和 Rust 单元测试会验证该注入链路存在。
 
@@ -63,7 +65,7 @@ MCP 工具本身不依赖 Harness 本地 Shell 提权，因此远程工具只经
 
 1. 把所有 `@deepseek-ai/dsh-*` 依赖升级到同一官方版本。
 2. 更新 lock 文件中的 Harness/ACP 版本并运行 `npm install --package-lock-only`。
-3. 执行 `npm run test:harness-runtime` 和 `npm run audit:codex-network`。
+3. 执行 `npm run test:harness-runtime` 和 `npm run audit:harness-runtime`。
 4. 执行 Rust/前端测试和 `npm run build:release`，确认安装包内包含 launcher、profile、node_modules 和私有 Node runtime。
 
 这种方式的优点是 Agent 内核、Goal、压缩、本地工具和 Skill 可以跟随官方包升级，myterm 只维护 ACP/Host MCP 边界。缺点是官方 Harness 仍处于 Developer Preview，升级可能需要调整 profile 或 ACP 映射；安装包还需要携带 Node，当前未压缩运行时约 236 MiB。相比继续维护一份裁剪 Core，这个体积代价换取了更低的长期分叉维护成本。
@@ -73,7 +75,7 @@ MCP 工具本身不依赖 Harness 本地 Shell 提权，因此远程工具只经
 ```powershell
 cd F:\myterm
 npm run test:harness-runtime
-npm run audit:codex-network
+npm run audit:harness-runtime
 npm run prepare:harness-runtime
 npm run typecheck
 npm test -- --pool=threads --poolOptions.threads.singleThread

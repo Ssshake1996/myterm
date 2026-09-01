@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.11.1`
+当前版本：`0.11.2`
 
 ## 核心功能
 
@@ -70,8 +70,8 @@ Agent 使用类似 Claude Code 的循环：
 - 终端上下文采用无固定行数的 transcript 读取：Agent 通过 `offset`、`nextOffset` 和 `eof` 分段读取完整 `cat`、日志或命令输出；远程执行的超长 stdout/stderr 保留 artifact，可用分页工具继续读取。
 - 对交互式产品 CLI，`cli_execute` 在同一个后端事务中锁定输入、读取 xterm 真实光标行、只发送完整目标命令的缺失后缀，并等待提示符、交互、静默兜底或超时边界；`cli_execute_batch` 可把 1-8 条互不依赖的已知命令合并为一次工具调用，避免 `showshow system...` 和大量短请求。
 - Agent 会在任务时间线记录可从 ACP 观察到的步骤、工具调用和运行状态；远程有副作用或存在依赖的步骤仍由 myterm 串行保护。
-- AI 配置以版本化 JSON 持久化。一个配置可定义主模型、分析模型和备用模型，每个模型路由还可引用另一份已保存 Provider 配置；失败时会跨模型、跨 Provider 按角色顺序切换并在 Agent 时间线标出实际使用的路由。
-- AI 配置会转换为官方 Harness `llm-pi-ai` Provider JSON；主模型失败时由 myterm 按主/分析/备用和跨 Provider 路由启动下一条 Harness 路由。
+- DeepSeek 服务以版本化 JSON 持久化，可定义主模型和多个备用模型；每条路由还可引用另一份已保存 DeepSeek 服务，失败时按顺序切换并在 Agent 时间线标出实际路由。
+- Agent 模型请求通过官方 `@deepseek-ai/dsh-llm-deepseek` 和固定 `deepseek-official` 路由执行。
 - 上下文窗口和压缩由 DeepSeek Harness 的持久 Session、token meter、checkpoint、tool-result pruner 与 compaction 自动管理，不在 AI 设置中暴露人工压缩开关。
 - 终端、文件与后台 Job 长输出通过 myterm 的 `offset`/`nextOffset`/`eof` 分页工具读取，不设置固定终端行数；无关查询噪声由 Harness 在上下文压力下压缩。
 - 安装版默认写入按天滚动的本地 JSON 诊断日志并保留 14 天；`--debug` 提升为 DEBUG 级，Harness 进程、ACP 阶段、模型路由、Host MCP 与精确错误均使用稳定字段，方便维护 AI 直接读取定位。
@@ -95,13 +95,12 @@ Agent 使用类似 Claude Code 的循环：
 - Agent 可调用只读的 `mcp_status` 检查每个已配置服务器的启用状态、Transport、连接/工具发现阶段、工具数量、稳定错误码和服务端原始详情；该诊断不需要 SSH 会话。
 - 支持有界、确定性的任务生命周期 Hooks；Hooks 不能降低核心权限策略。
 
-### 插件化 Agent 内核
+### DeepSeek Harness Agent 内核
 
-- Agent Loop 只负责 Goal/Turn 生命周期、模型决策、效果感知调度、结果回填和循环保护；SSH/文件等内置工具由宿主提供，MCP 通过统一 CapabilityProvider 接入，避免把 Transport、连接池和服务端协议写进 Core。
-- 桌面默认配置挂载内置 SSH/会话工具、本地 Skill、stdio/streamable-http MCP、生命周期 Hooks 和 OpenAI 兼容模型适配器。
-- 每个插件都提供 manifest、版本、依赖提示和工具描述；工具事件和审计记录会携带插件 id。
-- Agent 设置页展示插件清单，可缩小当前运行时启用的插件集合；留空表示使用桌面默认配置。
-- `src-tauri/src/agent/protocol.rs` 定义了未来进程外插件使用的版本化 JSONL 协议；0.7.0 不会自动安装或执行未知第三方插件代码。
+- 官方 DeepSeek Harness 独占 Agent Loop、持久 Session、Goal、checkpoint、compaction、本地工具和 Skill；myterm 不维护第二套模型循环。
+- 官方原生 DeepSeek Provider 直接负责模型协议、流式响应、推理强度、重试和错误码；myterm 只注入凭据引用、Base URL、模型和 System Prompt。
+- myterm Host MCP 提供 SSH、CLI、SFTP、多 SSH 与外部 MCP 能力，统一经过目标选择、权限、审批、取消、错误保真和审计。
+- Agent 面板直接展示 Session、Goal、Checkpoint、Compaction、Skill、Host MCP、权限和工具事件，不再显示旧 Core 的循环步数或兼容 Provider 概念。
 
 ### 远端 CLI、REST 与多 SSH
 
@@ -117,7 +116,7 @@ Agent 使用类似 Claude Code 的循环：
 - 白色、护眼色和深色三套主题，设置会持久化并同步到终端画布。
 - 终端提供三套命令配色模板：石墨青金（稳定对比）、森林护眼（低蓝光）和午夜高对比（强区分）；命令输入使用高亮色，回显保持正文色。
 - 支持界面字号从 90% 到 200% 七档，统一放大侧栏、标题、面板、弹窗和 xterm 终端；终端另提供 `12-22px` 基础字号，最终字号为“基础字号 × 界面倍率”。修改即时生效、重新适配行列且不会重连会话。
-- AI 配置支持 `Bearer Token`（`Authorization: Bearer sk-...`）和 `API Key`（`Authorization: sk-...`）两种认证头格式。
+- DeepSeek API Key 固定通过原生 Provider 使用 `Authorization: Bearer ...`；界面不再提供旧的通用认证模式选择。
 - AI 与 Agent 的 HTTPS 请求使用 Rustls 并加载操作系统根证书库，支持已部署到系统信任库的企业 CA、内网 CA 和安全代理证书。
 - 测试连接和 Agent 失败先显示失败位置与稳定错误码，点击详情后展开 HTTP 状态、Endpoint、响应体、传输错误、stderr、退出码、超时和调用堆栈；仅对密钥脱敏并限制诊断长度，不用推测性文字替换服务端结果。
 - 紧凑的 34px 会话标签栏和全高侧栏，适配桌面及窄窗口。
@@ -139,7 +138,7 @@ React UI
 ```
 
 - `src/`：React 界面、状态管理和类型化 IPC 边界。
-- `src-tauri/`：Rust 服务、Agent 内核与 Tauri 桌面入口。
+- `src-tauri/`：Rust 宿主服务、Agent 控制面、Host MCP 与 Tauri 桌面入口。
 - `myterm-spec/`：产品、架构、里程碑和验收规范。
 - `myterm-prototype/`：早期静态交互原型。
 - `docs/`：使用说明书、Agent 规范、开发计划和经验记录。

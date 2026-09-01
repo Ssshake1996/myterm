@@ -271,11 +271,7 @@ pub fn run() {
             sessions.clone(),
             Arc::new(TauriTransferEvents(app.handle().clone())),
         ));
-        let ai = Arc::new(AiService::new(
-            config.clone(),
-            credential_vault.clone(),
-            sessions.clone(),
-        )?);
+        let ai = Arc::new(AiService::new(config.clone(), credential_vault.clone())?);
         let agent = Arc::new(AgentService::new(
             config.clone(),
             credential_vault.clone(),
@@ -340,8 +336,6 @@ pub fn run() {
             ipc::ai_test_connection,
             ipc::ai_fetch_models,
             ipc::ai_test_model,
-            ipc::ai_chat,
-            ipc::ai_abort,
             ipc::agent_settings_get,
             ipc::agent_plugin_list,
             ipc::agent_settings_save,

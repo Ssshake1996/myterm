@@ -2,7 +2,7 @@
 
 > 2026-09-01 当前契约：官方 DeepSeek Harness ACP 独占模型工具循环、持久 Session、Goal、上下文压缩、本地工具和 Skill；myterm 宿主拥有产品级 Goal、权限、SSH/CLI/SFTP、多 SSH、外部 MCP 与审计。每个普通输入自动获得长任务能力，用户无需判断长短或输入 `/goal`。
 
-> 文档状态：`0.11.1` 当前契约与后续目标单一事实源（更新于 2026-09-01）
+> 文档状态：`0.11.2` 当前契约与后续目标单一事实源（更新于 2026-09-01）
 > 当前产品入口：Desktop only
 > 开发计划：[`linux-agent-development-plan.md`](linux-agent-development-plan.md)
 > OS 安装专项方案：[`multi-ssh-os-installation-plan.md`](multi-ssh-os-installation-plan.md)
@@ -83,7 +83,7 @@ Agent 只有桌面入口：
 
 ## 4. 能力状态
 
-| 能力 | `0.11.0` | 目标版本 |
+| 能力 | `0.11.2` | 目标版本 |
 |---|---:|---:|
 | 单主机结构化 SSH CLI | 已实现 | 持续维护 |
 | 持久 Task/Event/Approval/Audit | 已实现 | 持续维护 |

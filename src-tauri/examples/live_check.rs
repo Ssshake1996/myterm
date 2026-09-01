@@ -15,8 +15,8 @@ use myterm_lib::{
     },
     sftp::service::{NullTransferSink, SftpService, TransferEventSink},
     types::{
-        AgentEvent, AgentPermissionMode, AiAuthMode, AiProfile, AuthMethod, McpServerConfig,
-        McpTransportKind, SessionProfile, SessionTarget, TransferProgress, TransferState,
+        AgentEvent, AgentPermissionMode, AiProfile, AuthMethod, McpServerConfig, McpTransportKind,
+        SessionProfile, SessionTarget, TransferProgress, TransferState,
     },
     AppError, SecretResolver,
 };
@@ -618,9 +618,7 @@ async fn verify_ai_protocol() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("AI provider API key is not available")?;
 
     let vault: Arc<dyn CredentialVault> = vault_impl.clone();
-    let resolver: Arc<dyn SecretResolver> = vault_impl;
-    let sessions = Arc::new(SessionManager::new(resolver, Arc::new(NullEventSink)));
-    let ai = AiService::new(config, vault, sessions)?;
+    let ai = AiService::new(config, vault)?;
     let non_stream = ai
         .test_model(&owner.id, &model.id, "Reply with exactly: HI")
         .await?;
@@ -706,11 +704,10 @@ async fn inspect_chat_stream(
             "function": {"name": "protocol_probe"},
         });
     }
-    let request = client.post(endpoint.clone()).json(&body);
-    let request = match provider.auth_mode {
-        AiAuthMode::Bearer => request.bearer_auth(api_key),
-        AiAuthMode::ApiKey => request.header(reqwest::header::AUTHORIZATION, api_key),
-    };
+    let request = client
+        .post(endpoint.clone())
+        .bearer_auth(api_key)
+        .json(&body);
     let mut response = request.send().await?;
     let status = response.status();
     let content_type = response
@@ -835,12 +832,7 @@ fn print_stream_probe(scenario: &str, probe: &StreamProbe) {
 fn live_chat_endpoint(base_url: &str) -> Result<reqwest::Url, Box<dyn std::error::Error>> {
     let mut url = reqwest::Url::parse(base_url)?;
     let configured_path = url.path().trim_end_matches('/');
-    let api_root = if configured_path.is_empty() {
-        "/v1"
-    } else {
-        configured_path
-    };
-    url.set_path(&format!("{api_root}/chat/completions"));
+    url.set_path(&format!("{configured_path}/chat/completions"));
     url.set_query(None);
     url.set_fragment(None);
     Ok(url)

@@ -98,25 +98,22 @@ export type AppFontScale =
 
 export type TerminalPalette = "graphite_gold" | "forest_amber" | "midnight_contrast";
 
-export type AiAuthMode = "bearer" | "api_key";
+export type AiModelRole = "primary" | "fallback";
 
-export type AiModelRole = "primary" | "analysis" | "fallback";
+export type AiReasoningEffort = "off" | "low" | "high" | "max";
 
 export interface AiModelConfig {
   id: string;
   name: string;
   model: string;
-  /** Uses this saved AI profile's endpoint/authentication; omitted means the containing profile. */
+  /** Uses this saved DeepSeek service's endpoint/key; omitted means the containing service. */
   provider_profile_id?: string;
   role: AiModelRole;
   enabled: boolean;
-  context_window_tokens?: number;
-  compact_threshold_tokens?: number;
 }
 
 export interface AiRoutingConfig {
   fallback_on_error: boolean;
-  analysis_threshold_chars: number;
 }
 
 export interface AiProfile {
@@ -124,21 +121,10 @@ export interface AiProfile {
   name: string;
   base_url: string;
   api_key_ref: string;
-  auth_mode: AiAuthMode;
-  /** Legacy field; new configuration is stored in models. */
-  model?: string;
+  reasoning_effort: AiReasoningEffort;
   system_prompt: string;
-  /** Legacy field retained for config migration only. */
-  context_lines?: number;
   models?: AiModelConfig[];
   routing?: AiRoutingConfig;
-}
-
-export type AiRole = "system" | "user" | "assistant";
-
-export interface AiMessage {
-  role: AiRole;
-  content: string;
 }
 
 export interface AiTestResult {
@@ -213,11 +199,6 @@ export function formatIpcError(error: unknown, fallback: string): string {
   if (!diagnostic) return message;
   const detail = diagnostic.detail.trim() || message;
   return `${diagnostic.summary} [${diagnostic.code} · ${diagnostic.stage}]\n${detail}`;
-}
-
-export interface AiChatResult {
-  finishReason: "stop" | "aborted";
-  attachedContext?: string;
 }
 
 export type AgentPermissionMode = "read_only" | "confirm" | "full_access";
@@ -790,23 +771,6 @@ export async function aiTestModel(
 ): Promise<AiModelTestResult> {
   if (!isDesktopRuntime) return demoBackend.aiTestModel(profileId, model, prompt);
   return invoke<AiModelTestResult>("ai_test_model", { profileId, model, prompt });
-}
-
-export async function aiChat(
-  profileId: string,
-  messages: AiMessage[],
-  attachSessionId: string | null,
-  onDelta: MessageChannel<string>,
-): Promise<AiChatResult> {
-  if (!isDesktopRuntime) {
-    return demoBackend.aiChat(profileId, messages, attachSessionId, onDelta);
-  }
-  return invoke<AiChatResult>("ai_chat", { profileId, messages, attachSessionId, onDelta });
-}
-
-export async function aiAbort(): Promise<void> {
-  if (!isDesktopRuntime) return demoBackend.aiAbort();
-  return invoke("ai_abort");
 }
 
 export async function agentSettingsGet(): Promise<AgentSettings> {

@@ -1,30 +1,16 @@
 use std::{backtrace::Backtrace, sync::Arc, time::Duration};
 
 use reqwest::RequestBuilder;
-use serde::{Deserialize, Serialize};
-use tokio::sync::{watch, Mutex};
+use serde::Serialize;
 
 use crate::{
     ai::routing::resolve_model_routes,
     config::{ConfigService, CredentialVault, DEFAULT_SYSTEM_PROMPT},
-    session::manager::SessionManager,
-    types::{AiAuthMode, AiMessage, AiProfile, AiRole},
+    types::AiProfile,
     AppError,
 };
 
 const MAX_DIAGNOSTIC_CHARS: usize = 16_000;
-
-pub trait DeltaSink: Send + Sync {
-    fn send(&self, delta: &str) -> Result<(), AppError>;
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiChatResult {
-    pub finish_reason: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attached_context: Option<String>,
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,16 +60,13 @@ pub struct AiModelTestResult {
 pub struct AiService {
     config: Arc<ConfigService>,
     vault: Arc<dyn CredentialVault>,
-    sessions: Arc<SessionManager>,
     client: reqwest::Client,
-    active: Mutex<Option<watch::Sender<bool>>>,
 }
 
 impl AiService {
     pub fn new(
         config: Arc<ConfigService>,
         vault: Arc<dyn CredentialVault>,
-        sessions: Arc<SessionManager>,
     ) -> Result<Self, AppError> {
         let client = reqwest::Client::builder()
             .tls_built_in_native_certs(true)
@@ -94,9 +77,7 @@ impl AiService {
         Ok(Self {
             config,
             vault,
-            sessions,
             client,
-            active: Mutex::new(None),
         })
     }
 
@@ -146,7 +127,7 @@ impl AiService {
                 ));
             }
         };
-        let response = with_auth(self.client.get(models_endpoint.clone()), &profile, &key)
+        let response = with_auth(self.client.get(models_endpoint.clone()), &key)
             .send()
             .await
             .map_err(|error| {
@@ -329,14 +310,10 @@ impl AiService {
             stream: false,
         };
         let started = std::time::Instant::now();
-        let response = match with_auth(
-            self.client.post(chat_endpoint.clone()),
-            &route.provider,
-            &key,
-        )
-        .json(&request)
-        .send()
-        .await
+        let response = match with_auth(self.client.post(chat_endpoint.clone()), &key)
+            .json(&request)
+            .send()
+            .await
         {
             Ok(response) => response,
             Err(error) => {
@@ -424,192 +401,6 @@ impl AiService {
         })
     }
 
-    pub async fn chat(
-        &self,
-        profile_id: &str,
-        messages: Vec<AiMessage>,
-        attach_session_id: Option<&str>,
-        sink: Arc<dyn DeltaSink>,
-    ) -> Result<AiChatResult, AppError> {
-        let (abort_tx, abort_rx) = watch::channel(false);
-        {
-            let mut active = self.active.lock().await;
-            if active.is_some() {
-                return Err(AppError::Ai(
-                    "another AI response is already in progress".to_owned(),
-                ));
-            }
-            *active = Some(abort_tx);
-        }
-        let result = self
-            .chat_inner(profile_id, messages, attach_session_id, sink, abort_rx)
-            .await;
-        *self.active.lock().await = None;
-        result
-    }
-
-    pub async fn abort(&self) {
-        if let Some(sender) = self.active.lock().await.as_ref() {
-            let _ = sender.send(true);
-        }
-    }
-
-    async fn chat_inner(
-        &self,
-        profile_id: &str,
-        mut messages: Vec<AiMessage>,
-        attach_session_id: Option<&str>,
-        sink: Arc<dyn DeltaSink>,
-        mut abort: watch::Receiver<bool>,
-    ) -> Result<AiChatResult, AppError> {
-        let profile = self.profile(profile_id)?;
-        let attached_context = match attach_session_id {
-            Some(session_id) => Some(self.attach_context(&profile, session_id, &mut messages)?),
-            None => None,
-        };
-        let mut request_messages = Vec::with_capacity(messages.len() + 1);
-        request_messages.push(AiMessage {
-            role: AiRole::System,
-            content: if profile.system_prompt.trim().is_empty() {
-                DEFAULT_SYSTEM_PROMPT.to_owned()
-            } else {
-                profile.system_prompt.clone()
-            },
-        });
-        request_messages.extend(messages);
-        let started = std::time::Instant::now();
-        let mut routes = resolve_model_routes(self.config.as_ref(), self.vault.as_ref(), &profile)?;
-        if !profile.routing.fallback_on_error {
-            routes.truncate(1);
-        }
-        if routes.is_empty() {
-            return Err(AppError::Ai(
-                "没有启用任何 AI 模型，请在配置中添加主模型".to_owned(),
-            ));
-        }
-        let mut failures = Vec::new();
-        let mut selected_model = String::new();
-        let mut response = None;
-        let mut selected_endpoint = None;
-        for route in &routes {
-            let chat_endpoint = endpoint(&route.provider.base_url, "chat/completions")?;
-            let request = ChatRequest {
-                model: &route.model.model,
-                messages: request_messages
-                    .iter()
-                    .map(|message| RequestMessage {
-                        role: match message.role {
-                            AiRole::System => "system",
-                            AiRole::User => "user",
-                            AiRole::Assistant => "assistant",
-                        },
-                        content: &message.content,
-                    })
-                    .collect(),
-                stream: true,
-            };
-            let attempt = with_auth(
-                self.client.post(chat_endpoint.clone()),
-                &route.provider,
-                &route.api_key,
-            )
-            .json(&request)
-            .send()
-            .await;
-            let candidate_response = match attempt {
-                Ok(value) => value,
-                Err(error) => {
-                    failures.push(format!(
-                        "{}: {}",
-                        route.model.model,
-                        format_transport_failure(error, &chat_endpoint)
-                    ));
-                    continue;
-                }
-            };
-            let status = candidate_response.status();
-            if !status.is_success() {
-                let body = candidate_response.text().await.map_err(|error| {
-                    AppError::Ai(format_transport_failure(error, &chat_endpoint))
-                })?;
-                failures.push(format!(
-                    "{}: {}",
-                    route.model.model,
-                    format_http_failure(status, &body, &chat_endpoint, &route.api_key)
-                ));
-                continue;
-            }
-            selected_model = route.model.model.clone();
-            selected_endpoint = Some(chat_endpoint);
-            response = Some(candidate_response);
-            break;
-        }
-        let mut response = response.ok_or_else(|| {
-            AppError::Ai(format!("所有启用模型均请求失败:\n{}", failures.join("\n")))
-        })?;
-        let selected_endpoint = selected_endpoint
-            .ok_or_else(|| AppError::Ai("模型路由成功但未记录请求地址".to_owned()))?;
-        let mut decoder = SseDecoder::default();
-        loop {
-            let chunk = tokio::select! {
-                changed = abort.changed() => {
-                    if changed.is_ok() && *abort.borrow() {
-                        tracing::info!(profile_id, model = %selected_model, elapsed_ms = started.elapsed().as_millis(), "AI response aborted");
-                        return Ok(AiChatResult { finish_reason: "aborted", attached_context });
-                    }
-                    continue;
-                }
-                chunk = response.chunk() => chunk.map_err(|error| AppError::Ai(format_transport_failure(error, &selected_endpoint)))?,
-            };
-            let Some(chunk) = chunk else {
-                break;
-            };
-            for delta in decoder.feed(&chunk)? {
-                sink.send(&delta)?;
-            }
-            if decoder.done {
-                break;
-            }
-        }
-        tracing::info!(profile_id, model = %selected_model, elapsed_ms = started.elapsed().as_millis(), "AI response completed");
-        Ok(AiChatResult {
-            finish_reason: "stop",
-            attached_context,
-        })
-    }
-
-    fn attach_context(
-        &self,
-        _profile: &AiProfile,
-        session_id: &str,
-        messages: &mut [AiMessage],
-    ) -> Result<String, AppError> {
-        let snapshot = self.sessions.buffer_snapshot(session_id)?;
-        let session = self
-            .sessions
-            .list()?
-            .into_iter()
-            .find(|session| session.session_id == session_id)
-            .ok_or_else(|| AppError::NotFound(format!("session '{session_id}'")))?;
-        let profile_name = self
-            .config
-            .profile_list()?
-            .into_iter()
-            .find(|candidate| candidate.id == session.profile_id)
-            .map_or(session.profile_id, |candidate| candidate.name);
-        let context = format!(
-            "[Terminal transcript of session \"{profile_name}\" (captured bytes: {})]\n```\n{snapshot}\n```",
-            snapshot.len()
-        );
-        let last_user = messages
-            .iter_mut()
-            .rev()
-            .find(|message| message.role == AiRole::User)
-            .ok_or_else(|| AppError::InvalidInput("AI chat requires a user message".to_owned()))?;
-        last_user.content = format!("{context}\n\n{}", last_user.content);
-        Ok(context)
-    }
-
     fn profile(&self, profile_id: &str) -> Result<AiProfile, AppError> {
         self.config
             .ai_profile_list()?
@@ -632,87 +423,21 @@ struct RequestMessage<'a> {
     content: &'a str,
 }
 
-#[derive(Deserialize)]
-struct StreamPayload {
-    #[serde(default)]
-    choices: Vec<StreamChoice>,
-}
-
-#[derive(Deserialize)]
-struct StreamChoice {
-    delta: StreamDelta,
-}
-
-#[derive(Deserialize)]
-struct StreamDelta {
-    content: Option<String>,
-}
-
-#[derive(Default)]
-struct SseDecoder {
-    pending: Vec<u8>,
-    done: bool,
-}
-
-impl SseDecoder {
-    fn feed(&mut self, chunk: &[u8]) -> Result<Vec<String>, AppError> {
-        self.pending.extend_from_slice(chunk);
-        let mut deltas = Vec::new();
-        while let Some(position) = self.pending.iter().position(|byte| *byte == b'\n') {
-            let mut line: Vec<u8> = self.pending.drain(..=position).collect();
-            while line
-                .last()
-                .is_some_and(|byte| *byte == b'\n' || *byte == b'\r')
-            {
-                line.pop();
-            }
-            let line = String::from_utf8_lossy(&line);
-            let Some(data) = line.strip_prefix("data:").map(str::trim) else {
-                continue;
-            };
-            if data == "[DONE]" {
-                self.done = true;
-                break;
-            }
-            if data.is_empty() {
-                continue;
-            }
-            let payload: StreamPayload = match serde_json::from_str(data) {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            if let Some(content) = payload
-                .choices
-                .first()
-                .and_then(|choice| choice.delta.content.clone())
-            {
-                deltas.push(content);
-            }
-        }
-        Ok(deltas)
-    }
-}
-
 pub(crate) fn endpoint(base_url: &str, path: &str) -> Result<reqwest::Url, AppError> {
     let mut url = reqwest::Url::parse(base_url)
-        .map_err(|error| AppError::InvalidInput(format!("invalid AI base URL: {error}")))?;
+        .map_err(|error| AppError::InvalidInput(format!("invalid DeepSeek base URL: {error}")))?;
     let configured_path = url.path().trim_end_matches('/');
-    let api_root = if configured_path.is_empty() {
-        "/v1"
-    } else {
-        configured_path
-    };
-    url.set_path(&format!("{api_root}/{}", path.trim_start_matches('/')));
+    url.set_path(&format!(
+        "{configured_path}/{}",
+        path.trim_start_matches('/')
+    ));
     url.set_query(None);
     url.set_fragment(None);
     Ok(url)
 }
 
-pub(crate) fn with_auth(request: RequestBuilder, profile: &AiProfile, key: &str) -> RequestBuilder {
-    match profile.auth_mode {
-        AiAuthMode::Bearer => request.bearer_auth(key),
-        AiAuthMode::ApiKey => request.header(reqwest::header::AUTHORIZATION, key),
-    }
+pub(crate) fn with_auth(request: RequestBuilder, key: &str) -> RequestBuilder {
+    request.bearer_auth(key)
 }
 
 pub(crate) fn format_transport_failure(error: reqwest::Error, endpoint: &reqwest::Url) -> String {
@@ -917,21 +642,9 @@ fn redact_api_key(value: &str) -> String {
 mod tests {
     use super::{
         endpoint, extract_message_content, failed_test, format_http_failure, parse_model_count,
-        redact_and_bound, redact_api_key, with_auth, SseDecoder, MAX_DIAGNOSTIC_CHARS,
+        redact_and_bound, redact_api_key, with_auth, MAX_DIAGNOSTIC_CHARS,
     };
-    use crate::types::{AiAuthMode, AiModelConfig, AiModelRole, AiProfile, AiRoutingConfig};
-
-    #[test]
-    fn parses_split_sse_and_ignores_unknown_lines() -> Result<(), Box<dyn std::error::Error>> {
-        let mut decoder = SseDecoder::default();
-        let mut deltas =
-            decoder.feed(b": keepalive\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"hel")?;
-        deltas.extend(decoder.feed(b"lo\"}}]}\n\ndata: {\"unknown\":true}\n")?);
-        deltas.extend(decoder.feed(b"data: [DONE]\n\n")?);
-        assert_eq!(deltas, vec!["hello"]);
-        assert!(decoder.done);
-        Ok(())
-    }
+    use crate::types::{AiModelConfig, AiModelRole, AiProfile, AiReasoningEffort, AiRoutingConfig};
 
     #[test]
     fn endpoint_and_diagnostics_are_bounded() -> Result<(), Box<dyn std::error::Error>> {
@@ -940,8 +653,8 @@ mod tests {
             "http://localhost:11434/v1/models"
         );
         assert_eq!(
-            endpoint("http://localhost:11434", "chat/completions")?.as_str(),
-            "http://localhost:11434/v1/chat/completions"
+            endpoint("https://api.deepseek.com", "chat/completions")?.as_str(),
+            "https://api.deepseek.com/chat/completions"
         );
         assert_eq!(
             redact_and_bound("line one\nline two", ""),
@@ -1023,17 +736,14 @@ mod tests {
     }
 
     #[test]
-    fn auth_mode_builds_bearer_or_raw_authorization_header(
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut profile = AiProfile {
+    fn deepseek_requests_always_use_bearer_auth() -> Result<(), Box<dyn std::error::Error>> {
+        let profile = AiProfile {
             id: "ai".to_owned(),
             name: "AI".to_owned(),
             base_url: "http://localhost".to_owned(),
             api_key_ref: "key".to_owned(),
-            auth_mode: AiAuthMode::Bearer,
-            model: "model".to_owned(),
+            reasoning_effort: AiReasoningEffort::High,
             system_prompt: String::new(),
-            context_lines: 80,
             models: vec![AiModelConfig {
                 id: "primary".to_owned(),
                 name: "主模型".to_owned(),
@@ -1041,30 +751,16 @@ mod tests {
                 provider_profile_id: None,
                 role: AiModelRole::Primary,
                 enabled: true,
-                context_window_tokens: None,
-                compact_threshold_tokens: None,
             }],
             routing: AiRoutingConfig::default(),
         };
-        let request = with_auth(
-            reqwest::Client::new().get("http://localhost"),
-            &profile,
-            "sk-test",
-        )
-        .build()?;
+        assert_eq!(profile.reasoning_effort, AiReasoningEffort::High);
+        let request =
+            with_auth(reqwest::Client::new().get("http://localhost"), "sk-test").build()?;
         assert_eq!(
             request.headers()[reqwest::header::AUTHORIZATION],
             "Bearer sk-test"
         );
-
-        profile.auth_mode = AiAuthMode::ApiKey;
-        let request = with_auth(
-            reqwest::Client::new().get("http://localhost"),
-            &profile,
-            "sk-test",
-        )
-        .build()?;
-        assert_eq!(request.headers()[reqwest::header::AUTHORIZATION], "sk-test");
         Ok(())
     }
 }

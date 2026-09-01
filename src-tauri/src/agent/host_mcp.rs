@@ -143,7 +143,7 @@ impl HostMcpHandler {
         let mut tools = service::tool_definitions(context.registry.as_ref(), "")
             .into_iter()
             .map(restrict_host_tool_definition)
-            .filter_map(tool_from_openai_definition)
+            .filter_map(tool_from_capability_definition)
             .filter(|tool| !OMITTED_HOST_TOOLS.contains(&tool.name.as_ref()))
             .collect::<Vec<_>>();
         for capability in context.registry.entries() {
@@ -489,7 +489,7 @@ fn restrict_host_tool_definition(mut value: Value) -> Value {
     value
 }
 
-fn tool_from_openai_definition(value: Value) -> Option<Tool> {
+fn tool_from_capability_definition(value: Value) -> Option<Tool> {
     let function = value.get("function")?;
     let name = function.get("name")?.as_str()?.to_owned();
     let description = function

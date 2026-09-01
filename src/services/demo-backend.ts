@@ -5,8 +5,6 @@ import type {
   AgentQueuedInput,
   AgentRunResult,
   AgentSettings,
-  AiChatResult,
-  AiMessage,
   AiProfile,
   AiTestResult,
   AppFontScale,
@@ -224,38 +222,33 @@ const DEFAULT_COMMANDS: QuickCommand[] = [
 const DEFAULT_AI_PROFILES: AiProfile[] = [
   {
     id: "ai-deepseek",
-    name: "DeepSeek",
-    base_url: "https://api.deepseek.com/v1",
+    name: "DeepSeek 官方",
+    base_url: "https://api.deepseek.com",
     api_key_ref: "ai.ai-deepseek.key",
-    auth_mode: "bearer",
+    reasoning_effort: "high",
     models: [
       { id: "primary", name: "主模型", model: "deepseek-chat", role: "primary", enabled: true },
       {
-        id: "analysis",
-        name: "分析模型",
-        model: "deepseek-reasoner",
-        role: "analysis",
-        enabled: true,
-      },
-      {
         id: "fallback",
         name: "备用模型",
-        model: "deepseek-chat",
+        model: "deepseek-reasoner",
         role: "fallback",
-        enabled: false,
+        enabled: true,
       },
     ],
-    routing: { fallback_on_error: true, analysis_threshold_chars: 32000 },
+    routing: { fallback_on_error: true },
     system_prompt: "",
   },
   {
-    id: "ai-ollama",
-    name: "Ollama 本地",
-    base_url: "http://localhost:11434/v1",
-    api_key_ref: "ai.ai-ollama.key",
-    auth_mode: "bearer",
-    models: [{ id: "primary", name: "主模型", model: "qwen2.5", role: "primary", enabled: true }],
-    routing: { fallback_on_error: true, analysis_threshold_chars: 32000 },
+    id: "ai-deepseek-gateway",
+    name: "DeepSeek 内网网关",
+    base_url: "https://deepseek-gateway.example/v1",
+    api_key_ref: "ai.ai-deepseek-gateway.key",
+    reasoning_effort: "low",
+    models: [
+      { id: "primary", name: "主模型", model: "deepseek-chat", role: "primary", enabled: true },
+    ],
+    routing: { fallback_on_error: true },
     system_prompt: "",
   },
 ];
@@ -318,7 +311,6 @@ class DemoBackend {
   private sessionHandlers = new Set<(payload: SessionInfo) => void>();
   private transferHandlers = new Set<(payload: TransferProgress) => void>();
   private transferTimers = new Map<string, number>();
-  private aborted = false;
   private agentAborted = false;
   private approvals = new Map<string, (approved: boolean) => void>();
   private agentConversations: AgentConversation[] = [];
@@ -672,9 +664,9 @@ class DemoBackend {
 
   async aiConfigJson() {
     return {
-      version: 2,
+      version: 6,
       quick_commands: structuredClone(this.commands),
-      profiles: structuredClone(this.aiProfiles),
+      ai_profiles: structuredClone(this.aiProfiles),
       agent: structuredClone(this.agentSettings),
     };
   }
@@ -710,7 +702,7 @@ class DemoBackend {
       ok: true,
       models: 34,
       modelDetails,
-      endpoint: "https://api.deepseek.com/v1/models",
+      endpoint: "https://api.deepseek.com/models",
       rawResponse: JSON.stringify({ object: "list", data: modelDetails }, null, 2),
     };
   }
@@ -723,39 +715,13 @@ class DemoBackend {
       model,
       content,
       elapsedMs: 486,
-      endpoint: "https://api.deepseek.com/v1/chat/completions",
+      endpoint: "https://api.deepseek.com/chat/completions",
       rawResponse: JSON.stringify(
         { model, choices: [{ message: { role: "assistant", content } }] },
         null,
         2,
       ),
     };
-  }
-
-  async aiChat(
-    _profileId: string,
-    messages: AiMessage[],
-    attachSessionId: string | null,
-    sink: MessageChannel<string>,
-  ): Promise<AiChatResult> {
-    this.aborted = false;
-    const question = messages.at(-1)?.content ?? "";
-    const response = question.includes("命令")
-      ? "可以先确认当前目录的磁盘占用：\n\n```bash\ndu -xh --max-depth=1 / 2>/dev/null | sort -rh | head -10\n```\n\n命令只会回填到终端，不会自动执行。"
-      : "从终端输出看，根分区使用率已达到 93%，这很可能是服务异常的直接诱因。建议先定位占用最大的目录：\n\n```bash\ndu -xh --max-depth=1 / 2>/dev/null | sort -rh | head -10\n```\n\n确认结果后再清理滚动日志或临时文件。";
-    const context = attachSessionId
-      ? '[Terminal transcript of session "prod-web-01" (on-demand ranges)]\n```\nActive: failed\n/dev/vda1  99G  87G  6.9G  93% /\n```'
-      : undefined;
-    for (const piece of response.match(/.{1,3}/gu) ?? []) {
-      if (this.aborted) return { finishReason: "aborted", attachedContext: context };
-      await new Promise((resolve) => window.setTimeout(resolve, 24));
-      sink.onmessage(piece);
-    }
-    return { finishReason: "stop", attachedContext: context };
-  }
-
-  async aiAbort() {
-    this.aborted = true;
   }
 
   async agentSettingsGet() {

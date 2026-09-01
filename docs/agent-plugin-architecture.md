@@ -88,7 +88,7 @@ Harness tool call
 ## 验证清单
 
 - `npm run test:harness-runtime`：官方版本/profile 和 ACP session smoke。
-- `npm run audit:codex-network`：版本统一、本地工具、Goal、Skill、compaction 与注入入口检查。
+- `npm run audit:harness-runtime`：版本统一、本地工具、Goal、Skill、compaction 与注入入口检查。
 - Rust 测试：Provider JSON、Bearer/原始 Authorization、系统 Prompt、ACP reason、SSH/CLI policy。
 - 前端测试：运行中追加、权限显示、工具时间线和 Agent 配置。
 - `npm run build:release && npm run check:dist`：安装器和便携包必须包含 launcher、profile、依赖和私有 `node.exe`。

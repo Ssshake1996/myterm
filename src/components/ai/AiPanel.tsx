@@ -875,7 +875,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
           </span>
           <div>
             <strong>DeepSeek Harness Agent</strong>
-            <small>官方 ACP · 本地工具 + myterm SSH 工具</small>
+            <small>原生 DeepSeek Provider · ACP · 本地工具 + Host MCP</small>
           </div>
         </div>
         <div className="ai-header-actions">
@@ -890,10 +890,10 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             <span>新对话</span>
           </button>
           <button
-            aria-label="AI 服务设置"
+            aria-label="DeepSeek 服务设置"
             className="icon-button"
             onClick={() => setAiSettingsOpen(true)}
-            title="AI 服务设置"
+            title="DeepSeek 服务设置"
             type="button"
           >
             <Settings2 size={15} />
@@ -921,7 +921,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
       <div className="ai-profile-row">
         <span className={running ? "profile-status is-running" : "profile-status"} />
         <select
-          aria-label="AI 配置"
+          aria-label="DeepSeek 服务"
           disabled={currentConversationRunning}
           onChange={(event) => {
             setProfileId(event.target.value);
@@ -968,6 +968,37 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
           </button>
         </fieldset>
       </div>
+
+      <section className="harness-runtime-strip" aria-label="DeepSeek Harness 运行能力">
+        <span className={selectedConversationId ? "is-ready" : ""}>
+          <strong>Session</strong>
+          <small>{selectedConversationId ? "已绑定" : "待创建"}</small>
+        </span>
+        <span className={goal?.status === "active" ? "is-running" : goal ? "is-ready" : ""}>
+          <strong>Goal</strong>
+          <small>{goal ? GOAL_STATUS_LABELS[goal.status] : "自动"}</small>
+        </span>
+        <span className={goal?.lastCheckpoint ? "is-ready" : ""}>
+          <strong>Checkpoint</strong>
+          <small>{goal?.lastCheckpoint ? "可恢复" : "自动"}</small>
+        </span>
+        <span>
+          <strong>Compaction</strong>
+          <small>自适应</small>
+        </span>
+        <span className={agentSettings.enabled_skills.length ? "is-ready" : ""}>
+          <strong>Skill</strong>
+          <small>{agentSettings.enabled_skills.length} 启用</small>
+        </span>
+        <span
+          className={agentSettings.mcp_servers.some((server) => server.enabled) ? "is-ready" : ""}
+        >
+          <strong>Host MCP</strong>
+          <small>
+            {agentSettings.mcp_servers.filter((server) => server.enabled).length} 外部 · SSH 内置
+          </small>
+        </span>
+      </section>
 
       <div className="agent-history-toolbar">
         <button
@@ -1104,7 +1135,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
               <Bot size={17} />
             </span>
             <h3>把排查任务交给 DeepSeek Harness</h3>
-            <p>界面会展示模型决策、工具调用、执行结果、上下文压缩和最终答复。</p>
+            <p>Session、Goal、Checkpoint、Compaction 与工具执行会在这里形成一条可追踪时间线。</p>
             <div className="agent-capabilities">
               <span>
                 <Wrench size={11} /> 终端与文件工具
