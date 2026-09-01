@@ -419,7 +419,7 @@ pub struct AgentSettings {
 }
 
 fn default_agent_profile() -> String {
-    "dsh-codex-agent".to_owned()
+    "deepseek-harness".to_owned()
 }
 
 #[derive(Clone, Serialize, Deserialize)]

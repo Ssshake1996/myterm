@@ -7,18 +7,17 @@ use std::{
     time::{Duration, Instant},
 };
 
-use dsh_codex_core::{CodexRuntime, CoreConfig, ModelTransport};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, watch, Mutex, Notify};
 
 use super::{
     builtin,
-    capability::{CapabilityRegistry, EvidenceRecord},
+    capability::CapabilityRegistry,
     domain::{
-        now_ms, AgentConversation, AgentEvidence, AgentGoal, AgentGoalStatus, AgentInputMode,
-        AgentQueuedInput, AgentTask, AgentTaskState, ExecutionJob,
+        now_ms, AgentConversation, AgentGoal, AgentGoalStatus, AgentInputMode, AgentQueuedInput,
+        AgentTask, AgentTaskState, ExecutionJob,
     },
-    dsh, hooks,
+    harness, hooks,
     mcp::McpConnectionManager,
     policy::{PolicyAction, PolicyContext, ToolEffect},
     skills,
@@ -42,8 +41,6 @@ use crate::{
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_ARTIFACT_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_CONCURRENT_AGENT_RUNS: usize = 4;
-const MAX_CACHED_AGENT_RUNTIMES: usize = 12;
-const AGENT_RUNTIME_IDLE_TTL: Duration = Duration::from_secs(30 * 60);
 const MAX_NO_PROGRESS_CONTINUATIONS: u32 = 3;
 const MAX_WAIT_CAPTURE_BYTES: usize = 4 * 1024 * 1024;
 
@@ -384,7 +381,6 @@ pub struct AgentService {
     approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     host_facts: Mutex<HashMap<String, (Instant, Value)>>,
     jobs: Arc<Mutex<HashMap<String, JobRuntime>>>,
-    runtimes: Mutex<HashMap<String, RuntimeEntry>>,
     mcp: Arc<McpConnectionManager>,
 }
 
@@ -393,12 +389,6 @@ struct ActiveAgentRun {
     abort: watch::Sender<bool>,
     steer: mpsc::Sender<String>,
     sink: Arc<dyn AgentEventSink>,
-}
-
-struct RuntimeEntry {
-    fingerprint: String,
-    runtime: Arc<CodexRuntime>,
-    last_used: Instant,
 }
 
 struct JobRuntime {
@@ -434,10 +424,6 @@ impl AgentService {
         self.config.path()
     }
 
-    pub(crate) fn store(&self) -> &AgentStore {
-        &self.store
-    }
-
     pub(crate) fn mcp(&self) -> &McpConnectionManager {
         &self.mcp
     }
@@ -456,20 +442,36 @@ impl AgentService {
             }
         }
         self.reject_pending_approvals().await;
-        let runtimes = {
-            let mut runtimes = self.runtimes.lock().await;
-            runtimes
-                .drain()
-                .map(|(_, entry)| entry.runtime)
-                .collect::<Vec<_>>()
-        };
-        for runtime in runtimes {
-            let _ = runtime.dispose().await;
-        }
         self.mcp.close_all().await;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let active_empty = self.active.lock().await.is_empty();
+            let jobs_empty = self.jobs.lock().await.is_empty();
+            if active_empty && jobs_empty {
+                if let Err(error) = self.store.close() {
+                    tracing::warn!(
+                        event = "agent_store_close_failed",
+                        error_code = error.code(),
+                        error_detail = %error.detail(),
+                        "Agent database did not close cleanly"
+                    );
+                }
+                break;
+            }
+            if Instant::now() >= deadline {
+                tracing::warn!(
+                    event = "agent_runtime_shutdown_timeout",
+                    active_runs = self.active.lock().await.len(),
+                    background_jobs = self.jobs.lock().await.len(),
+                    "Agent shutdown timed out before all work released its resources"
+                );
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
         tracing::info!(
             event = "agent_runtime_shutdown",
-            "Agent runtimes and MCP providers closed"
+            "Harness tasks and MCP providers closed"
         );
     }
 
@@ -503,83 +505,8 @@ impl AgentService {
             approvals: Mutex::new(HashMap::new()),
             host_facts: Mutex::new(HashMap::new()),
             jobs: Arc::new(Mutex::new(HashMap::new())),
-            runtimes: Mutex::new(HashMap::new()),
             mcp: Arc::new(McpConnectionManager::default()),
         })
-    }
-
-    pub(crate) async fn runtime_for(
-        &self,
-        conversation_id: &str,
-        fingerprint: String,
-        config: CoreConfig,
-        transport: Arc<dyn ModelTransport>,
-    ) -> Result<Arc<CodexRuntime>, AppError> {
-        let now = Instant::now();
-        let active_conversations = self
-            .active
-            .lock()
-            .await
-            .keys()
-            .cloned()
-            .collect::<std::collections::HashSet<_>>();
-        let mut stale = Vec::new();
-        let mut runtimes = self.runtimes.lock().await;
-        let stale_ids = runtimes
-            .iter()
-            .filter_map(|(id, entry)| {
-                (id != conversation_id
-                    && !active_conversations.contains(id)
-                    && now.duration_since(entry.last_used) >= AGENT_RUNTIME_IDLE_TTL)
-                    .then_some(id.clone())
-            })
-            .collect::<Vec<_>>();
-        for id in stale_ids {
-            if let Some(entry) = runtimes.remove(&id) {
-                stale.push(entry.runtime);
-            }
-        }
-        if let Some(entry) = runtimes.get_mut(conversation_id) {
-            if entry.fingerprint == fingerprint {
-                entry.last_used = now;
-                let runtime = entry.runtime.clone();
-                drop(runtimes);
-                for runtime in stale {
-                    let _ = runtime.dispose().await;
-                }
-                return Ok(runtime);
-            }
-        }
-        if let Some(entry) = runtimes.remove(conversation_id) {
-            stale.push(entry.runtime);
-        }
-        while runtimes.len() >= MAX_CACHED_AGENT_RUNTIMES {
-            let Some(oldest_id) = runtimes
-                .iter()
-                .filter(|(id, _)| !active_conversations.contains(*id))
-                .min_by_key(|(_, entry)| entry.last_used)
-                .map(|(id, _)| id.clone())
-            else {
-                break;
-            };
-            if let Some(entry) = runtimes.remove(&oldest_id) {
-                stale.push(entry.runtime);
-            }
-        }
-        let runtime = CodexRuntime::new(config, transport).map_err(dsh::core_error)?;
-        runtimes.insert(
-            conversation_id.to_owned(),
-            RuntimeEntry {
-                fingerprint,
-                runtime: runtime.clone(),
-                last_used: now,
-            },
-        );
-        drop(runtimes);
-        for stale_runtime in stale {
-            let _ = stale_runtime.dispose().await;
-        }
-        Ok(runtime)
     }
 
     pub async fn run(
@@ -729,34 +656,10 @@ impl AgentService {
             ));
         }
         let (task_ids, goal_ids) = self.store.conversation_storage_ids(conversation_id)?;
-        let cached_runtime = self
-            .runtimes
-            .lock()
-            .await
-            .get(conversation_id)
-            .map(|entry| entry.runtime.clone());
-        let core_delete = if let Some(runtime) = cached_runtime.as_ref() {
-            runtime.delete_thread_tree(conversation_id).await
-        } else {
-            dsh_codex_core::delete_persisted_thread_tree(
-                self.config_path()
-                    .parent()
-                    .unwrap_or_else(|| Path::new("."))
-                    .join("dsh-codex-agent"),
-                conversation_id,
-            )
-        };
-        if let Err(error) = core_delete {
-            if !matches!(error, dsh_codex_core::CoreError::ThreadNotFound(_)) {
-                return Err(dsh::core_error(error));
-            }
-        }
+        harness::delete_conversation_state(self.config_path(), conversation_id)?;
         let deleted = self.store.delete_conversation(conversation_id)?;
         if !deleted {
             return Ok(false);
-        }
-        if let Some(entry) = self.runtimes.lock().await.remove(conversation_id) {
-            let _ = entry.runtime.dispose().await;
         }
         self.remove_conversation_artifacts(&task_ids, &goal_ids);
         Ok(true)
@@ -1143,7 +1046,7 @@ impl AgentService {
                 }
             }
         });
-        let result = dsh::run(
+        let result = harness::run(
             self.clone(),
             profile,
             settings,
@@ -1236,7 +1139,7 @@ impl AgentService {
         let mut event = event(
             &active.turn_id,
             "user_steer",
-            Some("追加要求已接收".to_owned()),
+            Some("追加要求已排队，将在当前 Harness 响应完成后立即继续".to_owned()),
         );
         event.content = Some(input.clone());
         event.arguments = Some(json!({
@@ -2298,79 +2201,19 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
         }))
     }
 
-    pub(crate) fn persist_evidence(
-        &self,
-        run_id: &str,
-        evidence_id: &str,
-        capability_id: &str,
-        raw: &Value,
-    ) -> Result<EvidenceRecord, AppError> {
-        let task = self
-            .store
-            .task(run_id)?
-            .ok_or_else(|| AppError::NotFound(format!("agent task '{run_id}'")))?;
-        let goal_id = task
-            .goal_id
-            .as_deref()
-            .ok_or_else(|| AppError::Agent("MCP evidence requires a persisted Goal".to_owned()))?;
-        let directory = self
-            .store
-            .path()
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join("artifacts")
-            .join("goals")
-            .join(goal_id)
-            .join("evidence");
-        fs::create_dir_all(&directory)?;
-        let path = directory.join(format!("{evidence_id}.json"));
-        let bytes = serde_json::to_vec_pretty(raw)?;
-        if bytes.len() as u64 > MAX_ARTIFACT_BYTES {
-            return Err(AppError::Mcp {
-                code: "MCP_EVIDENCE_TOO_LARGE",
-                detail: format!(
-                    "MCP evidence '{}' from capability '{}' is {} bytes; the per-artifact limit is {} bytes",
-                    evidence_id,
-                    capability_id,
-                    bytes.len(),
-                    MAX_ARTIFACT_BYTES
-                ),
-            });
-        }
-        fs::write(&path, &bytes)?;
-        self.store.save_evidence(&AgentEvidence {
-            id: evidence_id.to_owned(),
-            goal_id: goal_id.to_owned(),
-            conversation_id: task.conversation_id,
-            task_id: run_id.to_owned(),
-            capability_id: capability_id.to_owned(),
-            artifact_path: path.to_string_lossy().into_owned(),
-            bytes: bytes.len() as u64,
-            created_at_ms: now_ms(),
-        })?;
-        Ok(EvidenceRecord {
-            id: evidence_id.to_owned(),
-            capability_id: capability_id.to_owned(),
-            artifact_path: path,
-            bytes: bytes.len() as u64,
-        })
-    }
-
     pub(crate) fn plugin_infos(&self) -> Result<Vec<crate::types::AgentPluginInfo>, AppError> {
         Ok(vec![
             crate::types::AgentPluginInfo {
-                id: "dsh-codex-agent".to_owned(),
-                name: "Codex Harness Agent".to_owned(),
-                version: "0.1.0".to_owned(),
+                id: "deepseek-harness".to_owned(),
+                name: "DeepSeek Harness Agent".to_owned(),
+                version: "0.1.2-alpha.3".to_owned(),
                 kind: "runtime".to_owned(),
-                description:
-                    "myterm 内置 Agent 运行时，负责线程历史、工具循环、上下文压缩和 Subagent Graph。"
-                        .to_owned(),
+                description: "官方 DeepSeek Harness ACP 运行时，负责 Agent Loop、Goal、上下文压缩、本地工具、Skill 和会话恢复；myterm Host MCP 提供 SSH/CLI/SFTP 与多 SSH 工具。".to_owned(),
                 requires: vec![
-                    "codex-core".to_owned(),
-                    "ssh.operations".to_owned(),
-                    "skills".to_owned(),
-                    "mcp".to_owned(),
+                    "acp".to_owned(),
+                    "harness-local-tools".to_owned(),
+                    "myterm-host-mcp".to_owned(),
+                    "external-mcp".to_owned(),
                 ],
                 enabled: true,
             },
@@ -3327,7 +3170,7 @@ pub(crate) fn plugin_id_for_tool(name: &str) -> &'static str {
     if matches!(name, "session_connect" | "session_wait_until") {
         builtin::MULTI_SSH_COORDINATOR_ID
     } else {
-        "dsh-codex-agent"
+        "myterm-host-mcp"
     }
 }
 
@@ -3861,7 +3704,7 @@ mod tests {
             .iter()
             .any(|tool| tool["function"]["name"] == "mcp_status"));
         let settings = AgentSettings::default();
-        assert_eq!(settings.profile, "dsh-codex-agent");
+        assert_eq!(settings.profile, "deepseek-harness");
     }
 
     #[test]
@@ -3873,7 +3716,7 @@ mod tests {
             plugin_id_for_tool("session_connect"),
             "multi-ssh-coordinator"
         );
-        assert_eq!(plugin_id_for_tool("remote_exec"), "dsh-codex-agent");
+        assert_eq!(plugin_id_for_tool("remote_exec"), "myterm-host-mcp");
         assert!(builtin::system_prompt().contains("session_connect"));
     }
 

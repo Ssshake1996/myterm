@@ -1,7 +1,12 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use myterm_lib::{
     agent::{mcp, service::AgentEventSink},
+    ai::service::AiService,
     config::{default_config_path, ConfigService, CredentialVault, KeyringVault},
     session::{
         manager::{NullEventSink, OutputSink, SessionManager},
@@ -10,8 +15,8 @@ use myterm_lib::{
     },
     sftp::service::{NullTransferSink, SftpService, TransferEventSink},
     types::{
-        AgentEvent, AgentPermissionMode, AuthMethod, McpServerConfig, McpTransportKind,
-        SessionProfile, SessionTarget, TransferProgress, TransferState,
+        AgentEvent, AgentPermissionMode, AiAuthMode, AiProfile, AuthMethod, McpServerConfig,
+        McpTransportKind, SessionProfile, SessionTarget, TransferProgress, TransferState,
     },
     AppError, SecretResolver,
 };
@@ -78,6 +83,29 @@ async fn wait_for_transfers(
     Err("transfer verification timed out".into())
 }
 
+async fn remove_temporary_directory(
+    path: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut last_error = None;
+    for _ in 0..100 {
+        match std::fs::remove_dir_all(path) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => last_error = Some(error),
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    Err(last_error
+        .map(|error| {
+            format!(
+                "unable to remove temporary directory {}: {error}",
+                path.display()
+            )
+        })
+        .unwrap_or_else(|| format!("unable to remove temporary directory {}", path.display()))
+        .into())
+}
+
 #[derive(Default)]
 struct ExecCapture {
     stdout: Mutex<Vec<u8>>,
@@ -127,10 +155,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("verify-exec") => verify_exec().await?,
         Some("verify-files") => verify_files().await?,
         Some("verify-agent") => verify_agent().await?,
+        Some("verify-harness") => verify_harness().await?,
+        Some("verify-ai-protocol") => verify_ai_protocol().await?,
         Some("verify-mcp") => verify_mcp().await?,
         _ => {
             return Err(
-                "usage: cargo run --example live_check -- <save-profile|verify-crud|verify-profile|verify-exec|verify-files|verify-agent|verify-mcp>"
+                "usage: cargo run --example live_check -- <save-profile|verify-crud|verify-profile|verify-exec|verify-files|verify-agent|verify-harness|verify-ai-protocol|verify-mcp>"
                     .into(),
             );
         }
@@ -461,8 +491,368 @@ async fn verify_agent() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::copy(&source, &temporary_config)?;
 
     let result = verify_agent_with_config(temporary_config).await;
-    std::fs::remove_dir_all(&temporary_root)?;
-    result
+    let cleanup = remove_temporary_directory(&temporary_root).await;
+    result?;
+    cleanup
+}
+
+async fn verify_harness() -> Result<(), Box<dyn std::error::Error>> {
+    let source = default_config_path(false)?;
+    let temporary_root =
+        std::env::temp_dir().join(format!("myterm-harness-live-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&temporary_root)?;
+    let temporary_config = temporary_root.join("config.json");
+    std::fs::copy(&source, &temporary_config)?;
+
+    let result = async {
+        let config = Arc::new(ConfigService::open(temporary_config)?);
+        let mut settings = config.agent_settings()?;
+        settings.permission_mode = AgentPermissionMode::ReadOnly;
+        config.agent_settings_save(settings)?;
+        let ai_profile = config
+            .ai_profile_list()?
+            .into_iter()
+            .next()
+            .ok_or("AI profile is not configured")?;
+        let vault_impl = Arc::new(KeyringVault::new());
+        let vault: Arc<dyn CredentialVault> = vault_impl.clone();
+        let resolver: Arc<dyn SecretResolver> = vault_impl;
+        let sessions = Arc::new(SessionManager::new(resolver, Arc::new(NullEventSink)));
+        let sftp = Arc::new(SftpService::new(
+            sessions.clone(),
+            Arc::new(NullTransferSink),
+        ));
+        let agent = Arc::new(myterm_lib::agent::service::AgentService::new(
+            config,
+            vault,
+            sessions,
+            sftp,
+        )?);
+        let events = Arc::new(EventLog::default());
+        let local_tool = if cfg!(windows) { "pwsh" } else { "bash" };
+        let run = agent
+            .run(
+                &ai_profile.id,
+                format!(
+                    "Call the Harness LOCAL `{local_tool}` tool exactly once to inspect the current working directory. Do not call any MCP, SSH, or myterm-host-tools tool. Then answer with exactly: HARNESS_LOCAL_TOOLS_OK"
+                ),
+                None,
+                events.clone(),
+            )
+            .await?;
+        agent.shutdown().await;
+        let recorded = events.0.lock().map_err(|_| "event log lock is poisoned")?;
+        let tools = recorded
+            .iter()
+            .filter(|event| event.event_type == "tool_requested")
+            .filter_map(|event| event.tool_name.clone())
+            .collect::<Vec<_>>();
+        let answer = recorded
+            .iter()
+            .filter(|event| event.event_type == "assistant")
+            .filter_map(|event| event.content.as_deref())
+            .collect::<String>();
+        if !tools.iter().any(|tool| tool == local_tool) {
+            return Err(format!(
+                "DeepSeek Harness did not call the required local {local_tool} tool: {tools:?}"
+            )
+            .into());
+        }
+        if tools
+            .iter()
+            .any(|tool| tool.starts_with("mcp__myterm-host-tools__"))
+        {
+            return Err(format!(
+                "DeepSeek Harness crossed the local/remote tool boundary: {tools:?}"
+            )
+            .into());
+        }
+        if !answer.contains("HARNESS_LOCAL_TOOLS_OK") {
+            return Err(format!("unexpected Harness answer: {answer}").into());
+        }
+        let finish_reason = run.finish_reason;
+        let tool_names = tools.join(",");
+        drop(recorded);
+        drop(events);
+        drop(agent);
+        println!("HARNESS_VERIFIED {finish_reason} {tool_names}");
+        Ok::<_, Box<dyn std::error::Error>>(())
+    }
+    .await;
+    let cleanup = remove_temporary_directory(&temporary_root).await;
+    result?;
+    cleanup
+}
+
+#[derive(Default)]
+struct StreamProbe {
+    network_chunks: usize,
+    data_frames: usize,
+    choice_frames: usize,
+    content_delta_frames: usize,
+    tool_call_delta_frames: usize,
+    usage_frames: usize,
+    error_frames: usize,
+    parse_errors: usize,
+    done_seen: bool,
+    finish_reasons: BTreeSet<String>,
+}
+
+async fn verify_ai_protocol() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Arc::new(ConfigService::open(default_config_path(false)?)?);
+    let owner = config
+        .ai_profile_list()?
+        .into_iter()
+        .next()
+        .ok_or("AI profile is not configured")?;
+    let model = owner
+        .effective_models()
+        .into_iter()
+        .next()
+        .ok_or("AI profile has no enabled model")?;
+    let provider = resolve_live_provider(config.as_ref(), &owner, &model.provider_profile_id)?;
+    let vault_impl = Arc::new(KeyringVault::new());
+    let api_key = vault_impl
+        .get(&provider.api_key_ref)?
+        .filter(|value| !value.trim().is_empty())
+        .ok_or("AI provider API key is not available")?;
+
+    let vault: Arc<dyn CredentialVault> = vault_impl.clone();
+    let resolver: Arc<dyn SecretResolver> = vault_impl;
+    let sessions = Arc::new(SessionManager::new(resolver, Arc::new(NullEventSink)));
+    let ai = AiService::new(config, vault, sessions)?;
+    let non_stream = ai
+        .test_model(&owner.id, &model.id, "Reply with exactly: HI")
+        .await?;
+    if !non_stream.ok {
+        let diagnostic = non_stream
+            .error
+            .map(|error| format!("{}\n{}", error.summary, error.detail))
+            .unwrap_or_else(|| "non-stream request failed without diagnostics".to_owned());
+        return Err(diagnostic.into());
+    }
+    println!(
+        "AI_NON_STREAM_VERIFIED model={} elapsed_ms={}",
+        non_stream.model.as_deref().unwrap_or(&model.model),
+        non_stream.elapsed_ms.unwrap_or_default()
+    );
+
+    let plain = inspect_chat_stream(&provider, &model.model, &api_key, false).await?;
+    print_stream_probe("plain", &plain);
+    let tool = inspect_chat_stream(&provider, &model.model, &api_key, true).await?;
+    print_stream_probe("tool", &tool);
+    Ok(())
+}
+
+fn resolve_live_provider(
+    config: &ConfigService,
+    owner: &AiProfile,
+    provider_profile_id: &Option<String>,
+) -> Result<AiProfile, Box<dyn std::error::Error>> {
+    let Some(provider_id) = provider_profile_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != owner.id)
+    else {
+        return Ok(owner.clone());
+    };
+    config
+        .ai_profile_list()?
+        .into_iter()
+        .find(|profile| profile.id == provider_id)
+        .ok_or_else(|| format!("AI provider profile '{provider_id}' is not configured").into())
+}
+
+async fn inspect_chat_stream(
+    provider: &AiProfile,
+    model: &str,
+    api_key: &str,
+    force_tool: bool,
+) -> Result<StreamProbe, Box<dyn std::error::Error>> {
+    let endpoint = live_chat_endpoint(&provider.base_url)?;
+    let client = reqwest::Client::builder()
+        .tls_built_in_native_certs(true)
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(120))
+        .build()?;
+    let mut body = serde_json::json!({
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": if force_tool {
+                "Call the protocol_probe tool exactly once."
+            } else {
+                "Reply with exactly: HI"
+            },
+        }],
+        "stream": true,
+        "stream_options": {"include_usage": true},
+    });
+    if force_tool {
+        body["tools"] = serde_json::json!([{
+            "type": "function",
+            "function": {
+                "name": "protocol_probe",
+                "description": "A no-op protocol compatibility probe.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false,
+                },
+            },
+        }]);
+        body["tool_choice"] = serde_json::json!({
+            "type": "function",
+            "function": {"name": "protocol_probe"},
+        });
+    }
+    let request = client.post(endpoint.clone()).json(&body);
+    let request = match provider.auth_mode {
+        AiAuthMode::Bearer => request.bearer_auth(api_key),
+        AiAuthMode::ApiKey => request.header(reqwest::header::AUTHORIZATION, api_key),
+    };
+    let mut response = request.send().await?;
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("<missing>")
+        .to_owned();
+    if !status.is_success() {
+        let body = response.text().await?;
+        return Err(format!(
+            "stream probe HTTP {status}; endpoint={endpoint}; content-type={content_type}; body={}",
+            bounded_redacted(&body, api_key)
+        )
+        .into());
+    }
+
+    let mut probe = StreamProbe::default();
+    let mut pending = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        probe.network_chunks += 1;
+        pending.extend_from_slice(&chunk);
+        while let Some(position) = pending.iter().position(|byte| *byte == b'\n') {
+            let line = pending.drain(..=position).collect::<Vec<_>>();
+            inspect_sse_line(&line, &mut probe);
+        }
+    }
+    if !pending.is_empty() {
+        inspect_sse_line(&pending, &mut probe);
+    }
+    println!(
+        "AI_STREAM_HTTP scenario={} status={} content_type={}",
+        if force_tool { "tool" } else { "plain" },
+        status.as_u16(),
+        content_type
+    );
+    Ok(probe)
+}
+
+fn inspect_sse_line(line: &[u8], probe: &mut StreamProbe) {
+    let line = String::from_utf8_lossy(line);
+    let line = line.trim_end_matches(['\r', '\n']);
+    let Some(data) = line.strip_prefix("data:").map(str::trim) else {
+        return;
+    };
+    if data == "[DONE]" {
+        probe.done_seen = true;
+        return;
+    }
+    if data.is_empty() {
+        return;
+    }
+    probe.data_frames += 1;
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
+        probe.parse_errors += 1;
+        return;
+    };
+    if value.get("usage").is_some_and(|usage| !usage.is_null()) {
+        probe.usage_frames += 1;
+    }
+    if value.get("error").is_some() {
+        probe.error_frames += 1;
+    }
+    let Some(choices) = value.get("choices").and_then(serde_json::Value::as_array) else {
+        return;
+    };
+    if !choices.is_empty() {
+        probe.choice_frames += 1;
+    }
+    for choice in choices {
+        if let Some(reason) = choice
+            .get("finish_reason")
+            .and_then(serde_json::Value::as_str)
+        {
+            probe.finish_reasons.insert(reason.to_owned());
+        }
+        let Some(delta) = choice.get("delta") else {
+            continue;
+        };
+        if delta
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|content| !content.is_empty())
+        {
+            probe.content_delta_frames += 1;
+        }
+        if delta
+            .get("tool_calls")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|calls| !calls.is_empty())
+        {
+            probe.tool_call_delta_frames += 1;
+        }
+    }
+}
+
+fn print_stream_probe(scenario: &str, probe: &StreamProbe) {
+    let finish_reasons = if probe.finish_reasons.is_empty() {
+        "<missing>".to_owned()
+    } else {
+        probe
+            .finish_reasons
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    println!(
+        "AI_STREAM_PROBE scenario={scenario} network_chunks={} data_frames={} choice_frames={} content_deltas={} tool_call_deltas={} usage_frames={} error_frames={} parse_errors={} done_seen={} finish_reasons={finish_reasons}",
+        probe.network_chunks,
+        probe.data_frames,
+        probe.choice_frames,
+        probe.content_delta_frames,
+        probe.tool_call_delta_frames,
+        probe.usage_frames,
+        probe.error_frames,
+        probe.parse_errors,
+        probe.done_seen,
+    );
+}
+
+fn live_chat_endpoint(base_url: &str) -> Result<reqwest::Url, Box<dyn std::error::Error>> {
+    let mut url = reqwest::Url::parse(base_url)?;
+    let configured_path = url.path().trim_end_matches('/');
+    let api_root = if configured_path.is_empty() {
+        "/v1"
+    } else {
+        configured_path
+    };
+    url.set_path(&format!("{api_root}/chat/completions"));
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url)
+}
+
+fn bounded_redacted(value: &str, secret: &str) -> String {
+    let redacted = if secret.is_empty() {
+        value.to_owned()
+    } else {
+        value.replace(secret, "[REDACTED]")
+    };
+    redacted.chars().take(4096).collect()
 }
 
 async fn verify_agent_with_config(

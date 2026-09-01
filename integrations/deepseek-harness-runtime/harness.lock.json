@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "channel": "alpha",
+  "harnessPackage": "@deepseek-ai/dsh-acp",
+  "harnessVersion": "0.1.2-alpha.3",
+  "acpProtocolVersion": 1,
+  "hostBridgeProtocolVersion": 1,
+  "profile": "myterm-acp-minimal",
+  "excludedSurfaces": [
+    "web",
+    "tui",
+    "headless-cli",
+    "telemetry"
+  ],
+  "enabledToolPacks": [
+    "harness-local",
+    "harness-core",
+    "myterm-ssh-mcp",
+    "external-mcp"
+  ]
+}

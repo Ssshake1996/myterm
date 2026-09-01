@@ -1,9 +1,9 @@
 # myterm Linux Agent 开发计划
 
-> v0.11.0 实施边界：桌面端使用唯一内置运行时 `dsh-codex-agent`，并在精简 Codex Core 上增加轻量 Goal 控制面。普通任务自动获得续跑能力；`profile`、`bundles`、`enabled_plugins` 和用户可调 `max_steps` 仍不是桌面配置契约。
+> 2026-09-01 实施边界：桌面端使用官方 DeepSeek Harness ACP 作为唯一 Agent 内核；Harness 提供 Agent Loop、Goal、压缩、本地工具和 Skill，myterm Host MCP 提供 SSH/CLI/SFTP、多 SSH 与外部 MCP。普通任务自动获得持久会话能力，不提供用户可调 `max_steps`。
 
-> 文档状态：`0.11.0` 已交付能力与后续 OS provisioning 计划
-> 当前产品基线：`0.11.0`
+> 文档状态：`0.11.1` 已交付能力与后续 OS provisioning 计划
+> 当前产品基线：`0.11.1`
 > 对应说明书：[`linux-agent-specification.md`](linux-agent-specification.md)
 > 专项方案：[`multi-ssh-os-installation-plan.md`](multi-ssh-os-installation-plan.md)
 > 研究依据：[`linux-agent-improvement-study.md`](linux-agent-improvement-study.md)
@@ -43,13 +43,13 @@ myterm 保持轻量桌面 SSH 终端定位，在已经交付的单主机 Linux A
 
 ## 4. 当前基线
 
-### 4.0 Goal + 精简 Codex Core（0.11.0 已交付）
+### 4.0 Goal + 官方 DeepSeek Harness ACP
 
-桌面宿主持久化 Goal、输入队列、后台 Job、Evidence 和 Goal Skill；精简 Codex Core 独占 Thread/Turn、模型历史、工具调用顺序、Checkpoint 和 Subagent Graph。Core 的 64 Step 只作为 Turn 让出边界，宿主收到 `continuation_required` 后自动续跑，因此用户不需要 `/goal` 或长短任务选择。
+桌面宿主持久化产品级 Goal、输入队列、后台 Job 和审计；官方 DeepSeek Harness 独占模型工具循环、持久 Session、上下文压缩、Harness Goal、本地工具和 Skill。用户不需要 `/goal` 或长短任务选择，也不再暴露旧 Core 的 64 Step 边界。
 
-SSH/文件等内置工具仍由宿主提供；MCP 通过统一 CapabilityProvider 接入 stdio/streamable-http Tools、Resources 和 Prompts。Skill 和 MCP 共用权限、取消、输出限制、Evidence 和审计，不能提升权限。
+Harness Local Tools 提供本机 Shell/文件能力；SSH/CLI/SFTP、多 SSH 和外部 MCP 由受保护的 myterm Host MCP 提供。外部 MCP 通过统一 CapabilityProvider 接入 stdio/streamable-http Tools、Resources 和 Prompts；所有远程能力共用权限、取消、输出限制和审计，不能提升权限。
 
-本阶段选择进程内注册表的原因是延迟、内存和取消路径最小，适合桌面第一版；代价是尚未提供第三方进程隔离。`agent/protocol.rs` 已提供版本化 JSONL 消息契约，但在签名、信任、命令路径、环境过滤、超时和崩溃回收明确前，不自动运行外部插件。
+本阶段选择官方 Harness ACP sidecar 的原因是能直接跟随上游 Agent Loop、Goal、压缩、Skill 和本地工具更新，避免继续维护 Core 分叉。代价是安装包需要携带 Node，运行时资源约 236 MiB，且官方 Harness 仍处于 Developer Preview。myterm 只维护 ACP 与 Host MCP 边界，不再扩展旧 `agent/protocol.rs` 为第二套插件运行时。
 
 ### 4.1 已交付
 
@@ -60,8 +60,8 @@ SSH/文件等内置工具仍由宿主提供；MCP 通过统一 CapabilityProvide
 - `remote_exec`、后台 Job、主机事实、远端文件读写、tree-sitter Bash 权限策略和证据式完成。
 - 本地 `SKILL.md`、stdio/streamable-http MCP、Hooks、上下文压缩、工具时间线和 0.7.0 插件运行时。
 - Agent 输入框 `Enter` 提交、`Shift+Enter` 换行、IME 组合保护，以及向上拖至面板一半的可调高度。
-- 自动 Goal、Turn 续跑、澄清等待、后台 Job 事件唤醒、重启恢复和运行中 steer/queue。
-- 跨 Provider 模型路由、全自适应上下文、Result Capsule、Goal Evidence/Skill 和 MCP Resources/Prompts。
+- 自动 Goal、持久 Harness Session、澄清等待、后台 Job、重启恢复和运行中“响应后继续/排队执行”。
+- 跨 Provider 模型路由、官方 Harness compaction/Goal/Skill、本地工具，以及 Host MCP 包装的 MCP Tools/Resources/Prompts。
 - 多 SSH 自动连接、显式 Session 目标、同会话写锁、跨会话并发和 `session_wait_until` 条件协同。
 
 ### 4.2 `0.6.3` 删除项
@@ -87,6 +87,7 @@ SSH/文件等内置工具仍由宿主提供；MCP 通过统一 CapabilityProvide
 | `0.6.3` | R0 产品面收敛 | 删除本机 CLI/REST、迁移旧数据、多行与可调输入区、文档重构 | `0.6.2` |
 | `0.7.0-0.10.1` | Agent 基线演进 | 插件边界、多 SSH、Conversation/Turn、Provider Context、Result Capsule | R0 |
 | `0.11.0` | Goal 控制面 | 普通任务自动 Goal、透明续跑、Job/Evidence/Skill 恢复、统一 MCP、跨 Provider 路由 | 既有 Core |
+| 开发版 | 官方 Harness 迁移 | ACP sidecar、Harness 本地工具、Host MCP、持久 Session、私有 Node 打包 | `0.11.0` 产品控制面 |
 | 后续 | M2 远端 HTTP 协同 | `remote_http_request` 与来源/凭据/幂等契约 | `0.11.0` |
 | 后续 | M3 Provisioning 骨架 | plan、状态机、fake adapter、两阶段审批、安装 Skill plan-only | M2 |
 | `1.0.0` 候选 | M4 Ubuntu VM 安装 | 一个 VM adapter、Autoinstall、SSH 身份重建和验收 | M3 |

@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.11.0`
+当前版本：`0.11.1`
 
 ## 核心功能
 
@@ -55,27 +55,26 @@ Agent 使用类似 Claude Code 的循环：
 任务输入 -> 模型决策 -> 工具调用 -> 结果返回 -> 继续循环 -> 最终答复
 ```
 
-- 每个普通输入都会自动创建或复用内部 Goal；用户不需要判断任务长短，也不需要输入 `/goal`。短任务在一个 Turn 完成，长任务在内部 Turn 达到让出边界、后台 Job 完成或应用恢复后自动从已验证 checkpoint 继续。
+- 每个普通输入都会自动创建或复用内部 Goal；用户不需要判断任务长短，也不需要输入 `/goal`。官方 DeepSeek Harness 使用持久 Session、Goal、checkpoint 和 compaction 支持长任务继续。
 - 持久化 Goal、Conversation 与 Turn：只有点击“新对话”才切换上下文，同一对话的目标、后续要求、用户纠正、工具事实和精确命令可跨回合恢复。
 - 目标、范围、结果或风险会改变执行路径且无法从现场安全读取时，Agent 会进入“等待用户”并保留准确问题；用户回答后在同一 Goal 继续，而不是另起一项任务。
 - 持久化任务、事件、审批、工具审计、后台 Job、取消和崩溃恢复。
 - AI 面板按时间线展示模型决策、工具名称、参数摘要、stdout、stderr、结果和状态。
 - 任务输入支持 `Shift+Enter` 换行和输入法保护，顶部拖柄可将输入区向上扩大到 Agent 面板高度的一半。
 - Agent 标题栏提供真正的“新对话”操作；对话历史按 Conversation 聚合并恢复其全部 Turn，不再只清空当前界面。
-- Turn 运行期间输入框仍可编辑；“追加要求”会先持久化，再在下一次模型决策边界注入当前 Turn，“停止”保持为独立操作。
+- Turn 运行期间输入框仍可编辑；“响应后继续”会在当前 ACP 响应结束后立即提交追加要求，“排队执行”进入持久 Goal 队列，“停止”保持为独立操作。
 - 基础工具覆盖会话信息、终端上下文、终端输入、结构化 SSH 命令、主机事实、目录和文件操作；非活动服务器可通过会话目录发现并自动建立 SSH，内置 Multi-SSH Coordinator 支持多个目标的串行协同。界面中的活动 SSH 只作为候选元数据：通用问答、MCP、Skill 和历史任务不会自动读取终端；只有模型判断用户明确指向当前终端时才会设置 `use_active_session=true`，命名服务器则必须解析并传入明确的 `session_id`。
 - 结构化命令执行分别记录 stdout/stderr、退出码、信号、超时、取消和断连结果。
 - 长任务可转入后台 Job，并通过状态、分页输出和取消工具继续管理。
-- 内置诊断 Runbook、上下文压缩、循环检测和敏感字段脱敏。
+- Harness 保留本地 PowerShell/Bash、文件读取、搜索、编辑、Goal 和 Skill 工具；myterm Host MCP 提供远程 SSH/CLI/SFTP 与多 SSH 工具，二者边界明确。
 - 终端上下文采用无固定行数的 transcript 读取：Agent 通过 `offset`、`nextOffset` 和 `eof` 分段读取完整 `cat`、日志或命令输出；远程执行的超长 stdout/stderr 保留 artifact，可用分页工具继续读取。
 - 对交互式产品 CLI，`cli_execute` 在同一个后端事务中锁定输入、读取 xterm 真实光标行、只发送完整目标命令的缺失后缀，并等待提示符、交互、静默兜底或超时边界；`cli_execute_batch` 可把 1-8 条互不依赖的已知命令合并为一次工具调用，避免 `showshow system...` 和大量短请求。
-- Agent 会在任务时间线记录本轮模型请求数、工具调用数和 Token 用量；独立只读工具可在同一模型轮次并发执行，有副作用或存在依赖的步骤仍保持串行。
+- Agent 会在任务时间线记录可从 ACP 观察到的步骤、工具调用和运行状态；远程有副作用或存在依赖的步骤仍由 myterm 串行保护。
 - AI 配置以版本化 JSON 持久化。一个配置可定义主模型、分析模型和备用模型，每个模型路由还可引用另一份已保存 Provider 配置；失败时会跨模型、跨 Provider 按角色顺序切换并在 Agent 时间线标出实际使用的路由。
-- Provider Context Adapter 统一支持 Responses 和 Chat Completions：无需手工选择协议，运行时优先复用 `previous_response_id` 与服务端原生压缩，确认网关不支持后按 Provider 配置指纹跨对话持久回退到本地 checkpoint + tail；Base URL、模型或认证方式变化会自动重新探测。
-- 上下文窗口、协议选择和压缩阈值由运行时完全自适应，不在 AI 设置中暴露人工开关。本地 Checkpoint v2 只合并“上一份 checkpoint + 新增 tail”，并按持久化引用注入用户纠正、原样 CLI 命令、工具事实和 Evidence，不再为每次压缩重放全部原始历史。
-- 超过 8 KiB 的终端、文件、MCP 和查询结果原文单独落盘并记录 SHA-256；模型收到的是带 `resultId`、来源事实和精确摘录的 Result Capsule。需要核实时使用只读 `result_read` 按字面搜索或分页读取原始结果，不截断事实，也不重新执行可能有副作用的工具。
-- Chat Completions 的上下文预算同时计入系统 Prompt、工具 Schema、消息、checkpoint 和输出预留；压缩请求若失败会携带上一次校验错误重试，初次请求加 3 次重试仍失败才终止当前 Turn。
-- 安装版默认写入按天滚动的本地 JSON 诊断日志并保留 14 天；`--debug` 提升为 DEBUG 级，Provider 探测、缓存命中、回退和精确错误均使用稳定字段，方便维护 AI 直接读取定位。
+- AI 配置会转换为官方 Harness `llm-pi-ai` Provider JSON；主模型失败时由 myterm 按主/分析/备用和跨 Provider 路由启动下一条 Harness 路由。
+- 上下文窗口和压缩由 DeepSeek Harness 的持久 Session、token meter、checkpoint、tool-result pruner 与 compaction 自动管理，不在 AI 设置中暴露人工压缩开关。
+- 终端、文件与后台 Job 长输出通过 myterm 的 `offset`/`nextOffset`/`eof` 分页工具读取，不设置固定终端行数；无关查询噪声由 Harness 在上下文压力下压缩。
+- 安装版默认写入按天滚动的本地 JSON 诊断日志并保留 14 天；`--debug` 提升为 DEBUG 级，Harness 进程、ACP 阶段、模型路由、Host MCP 与精确错误均使用稳定字段，方便维护 AI 直接读取定位。
 
 ### 权限与安全策略
 
@@ -92,7 +91,7 @@ Agent 使用类似 Claude Code 的循环：
 - 从本地目录发现 `SKILL.md`，读取元数据和内容哈希，并按任务需要加载已启用 Skill。
 - 支持配置和测试 stdio 与 streamable-http MCP 服务器；测试成功后可展开 capability id、完整工具名称、标题、说明、Transport、Input/Output Schema 和 annotations，并复制结果。
 - MCP 工具、Resources 和 Prompts 统一通过 Transport 无关的 CapabilityProvider 层进入 Goal 级能力目录；工具调用参数和结构化结果按服务端 Schema 校验，Resources/Prompts 只有实际发现后才可列出和读取。
-- MCP 返回值会规范化为 `structuredContent`、`textContent`、错误状态与原始 Evidence artifact。Agent 根据完整证据整合产品 CLI 命令，并把 `evidence_refs` 交给 `cli_execute`；长结果可继续分页读取，不会把包装层、截断摘要或失败内容当成最终事实。
+- MCP 返回值会保留 `structuredContent`、文本块与 `isError`。Agent 先解析 MCP 结果再整合完整产品 CLI 命令；大结果应使用 MCP 自身过滤/分页能力，失败内容不会被包装成成功事实。
 - Agent 可调用只读的 `mcp_status` 检查每个已配置服务器的启用状态、Transport、连接/工具发现阶段、工具数量、稳定错误码和服务端原始详情；该诊断不需要 SSH 会话。
 - 支持有界、确定性的任务生命周期 Hooks；Hooks 不能降低核心权限策略。
 
@@ -196,11 +195,11 @@ npm run check:dist
 - [标准构建与发布流程](docs/build-and-release.md)
 - [Agent 插件架构说明](docs/agent-plugin-architecture.md)
 - [Agent 优化路线与取舍](docs/agent-optimization-roadmap.md)
-- [Codex 对话上下文实现说明](docs/agent-codex-context-plan.md)
-- [Codex × Harness 架构审计](docs/architecture/codex-harness-audit.md)
-- [dsh-codex-agent 实现说明](docs/architecture/dsh-codex-agent-implementation.md)
+- [历史：Codex 对话上下文实现说明](docs/agent-codex-context-plan.md)
+- [DeepSeek Harness 集成说明](docs/architecture/deepseek-harness-integration.md)
+- [历史：Codex × Harness 架构审计](docs/architecture/codex-harness-audit.md)
 - [Codex 网络出口审计](docs/architecture/codex-network-audit.md)
 
 ## 当前边界
 
-当前 `0.11.0` 在精简 Codex Core 之上恢复轻量 Goal 控制面：所有普通任务自动获得长任务续跑、澄清等待、后台 Job 唤醒和崩溃恢复能力，不再以 64 个模型步骤作为任务失败上限。该版本同时交付跨 Provider 模型路由、全自适应上下文、Goal 级 Skill/Evidence、统一 stdio/streamable-http MCP Transport、Resources/Prompts、多 SSH 条件协同和可清理的持久会话树；仍不引入通用 DAG、云端记忆或第二套 Agent Loop。
+当前开发版使用官方 DeepSeek Harness ACP 作为唯一 Agent 内核，保留 Harness 本地 Shell/文件/Goal/Skill 工具，并通过受保护的 myterm Host MCP 提供 SSH、CLI、SFTP、外部 MCP 和多 SSH 协同。普通任务自动使用持久会话、Goal 与上下文压缩，不再维护旧的裁剪 Codex Core 分叉。

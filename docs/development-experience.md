@@ -695,3 +695,42 @@ Provider 回退也确实已经写入 SQLite，但运行时把“是否复用”�
 - 可复用经验二：内部安全边界应产生可恢复的 yield，而不是直接升级成用户可见失败；循环保护应判断无进展，而不是只数步数。
 - 可复用经验三：外部工具调用不能自动重放副作用，但连接状态可以在失败后失效并在下一次显式调用重建；可靠性与幂等性必须分开设计。
 - 可复用经验四：用户不阅读代码时，稳定字段日志、精确错误、checkpoint 和 artifact 引用就是维护接口，不能把它们当调试期临时输出。
+
+## 22. 官方 DeepSeek Harness ACP 迁移（2026-09-01）
+
+### 问题确认
+
+旧 `dsh-codex-agent` 并不是真正使用官方 Harness 内核，而是在本地维护一份裁剪 Codex Core、N-API 边界、Provider transport、压缩、Goal 续跑和上下文投影。它解决过 CLI 空格、长结果和 64 Step 等实际问题，但每次上游 Agent、模型协议、压缩或 Skill/MCP 演进都需要在 myterm 内重复实现，维护成本已经超过轻量产品应承担的范围。
+
+用户强调工具不能随迁移被删除。审计确认 myterm 的核心价值不只是对话：保存服务器、SSH、交互式 CLI、SFTP、多 SSH、权限和精确错误都必须保留；同时官方 Harness 自带的本地 Shell/文件/Goal/Skill 工具也不应裁掉。
+
+### 方案比较
+
+| 方案 | 优点 | 缺点 | 结论 |
+|---|---|---|---|
+| 继续扩展裁剪 Codex Core | 包体较小；行为完全可控 | 永久维护分叉；Provider、Goal、Skill、压缩和工具生态都要自行追赶 | 不采用 |
+| 整个 Harness 直接接管 SSH/MCP | 接入代码少 | 会绕过 myterm 会话、CLI 事务、权限、错误和多 SSH 契约，终端能力反而下降 | 不采用 |
+| 官方 Harness ACP + 分层工具 | 官方内核可快速升级；本地工具和 myterm 远程工具都保留；边界可测试 | 需要 sidecar/ACP/Host MCP；携带 Node 后资源体积增加；上游仍为 Developer Preview | 采用 |
+
+### 实现决定
+
+1. 固定官方 `@deepseek-ai/dsh-*` `0.1.2-alpha.3` 与 ACP SDK `1.4.0`，使用专用 `cordis.yml` 只启用 Agent Loop、Session、Goal、compaction、本地 Shell/文件、Skill、MCP 和 ACP，不启用 web、TUI、headless CLI 或 telemetry。
+2. Rust 使用容错 ACP v1 NDJSON 客户端启动/监管 sidecar，映射 initialize、session new/resume、prompt、permission、cancel、tool update 和最终原因；Conversation 保存 ACP session id，可跨应用重启恢复。
+3. 每次运行在 `127.0.0.1:0` 启动随机路径、随机 Bearer 的 Streamable HTTP Host MCP。它把 SSH、CLI、SFTP、会话、Job 和外部 Capability 暴露给 Harness，任务结束立即关闭。
+4. 外部 MCP 继续由 myterm CapabilityProvider 预连接。这样某个服务器连接/发现失败不会回滚整个 Harness Session，Agent 仍可用 `mcp_status` 读取稳定错误码和原始详情。Resources/Prompts 因 ACP 当前只消费 Tools，被包装成 Host MCP 工具。
+5. 系统 Prompt 由 Rust 合并内置契约和用户附加指令，通过 `MYTERM_HARNESS_SYSTEM_PROMPT` 进入官方 `dsh-system-prompt` 的 `persona`。单元测试验证本地/远程工具边界和用户指令都存在，避免“界面保存但运行时未使用”。
+6. ACP v1 没有真正 mid-turn steering。界面不再声称可打断当前模型响应：“响应后继续”在本次响应结束后立即发送下一次 ACP prompt，“排队执行”进入持久 Goal 队列。
+7. 发布构建使用 `prepare-harness-runtime.ps1`。脚本按 package-lock SHA-256 决定是否 `npm ci`，检查官方版本/profile，再把 launcher、profile、生产依赖和 Node 20+ 复制到 Tauri resources。安装版不依赖用户机器预装 Node。
+8. 删除旧 `integrations/dsh-codex-agent`、Rust `agent/dsh.rs`、Cargo path 依赖和 N-API 发布门禁，不保留开发阶段兼容分支。
+
+### 验证与可复用经验
+
+- ACP smoke 已验证 HTTP MCP capability、session new/resume 表面和 sidecar 正常退出；Rust 90 项通过、前端 65 项通过。
+- 打包资源未压缩约 236 MiB，其中 Node 约 86 MiB、官方生产依赖约 150 MiB。这个代价必须在每次升级记录，后续只做可验证的依赖裁剪，不修改官方包内部实现。
+- 运行时按需启动：空闲时没有 Harness 进程和 Host MCP listener。体积增加不等于必须接受常驻内存增加；进程生命周期与磁盘体积应分别验收。
+- 本地工具和远程工具必须在系统 Prompt、工具名、权限和日志中显式区分。“Shell 能执行命令”并不等于“Shell 在 SSH 服务器执行命令”。
+- 2026-09-01 使用已保存 Provider 做了三层实测：非流式 Chat Completions 成功；普通 SSE 返回 `[DONE]` 与 `finish_reason=stop`；强制工具调用 SSE 返回 `[DONE]` 与 `finish_reason=tool_calls`。随后完整 ACP Turn 成功调用 Harness 本地 `pwsh`。一次“Upstream service temporarily unavailable”不能在缺少持续复现和原始协议证据时概括为上游不可用。
+- Host MCP 的 `list_directory` 只暴露 `remote` scope，并在执行层再次拒绝 `local`；Harness 集成测试明确要求本地 Shell 工具且禁止 `mcp__myterm-host-tools__*`。工具边界不能只靠 Prompt，Schema 和执行入口都要实施相同约束。
+- `AgentService::shutdown` 在取消活动 Turn/Job、关闭 MCP 后等待资源让出，并显式关闭惰性 SQLite 连接。否则 Windows 集成测试可能已经成功，却因 `agent.db` 仍被当前进程占用而在清理临时目录时误报失败。
+- 上游更新友好不等于直接使用浮动版本。官方包必须整组固定、生成 lockfile、跑 ACP smoke 和 Host MCP 集成回归后再升级；否则快速更新会变成不可复现更新。
+- 替换内核时应先让新边界通过握手和测试，再删除旧源码。删除旧构建缓存属于可再生成清理，源码删除保持 Git 可恢复。

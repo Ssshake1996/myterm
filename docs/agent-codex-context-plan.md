@@ -1,7 +1,7 @@
-# myterm Codex 对话上下文重构方案
+# 历史方案：myterm Codex 对话上下文重构
 
-> 文档状态：0.11.0 已实施，包含稳定 Conversation/Turn、自动 Goal、Result Capsule 与增量 Checkpoint v2
-> 适用范围：`dsh-codex-agent` 对话、模型请求、压缩、追加要求与任务历史
+> 文档状态：历史实现记录。2026-09-01 起生产运行时已替换为官方 DeepSeek Harness ACP；当前上下文、Goal 和工具边界以 [DeepSeek Harness 集成说明](architecture/deepseek-harness-integration.md) 为准。
+> 以下内容仅用于解释旧 `dsh-codex-agent`/裁剪 Codex Core 的设计背景，不再是当前实现契约。
 
 ## 1. 结论
 

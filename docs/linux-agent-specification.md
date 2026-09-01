@@ -1,8 +1,8 @@
 # myterm Linux Agent 功能与技术说明书
 
-> v0.11.0 当前契约：桌面宿主拥有轻量 Goal 控制面，`dsh-codex-agent`/精简 Codex Core 独占 Thread/Turn、模型工具循环、上下文压缩和 Subagent Graph。每个普通输入自动进入 Goal，用户无需判断长短任务或输入 `/goal`。
+> 2026-09-01 当前契约：官方 DeepSeek Harness ACP 独占模型工具循环、持久 Session、Goal、上下文压缩、本地工具和 Skill；myterm 宿主拥有产品级 Goal、权限、SSH/CLI/SFTP、多 SSH、外部 MCP 与审计。每个普通输入自动获得长任务能力，用户无需判断长短或输入 `/goal`。
 
-> 文档状态：`0.11.0` 当前契约与后续目标单一事实源（更新于 2026-08-29）
+> 文档状态：`0.11.1` 当前契约与后续目标单一事实源（更新于 2026-09-01）
 > 当前产品入口：Desktop only
 > 开发计划：[`linux-agent-development-plan.md`](linux-agent-development-plan.md)
 > OS 安装专项方案：[`multi-ssh-os-installation-plan.md`](multi-ssh-os-installation-plan.md)
@@ -124,7 +124,7 @@ Agent 只有桌面入口：
 | FR-TASK-003 | 循环必须是“模型决策 -> 工具策略/审批 -> 执行 -> 结果持久化 -> 继续模型”。 |
 | FR-TASK-004 | 模型文字不能覆盖真实工具结果或 Task 状态。 |
 | FR-TASK-005 | 取消传播到模型请求、审批等待、SSH channel、Job、条件等待和 provider。 |
-| FR-TASK-006 | Core 的默认 64 Step 只作为单 Turn 让出边界；达到边界返回 `continuation_required`，宿主保存 checkpoint 并自动启动下一 Turn，不得把 Goal 标记失败。 |
+| FR-TASK-006 | 普通任务和长任务统一由官方 Harness Goal、持久 Session、checkpoint 与 compaction 驱动；不得恢复固定 64 Step 作为整个任务上限。 |
 | FR-TASK-007 | 默认 Goal 不设置隐藏 Token 总预算；若未来支持用户显式预算，预算必须可见且可解释。 |
 | FR-TASK-008 | 相同工具与规范化参数重复、无进展 checkpoint 或策略拒绝必须触发循环保护，不能依赖固定总 Step 上限。 |
 | FR-TASK-009 | Goal、Turn、Event、Approval、Job、Evidence、Skill 和 Artifact 在 UI 关闭或应用重启后可恢复；正在运行的 Turn 标记失败，Goal 暂停等待恢复。 |
@@ -229,7 +229,7 @@ flowchart TD
     Desktop["React Desktop UI"] --> IPC["Typed Tauri IPC"]
     IPC --> App["Agent application service"]
     App --> Goal["Goal control plane"]
-    Goal --> Runtime["Trimmed Codex Core: Thread / Turn / model loop"]
+    Goal --> Runtime["Official DeepSeek Harness ACP: Session / Goal / model loop"]
     Goal --> Store["SQLite Goal / Event / Job / Evidence store"]
     Runtime --> Policy["Policy and approval"]
     Policy --> Registry["Tool registry"]
@@ -364,7 +364,8 @@ Event 先持久化再通知 UI。高频输出按 50ms 或 64KiB 合并，条件�
 - `host_facts(session_id?)`。
 - `list_directory`、`file_stat`、`file_read`、`file_search`、`file_write`、`file_patch` 均支持可选 `session_id`。
 - `job_status`、`job_output`、`job_cancel`。
-- `skill_load`、`capability_search`、`capability_invoke`、`capability_invoke_batch`、`evidence_read`。
+- Harness 本地工具：PowerShell/Bash、文件读取/搜索/编辑、Goal 和 Skill。
+- Host MCP 能力工具：`capability_search`、`capability_invoke`、`capability_invoke_batch`、Resources/Prompts 包装工具与 `mcp_status`。
 
 独立只读工具可在同一模型响应内并发；并发安全由宿主声明，第三方 annotation 不能直接降低权限或证明安全。CLI batch 只接受已知且互不依赖的完整命令，遇到交互或超时停止。
 
@@ -494,7 +495,7 @@ skill-name/
 - 工具名包含 server namespace；schema hash 进入审计。
 - 工具超过阈值时先搜索目录。
 - list/read 等可安全重试的发现操作断线后重连一次；工具调用失败不自动重放，以免重复副作用，但会丢弃故障连接供下一次显式调用重连。
-- Tools、Resources 和 Prompts 使用同一 Transport 抽象；原始返回保存为 Goal Evidence，进度事件进入 Agent 时间线。
+- Tools、Resources 和 Prompts 使用同一 Transport 抽象；Tools 直接投影为 Host MCP 工具，Resources/Prompts 包装为可调用工具，结构化内容、文本块和错误状态进入 Agent 时间线。
 - MCP 适合非核心扩展；OS 写盘第一版优先内置 provider adapter。
 
 ### 13.3 Hooks
@@ -565,7 +566,7 @@ stateDiagram-v2
 - 顶部水平拖柄向上扩大、向下缩小输入区；最大高度不得超过 Agent 面板高度的 50%。
 - 拖柄支持 `ArrowUp`、`ArrowDown`、`Home` 和 `End` 键，并暴露当前、最小和最大值。
 - 窗口或面板缩小时自动收敛到新上限，不遮挡标题栏或提交按钮。
-- 运行中输入保持可编辑；“立即调整”在最近模型决策边界注入当前 Turn，“排队执行”在当前 Turn 结束后继续同一 Goal，“停止”为独立按钮。
+- 运行中输入保持可编辑；“响应后继续”在当前 ACP 响应结束后立即提交下一次 prompt，“排队执行”进入持久 Goal 队列，“停止”为独立按钮。ACP v1 不承诺 mid-turn steering。
 
 ### 15.2 固定上下文
 

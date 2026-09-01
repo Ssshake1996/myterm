@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.11.0。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 dsh-codex-agent Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.11.1。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 DeepSeek Harness Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -166,22 +166,11 @@ AI 服务设置支持多个模型角色：
 
 ### Agent 自适应上下文
 
-上下文协议不再作为 AI 设置项交给用户选择。dsh-codex-agent 会按实际 Provider 能力自动决定：
+上下文协议和压缩不再作为 AI 设置项交给用户选择。官方 DeepSeek Harness 按模型上下文窗口、会话历史、工具 Schema 和当前任务自动执行 token 计量、checkpoint、tool-result pruning 与 compaction。每个 myterm Conversation 对应一个可恢复的 ACP Session；重新打开应用后会恢复 Session，而不是把全部聊天记录作为一份新请求重新发送。
 
-- 优先尝试 Responses API，保存 `previous_response_id` 并只发送新增消息。
-- 网关明确返回 404、405、501，或返回表明 Responses/原生压缩不支持的 400 时，按 Provider 配置指纹跨对话持久记住该能力，后续 Turn 直接使用 Chat Completions 本地 checkpoint，不会重复显示同一条回退提示。
-- 瞬时网络、超时或服务端错误只在当前请求回退 Chat Completions，不会被错误记为永久不支持；后续请求仍可重新探测。
-- Base URL、模型或认证方式发生变化时会生成新的无敏感信息能力指纹，自动重新探测，不复用旧网关的结论。
+终端、文件和后台 Job 的长输出仍由 myterm 工具分页管理。`terminal_context`、`file_read` 和 `job_output` 返回 offset/nextOffset/eof，Agent 可以按任务需要继续读取，不设置“最近 N 行”的固定终端限制。对于大量查询噪声，Harness 在上下文压力下只保留任务结论、必要证据和工具摘要；如果后续需要精确原文，应再次使用同一只读分页工具读取对应区间，而不是让模型凭摘要猜测。
 
-上下文窗口、协议与压缩阈值由运行时完全自适应，AI 服务设置中不再提供人工 Token 参数。预算同时计算聊天消息、系统 Prompt、工具 Schema、当前 checkpoint 和模型输出预留。Responses 上下文可用时不重复运行本地压缩；本地 Checkpoint v2 每次只读取上一份 checkpoint 和尚未压缩的新消息，通过持久化引用恢复用户纠正、精确 CLI 命令和空格、工具事实、Evidence 引用、未解决项和权限状态，不把全部历史重新交给模型总结。压缩失败会把上一次 JSON 校验错误加入重试请求；初次请求后最多再重试 3 次，仍失败才终止当前 Turn，Goal 仍保留可恢复状态。
-
-安装版默认把 INFO 级结构化 JSON 日志写入 `%APPDATA%\myterm\logs\myterm.log.YYYY-MM-DD`，按天滚动并保留 14 天。使用 `myterm.exe --debug` 启动时会记录更细的 Provider 探测、缓存命中和回退决策；日志包含稳定事件名、对话、Provider 指纹、错误阶段、错误码和原始诊断，但不会记录 API Key。Core 同时把每次 Provider checkpoint 状态写入 `dsh-codex-agent/codex-core.sqlite3` 的本地审计表，便于维护 AI 交叉定位界面事件、运行日志与持久状态。
-
-### 大型查询结果与 Result Capsule
-
-终端输出、文件内容、MCP 返回或其他工具结果超过 8 KiB 时，dsh-codex-agent 会把不可变原文单独保存，并记录字节数和 SHA-256；对话上下文只加入版本化 Result Capsule。Capsule 包含 `resultId`、工具名、状态、与当前任务相关的来源事实、精确摘录以及是否需要继续读取，不会用任意“头部 + 尾部”截断代替原文。
-
-当 Capsule 已足以回答问题时，Agent 直接使用其中带来源的事实；需要核对某个参数、错误行或遗漏区域时，Agent 调用只读 `result_read`：可以用 `query` 对原文做不区分大小写的字面行搜索，也可以用 `offset` / `limit` 分页读取。该工具只读取已落盘结果，不会重新执行 SSH、MCP 或写操作。已经完成且与后续目标无关的查询噪声允许从下一份 checkpoint 中删除；仍可能复查的结果则通过 `resultRefs` 保留 `resultId`。
+安装版默认把 INFO 级结构化 JSON 日志写入 `%APPDATA%\myterm\logs\myterm.log.YYYY-MM-DD`，按天滚动并保留 14 天。使用 `myterm.exe --debug` 启动时会记录 Harness 进程、ACP 阶段、模型路由、Host MCP、工具和错误码，但不会记录 API Key。Harness 的 Session JSONL 保存在 myterm 数据目录的 `deepseek-harness/conversations` 下，myterm 的产品任务、审批、Job 和事件仍写入本地 SQLite，方便 AI 联合定位。
 
 ### 完整终端输出
 
@@ -220,7 +209,7 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 
 执行时间线会显示模型决策、工具、参数摘要、审批状态、stdout、stderr、结果和最终答复。任务会写入本地 SQLite，关闭面板或重新打开应用后仍可查询历史。
 
-每个普通输入都会自动创建或复用一个内部 Goal。用户不需要输入 `/goal`，也不需要预先判断任务是长任务还是短任务：短任务通常在一个 Turn 内结束；一个 Turn 到达内部 64 步让出边界时不会再报 `maximum step count`，宿主会保存 checkpoint 并自动创建下一 Turn 继续，直到完成、等待用户、等待外部条件、失败或取消。该边界用于让出和恢复，不是整个 Goal 的步骤上限；默认 Goal 也没有隐藏的 Token 总预算。
+每个普通输入都会自动创建或复用一个内部 Goal。用户不需要输入 `/goal`，也不需要预先判断任务是长任务还是短任务：短任务通常在一个响应内结束，长任务由 DeepSeek Harness 的 Goal、持久 Session、checkpoint 和 compaction 继续执行。旧 Core 的 `maximum step count 64` 路径已删除。
 
 Agent 会先做不产生副作用的现场读取。若目标、范围、预期结果或安全边界仍不明确，而且不同答案会实质改变执行路径，Goal 会进入“等待用户”并显示准确问题。允许多轮澄清；用户的回答继续同一个 Goal，已经验证的步骤和证据不会重做。
 
@@ -229,7 +218,7 @@ Agent 会先做不产生副作用的现场读取。若目标、范围、预期�
 - 聚焦拖柄后可用 `↑`/`↓` 逐级调整，`Home` 恢复最小高度，`End` 扩大到允许的最大高度。
 - Agent 标题栏的“新对话”会在后端创建独立 Conversation，不再只清空前端。同一 Conversation 中的后续发送会创建新 Turn，上一轮的要求、用户纠正、工具结果和精确命令会按上下文策略恢复。
 - “对话历史”展开后使用独立边框、背景和阴影，按 Conversation 显示标题、Turn 数和更新时间；选中后会恢复该对话的全部 Turn 时间线。
-- Turn 运行期间输入框仍可使用。“立即调整”会把新要求持久化并在最近的模型决策边界注入当前 Turn；“排队执行”会在当前 Turn 结束后作为下一条输入继续同一 Goal；“停止”为独立按钮。
+- Turn 运行期间输入框仍可使用。“响应后继续”会在当前 Harness 响应结束后、同一次运行中立即提交追加要求；“排队执行”会把要求持久化到 myterm Goal 队列，在当前 Turn 结束后继续；ACP v1 暂不支持真正的响应中途 steering。“停止”为独立按钮。
 - Goal 状态条显示目标、状态、续跑次数、Token 用量与 checkpoint，可暂停、继续或取消。等待用户时应直接回答时间线中的问题；等待外部 Job 时完成事件会自动唤醒同一 Goal。
 - 删除对话会拒绝仍在运行或仍有后台 Job 的 Conversation；允许删除时会同时清理 Root/Subagent Thread、审计索引和原始结果 artifact，避免历史磁盘文件长期残留。
 
@@ -278,7 +267,8 @@ Agent 会先做不产生副作用的现场读取。若目标、范围、预期�
 - `job_status`、`job_output`、`job_cancel`：管理后台执行任务。
 - `capability_search`、`capability_invoke`、`capability_invoke_batch`：搜索并调用任务启动时发现的外部能力。
 - `mcp_status`：读取每个已配置 MCP 服务器在本任务启动时的状态，包括启用状态、Transport、连接/工具发现阶段、工具数量、稳定错误码和服务端原始详情；不需要 SSH 会话。
-- `evidence_read`：按 offset 读取 MCP 原始证据文件；证据只在当前 Goal 内有效，可跨 Turn 恢复，但不能跨 Goal 引用。
+
+Harness 还保留本地 PowerShell/Bash、文件读取、搜索、编辑、Goal 和 Skill 工具。它们只操作本机；远程 Linux、SSH、CLI、SFTP 和多 SSH 操作必须使用上面的 myterm Host MCP 工具，界面时间线会标明工具来源。
 
 活动 SSH 不再是 Agent Task 的默认绑定，只是界面提供给模型的候选元数据。通用问答、MCP 配置/诊断、Capability 发现、Skill 和任务历史不应调用会话工具；用户明确说“当前终端”“这台服务器”或等价表述时，模型可在本次调用中设置 `use_active_session=true`。用户说出服务器名称或环境时，Agent 应先用 `session_catalog` 找到目标，必要时用 `session_connect` 建立连接，再把返回的 `session_id` 传给终端上下文、命令、主机事实、Runbook、SFTP 和文件工具。没有 `session_id` 且没有显式启用活动候选时，工具会直接返回目标缺失错误，不会静默使用当前焦点。
 
@@ -317,7 +307,7 @@ MCP 支持 `stdio` 和 `streamable-http` 两种传输。添加服务器时先选
 - Agent 调用 MCP 工具时仍经过统一权限、取消、输出限制和审计管线；两种传输对 Agent 暴露相同的工具目录和调用接口。
 - MCP 工具统一进入当前 Goal 的 Capability Registry。小型目录直接提供；大型目录按任务语义和 Schema 大小选择最相关能力，并提供能力搜索/调用入口，不使用固定工具数量阈值。
 - `capability_invoke` 会先按服务端 Input Schema 校验参数；服务声明 Output Schema 时，也会校验 `structuredContent`。MCP 返回会统一规范化为 `structuredContent`、由所有文本块合并出的 `textContent`、`isError` 和读取状态，不要求模型解析 SDK 包装层；`isError=true` 会保留为工具失败，不会包装成成功文本。
-- 每次调用的完整原始返回值都会保存为 Evidence artifact。模型看到 evidence id、来源、结构化内容、规范化文本、错误状态和文件位置；内容过长或 `readRequired=true` 时使用 `evidence_read` 分段读取到 `eof`。根据 MCP 结果生成产品 CLI 命令时，Agent 会把对应 evidence id 写入 `cli_execute.evidence_refs`，宿主拒绝不存在或跨任务的引用。
+- 外部 MCP 的 `structuredContent`、文本块和 `isError` 会经过 myterm Host MCP 原样投影给 Harness。Agent 应先解析结构化结果，再合成完整 CLI 命令；大结果应优先使用 MCP 自身的过滤/分页参数，避免把无关查询噪声长期放入上下文。
 - 不要在普通命令参数中直接写密钥；优先使用受控环境或系统凭据方案。
 
 配置文件中的 HTTP MCP 形态如下（请求头可按服务要求填写，值不会出现在 Agent 工具参数摘要中）：
@@ -340,9 +330,9 @@ MCP 支持 `stdio` 和 `streamable-http` 两种传输。添加服务器时先选
 
 ### Agent 系统 Prompt 与 MCP 能力发现
 
-`dsh-codex-agent` 使用内置版本化系统 Prompt。AI 服务设置里的 System Prompt 会作为附加任务指令，不会替换 Agent 的核心规则。核心规则包括证据优先、完整读取长输出、目标会话确认、权限边界、Skill/MCP 不得绕过策略，以及不确定时不能猜测。
+DeepSeek Harness 使用内置版本化系统 Prompt。AI 服务设置里的 System Prompt 会作为附加任务指令，不会替换 Agent 的核心规则。Rust 后端通过 `MYTERM_HARNESS_SYSTEM_PROMPT` 把合并后的内容传入官方 `dsh-system-prompt` 插件，因此该 Prompt 会真实进入模型上下文。核心规则包括本地/远程工具边界、目标会话确认、完整 CLI 与空格、权限边界、Skill/MCP 不得绕过策略，以及不确定时不能猜测。
 
-MCP 能力不是写死在 Prompt 中。每次 Goal 需要外部能力时，myterm 会通过统一 CapabilityProvider 连接已启用服务器并发现 Tools、Resources 和 Prompts，保留名称、标题、说明、Input/Output Schema、annotations、服务器和 Transport，并生成稳定 Capability ID。工具目录为空时，Agent 不得虚构能力；目录较大或当前任务没有直接暴露目标工具时，先搜索目录，再用准确 ID 调用。Resources 使用实际 URI 列出/读取，Prompts 使用服务端名称和 Schema 参数获取；完整原始返回会作为 Goal Evidence 保存。
+MCP 能力不是写死在 Prompt 中。每次 Goal 需要外部能力时，myterm 会通过统一 CapabilityProvider 连接已启用服务器并发现 Tools、Resources 和 Prompts，保留名称、标题、说明、Input/Output Schema、annotations、服务器和 Transport，并生成稳定 Capability ID。工具目录为空时，Agent 不得虚构能力；目录较大或当前任务没有直接暴露目标工具时，先搜索目录，再用准确 ID 调用。Resources 使用实际 URI 列出/读取，Prompts 使用服务端名称和 Schema 参数获取；调用结果通过 Host MCP 以结构化内容和原始文本块提供给 Harness。
 
 ## 远端 CLI 与 REST 操作
 

@@ -954,6 +954,19 @@ impl AgentStore {
         self.with_connection(|connection| recover_interrupted_tasks(connection, cutoff_ms))
     }
 
+    pub fn close(&self) -> Result<(), AppError> {
+        let mut guard = self
+            .connection
+            .lock()
+            .map_err(|_| AppError::Storage("agent database lock is poisoned".to_owned()))?;
+        let Some(connection) = guard.take() else {
+            return Ok(());
+        };
+        connection
+            .close()
+            .map_err(|(_, error)| AppError::Database(error))
+    }
+
     fn with_connection<T>(
         &self,
         operation: impl FnOnce(&mut Connection) -> Result<T, AppError>,

@@ -7,6 +7,8 @@ dist-release/
 *.tsbuildinfo
 /integrations/dsh-codex-agent/lib/
 /integrations/dsh-codex-agent/native-dist/
+/integrations/deepseek-harness-runtime/node_modules/
+/src-tauri/resources/deepseek-harness-runtime/
 
 # Rust and Tauri
 target/

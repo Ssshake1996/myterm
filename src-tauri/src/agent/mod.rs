@@ -1,8 +1,9 @@
 pub mod builtin;
 pub mod capability;
 pub mod domain;
-pub mod dsh;
+pub mod harness;
 pub mod hooks;
+pub mod host_mcp;
 pub mod mcp;
 pub mod policy;
 pub mod protocol;

@@ -1,6 +1,6 @@
 # myterm 多 SSH 协同与 Skill 驱动 OS 安装方案
 
-> 当前实现使用 `dsh-codex-agent` 的 Core 工具循环；OS 安装仍以 Skill 任务方案推进，不恢复旧版 Agent 的循环步数配置。
+> 当前实现使用官方 DeepSeek Harness 的 Agent Loop，并通过 myterm Host MCP 调用多 SSH 工具；OS 安装仍以 Skill 任务方案推进，不提供用户可调循环步数。
 
 > 文档状态：调研结论与目标设计，尚未实现
 > 研究日期：2026-08-09

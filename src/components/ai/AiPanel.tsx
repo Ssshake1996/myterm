@@ -298,7 +298,8 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
       {
         id: eventId,
         kind: "status",
-        content: event.message ?? (event.eventType === "mcp_error" ? "MCP" : "Codex Core 运行中"),
+        content:
+          event.message ?? (event.eventType === "mcp_error" ? "MCP" : "DeepSeek Harness 运行中"),
         detail: event.eventType === "mcp_error" ? event.content : undefined,
         errorCode: event.errorCode,
         step: event.step,
@@ -309,9 +310,9 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
   }
   if (event.eventType === "complete") {
     const labels: Record<string, string> = {
-      limit: "已达到 Codex Core 内部安全边界",
+      limit: "已达到 DeepSeek Harness 当前 Turn 的安全边界",
       aborted: "任务已停止",
-      loop_detected: "Codex Core 检测到重复工具调用，任务已停止",
+      loop_detected: "DeepSeek Harness 检测到重复工具调用，任务已停止",
       failed: "任务执行失败",
       stop: "任务完成",
       continuation_required: "当前 Turn 已完成，正在自动续跑",
@@ -873,8 +874,8 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             <Bot size={15} />
           </span>
           <div>
-            <strong>Codex Harness Agent</strong>
-            <small>dsh-codex-agent · 动态目标解析</small>
+            <strong>DeepSeek Harness Agent</strong>
+            <small>官方 ACP · 本地工具 + myterm SSH 工具</small>
           </div>
         </div>
         <div className="ai-header-actions">
@@ -1102,8 +1103,8 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             <span>
               <Bot size={17} />
             </span>
-            <h3>把排查任务交给 dsh-codex-agent</h3>
-            <p>Codex Core 会展示模型决策、工具调用、执行结果、上下文压缩和最终答复。</p>
+            <h3>把排查任务交给 DeepSeek Harness</h3>
+            <p>界面会展示模型决策、工具调用、执行结果、上下文压缩和最终答复。</p>
             <div className="agent-capabilities">
               <span>
                 <Wrench size={11} /> 终端与文件工具
@@ -1275,7 +1276,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
         {currentConversationRunning &&
         !entries.some((entry) => entry.kind === "tool" && entry.status === "approval") ? (
           <div className="trace-running">
-            <LoaderCircle className="spin" size={13} /> dsh-codex-agent 正在运行
+            <LoaderCircle className="spin" size={13} /> DeepSeek Harness 正在运行
           </div>
         ) : null}
       </div>
@@ -1330,10 +1331,10 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             <button
               className={runningInputMode === "steer" ? "is-active" : ""}
               onClick={() => setRunningInputMode("steer")}
-              title="尽快注入当前 Turn"
+              title="当前 Harness 响应完成后，在同一次运行中立即继续"
               type="button"
             >
-              立即调整
+              响应后继续
             </button>
             <button
               className={runningInputMode === "queue" ? "is-active" : ""}
@@ -1359,8 +1360,8 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
               currentConversationRunning
                 ? runningInputMode === "queue"
                   ? "继续输入要求；Enter 排队到下一 Turn，Shift+Enter 换行"
-                  : "继续输入要求；Enter 调整当前 Turn，Shift+Enter 换行"
-                : "描述目标，dsh-codex-agent 会决定并调用工具"
+                  : "继续输入要求；Enter 在当前响应后立即继续，Shift+Enter 换行"
+                : "描述目标，DeepSeek Harness 会决定并调用工具"
             }
             ref={inputRef}
             rows={3}

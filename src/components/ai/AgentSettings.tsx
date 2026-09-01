@@ -255,8 +255,8 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
 
         <div className="plugin-profile-summary">
           <span className="agent-runtime-badge">内置运行时</span>
-          <strong>dsh-codex-agent</strong>
-          <small>Codex Core · Agent Loop · Compaction · Subagent Graph</small>
+          <strong>DeepSeek Harness</strong>
+          <small>官方 ACP · Agent Loop · Goal · Compaction · Skill · MCP</small>
         </div>
 
         {tab === "execution" ? (
@@ -299,8 +299,8 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
             <div className="permission-note">
               <ShieldCheck size={15} />
               <span>
-                循环、上下文压缩、工具顺序和 Subagent 调度由 dsh-codex-agent
-                统一管理，不再提供旧版循环步数配置。
+                Agent Loop、Goal、上下文压缩和本地工具由 DeepSeek Harness 管理；SSH、CLI、SFTP 与多
+                SSH 协同由 myterm Host MCP 提供。
               </span>
             </div>
           </section>

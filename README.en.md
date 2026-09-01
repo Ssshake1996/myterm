@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.11.0`
+Current version: `0.11.1`
 
 ## Core Features
 
@@ -55,27 +55,26 @@ The Agent follows a Claude Code-style loop:
 task input -> model decision -> tool call -> result -> continue -> final answer
 ```
 
-- Every ordinary input automatically creates or reuses an internal Goal; users do not classify tasks as short or long and never need a `/goal` command. Short work completes in one Turn, while long work continues from a verified checkpoint after an internal yield, background-job completion, or application recovery.
+- Every ordinary input automatically creates or reuses an internal Goal; users do not classify tasks as short or long and never need a `/goal` command. Official DeepSeek Harness uses durable Sessions, Goals, checkpoints, and compaction for long-running work.
 - Durable Goals, Conversations, and Turns. Only New Conversation changes the context boundary; the objective, follow-up requirements, user corrections, tool facts, and exact commands survive across turns.
 - When target, scope, outcome, or safety is materially ambiguous and cannot be resolved through safe inspection, the Agent persists an exact clarification and waits; the user's answer resumes the same Goal.
 - Persistent tasks, ordered events, approvals, tool audit records, background jobs, cancellation, and crash recovery.
 - A tool-centric timeline shows model decisions, tool names, parameter summaries, stdout, stderr, results, and status.
 - Task input supports `Shift+Enter` newlines and IME protection; a top handle expands the composer up to half the Agent panel height.
 - New Conversation creates a real durable conversation. Conversation history groups and restores every turn instead of only clearing the current UI trace.
-- The composer stays editable while a turn runs. Add Requirement persists and injects steering at the next model-decision boundary, while Stop remains a separate action.
+- The composer stays editable while a turn runs. Continue After Response submits follow-up input immediately after the current ACP response, Queue persists it in the Goal input queue, and Stop remains separate.
 - Built-in tools cover session metadata, terminal context, terminal input, structured SSH execution, host facts, directories, and files; inactive saved servers can be discovered and connected automatically, while the built-in Multi-SSH Coordinator provides serial coordination across explicit targets. The focused SSH pane is passive candidate metadata: general questions, MCP, Skills, and history do not read it automatically. The model must set `use_active_session=true` only when the user refers to the current terminal, or resolve a named server and pass an explicit `session_id`.
 - Structured execution records stdout/stderr separately with exit code, signal, timeout, cancellation, and disconnect outcomes.
 - Long operations can become background jobs with status, paged output, and cancellation tools.
-- Diagnostic runbooks, context compaction, loop detection, and pre-persistence secret redaction are built in.
+- Harness keeps local PowerShell/Bash, file read/search/edit, Goal, and Skill tools; the myterm Host MCP supplies remote SSH/CLI/SFTP and multi-SSH tools through an explicit boundary.
 - Terminal context is an unbounded-by-line transcript reader: the Agent follows `offset`, `nextOffset`, and `eof` ranges until a complete `cat`, log, or command output has been read. Long remote stdout/stderr stays in artifacts and remains page-readable.
 - For interactive product CLIs, `cli_execute` locks terminal input, inspects the real xterm cursor line, sends only the missing suffix of the complete intended command, and waits for a prompt, interaction, quiet fallback, or timeout boundary in one host transaction. `cli_execute_batch` groups 1-8 independent known commands into one tool call, avoiding duplicated input and many tiny model requests.
-- The timeline records model-request, tool-call, and token counts for each turn. Independent read-only calls can execute concurrently within one model round, while dependent or effectful operations remain serial.
+- The timeline records ACP-observable steps, tool calls, and runtime state. Remote effectful or dependent operations remain serialized by myterm.
 - AI profiles persist as versioned JSON. A profile can define primary, analysis, and fallback models, and each route may reference another saved Provider profile. Failures can therefore fall through models and Providers in role order while the timeline records the exact route used.
-- A Provider Context Adapter supports both Responses and Chat Completions without a manual protocol selector. It prefers `previous_response_id` plus native provider compaction, persistently falls back across conversations by provider-configuration fingerprint when unsupported, and automatically probes again after the Base URL, model, or authentication mode changes.
-- Context window, protocol choice, and compaction thresholds are fully adaptive runtime decisions rather than user-facing switches. Local Checkpoint v2 merges only the previous checkpoint plus the new tail, then injects persisted user corrections, literal CLI commands, facts, and Evidence by exact reference instead of replaying all raw history during every compaction.
-- Tool, terminal, file, MCP, and query outputs larger than 8 KiB are stored separately with SHA-256 integrity metadata. The model receives a Result Capsule with a `resultId`, sourced facts, and exact excerpts, and can use read-only `result_read` for focused literal search or paging without truncating evidence or re-running a side-effecting tool.
-- Chat Completions budgeting includes the system prompt, tool schemas, messages, checkpoint, and output reserve. A failed compaction is retried with the previous validation error, and the turn stops only after the initial attempt plus three failed retries.
-- Installed builds write daily structured JSON diagnostics locally and retain 14 days. Starting with `--debug` enables DEBUG-level provider probe, cache-hit, fallback, and exact-error records with stable fields for AI-assisted maintenance.
+- AI configuration is converted into official Harness `llm-pi-ai` Provider JSON. If the primary model fails, myterm starts the next configured primary/analysis/fallback route, including routes that reference another Provider profile.
+- Context windows and compaction are managed automatically by DeepSeek Harness durable Sessions, token metering, checkpoints, tool-result pruning, and compaction; the AI settings expose no manual compaction selector.
+- Long terminal, file, and background-job output remains available through myterm paging tools with `offset`, `nextOffset`, and `eof`, without a fixed terminal-line limit. Harness compresses irrelevant query noise under context pressure.
+- Installed builds write daily structured JSON diagnostics locally and retain 14 days. Starting with `--debug` enables stable fields for Harness process, ACP phase, model route, Host MCP, and exact-error records.
 
 ### Permissions and Safety
 
@@ -92,7 +91,7 @@ Hard-deny commands, production/root escalation, output limits, audit records, an
 - Discover local `SKILL.md` files, record metadata and content hashes, and load enabled Skills on demand.
 - Configure and test stdio and streamable-http MCP servers. Successful tests expose capability ids, complete names, titles, descriptions, transports, input/output schemas, and annotations with a copy action.
 - MCP tools, Resources, and Prompts enter a Goal-scoped capability catalog through a transport-neutral CapabilityProvider layer. Tool inputs and structured outputs are validated against server-provided schemas, and Resources/Prompts are available only after actual discovery.
-- MCP results are normalized into `structuredContent`, `textContent`, error state, and a task-scoped raw Evidence artifact. The Agent synthesizes product CLI commands from complete evidence and passes `evidence_refs` to `cli_execute`; long results remain page-readable and wrapper text or truncated previews are never treated as the final fact.
+- MCP results preserve `structuredContent`, text blocks, and `isError`. The Agent parses the result before synthesizing a complete product CLI command; large results should use the MCP server's filters or paging, and failed content is never presented as success.
 - The read-only `mcp_status` tool reports every configured server's enabled state, transport, connection/tool-discovery stage, tool count, stable error code, and original provider detail without requiring an SSH session.
 - Bounded deterministic lifecycle Hooks are supported and cannot lower core permissions.
 
@@ -196,11 +195,11 @@ The release pipeline produces a Windows NSIS installer and a portable ZIP under 
 - [Standard Build and Release Process](docs/build-and-release.md)
 - [Agent Plugin Architecture](docs/agent-plugin-architecture.md)
 - [Agent Optimization Roadmap](docs/agent-optimization-roadmap.md)
-- [Codex Conversation Context Implementation](docs/agent-codex-context-plan.md)
-- [Codex × Harness Architecture Audit](docs/architecture/codex-harness-audit.md)
-- [dsh-codex-agent Implementation](docs/architecture/dsh-codex-agent-implementation.md)
+- [Historical: Codex Conversation Context Implementation](docs/agent-codex-context-plan.md)
+- [DeepSeek Harness Integration](docs/architecture/deepseek-harness-integration.md)
+- [Historical: Codex × Harness Architecture Audit](docs/architecture/codex-harness-audit.md)
 - [Codex Network Egress Audit](docs/architecture/codex-network-audit.md)
 
 ## Current Boundaries
 
-Version `0.11.0` restores a lightweight Goal control plane above the trimmed Codex Core. Every ordinary task gains transparent long-task continuation, clarification waits, background-job wakeups, and crash recovery instead of failing at 64 model steps. It also adds cross-Provider model routing, fully adaptive context, Goal-scoped Skills/Evidence, unified stdio/streamable-http MCP transports with Resources/Prompts, multi-SSH condition coordination, and complete persisted-conversation cleanup without introducing a general DAG, cloud memory, or a second Agent loop.
+The current development build uses official DeepSeek Harness ACP as its only Agent kernel. Harness local Shell/file/Goal/Skill tools remain available, while an authenticated myterm Host MCP provides SSH, CLI, SFTP, external MCP, and multi-SSH coordination. Ordinary tasks automatically use durable sessions, Goals, and context compaction; the old trimmed Codex Core fork is no longer maintained.

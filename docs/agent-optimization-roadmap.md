@@ -1,6 +1,8 @@
 # myterm Agent 优化路线与取舍
 
-本文记录 Agent 的直接改进，以及后续保持轻量内核时最值得投入的优化。路线按风险、收益和对现有插件边界的影响排序；它不是把 myterm 扩展成通用编排平台的清单。
+> 2026-09-01 更新：官方 DeepSeek Harness ACP 已替换旧裁剪 Codex Core。下方 0.7-0.11 小节作为历史演进记录保留；后续优化必须围绕 ACP 兼容、Harness 官方升级和 myterm Host MCP 工具边界进行，当前契约见 [DeepSeek Harness 集成说明](architecture/deepseek-harness-integration.md)。
+
+本文记录 Agent 的直接改进，以及后续保持轻量产品边界时最值得投入的优化。路线按风险、收益和对现有插件边界的影响排序；它不是把 myterm 扩展成通用编排平台的清单。
 
 ## 0.11.0 已落地：普通任务自动 Goal 与统一 CapabilityProvider
 

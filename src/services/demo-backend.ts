@@ -765,12 +765,12 @@ class DemoBackend {
   async agentPluginList() {
     return [
       {
-        id: "dsh-codex-agent",
-        name: "Codex Harness Agent",
+        id: "deepseek-harness",
+        name: "DeepSeek Harness Agent",
         version: "browser-demo",
         kind: "runtime",
         description:
-          "内置 DeepSeek Harness Agent，负责线程历史、工具循环、上下文压缩和 Subagent Graph。",
+          "官方 DeepSeek Harness ACP 运行时，保留本地工具，并通过 myterm Host MCP 使用 SSH、CLI、SFTP 和多 SSH 工具。",
         requires: ["codex-core", "ssh.operations", "skills", "mcp"],
         enabled: true,
       },
