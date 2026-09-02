@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.11.3`
+Current version: `0.11.4`
 
 ## Core Features
 

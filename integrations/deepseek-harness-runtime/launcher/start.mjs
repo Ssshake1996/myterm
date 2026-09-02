@@ -7,6 +7,7 @@ import {
   loadLayeredEnv,
 } from "@deepseek-ai/dsh-app-boot";
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from "@deepseek-ai/dsh-launch-environment";
+import { normalizeSseTermination } from "./sse-normalizer.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const configPath = join(root, "profile", "cordis.yml");
@@ -80,31 +81,17 @@ globalThis.fetch = async (input, init) => {
     response.body &&
     response.headers.get("content-type")?.toLowerCase().includes("text/event-stream")
   ) {
-    const decoder = new TextDecoder();
-    const encoder = new TextEncoder();
-    let tail = "";
-    const normalizedBody = response.body.pipeThrough(
-      new TransformStream({
-        transform(chunk, controller) {
-          tail = `${tail}${decoder.decode(chunk, { stream: true })}`.slice(-512);
-          controller.enqueue(chunk);
-        },
-        flush(controller) {
-          tail = `${tail}${decoder.decode()}`.slice(-512);
-          if (!tail.includes("[DONE]")) {
-            controller.enqueue(encoder.encode("\n\ndata: [DONE]\n\n"));
-            process.stderr.write(
-              `myterm harness provider warning: ${JSON.stringify({
-                stage: "chat_completions_stream_finalize",
-                status: response.status,
-                url,
-                detail: "provider closed the SSE stream without [DONE]; appended the standard terminator",
-              })}\n`,
-            );
-          }
-        },
-      }),
-    );
+    const normalizedBody = normalizeSseTermination(response.body, (reason) => {
+      process.stderr.write(
+        `myterm harness provider warning: ${JSON.stringify({
+          stage: "chat_completions_stream_finalize",
+          status: response.status,
+          url,
+          reason,
+          detail: "provider closed the SSE stream without a complete [DONE] event; appended the standard terminator",
+        })}\n`,
+      );
+    });
     return new Response(normalizedBody, {
       status: response.status,
       statusText: response.statusText,

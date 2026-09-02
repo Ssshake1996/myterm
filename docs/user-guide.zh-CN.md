@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.11.3。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 DeepSeek Harness Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.11.4。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 DeepSeek Harness Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -160,7 +160,7 @@ AI 服务设置支持多个模型角色和 DeepSeek 服务路由：
 
 启用“失败时自动切换”后，后端会按主模型、备用模型顺序尝试；模型也可以引用另一份已保存 DeepSeek 服务。每次 Agent 运行会在时间线显示实际选中的模型。删除当前主模型后，第一个仍启用且非空的模型会自动成为主模型，Agent 下拉框与后端执行使用同一套有效模型规则。前端表单会转换为 schema v6 JSON，配置文件只保存 Base URL、推理强度、模型、路由、提示词和凭据引用，不保存 API Key 原文。
 
-v0.11.3 不保留旧 myterm Agent 权限与任务数据库结构。升级后会重建不兼容的 Agent 数据库并清除旧 Agent 历史；服务器、环境、快捷命令、主题、终端设置、Skill、MCP 和系统凭据不受影响。旧兼容 Provider 的 AI 服务仍不会迁移，若 AI 服务列表为空，请重新保存 DeepSeek 服务。
+v0.11.4 不保留旧 myterm Agent 权限与任务数据库结构。升级后会重建不兼容的 Agent 数据库并清除旧 Agent 历史；服务器、环境、快捷命令、主题、终端设置、Skill、MCP 和系统凭据不受影响。旧兼容 Provider 的 AI 服务仍不会迁移，若 AI 服务列表为空，请重新保存 DeepSeek 服务。
 
 ### Agent 自适应上下文
 

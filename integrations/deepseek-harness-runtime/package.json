@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node launcher/start.mjs",
     "check": "node launcher/check.mjs",
+    "test:sse": "node launcher/sse-normalizer.test.mjs",
     "smoke": "node launcher/smoke.mjs"
   },
   "dependencies": {
