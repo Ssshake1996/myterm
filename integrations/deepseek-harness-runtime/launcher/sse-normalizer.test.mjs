@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventSourceParserStream } from "eventsource-parser/stream";
-import { normalizeSseTermination } from "./sse-normalizer.mjs";
+import { normalizeChatCompletionsSse } from "./sse-normalizer.mjs";
 
 const encoder = new TextEncoder();
 
@@ -14,39 +14,78 @@ function chunkedBody(chunks) {
 }
 
 async function normalizeAndParse(chunks) {
-  const repairs = [];
+  let diagnostic;
   const events = [];
-  const normalized = normalizeSseTermination(chunkedBody(chunks), (reason) => repairs.push(reason));
+  const normalized = normalizeChatCompletionsSse(chunkedBody(chunks), (value) => {
+    diagnostic = value;
+  });
   const parsed = normalized
     .pipeThrough(new TextDecoderStream())
     .pipeThrough(new EventSourceParserStream());
   for await (const event of parsed) events.push(event.data);
-  return { events, repairs };
+  return { events, diagnostic };
 }
 
-assert.deepEqual(await normalizeAndParse(["data: {\"choices\":[]}\n\ndata: [DO", "NE]\n\n"]), {
-  events: ['{"choices":[]}', "[DONE]"],
-  repairs: [],
-});
-assert.deepEqual(await normalizeAndParse(["data: {\"choices\":[]}\r\n\r\ndata: [DONE]\r\n\r\n"]), {
-  events: ['{"choices":[]}', "[DONE]"],
-  repairs: [],
-});
-assert.deepEqual(await normalizeAndParse(["data: {\"choices\":[]}\n\ndata: [DONE]"]), {
-  events: ['{"choices":[]}', "[DONE]"],
-  repairs: ["incomplete_done_event"],
-});
-assert.deepEqual(await normalizeAndParse(["data: {\"choices\":[]}\n\ndata: [DONE]\n"]), {
-  events: ['{"choices":[]}', "[DONE]"],
-  repairs: ["incomplete_done_event"],
-});
-assert.deepEqual(await normalizeAndParse(["data: {\"choices\":[{\"delta\":{\"content\":\"[DONE]\"}}]}\n\n"]), {
-  events: ['{"choices":[{"delta":{"content":"[DONE]"}}]}', "[DONE]"],
-  repairs: ["incomplete_done_event"],
-});
-assert.deepEqual(await normalizeAndParse(["data: {\"choices\":[]}\n\n"]), {
-  events: ['{"choices":[]}', "[DONE]"],
-  repairs: ["missing_done_event"],
-});
+const splitDone = await normalizeAndParse([
+  'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DO',
+  "NE]\n\n",
+]);
+assert.deepEqual(splitDone.events, [
+  '{"choices":[{"delta":{"content":"ok"}}]}',
+  "[DONE]",
+]);
+assert.equal(splitDone.diagnostic.terminationRepair, null);
+assert.equal(splitDone.diagnostic.contentChars, 2);
+assert.equal(splitDone.diagnostic.empty, false);
 
-process.stdout.write(JSON.stringify({ ok: true, scenarios: 6 }));
+const crlf = await normalizeAndParse([
+  'data: {"choices":[{"delta":{"content":"ok"}}]}\r\n\r\ndata: [DONE]\r\n\r\n',
+]);
+assert.deepEqual(crlf.events, [
+  '{"choices":[{"delta":{"content":"ok"}}]}',
+  "[DONE]",
+]);
+assert.equal(crlf.diagnostic.terminationRepair, null);
+
+for (const incompleteDone of ["data: [DONE]", "data: [DONE]\n", "data: [DONE]\r\n"]) {
+  const result = await normalizeAndParse([
+    `data: {"choices":[{"delta":{"content":"ok"}}]}\n\n${incompleteDone}`,
+  ]);
+  assert.equal(result.events.filter((event) => event === "[DONE]").length, 1);
+  assert.equal(result.diagnostic.terminationRepair, "incomplete_done_event");
+}
+
+const contentDone = await normalizeAndParse([
+  'data: {"choices":[{"delta":{"content":"[DONE]"}}]}\n\n',
+]);
+assert.deepEqual(contentDone.events, [
+  '{"choices":[{"delta":{"content":"[DONE]"}}]}',
+  "[DONE]",
+]);
+assert.equal(contentDone.diagnostic.terminationRepair, "missing_done_event");
+
+const reasoningAlias = await normalizeAndParse([
+  'data: {"choices":[{"delta":{"reasoning":"inspect host"}}]}\n\ndata: [DONE]',
+]);
+assert.deepEqual(JSON.parse(reasoningAlias.events[0]).choices[0].delta, {
+  reasoning: "inspect host",
+  reasoning_content: "inspect host",
+});
+assert.equal(reasoningAlias.diagnostic.compatibility.reasoningAlias, 1);
+assert.equal(reasoningAlias.diagnostic.reasoningChars, 12);
+assert.equal(reasoningAlias.diagnostic.empty, false);
+
+const finalMessage = await normalizeAndParse([
+  'data: {"choices":[{"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+]);
+assert.equal(JSON.parse(finalMessage.events[0]).choices[0].delta.content, "hello");
+assert.equal(finalMessage.diagnostic.compatibility.messageToDelta, 1);
+assert.deepEqual(finalMessage.diagnostic.messageKeys, ["content", "role"]);
+
+const empty = await normalizeAndParse(['data: {"choices":[]}\n\n']);
+assert.deepEqual(empty.events, ['{"choices":[]}', "[DONE]"]);
+assert.equal(empty.diagnostic.terminationRepair, "missing_done_event");
+assert.equal(empty.diagnostic.empty, true);
+assert.deepEqual(empty.diagnostic.topLevelKeys, ["choices"]);
+
+process.stdout.write(JSON.stringify({ ok: true, scenarios: 9 }));

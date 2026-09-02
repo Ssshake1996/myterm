@@ -137,12 +137,13 @@ pub(crate) async fn run(
             }
             Err(error) => {
                 let detail = redact_secret(&error.detail(), &route.api_key);
+                let structured_error = structured_error_detail(&detail);
                 failures.push(json!({
                     "routeIndex": index,
                     "provider": route.provider.name,
                     "model": route.model.model,
                     "errorCode": error.code(),
-                    "error": detail,
+                    "error": structured_error,
                 }));
                 tracing::warn!(
                     event = "agent_harness_route_failed",
@@ -150,7 +151,7 @@ pub(crate) async fn run(
                     provider = %route.provider.name,
                     model = %route.model.model,
                     error_code = error.code(),
-                    error = %error.detail(),
+                    error = %detail,
                     "DeepSeek Harness route failed"
                 );
                 if index + 1 < model_routes.len() {
@@ -542,7 +543,10 @@ impl AcpProcess {
                         if let Some(error) = message.get("error") {
                             tokio::task::yield_now().await;
                             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                            let stderr = self.stderr.lock().await.clone();
+                            let stderr = {
+                                let captured = self.stderr.lock().await;
+                                compact_repeated_lines(&captured)
+                            };
                             return Err(AppError::Agent(
                                 json!({
                                     "code": "HARNESS_ACP_REQUEST_FAILED",
@@ -780,7 +784,10 @@ impl AcpProcess {
 
     async fn process_ended_error(&mut self, method: &str) -> AppError {
         let status = self.child.try_wait().ok().flatten();
-        let stderr = self.stderr.lock().await.clone();
+        let stderr = {
+            let captured = self.stderr.lock().await;
+            compact_repeated_lines(&captured)
+        };
         AppError::Agent(
             json!({
                 "code": "HARNESS_PROCESS_EXITED",
@@ -853,6 +860,33 @@ fn redact_secret(value: &str, secret: &str) -> String {
     } else {
         value.replace(secret, "[REDACTED]")
     }
+}
+
+fn structured_error_detail(detail: &str) -> Value {
+    serde_json::from_str(detail).unwrap_or_else(|_| Value::String(detail.to_owned()))
+}
+
+fn compact_repeated_lines(value: &str) -> String {
+    let lines = value.lines().collect::<Vec<_>>();
+    let mut output = String::with_capacity(value.len());
+    let mut index = 0;
+    while index < lines.len() {
+        let line = lines[index];
+        let mut count = 1;
+        while index + count < lines.len() && lines[index + count] == line {
+            count += 1;
+        }
+        output.push_str(line);
+        output.push('\n');
+        if count > 1 {
+            output.push_str(&format!(
+                "[previous line repeated {} additional times]\n",
+                count - 1
+            ));
+        }
+        index += count;
+    }
+    output
 }
 
 fn build_system_prompt(profile: &AiProfile) -> String {
@@ -987,7 +1021,10 @@ fn aborted_result(run_id: &str, conversation_id: &str) -> AgentRunResult {
 mod tests {
     use serde_json::Value;
 
-    use super::{build_system_prompt, deepseek_config_json, map_stop_reason};
+    use super::{
+        build_system_prompt, compact_repeated_lines, deepseek_config_json, map_stop_reason,
+        structured_error_detail,
+    };
     use crate::{
         ai::routing::ResolvedAiModelRoute,
         types::{AiModelConfig, AiModelRole, AiProfile, AiReasoningEffort, AiRoutingConfig},
@@ -1053,5 +1090,21 @@ mod tests {
         assert_eq!(map_stop_reason("end_turn"), "stop");
         assert_eq!(map_stop_reason("cancelled"), "aborted");
         assert_eq!(map_stop_reason("max_turn_requests"), "max_turn_requests");
+    }
+
+    #[test]
+    fn route_errors_remain_structured_and_repeated_stderr_is_counted() {
+        let detail = r#"{"code":"HARNESS_ACP_REQUEST_FAILED","phase":"session/prompt"}"#;
+        let structured = structured_error_detail(detail);
+        assert_eq!(structured["code"], "HARNESS_ACP_REQUEST_FAILED");
+        assert_eq!(structured["phase"], "session/prompt");
+        assert_eq!(
+            structured_error_detail("plain failure"),
+            Value::String("plain failure".to_owned())
+        );
+        assert_eq!(
+            compact_repeated_lines("same\nsame\nsame\nnext\n"),
+            "same\n[previous line repeated 2 additional times]\nnext\n"
+        );
     }
 }

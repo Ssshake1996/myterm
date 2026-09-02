@@ -7,7 +7,7 @@ import {
   loadLayeredEnv,
 } from "@deepseek-ai/dsh-app-boot";
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from "@deepseek-ai/dsh-launch-environment";
-import { normalizeSseTermination } from "./sse-normalizer.mjs";
+import { normalizeChatCompletionsSse } from "./sse-normalizer.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const configPath = join(root, "profile", "cordis.yml");
@@ -81,15 +81,26 @@ globalThis.fetch = async (input, init) => {
     response.body &&
     response.headers.get("content-type")?.toLowerCase().includes("text/event-stream")
   ) {
-    const normalizedBody = normalizeSseTermination(response.body, (reason) => {
+    const normalizedBody = normalizeChatCompletionsSse(response.body, (diagnostic) => {
+      if (
+        !diagnostic.terminationRepair &&
+        !diagnostic.empty &&
+        diagnostic.compatibility.reasoningAlias === 0 &&
+        diagnostic.compatibility.messageToDelta === 0
+      ) {
+        return;
+      }
       process.stderr.write(
-        `myterm harness provider warning: ${JSON.stringify({
-          stage: "chat_completions_stream_finalize",
-          status: response.status,
-          url,
-          reason,
-          detail: "provider closed the SSE stream without a complete [DONE] event; appended the standard terminator",
-        })}\n`,
+        `${redactProviderText(
+          `myterm harness provider warning: ${JSON.stringify({
+            stage: diagnostic.empty
+              ? "chat_completions_stream_empty"
+              : "chat_completions_stream_finalize",
+            status: response.status,
+            url,
+            ...diagnostic,
+          })}`,
+        )}\n`,
       );
     });
     return new Response(normalizedBody, {

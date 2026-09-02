@@ -483,4 +483,63 @@ describe("AiPanel Agent trace", () => {
     expect(error.querySelector("pre")?.textContent).toBe(detail);
     expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
+
+  it("formats structured Harness failures without rewriting URLs", async () => {
+    const failure = {
+      code: "HARNESS_ALL_ROUTES_FAILED",
+      message: "DeepSeek Harness failed on every configured model route",
+      routes: [
+        {
+          routeIndex: 0,
+          provider: "codeagent proxy",
+          model: "GLM-5.2-CodeAgent",
+          errorCode: "agent",
+          error: {
+            code: "HARNESS_ACP_REQUEST_FAILED",
+            phase: "session/prompt",
+            acpError: { code: -32603, message: "completed response with no content" },
+            stderr:
+              'myterm harness provider warning: {"url":"http://127.0.0.1:10088/v1/chat/completions"}',
+          },
+        },
+      ],
+    };
+    const raw = JSON.stringify(failure);
+    ipcMocks.agentRun.mockImplementation(
+      async (
+        _profileId: string,
+        _conversationId: string,
+        _prompt: string,
+        _sessionId: string,
+        channel: { onmessage: (event: Record<string, unknown>) => void },
+      ) => {
+        channel.onmessage({
+          schemaVersion: 2,
+          eventType: "complete",
+          runId: "run",
+          step: 1,
+          message: "failed",
+          content: raw,
+          isError: true,
+          errorCode: "agent",
+        });
+        throw { code: "agent", message: raw };
+      },
+    );
+    const user = userEvent.setup();
+    render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
+
+    await screen.findByRole("option", { name: "Ops AI · ops-model" });
+    await user.type(screen.getByRole("textbox", { name: "输入 Agent 任务" }), "测试 Agent");
+    await user.click(screen.getByRole("button", { name: "运行 Agent" }));
+
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("任务执行失败 · session/prompt · ACP -32603");
+    expect(error).toHaveTextContent("HARNESS_ALL_ROUTES_FAILED");
+    const detail = error.querySelector("pre")?.textContent ?? "";
+    expect(detail).toBe(JSON.stringify(failure, null, 2));
+    expect(detail).toContain("http://127.0.0.1:10088/v1/chat/completions");
+    expect(detail).not.toContain("](http://127.0.0.1:10088");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+  });
 });

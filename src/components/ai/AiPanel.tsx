@@ -148,6 +148,52 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
+function parsedRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function agentErrorDisplay(message: string, fallbackCode?: string) {
+  const root = parsedRecord(message);
+  if (!root) {
+    return { content: "任务执行失败", detail: message, errorCode: fallbackCode };
+  }
+  const routes = Array.isArray(root.routes) ? root.routes : [];
+  for (const routeValue of routes) {
+    const route = parsedRecord(routeValue);
+    if (!route) continue;
+    const nested = parsedRecord(route.error);
+    if (nested) route.error = nested;
+  }
+  const route = parsedRecord(routes[0]);
+  const nested = parsedRecord(route?.error);
+  const acpError = parsedRecord(nested?.acpError);
+  const phase = typeof nested?.phase === "string" ? nested.phase : undefined;
+  const acpCode =
+    typeof acpError?.code === "string" || typeof acpError?.code === "number"
+      ? String(acpError.code)
+      : undefined;
+  const rootCode = typeof root.code === "string" ? root.code : fallbackCode;
+  return {
+    content: ["任务执行失败", phase, acpCode ? `ACP ${acpCode}` : undefined]
+      .filter(Boolean)
+      .join(" · "),
+    detail: JSON.stringify(root, null, 2),
+    errorCode: rootCode,
+  };
+}
+
 function targetLabel(value: unknown) {
   const record = asRecord(value);
   const name = record.profileName ?? record.profile_name;
@@ -316,14 +362,18 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
       "waiting_approval",
       "waiting_external",
     ];
+    const errorDisplay =
+      event.isError && event.content
+        ? agentErrorDisplay(event.content, event.errorCode)
+        : undefined;
     return [
       ...current,
       {
         id: eventId,
         kind: "status",
-        content: labels[event.message ?? ""] ?? "任务完成",
-        detail: event.isError ? event.content : undefined,
-        errorCode: event.errorCode,
+        content: errorDisplay?.content ?? labels[event.message ?? ""] ?? "任务完成",
+        detail: errorDisplay?.detail,
+        errorCode: errorDisplay?.errorCode ?? event.errorCode,
         step: event.step,
         error: !nonErrors.includes(event.message ?? ""),
       },
@@ -642,10 +692,11 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
       }
     } catch (error) {
       const message = errorMessage(error, "Agent 运行失败：未返回可读的错误信息");
+      const display = agentErrorDisplay(message, ipcErrorCode(error));
       if (selectedConversationIdRef.current === conversationId) {
         setEntries((current) => {
           const alreadyRendered = current.some(
-            (entry) => entry.kind === "status" && entry.error && entry.detail === message,
+            (entry) => entry.kind === "status" && entry.error && entry.detail === display.detail,
           );
           if (alreadyRendered) return current;
           return [
@@ -653,9 +704,9 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             {
               id: crypto.randomUUID(),
               kind: "status",
-              content: "Agent 运行失败",
-              detail: message,
-              errorCode: ipcErrorCode(error),
+              content: display.content,
+              detail: display.detail,
+              errorCode: display.errorCode,
               error: true,
             },
           ];
