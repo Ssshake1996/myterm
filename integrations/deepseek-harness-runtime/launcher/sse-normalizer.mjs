@@ -1,4 +1,5 @@
 import { createParser } from "eventsource-parser";
+import { LlmError } from "@deepseek-ai/dsh-llm";
 
 const COMPLETE_DONE_EVENT = /(?:^|\r?\n)data:[^\S\r\n]*\[DONE\][^\S\r\n]*(?:\r?\n){2}/u;
 const INCOMPLETE_DONE_EVENT =
@@ -19,6 +20,19 @@ function rememberKeys(target, value) {
 
 function preview(value) {
   return value.length <= PREVIEW_LIMIT ? value : `${value.slice(0, PREVIEW_LIMIT)}…`;
+}
+
+function providerError(root) {
+  if (!root) return null;
+  const nested = objectOrNull(root.error);
+  const code = root.error_code ?? nested?.error_code ?? nested?.code;
+  const message = root.error_msg ?? nested?.error_msg ?? nested?.message;
+  if (code === undefined && message === undefined) return null;
+  return {
+    code: code === undefined ? null : String(code),
+    message: message === undefined ? null : String(message),
+    text: typeof root.text === "string" ? root.text : null,
+  };
 }
 
 function repairForTail(tail) {
@@ -71,6 +85,7 @@ function normalizePayload(data, state) {
   state.lastEventPreview = preview(data);
   const root = objectOrNull(payload);
   rememberKeys(state.topLevelKeys, root);
+  state.providerError ??= providerError(root);
   const choices = Array.isArray(root?.choices) ? root.choices : [];
   state.choices += choices.length;
   let changed = false;
@@ -129,6 +144,7 @@ function diagnostics(state) {
     messageKeys: [...state.messageKeys].sort(),
     firstEventPreview: state.firstEventPreview,
     lastEventPreview: state.lastEventPreview,
+    providerError: state.providerError,
     empty:
       state.contentChars === 0 && state.reasoningChars === 0 && state.toolCalls === 0,
   };
@@ -150,6 +166,7 @@ export function normalizeChatCompletionsSse(body, onFinalize) {
     messageKeys: new Set(),
     firstEventPreview: null,
     lastEventPreview: null,
+    providerError: null,
   };
   const complete = ensureCompleteTerminator(body, (reason) => {
     state.terminationRepair = reason;
@@ -157,6 +174,12 @@ export function normalizeChatCompletionsSse(body, onFinalize) {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let parser;
+  let finalized = false;
+  const finalize = () => {
+    if (finalized) return;
+    finalized = true;
+    onFinalize?.(diagnostics(state));
+  };
 
   return complete.pipeThrough(
     new TransformStream({
@@ -172,6 +195,12 @@ export function normalizeChatCompletionsSse(body, onFinalize) {
               .join("\n");
             const data =
               event.data === DONE_TOKEN ? DONE_TOKEN : normalizePayload(event.data, state);
+            if (state.providerError) {
+              finalize();
+              const code = state.providerError.code ?? "unknown";
+              const message = state.providerError.message ?? "provider returned an error event";
+              throw new LlmError(`Provider stream error [${code}]: ${message}`, code);
+            }
             controller.enqueue(
               encoder.encode(`${prefix}${prefix ? "\n" : ""}data: ${data}\n\n`),
             );
@@ -193,7 +222,7 @@ export function normalizeChatCompletionsSse(body, onFinalize) {
       flush() {
         parser.feed(decoder.decode());
         parser.reset({ consume: true });
-        onFinalize?.(diagnostics(state));
+        finalize();
       },
     }),
   );

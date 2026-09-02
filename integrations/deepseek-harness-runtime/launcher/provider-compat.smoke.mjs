@@ -15,6 +15,7 @@ import {
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const stateDir = await mkdtemp(join(tmpdir(), "myterm-harness-provider-compat-"));
 let requests = 0;
+let providerMode = "success";
 const server = createServer((request, response) => {
   if (request.method !== "POST" || request.url !== "/chat/completions") {
     response.writeHead(404).end();
@@ -23,6 +24,20 @@ const server = createServer((request, response) => {
   requests += 1;
   request.resume();
   response.writeHead(200, { "content-type": "text/event-stream" });
+  if (providerMode === "error") {
+    response.end(
+      `data: ${JSON.stringify({
+        text: "[DONE]",
+        error: {
+          error_msg: "The request param is invalid, Please check it",
+          error_code: "InferHub.001001005.400",
+        },
+        error_code: "InferHub.001001005.400",
+        error_msg: "The request param is invalid, Please check it",
+      })}\n\n`,
+    );
+    return;
+  }
   response.end(
     [
       "data: " +
@@ -114,7 +129,33 @@ try {
   if (!stderr.includes('"reasoningAlias":1') || !stderr.includes('"messageToDelta":1')) {
     throw new Error(`provider compatibility diagnostics were not emitted: ${stderr}`);
   }
-  process.stdout.write(JSON.stringify({ ok: true, requests, stopReason: result.stopReason }));
+  providerMode = "error";
+  let providerFailure = "";
+  try {
+    await connection.agent.request(methods.agent.session.prompt, {
+      sessionId: session.sessionId,
+      prompt: [{ type: "text", text: "test provider error diagnostics" }],
+    });
+  } catch (error) {
+    providerFailure = error instanceof Error ? error.message : String(error);
+  }
+  if (!providerFailure.includes("InferHub.001001005.400")) {
+    throw new Error(`ACP error did not preserve the provider code: ${providerFailure}`);
+  }
+  if (
+    !stderr.includes('"stage":"chat_completions_provider_error"') ||
+    !stderr.includes('"topLevelKeys":["error","error_code","error_msg","text"]') ||
+    !stderr.includes('"request":{"sequence":') ||
+    !stderr.includes('"tools":{"count":')
+  ) {
+    throw new Error(`provider request diagnostics were incomplete: ${stderr}`);
+  }
+  if (stderr.includes("test provider error diagnostics")) {
+    throw new Error(`provider request diagnostics exposed the user prompt: ${stderr}`);
+  }
+  process.stdout.write(
+    JSON.stringify({ ok: true, requests, stopReason: result.stopReason, providerError: true }),
+  );
 } finally {
   child.stdin.end();
   await Promise.race([

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { EventSourceParserStream } from "eventsource-parser/stream";
+import { summarizeChatCompletionsRequest } from "./request-diagnostics.mjs";
 import { normalizeChatCompletionsSse } from "./sse-normalizer.mjs";
 
 const encoder = new TextEncoder();
@@ -88,4 +89,83 @@ assert.equal(empty.diagnostic.terminationRepair, "missing_done_event");
 assert.equal(empty.diagnostic.empty, true);
 assert.deepEqual(empty.diagnostic.topLevelKeys, ["choices"]);
 
-process.stdout.write(JSON.stringify({ ok: true, scenarios: 9 }));
+let providerDiagnostic;
+const providerFailure = normalizeChatCompletionsSse(
+  chunkedBody([
+    "data: " +
+      JSON.stringify({
+        text: "[DONE]",
+        error: {
+          error_msg: "The request param is invalid, Please check it",
+          error_code: "InferHub.001001005.400",
+        },
+        error_code: "InferHub.001001005.400",
+        error_msg: "The request param is invalid, Please check it",
+      }) +
+      "\n\n",
+  ]),
+  (value) => {
+    providerDiagnostic = value;
+  },
+)
+  .pipeThrough(new TextDecoderStream())
+  .pipeThrough(new EventSourceParserStream());
+await assert.rejects(
+  async () => {
+    for await (const _event of providerFailure) {
+      // The provider error must terminate the stream before Harness sees a fake completion.
+    }
+  },
+  /Provider stream error \[InferHub\.001001005\.400\]: The request param is invalid/u,
+);
+assert.deepEqual(providerDiagnostic.providerError, {
+  code: "InferHub.001001005.400",
+  message: "The request param is invalid, Please check it",
+  text: "[DONE]",
+});
+assert.deepEqual(providerDiagnostic.topLevelKeys, ["error", "error_code", "error_msg", "text"]);
+
+const requestDiagnostic = summarizeChatCompletionsRequest({
+  body: JSON.stringify({
+    model: "GLM-5.2-CodeAgent",
+    messages: [
+      { role: "system", content: "system prompt" },
+      { role: "user", content: "hi" },
+    ],
+    stream: true,
+    stream_options: { include_usage: true },
+    reasoning_effort: "high",
+    tools: [
+      {
+        type: "function",
+        function: {
+          name: "session_status",
+          description: "Read session status",
+          parameters: {
+            type: "object",
+            properties: { sessionId: { type: "string" } },
+            required: ["sessionId"],
+          },
+        },
+      },
+    ],
+  }),
+});
+assert.equal(requestDiagnostic.model, "GLM-5.2-CodeAgent");
+assert.deepEqual(requestDiagnostic.messages.map((message) => message.role), ["system", "user"]);
+assert.equal(requestDiagnostic.messages[0].content.chars, 13);
+assert.equal(requestDiagnostic.tools.count, 1);
+assert.deepEqual(requestDiagnostic.tools.definitions[0], {
+  index: 0,
+  type: "function",
+  name: "session_status",
+  descriptionChars: 19,
+  parameterKeys: ["properties", "required", "type"],
+  schemaType: "object",
+  properties: 1,
+  required: 1,
+});
+assert.equal(JSON.stringify(requestDiagnostic).includes("system prompt"), false);
+assert.equal(JSON.stringify(requestDiagnostic).includes('"hi"'), false);
+
+process.stdout.write(JSON.stringify({ ok: true, scenarios: 11 }));

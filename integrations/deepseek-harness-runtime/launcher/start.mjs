@@ -7,6 +7,7 @@ import {
   loadLayeredEnv,
 } from "@deepseek-ai/dsh-app-boot";
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from "@deepseek-ai/dsh-launch-environment";
+import { summarizeChatCompletionsRequest } from "./request-diagnostics.mjs";
 import { normalizeChatCompletionsSse } from "./sse-normalizer.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -15,6 +16,7 @@ const cwd = process.env.MYTERM_HARNESS_CWD || process.cwd();
 const environment = loadLayeredEnv("myterm-harness", cwd);
 let context;
 let closing;
+let providerRequestSequence = 0;
 
 const providerSecrets = (() => {
   try {
@@ -33,9 +35,16 @@ const redactProviderText = (value) => {
 
 const nativeFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = async (input, init) => {
-  const response = await nativeFetch(input, init);
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-  if (!response.ok && url.includes("/chat/completions")) {
+  const isChatCompletions = url.includes("/chat/completions");
+  const request = isChatCompletions
+    ? {
+        sequence: ++providerRequestSequence,
+        ...summarizeChatCompletionsRequest(init),
+      }
+    : undefined;
+  const response = await nativeFetch(input, init);
+  if (!response.ok && isChatCompletions) {
     let body = "";
     try {
       body = redactProviderText(await response.clone().text());
@@ -49,13 +58,14 @@ globalThis.fetch = async (input, init) => {
         statusText: response.statusText,
         contentType: response.headers.get("content-type"),
         url,
+        request,
         body,
       })}\n`,
     );
   }
   if (
     response.ok &&
-    url.includes("/chat/completions") &&
+    isChatCompletions &&
     !response.headers.get("content-type")?.toLowerCase().includes("text/event-stream")
   ) {
     let body = "";
@@ -71,13 +81,14 @@ globalThis.fetch = async (input, init) => {
         statusText: response.statusText,
         contentType: response.headers.get("content-type"),
         url,
+        request,
         body,
       })}\n`,
     );
   }
   if (
     response.ok &&
-    url.includes("/chat/completions") &&
+    isChatCompletions &&
     response.body &&
     response.headers.get("content-type")?.toLowerCase().includes("text/event-stream")
   ) {
@@ -90,14 +101,18 @@ globalThis.fetch = async (input, init) => {
       ) {
         return;
       }
+      const level = diagnostic.providerError ? "error" : "warning";
       process.stderr.write(
         `${redactProviderText(
-          `myterm harness provider warning: ${JSON.stringify({
-            stage: diagnostic.empty
-              ? "chat_completions_stream_empty"
+          `myterm harness provider ${level}: ${JSON.stringify({
+            stage: diagnostic.providerError
+              ? "chat_completions_provider_error"
+              : diagnostic.empty
+                ? "chat_completions_stream_empty"
               : "chat_completions_stream_finalize",
             status: response.status,
             url,
+            request,
             ...diagnostic,
           })}`,
         )}\n`,
