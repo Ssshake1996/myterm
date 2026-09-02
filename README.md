@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.11.6`
+当前版本：`0.11.7`
 
 ## 核心功能
 
@@ -72,7 +72,7 @@ Agent 使用类似 Claude Code 的循环：
 - Agent 会在任务时间线记录可从 ACP 观察到的步骤、工具调用和运行状态；远程有副作用或存在依赖的步骤仍由 myterm 串行保护。
 - DeepSeek 服务以版本化 JSON 持久化，可定义主模型和多个备用模型；每条路由还可引用另一份已保存 DeepSeek 服务，失败时按顺序切换并在 Agent 时间线标出实际路由。
 - Agent 模型请求通过官方 `@deepseek-ai/dsh-llm-deepseek` 和固定 `deepseek-official` 路由执行。
-- 上下文窗口和压缩由 DeepSeek Harness 的持久 Session、token meter、checkpoint、tool-result pruner 与 compaction 自动管理，不在 AI 设置中暴露人工压缩开关。
+- 压缩仍由 DeepSeek Harness 的持久 Session、token meter、checkpoint、tool-result pruner 与 compaction 自动管理；每个模型可选填上下文窗口和最大输出 Token。最大输出留空时不发送 Harness 继承的固定 `max_tokens`，由 Provider 使用自身默认值。
 - 终端、文件与后台 Job 长输出通过 myterm 的 `offset`/`nextOffset`/`eof` 分页工具读取，不设置固定终端行数；无关查询噪声由 Harness 在上下文压力下压缩。
 - 安装版默认写入按天滚动的本地 JSON 诊断日志并保留 14 天；`--debug` 提升为 DEBUG 级，Harness 进程、ACP 阶段、模型路由、Host MCP 与精确错误均使用稳定字段，方便维护 AI 直接读取定位。
 

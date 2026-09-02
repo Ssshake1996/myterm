@@ -277,6 +277,7 @@ impl AiService {
                 "",
             ));
         }
+        let max_tokens = route.model.max_output_tokens;
         let key = route.api_key;
         let chat_endpoint = match endpoint(&route.provider.base_url, "chat/completions") {
             Ok(endpoint) => endpoint,
@@ -319,6 +320,7 @@ impl AiService {
             },
             thinking,
             reasoning_effort,
+            max_tokens,
         };
         let started = std::time::Instant::now();
         let response = match with_auth(self.client.post(chat_endpoint.clone()), &key)
@@ -445,6 +447,8 @@ struct ChatRequest<'a> {
     thinking: Option<ThinkingRequest<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_effort: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -835,6 +839,8 @@ mod tests {
                 id: "primary".to_owned(),
                 name: "主模型".to_owned(),
                 model: "model".to_owned(),
+                context_window: None,
+                max_output_tokens: None,
                 provider_profile_id: None,
                 role: AiModelRole::Primary,
                 enabled: true,

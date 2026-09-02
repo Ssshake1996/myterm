@@ -26,6 +26,31 @@ const PRESETS = [
 
 const DEFAULT_ROUTING = { fallback_on_error: true };
 
+function modelLimitError(models: AiModelConfig[]): string | null {
+  for (const model of models) {
+    if (
+      model.context_window !== undefined &&
+      (!Number.isSafeInteger(model.context_window) || model.context_window <= 0)
+    ) {
+      return `${model.name}的上下文窗口必须为正整数`;
+    }
+    if (
+      model.max_output_tokens !== undefined &&
+      (!Number.isSafeInteger(model.max_output_tokens) || model.max_output_tokens <= 0)
+    ) {
+      return `${model.name}的最大输出 Token 必须为正整数`;
+    }
+    if (
+      model.context_window !== undefined &&
+      model.max_output_tokens !== undefined &&
+      model.max_output_tokens > model.context_window
+    ) {
+      return `${model.name}的最大输出 Token 不能超过上下文窗口`;
+    }
+  }
+  return null;
+}
+
 function defaultModels(model: string): AiModelConfig[] {
   return [
     { id: "primary", name: "主模型", model, role: "primary", enabled: true },
@@ -139,13 +164,21 @@ export function AiSettings({
     ? testModel
     : (enabledModels[0]?.id ?? "");
 
-  const save = async () => {
+  const validateDraft = () => {
     if (
       !name.trim() ||
       !baseUrl.trim() ||
       !models.some((item) => item.enabled && item.model.trim())
     ) {
-      notify("DeepSeek 服务名称、Base URL 和至少一个启用模型不能为空", "error");
+      return "DeepSeek 服务名称、Base URL 和至少一个启用模型不能为空";
+    }
+    return modelLimitError(models);
+  };
+
+  const save = async () => {
+    const validationError = validateDraft();
+    if (validationError) {
+      notify(validationError, "error");
       return;
     }
     setSaving(true);
@@ -186,6 +219,11 @@ export function AiSettings({
   };
 
   const test = async () => {
+    const validationError = validateDraft();
+    if (validationError) {
+      notify(validationError, "error");
+      return;
+    }
     setTesting(true);
     setTestResult(null);
     setTestDetailsOpen(false);
@@ -214,6 +252,11 @@ export function AiSettings({
   };
 
   const testConfiguredModel = async () => {
+    const validationError = validateDraft();
+    if (validationError) {
+      notify(validationError, "error");
+      return;
+    }
     if (!selectedTestModel) {
       notify("请先配置并启用一个模型", "error");
       return;
@@ -394,95 +437,161 @@ export function AiSettings({
             </div>
             <div className="ai-model-list">
               {models.map((item, index) => (
-                <div className="ai-model-row" key={item.id}>
-                  <select
-                    aria-label={`${item.name}角色`}
-                    onChange={(event) =>
-                      setModels((current) =>
-                        current.map((candidate, candidateIndex) =>
-                          candidateIndex === index
-                            ? { ...candidate, role: event.target.value as AiModelRole }
-                            : candidate,
-                        ),
-                      )
-                    }
-                    value={item.role}
-                  >
-                    <option value="primary">主模型</option>
-                    <option value="fallback">备用模型</option>
-                  </select>
-                  <input
-                    aria-label={`${item.name}模型名称`}
-                    onChange={(event) =>
-                      setModels((current) =>
-                        current.map((candidate, candidateIndex) =>
-                          candidateIndex === index
-                            ? { ...candidate, model: event.target.value }
-                            : candidate,
-                        ),
-                      )
-                    }
-                    placeholder="模型 ID"
-                    value={item.model}
-                  />
-                  <select
-                    aria-label={`${item.name}DeepSeek 服务`}
-                    onChange={(event) =>
-                      setModels((current) =>
-                        current.map((candidate, candidateIndex) =>
-                          candidateIndex === index
-                            ? {
-                                ...candidate,
-                                provider_profile_id: event.target.value || undefined,
-                              }
-                            : candidate,
-                        ),
-                      )
-                    }
-                    title="该模型请求使用的 DeepSeek 地址和密钥"
-                    value={item.provider_profile_id ?? ""}
-                  >
-                    <option value="">当前服务 · {name || "未命名"}</option>
-                    {profiles
-                      .filter((candidate) => candidate.id !== id)
-                      .map((candidate) => (
-                        <option key={candidate.id} value={candidate.id}>
-                          {candidate.name}
-                        </option>
-                      ))}
-                  </select>
-                  <label className="ai-model-enabled">
-                    <input
-                      checked={item.enabled}
+                <div className="ai-model-card" key={item.id}>
+                  <div className="ai-model-row">
+                    <select
+                      aria-label={`${item.name}角色`}
                       onChange={(event) =>
                         setModels((current) =>
                           current.map((candidate, candidateIndex) =>
                             candidateIndex === index
-                              ? { ...candidate, enabled: event.target.checked }
+                              ? { ...candidate, role: event.target.value as AiModelRole }
                               : candidate,
                           ),
                         )
                       }
-                      type="checkbox"
-                    />
-                    启用
-                  </label>
-                  {models.length > 1 ? (
-                    <button
-                      aria-label={`删除${item.name}`}
-                      className="button button-ghost"
-                      onClick={() =>
+                      value={item.role}
+                    >
+                      <option value="primary">主模型</option>
+                      <option value="fallback">备用模型</option>
+                    </select>
+                    <input
+                      aria-label={`${item.name}模型名称`}
+                      onChange={(event) =>
                         setModels((current) =>
-                          ensurePrimaryAiModel(
-                            current.filter((_, candidateIndex) => candidateIndex !== index),
+                          current.map((candidate, candidateIndex) =>
+                            candidateIndex === index
+                              ? { ...candidate, model: event.target.value }
+                              : candidate,
                           ),
                         )
                       }
-                      type="button"
+                      placeholder="模型 ID"
+                      value={item.model}
+                    />
+                    <select
+                      aria-label={`${item.name}DeepSeek 服务`}
+                      onChange={(event) =>
+                        setModels((current) =>
+                          current.map((candidate, candidateIndex) =>
+                            candidateIndex === index
+                              ? {
+                                  ...candidate,
+                                  provider_profile_id: event.target.value || undefined,
+                                }
+                              : candidate,
+                          ),
+                        )
+                      }
+                      title="该模型请求使用的 DeepSeek 地址和密钥"
+                      value={item.provider_profile_id ?? ""}
                     >
-                      删除
-                    </button>
-                  ) : null}
+                      <option value="">当前服务 · {name || "未命名"}</option>
+                      {profiles
+                        .filter((candidate) => candidate.id !== id)
+                        .map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.name}
+                          </option>
+                        ))}
+                    </select>
+                    <label className="ai-model-enabled">
+                      <input
+                        checked={item.enabled}
+                        onChange={(event) =>
+                          setModels((current) =>
+                            current.map((candidate, candidateIndex) =>
+                              candidateIndex === index
+                                ? { ...candidate, enabled: event.target.checked }
+                                : candidate,
+                            ),
+                          )
+                        }
+                        type="checkbox"
+                      />
+                      启用
+                    </label>
+                    {models.length > 1 ? (
+                      <button
+                        aria-label={`删除${item.name}`}
+                        className="button button-ghost"
+                        onClick={() =>
+                          setModels((current) =>
+                            ensurePrimaryAiModel(
+                              current.filter((_, candidateIndex) => candidateIndex !== index),
+                            ),
+                          )
+                        }
+                        type="button"
+                      >
+                        删除
+                      </button>
+                    ) : null}
+                  </div>
+                  <details className="ai-model-limits">
+                    <summary>
+                      <span>高级模型限制</span>
+                      <small>
+                        {item.context_window !== undefined || item.max_output_tokens !== undefined
+                          ? "已配置"
+                          : "Provider 默认"}
+                      </small>
+                    </summary>
+                    <div className="ai-model-limit-grid">
+                      <label className="field">
+                        <span>上下文窗口</span>
+                        <input
+                          aria-label={`${item.name}上下文窗口`}
+                          min={1}
+                          onChange={(event) =>
+                            setModels((current) =>
+                              current.map((candidate, candidateIndex) =>
+                                candidateIndex === index
+                                  ? {
+                                      ...candidate,
+                                      context_window: event.target.value
+                                        ? event.target.valueAsNumber
+                                        : undefined,
+                                    }
+                                  : candidate,
+                              ),
+                            )
+                          }
+                          placeholder="自动"
+                          step={1}
+                          type="number"
+                          value={item.context_window ?? ""}
+                        />
+                        <small>用于 Harness 上下文规划；留空沿用模型发现或运行时默认值。</small>
+                      </label>
+                      <label className="field">
+                        <span>最大输出 Token</span>
+                        <input
+                          aria-label={`${item.name}最大输出 Token`}
+                          min={1}
+                          onChange={(event) =>
+                            setModels((current) =>
+                              current.map((candidate, candidateIndex) =>
+                                candidateIndex === index
+                                  ? {
+                                      ...candidate,
+                                      max_output_tokens: event.target.value
+                                        ? event.target.valueAsNumber
+                                        : undefined,
+                                    }
+                                  : candidate,
+                              ),
+                            )
+                          }
+                          placeholder="Provider 默认"
+                          step={1}
+                          type="number"
+                          value={item.max_output_tokens ?? ""}
+                        />
+                        <small>留空不发送 max_tokens；填写后才向 Provider 传递明确上限。</small>
+                      </label>
+                    </div>
+                  </details>
                 </div>
               ))}
             </div>

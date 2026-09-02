@@ -106,6 +106,10 @@ export interface AiModelConfig {
   id: string;
   name: string;
   model: string;
+  /** Used by Harness for context planning; omitted keeps Harness discovery/default behavior. */
+  context_window?: number;
+  /** Sent as max_tokens only when explicitly configured; omitted uses the Provider default. */
+  max_output_tokens?: number;
   /** Uses this saved DeepSeek service's endpoint/key; omitted means the containing service. */
   provider_profile_id?: string;
   role: AiModelRole;

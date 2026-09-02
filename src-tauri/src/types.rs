@@ -265,6 +265,12 @@ pub struct AiModelConfig {
     pub id: String,
     pub name: String,
     pub model: String,
+    /// Optional model context window used by Harness for context planning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u32>,
+    /// Optional output limit sent to the Provider. `None` uses the Provider default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
     /// Optional DeepSeek service whose endpoint and vault key provide this
     /// route. `None` means the containing service.
     #[serde(default, skip_serializing_if = "Option::is_none")]

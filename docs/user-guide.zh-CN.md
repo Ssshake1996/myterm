@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.11.6。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 DeepSeek Harness Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.11.7。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 DeepSeek Harness Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -158,13 +158,13 @@ AI 服务设置支持多个模型角色和 DeepSeek 服务路由：
 - 主模型：默认负责普通对话和 Agent 决策。
 - 备用模型：主模型请求失败时的兜底模型。
 
-启用“失败时自动切换”后，后端会按主模型、备用模型顺序尝试；模型也可以引用另一份已保存 DeepSeek 服务。每次 Agent 运行会在时间线显示实际选中的模型。删除当前主模型后，第一个仍启用且非空的模型会自动成为主模型，Agent 下拉框与后端执行使用同一套有效模型规则。前端表单会转换为 schema v6 JSON，配置文件只保存 Base URL、推理强度、模型、路由、提示词和凭据引用，不保存 API Key 原文。
+启用“失败时自动切换”后，后端会按主模型、备用模型顺序尝试；模型也可以引用另一份已保存 DeepSeek 服务。每次 Agent 运行会在时间线显示实际选中的模型。删除当前主模型后，第一个仍启用且非空的模型会自动成为主模型，Agent 下拉框与后端执行使用同一套有效模型规则。每个模型的“高级模型限制”可选填上下文窗口和最大输出 Token：前者供 Harness 做上下文规划，后者只有显式填写时才作为 `max_tokens` 发送；留空时由 Provider 使用自身默认输出上限。前端表单会转换为 schema v6 JSON，配置文件只保存 Base URL、推理强度、模型、可选模型限制、路由、提示词和凭据引用，不保存 API Key 原文。
 
 v0.11.4 不保留旧 myterm Agent 权限与任务数据库结构。升级后会重建不兼容的 Agent 数据库并清除旧 Agent 历史；服务器、环境、快捷命令、主题、终端设置、Skill、MCP 和系统凭据不受影响。旧兼容 Provider 的 AI 服务仍不会迁移，若 AI 服务列表为空，请重新保存 DeepSeek 服务。
 
 ### Agent 自适应上下文
 
-上下文协议和压缩不再作为 AI 设置项交给用户选择。官方 DeepSeek Harness 按模型上下文窗口、会话历史、工具 Schema 和当前任务自动执行 token 计量、checkpoint、tool-result pruning 与 compaction。每个 myterm Conversation 对应一个可恢复的 ACP Session；重新打开应用后会恢复 Session，而不是把全部聊天记录作为一份新请求重新发送。
+上下文协议和压缩策略不作为 AI 设置项交给用户选择。官方 DeepSeek Harness 按模型上下文窗口、会话历史、工具 Schema 和当前任务自动执行 token 计量、checkpoint、tool-result pruning 与 compaction。模型设置只提供可选的容量元数据，不提供人工压缩开关。每个 myterm Conversation 对应一个可恢复的 ACP Session；重新打开应用后会恢复 Session，而不是把全部聊天记录作为一份新请求重新发送。
 
 终端、文件和后台 Job 的长输出仍由 myterm 工具分页管理。`terminal_context`、`file_read` 和 `job_output` 返回 offset/nextOffset/eof，Agent 可以按任务需要继续读取，不设置“最近 N 行”的固定终端限制。对于大量查询噪声，Harness 在上下文压力下只保留任务结论、必要证据和工具摘要；如果后续需要精确原文，应再次使用同一只读分页工具读取对应区间，而不是让模型凭摘要猜测。
 
@@ -194,6 +194,7 @@ Agent 不再按固定“最近 N 行”读取终端。`terminal_context` 返回 
 - API Key 写入系统凭据库，普通配置只保存凭据引用。
 - “获取模型”调用当前服务的模型列表端点，显示完整模型对象、Endpoint 和原始 JSON，不代表已验证推理能力。
 - “测试模型”使用当前选择的已启用模型发送一次真实 DeepSeek Chat Completions 请求；提示词可编辑，默认为 `hi`，结果显示模型返回正文、实际模型、耗时、Endpoint、原始 JSON 或完整错误详情。
+- 模型路由中的“高级模型限制”默认折叠。上下文窗口用于 Harness 的 token 规划；最大输出 Token 留空时不发送 `max_tokens`，避免兼容网关误用 Harness 针对官方模型的默认输出上限。只有明确知道 Provider 限制时才填写。
 - “已保存配置”列出历史 AI 服务配置；当前 Agent 正在使用的配置需先切换后才能删除，删除配置不会删除对话历史。
 - Agent 运行固定使用官方 `dsh-llm-deepseek` 的 `deepseek-official` 路由；“获取模型”和“测试模型”是保存前的独立诊断，不建立第二套 Agent 循环。
 - 不要把 API Key 写入 Skill、MCP 参数、快捷命令、日志或截图。

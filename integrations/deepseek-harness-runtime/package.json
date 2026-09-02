@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node launcher/start.mjs",
     "check": "node launcher/check.mjs",
+    "test:request-policy": "node launcher/request-policy.test.mjs",
     "test:sse": "node launcher/sse-normalizer.test.mjs",
     "test:provider-compat": "node launcher/provider-compat.smoke.mjs",
     "smoke": "node launcher/smoke.mjs"

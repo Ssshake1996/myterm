@@ -575,6 +575,28 @@ fn validate_ai_profile(profile: &AiProfile, existing: &[AiProfile]) -> Result<()
                 profile.name, model.id
             )));
         }
+        if model.context_window == Some(0) {
+            return Err(AppError::InvalidInput(format!(
+                "模型路由 '{}' 的上下文窗口必须为正整数",
+                model.name
+            )));
+        }
+        if model.max_output_tokens == Some(0) {
+            return Err(AppError::InvalidInput(format!(
+                "模型路由 '{}' 的最大输出 Token 必须为正整数",
+                model.name
+            )));
+        }
+        if let (Some(context_window), Some(max_output_tokens)) =
+            (model.context_window, model.max_output_tokens)
+        {
+            if max_output_tokens > context_window {
+                return Err(AppError::InvalidInput(format!(
+                    "模型路由 '{}' 的最大输出 Token 不能超过上下文窗口",
+                    model.name
+                )));
+            }
+        }
         let Some(provider_id) = model
             .provider_profile_id
             .as_deref()
@@ -740,6 +762,8 @@ mod tests {
                 id: "fallback".to_owned(),
                 name: "备用模型".to_owned(),
                 model: "fallback-model".to_owned(),
+                context_window: None,
+                max_output_tokens: None,
                 provider_profile_id: None,
                 role: AiModelRole::Fallback,
                 enabled: true,
@@ -751,6 +775,35 @@ mod tests {
         assert_eq!(saved.models[0].role, AiModelRole::Primary);
         fs::remove_dir_all(root)?;
         Ok(())
+    }
+
+    #[test]
+    fn ai_model_output_limit_cannot_exceed_its_context_window() {
+        let root = test_root();
+        let service = ConfigService::open(root.join("config.json")).expect("config service");
+        let error = service
+            .ai_profile_save(AiProfile {
+                id: "ai".to_owned(),
+                name: "Gateway".to_owned(),
+                base_url: "https://gateway.example/v1".to_owned(),
+                api_key_ref: "ai.ai.key".to_owned(),
+                reasoning_effort: AiReasoningEffort::High,
+                system_prompt: String::new(),
+                models: vec![AiModelConfig {
+                    id: "primary".to_owned(),
+                    name: "主模型".to_owned(),
+                    model: "model".to_owned(),
+                    context_window: Some(8_192),
+                    max_output_tokens: Some(16_384),
+                    provider_profile_id: None,
+                    role: AiModelRole::Primary,
+                    enabled: true,
+                }],
+                routing: AiRoutingConfig::default(),
+            })
+            .expect_err("invalid model limits must fail");
+        assert!(error.to_string().contains("不能超过上下文窗口"));
+        fs::remove_dir_all(root).expect("remove test config");
     }
 
     #[test]
@@ -991,6 +1044,8 @@ mod tests {
                 id: "provider-default".to_owned(),
                 name: "Provider Default".to_owned(),
                 model: "unused".to_owned(),
+                context_window: None,
+                max_output_tokens: None,
                 provider_profile_id: None,
                 role: AiModelRole::Primary,
                 enabled: true,

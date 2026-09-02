@@ -16,50 +16,55 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const stateDir = await mkdtemp(join(tmpdir(), "myterm-harness-provider-compat-"));
 let requests = 0;
 let providerMode = "success";
+const requestBodies = [];
 const server = createServer((request, response) => {
   if (request.method !== "POST" || request.url !== "/chat/completions") {
     response.writeHead(404).end();
     return;
   }
-  requests += 1;
-  request.resume();
-  response.writeHead(200, { "content-type": "text/event-stream" });
-  if (providerMode === "error") {
-    response.end(
-      `data: ${JSON.stringify({
-        text: "[DONE]",
-        error: {
-          error_msg: "The request param is invalid, Please check it",
+  const chunks = [];
+  request.on("data", (chunk) => chunks.push(chunk));
+  request.on("end", () => {
+    requests += 1;
+    requestBodies.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    if (providerMode === "error") {
+      response.end(
+        `data: ${JSON.stringify({
+          text: "[DONE]",
+          error: {
+            error_msg: "The request param is invalid, Please check it",
+            error_code: "InferHub.001001005.400",
+          },
           error_code: "InferHub.001001005.400",
-        },
-        error_code: "InferHub.001001005.400",
-        error_msg: "The request param is invalid, Please check it",
-      })}\n\n`,
-    );
-    return;
-  }
-  response.end(
-    [
-      "data: " +
-        JSON.stringify({
-          id: "compat-response",
-          model: "compat-model",
-          choices: [
-            {
-              message: {
-                role: "assistant",
-                reasoning: "compatibility reasoning",
-                content: "provider compatibility ok",
+          error_msg: "The request param is invalid, Please check it",
+        })}\n\n`,
+      );
+      return;
+    }
+    response.end(
+      [
+        "data: " +
+          JSON.stringify({
+            id: "compat-response",
+            model: "compat-model",
+            choices: [
+              {
+                message: {
+                  role: "assistant",
+                  reasoning: "compatibility reasoning",
+                  content: "provider compatibility ok",
+                },
+                finish_reason: "stop",
               },
-              finish_reason: "stop",
-            },
-          ],
-          usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
-        }),
-      "",
-      "data: [DONE]",
-    ].join("\n"),
-  );
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+          }),
+        "",
+        "data: [DONE]",
+      ].join("\n"),
+    );
+  });
 });
 await new Promise((resolve, reject) => {
   server.once("error", reject);
@@ -129,6 +134,12 @@ try {
   if (!stderr.includes('"reasoningAlias":1') || !stderr.includes('"messageToDelta":1')) {
     throw new Error(`provider compatibility diagnostics were not emitted: ${stderr}`);
   }
+  if (Object.hasOwn(requestBodies[0], "max_tokens")) {
+    throw new Error(`inherited max_tokens reached the Provider: ${JSON.stringify(requestBodies[0])}`);
+  }
+  if (!Array.isArray(requestBodies[0].tools) || requestBodies[0].tools.length === 0) {
+    throw new Error("request policy removed the Harness tools");
+  }
   providerMode = "error";
   let providerFailure = "";
   try {
@@ -146,6 +157,8 @@ try {
     !stderr.includes('"stage":"chat_completions_provider_error"') ||
     !stderr.includes('"topLevelKeys":["error","error_code","error_msg","text"]') ||
     !stderr.includes('"request":{"sequence":') ||
+    !stderr.includes('"maxTokens":"provider_default"') ||
+    !stderr.includes('"removedInheritedMaxTokens":256000') ||
     !stderr.includes('"tools":{"count":')
   ) {
     throw new Error(`provider request diagnostics were incomplete: ${stderr}`);

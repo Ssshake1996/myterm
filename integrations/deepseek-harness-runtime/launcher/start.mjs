@@ -8,6 +8,7 @@ import {
 } from "@deepseek-ai/dsh-app-boot";
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from "@deepseek-ai/dsh-launch-environment";
 import { summarizeChatCompletionsRequest } from "./request-diagnostics.mjs";
+import { applyChatCompletionsRequestPolicy } from "./request-policy.mjs";
 import { normalizeChatCompletionsSse } from "./sse-normalizer.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -18,14 +19,20 @@ let context;
 let closing;
 let providerRequestSequence = 0;
 
-const providerSecrets = (() => {
+const providerConfig = (() => {
   try {
-    const config = JSON.parse(process.env.MYTERM_HARNESS_DEEPSEEK_CONFIG_JSON || "{}");
-    return [config.apiKey, ...(config.routes || []).map((route) => route.apiKey)].filter(Boolean);
+    const value = JSON.parse(process.env.MYTERM_HARNESS_DEEPSEEK_CONFIG_JSON || "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
   } catch {
-    return [];
+    return {};
   }
 })();
+const providerSecrets = [
+  providerConfig.apiKey,
+  ...(Array.isArray(providerConfig.routes) ? providerConfig.routes : []).map(
+    (route) => route?.apiKey,
+  ),
+].filter(Boolean);
 
 const redactProviderText = (value) => {
   let redacted = String(value);
@@ -37,13 +44,17 @@ const nativeFetch = globalThis.fetch.bind(globalThis);
 globalThis.fetch = async (input, init) => {
   const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
   const isChatCompletions = url.includes("/chat/completions");
+  const adjusted = isChatCompletions
+    ? applyChatCompletionsRequestPolicy(init, providerConfig)
+    : { init, policy: undefined };
   const request = isChatCompletions
     ? {
         sequence: ++providerRequestSequence,
-        ...summarizeChatCompletionsRequest(init),
+        policy: adjusted.policy,
+        ...summarizeChatCompletionsRequest(adjusted.init),
       }
     : undefined;
-  const response = await nativeFetch(input, init);
+  const response = await nativeFetch(input, adjusted.init);
   if (!response.ok && isChatCompletions) {
     let body = "";
     try {

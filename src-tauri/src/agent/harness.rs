@@ -831,13 +831,20 @@ fn deepseek_config_json(route: &ResolvedAiModelRoute) -> Result<String, AppError
         .to_string()
         .trim_end_matches('/')
         .to_owned();
+    let mut model = json!({
+        "id": route.model.model,
+        "name": route.model.name,
+    });
+    if let Some(context_window) = route.model.context_window {
+        model["contextWindow"] = json!(context_window);
+    }
+    if let Some(max_output_tokens) = route.model.max_output_tokens {
+        model["maxTokens"] = json!(max_output_tokens);
+    }
     let mut config = json!({
         "apiKeyEnv": "MYTERM_HARNESS_DEEPSEEK_API_KEY",
         "baseURL": base_url,
-        "models": [{
-            "id": route.model.model,
-            "name": route.model.name,
-        }],
+        "models": [model],
     });
     if !matches!(route.provider.reasoning_effort, AiReasoningEffort::Off) {
         config["reasoningEffort"] = json!(reasoning_effort(route.provider.reasoning_effort));
@@ -1036,6 +1043,8 @@ mod tests {
                 id: "primary".to_owned(),
                 name: "Primary".to_owned(),
                 model: "model-a".to_owned(),
+                context_window: None,
+                max_output_tokens: None,
                 provider_profile_id: None,
                 role: AiModelRole::Primary,
                 enabled: true,
@@ -1063,8 +1072,21 @@ mod tests {
         assert_eq!(value["apiKeyEnv"], "MYTERM_HARNESS_DEEPSEEK_API_KEY");
         assert_eq!(value["reasoningEffort"], "max");
         assert_eq!(value["models"][0]["id"], "model-a");
+        assert!(value["models"][0].get("contextWindow").is_none());
+        assert!(value["models"][0].get("maxTokens").is_none());
         assert!(value.get("api").is_none());
         assert!(value.get("headers").is_none());
+    }
+
+    #[test]
+    fn provider_json_preserves_explicit_model_token_limits() {
+        let mut route = route(AiReasoningEffort::High);
+        route.model.context_window = Some(131_072);
+        route.model.max_output_tokens = Some(16_384);
+        let value: Value =
+            serde_json::from_str(&deepseek_config_json(&route).unwrap()).expect("provider JSON");
+        assert_eq!(value["models"][0]["contextWindow"], 131_072);
+        assert_eq!(value["models"][0]["maxTokens"], 16_384);
     }
 
     #[test]

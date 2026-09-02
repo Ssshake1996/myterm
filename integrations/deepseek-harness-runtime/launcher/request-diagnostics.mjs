@@ -56,12 +56,31 @@ function toolSummary(tool, index) {
     index,
     type: value?.type,
     name: definition?.name,
-    descriptionChars:
-      typeof definition?.description === "string" ? definition.description.length : 0,
     parameterKeys: parameters ? Object.keys(parameters).sort() : [],
     schemaType: parameters?.type,
     properties: properties ? Object.keys(properties).length : 0,
     required: Array.isArray(parameters?.required) ? parameters.required.length : 0,
+  };
+}
+
+function toolsSummary(tools) {
+  const definitions = tools.map(toolSummary);
+  return {
+    count: definitions.length,
+    names: definitions.map((definition) => definition.name ?? `#${definition.index}`),
+    types: [...new Set(definitions.map((definition) => definition.type).filter(Boolean))].sort(),
+    parameterKeys: [
+      ...new Set(definitions.flatMap((definition) => definition.parameterKeys)),
+    ].sort(),
+    schemaTypes: [
+      ...new Set(definitions.map((definition) => definition.schemaType).filter(Boolean)),
+    ].sort(),
+    totalProperties: definitions.reduce((total, definition) => total + definition.properties, 0),
+    maxProperties: definitions.reduce(
+      (maximum, definition) => Math.max(maximum, definition.properties),
+      0,
+    ),
+    totalRequired: definitions.reduce((total, definition) => total + definition.required, 0),
   };
 }
 
@@ -98,9 +117,6 @@ export function summarizeChatCompletionsRequest(init) {
     maxTokens: request.max_tokens,
     stopType: Array.isArray(request.stop) ? "array" : typeof request.stop,
     messages: messages.map(messageSummary),
-    tools: {
-      count: tools.length,
-      definitions: tools.map(toolSummary),
-    },
+    tools: toolsSummary(tools),
   };
 }

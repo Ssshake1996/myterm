@@ -4275,6 +4275,13 @@ input:checked + .toggle-track > span {
   gap: 6px;
 }
 
+.ai-model-card {
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-control);
+}
+
 .ai-model-row {
   display: grid;
   grid-template-columns: minmax(84px, auto) minmax(0, 1fr) minmax(128px, 0.58fr) auto auto;
@@ -4285,6 +4292,40 @@ input:checked + .toggle-track > span {
 .ai-model-row input[type="text"],
 .ai-model-row input:not([type]),
 .ai-model-row select {
+  min-width: 0;
+}
+
+.ai-model-limits {
+  margin-top: 6px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.ai-model-limits summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 2px 1px;
+  color: var(--text-soft);
+  font-size: 9px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ai-model-limits summary small {
+  color: var(--green-strong);
+  font: 700 8px/1 "Cascadia Mono", Consolas, monospace;
+  letter-spacing: 0.03em;
+}
+
+.ai-model-limit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.ai-model-limit-grid .field {
   min-width: 0;
 }
 
@@ -4470,6 +4511,11 @@ input:checked + .toggle-track > span {
 
   .harness-capability-band {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ai-model-row,
+  .ai-model-limit-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

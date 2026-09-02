@@ -1,7 +1,7 @@
 {
   "name": "myterm",
   "private": true,
-  "version": "0.11.6",
+  "version": "0.11.7",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check src scripts",
     "test": "vitest run --passWithNoTests",
-    "test:harness-runtime": "npm --prefix integrations/deepseek-harness-runtime run check && npm --prefix integrations/deepseek-harness-runtime run test:sse && npm --prefix integrations/deepseek-harness-runtime run test:provider-compat && npm --prefix integrations/deepseek-harness-runtime run smoke",
+    "test:harness-runtime": "npm --prefix integrations/deepseek-harness-runtime run check && npm --prefix integrations/deepseek-harness-runtime run test:request-policy && npm --prefix integrations/deepseek-harness-runtime run test:sse && npm --prefix integrations/deepseek-harness-runtime run test:provider-compat && npm --prefix integrations/deepseek-harness-runtime run smoke",
     "audit:harness-runtime": "node --experimental-strip-types scripts/audit-harness-runtime.ts",
     "test:watch": "vitest",
     "tauri": "tauri"

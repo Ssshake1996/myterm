@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.11.6`
+Current version: `0.11.7`
 
 ## Core Features
 
@@ -72,7 +72,7 @@ task input -> model decision -> tool call -> result -> continue -> final answer
 - The timeline records ACP-observable steps, tool calls, and runtime state. Remote effectful or dependent operations remain serialized by myterm.
 - DeepSeek services persist as versioned JSON and can define a primary model plus ordered fallbacks. A route may reference another saved DeepSeek service, and the timeline records the exact route used.
 - Agent model traffic runs through the official `@deepseek-ai/dsh-llm-deepseek` package and its fixed `deepseek-official` route.
-- Context windows and compaction are managed automatically by DeepSeek Harness durable Sessions, token metering, checkpoints, tool-result pruning, and compaction; the AI settings expose no manual compaction selector.
+- Compaction remains automatic through DeepSeek Harness durable Sessions, token metering, checkpoints, tool-result pruning, and compaction. Each model may optionally declare its context window and maximum output tokens; when the output limit is blank, myterm omits the inherited fixed `max_tokens` value and lets the Provider apply its own default.
 - Long terminal, file, and background-job output remains available through myterm paging tools with `offset`, `nextOffset`, and `eof`, without a fixed terminal-line limit. Harness compresses irrelevant query noise under context pressure.
 - Installed builds write daily structured JSON diagnostics locally and retain 14 days. Starting with `--debug` enables stable fields for Harness process, ACP phase, model route, Host MCP, and exact-error records.
 

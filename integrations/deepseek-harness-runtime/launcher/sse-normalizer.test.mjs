@@ -155,15 +155,15 @@ assert.equal(requestDiagnostic.model, "GLM-5.2-CodeAgent");
 assert.deepEqual(requestDiagnostic.messages.map((message) => message.role), ["system", "user"]);
 assert.equal(requestDiagnostic.messages[0].content.chars, 13);
 assert.equal(requestDiagnostic.tools.count, 1);
-assert.deepEqual(requestDiagnostic.tools.definitions[0], {
-  index: 0,
-  type: "function",
-  name: "session_status",
-  descriptionChars: 19,
+assert.deepEqual(requestDiagnostic.tools, {
+  count: 1,
+  names: ["session_status"],
+  types: ["function"],
   parameterKeys: ["properties", "required", "type"],
-  schemaType: "object",
-  properties: 1,
-  required: 1,
+  schemaTypes: ["object"],
+  totalProperties: 1,
+  maxProperties: 1,
+  totalRequired: 1,
 });
 assert.equal(JSON.stringify(requestDiagnostic).includes("system prompt"), false);
 assert.equal(JSON.stringify(requestDiagnostic).includes('"hi"'), false);

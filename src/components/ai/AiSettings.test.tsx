@@ -60,15 +60,18 @@ describe("AiSettings", () => {
     );
   });
 
-  it("keeps context management fully adaptive without manual token controls", async () => {
+  it("keeps model limits optional and saves explicit context and output values", async () => {
     ipcMocks.aiProfileSave.mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<AiSettings profile={null} onClose={vi.fn()} onSaved={vi.fn()} />);
 
     expect(screen.queryByRole("combobox", { name: "Agent 上下文协议" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
     expect(screen.getByText("Compaction")).toBeInTheDocument();
     expect(screen.getByText(/Session、checkpoint、token 计量/u)).toBeInTheDocument();
+    expect(screen.getAllByText("Provider 默认").length).toBeGreaterThan(0);
+    await user.click(screen.getAllByText("高级模型限制")[0]);
+    await user.type(screen.getByRole("spinbutton", { name: "主模型上下文窗口" }), "131072");
+    await user.type(screen.getByRole("spinbutton", { name: "主模型最大输出 Token" }), "16384");
     await user.click(screen.getByRole("button", { name: "保存配置" }));
 
     expect(ipcMocks.aiProfileSave).toHaveBeenCalledWith(
@@ -76,6 +79,8 @@ describe("AiSettings", () => {
         models: expect.arrayContaining([
           expect.objectContaining({
             role: "primary",
+            context_window: 131072,
+            max_output_tokens: 16384,
           }),
         ]),
       }),
