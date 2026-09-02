@@ -19,7 +19,6 @@ use super::{
     },
     harness, hooks,
     mcp::McpConnectionManager,
-    policy::{PolicyAction, PolicyContext, ToolEffect},
     skills,
     store::{AgentStore, GoalUpdate},
 };
@@ -32,8 +31,8 @@ use crate::{
     sftp::{service::local_entries, service::SftpService},
     types::{
         AgentEvent, AgentRunResult, AgentSettings, AgentSteerResult, AiProfile,
-        SessionCatalogEntry, SessionCatalogTarget, SessionEnvironment, SessionProfile,
-        SessionState, SessionTarget, TerminalScreenSnapshot, AGENT_EVENT_SCHEMA_VERSION,
+        SessionCatalogEntry, SessionCatalogTarget, SessionProfile, SessionState, SessionTarget,
+        TerminalScreenSnapshot, AGENT_EVENT_SCHEMA_VERSION,
     },
     AppError,
 };
@@ -43,6 +42,58 @@ const MAX_ARTIFACT_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_CONCURRENT_AGENT_RUNS: usize = 4;
 const MAX_NO_PROGRESS_CONTINUATIONS: u32 = 3;
 const MAX_WAIT_CAPTURE_BYTES: usize = 4 * 1024 * 1024;
+
+fn is_observation_command(command: &str) -> bool {
+    if command.trim().is_empty()
+        || command.contains(['>', '<', '`', '\n', '\r', ';'])
+        || command.contains("$(")
+        || command.contains("&&")
+        || command.contains("||")
+    {
+        return false;
+    }
+
+    command.split('|').all(|segment| {
+        let words = segment.split_whitespace().collect::<Vec<_>>();
+        let Some(command_name) = words
+            .first()
+            .and_then(|value| value.rsplit('/').next())
+            .map(|value| value.to_ascii_lowercase())
+        else {
+            return false;
+        };
+        match command_name.as_str() {
+            "cat" | "cut" | "date" | "df" | "du" | "env" | "free" | "grep" | "head"
+            | "hostname" | "id" | "ip" | "journalctl" | "ls" | "lsof" | "netstat" | "pgrep"
+            | "ps" | "pwd" | "rg" | "ss" | "stat" | "tail" | "test" | "true" | "false"
+            | "uname" | "uptime" | "wc" | "who" | "whoami" | "[" | "show" | "display" => true,
+            "systemctl" => words.get(1).is_some_and(|subcommand| {
+                matches!(
+                    subcommand.to_ascii_lowercase().as_str(),
+                    "status"
+                        | "show"
+                        | "is-active"
+                        | "is-enabled"
+                        | "list-units"
+                        | "list-unit-files"
+                )
+            }),
+            "docker" | "podman" => words.get(1).is_some_and(|subcommand| {
+                matches!(
+                    subcommand.to_ascii_lowercase().as_str(),
+                    "ps" | "inspect" | "logs" | "stats" | "version" | "info"
+                )
+            }),
+            "kubectl" => words.get(1).is_some_and(|subcommand| {
+                matches!(
+                    subcommand.to_ascii_lowercase().as_str(),
+                    "get" | "describe" | "logs" | "version" | "api-resources" | "cluster-info"
+                )
+            }),
+            _ => false,
+        }
+    })
+}
 
 fn safe_artifact_key(value: &str) -> bool {
     !value.is_empty()
@@ -406,7 +457,6 @@ struct AgentTurnRequest {
     prompt: String,
     active_session_id: Option<String>,
     sink: Arc<dyn AgentEventSink>,
-    permission: Option<crate::types::AgentPermissionMode>,
 }
 
 struct BackgroundJobRequest {
@@ -516,27 +566,8 @@ impl AgentService {
         active_session_id: Option<String>,
         sink: Arc<dyn AgentEventSink>,
     ) -> Result<AgentRunResult, AppError> {
-        self.run_in_conversation(profile_id, None, prompt, active_session_id, sink, None)
+        self.run_in_conversation(profile_id, None, prompt, active_session_id, sink)
             .await
-    }
-
-    pub async fn run_with_permission(
-        self: &Arc<Self>,
-        profile_id: &str,
-        prompt: String,
-        active_session_id: Option<String>,
-        sink: Arc<dyn AgentEventSink>,
-        permission: Option<crate::types::AgentPermissionMode>,
-    ) -> Result<AgentRunResult, AppError> {
-        self.run_in_conversation(
-            profile_id,
-            None,
-            prompt,
-            active_session_id,
-            sink,
-            permission,
-        )
-        .await
     }
 
     pub fn create_conversation(
@@ -708,7 +739,6 @@ impl AgentService {
         prompt: String,
         active_session_id: Option<String>,
         sink: Arc<dyn AgentEventSink>,
-        permission: Option<crate::types::AgentPermissionMode>,
     ) -> Result<AgentRunResult, AppError> {
         let conversation_id = match conversation_id {
             Some(id) => {
@@ -756,7 +786,6 @@ impl AgentService {
                     prompt: next_prompt,
                     active_session_id: active_session_id.clone(),
                     sink: sink.clone(),
-                    permission,
                 })
                 .await;
 
@@ -944,7 +973,6 @@ impl AgentService {
             prompt,
             active_session_id,
             sink,
-            permission,
         } = request;
         if prompt.trim().is_empty() {
             return Err(AppError::InvalidInput(
@@ -952,10 +980,7 @@ impl AgentService {
             ));
         }
         let profile = self.ai_profile(&profile_id)?;
-        let mut settings = self.config.agent_settings()?;
-        if let Some(permission) = permission {
-            settings.permission_mode = permission;
-        }
+        let settings = self.config.agent_settings()?;
         let (abort_tx, abort_rx) = watch::channel(false);
         let (steer_tx, steer_rx) = mpsc::channel(32);
         let mut active = self.active.lock().await;
@@ -995,7 +1020,6 @@ impl AgentService {
             session_id: None,
             prompt: prompt.trim().to_owned(),
             state: AgentTaskState::Queued,
-            permission_mode: settings.permission_mode,
             created_at_ms: timestamp,
             updated_at_ms: timestamp,
             finish_reason: None,
@@ -1248,11 +1272,14 @@ impl AgentService {
             .get("policy")
             .cloned()
             .unwrap_or_else(|| json!({}));
-        let risk = policy.get("risk").and_then(Value::as_str).unwrap_or("high");
+        let risk = policy
+            .get("risk")
+            .and_then(Value::as_str)
+            .unwrap_or("harness");
         let reason = policy
             .get("reason")
             .and_then(Value::as_str)
-            .unwrap_or("tool execution requires confirmation");
+            .unwrap_or("DeepSeek Harness requested user approval");
         self.store.approval_requested(
             run_id,
             call_id,
@@ -1990,26 +2017,11 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
                 "wait condition '{condition}' requires a non-empty expected value"
             )));
         }
-        let read_check = super::policy::evaluate_tool(
-            "remote_exec",
-            &json!({ "command": command }),
-            PolicyContext {
-                mode: crate::types::AgentPermissionMode::ReadOnly,
-                environment: SessionEnvironment::Production,
-                is_root: false,
-            },
-        );
-        let observational_execute = read_check.effect == ToolEffect::Execute
-            && !read_check.commands.is_empty()
-            && read_check
-                .commands
-                .iter()
-                .all(|name| matches!(name.as_str(), "test" | "[" | "true" | "false"));
-        if read_check.action != PolicyAction::Allow && !observational_execute {
-            return Err(AppError::InvalidInput(format!(
-                "session_wait_until only accepts a statically parsed read-only observation command; analysis: {}",
-                read_check.reason
-            )));
+        if !is_observation_command(command) {
+            return Err(AppError::InvalidInput(
+                "session_wait_until only accepts an observation command; use remote_exec for commands that change state"
+                    .to_owned(),
+            ));
         }
 
         let interval = Duration::from_secs(
@@ -2380,7 +2392,6 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
         let spawned_goal_id = task.goal_id.clone();
         let spawned_conversation_id = task.conversation_id.clone();
         let spawned_profile_id = task.profile_id.clone();
-        let spawned_permission = task.permission_mode;
         let spawned_call_id = call_id;
         let spawned_session_id = session_id;
         let spawned_command = command;
@@ -2444,7 +2455,6 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
                         &goal_id,
                         &spawned_conversation_id,
                         &spawned_profile_id,
-                        spawned_permission,
                         &spawned_job_id,
                         state,
                         continuation_sink,
@@ -2466,7 +2476,6 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
         goal_id: &str,
         conversation_id: &str,
         profile_id: &str,
-        permission: crate::types::AgentPermissionMode,
         job_id: &str,
         job_state: &str,
         sink: Arc<dyn AgentEventSink>,
@@ -2527,7 +2536,6 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
                 prompt,
                 None,
                 sink,
-                Some(permission),
             )
             .await
         {
@@ -2574,48 +2582,6 @@ printf 'container=%s\n' "$(cat /proc/1/cgroup 2>/dev/null | grep -Eo 'docker|kub
         {
             let _ = runtime.cancel.send(true);
         }
-    }
-
-    pub(crate) fn policy_context(
-        &self,
-        session_id: Option<&str>,
-        mode: crate::types::AgentPermissionMode,
-    ) -> Result<PolicyContext, AppError> {
-        let Some(session_id) = session_id else {
-            return Ok(PolicyContext {
-                mode,
-                environment: SessionEnvironment::Production,
-                is_root: true,
-            });
-        };
-        let profile_id = self
-            .sessions
-            .list()?
-            .into_iter()
-            .find(|session| session.session_id == session_id)
-            .map(|session| session.profile_id);
-        let profile = profile_id.and_then(|profile_id| {
-            self.config
-                .profile_list()
-                .ok()?
-                .into_iter()
-                .find(|profile| profile.id == profile_id)
-        });
-        let (environment, is_root) = match profile {
-            Some(profile) => {
-                let is_root = matches!(
-                    &profile.target,
-                    crate::types::SessionTarget::Ssh { username, .. } if username == "root"
-                );
-                (profile.environment, is_root)
-            }
-            None => (SessionEnvironment::Production, false),
-        };
-        Ok(PolicyContext {
-            mode,
-            environment,
-            is_root,
-        })
     }
 
     async fn reject_pending_approvals(&self) {
@@ -3166,14 +3132,6 @@ fn function_tool(name: &str, description: &str, parameters: Value) -> Value {
     })
 }
 
-pub(crate) fn plugin_id_for_tool(name: &str) -> &'static str {
-    if matches!(name, "session_connect" | "session_wait_until") {
-        builtin::MULTI_SSH_COORDINATOR_ID
-    } else {
-        "myterm-host-mcp"
-    }
-}
-
 fn require_session(session_id: Option<&str>) -> Result<&str, AppError> {
     session_id.ok_or_else(|| {
         AppError::InvalidInput(
@@ -3621,8 +3579,8 @@ fn redact_text(value: &str, secrets: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        plugin_id_for_tool, redact_event, selected_session_id, terminal_edit_payload,
-        terminal_send_plan, tool_definitions,
+        redact_event, selected_session_id, terminal_edit_payload, terminal_send_plan,
+        tool_definitions,
     };
     use crate::agent::builtin;
     use crate::agent::capability::CapabilityRegistry;
@@ -3712,11 +3670,6 @@ mod tests {
         let plugin = builtin::multi_ssh_plugin_info();
         assert_eq!(plugin.id, "multi-ssh-coordinator");
         assert_eq!(plugin.kind, "builtin-plugin");
-        assert_eq!(
-            plugin_id_for_tool("session_connect"),
-            "multi-ssh-coordinator"
-        );
-        assert_eq!(plugin_id_for_tool("remote_exec"), "myterm-host-mcp");
         assert!(builtin::system_prompt().contains("session_connect"));
     }
 

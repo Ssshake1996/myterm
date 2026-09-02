@@ -544,7 +544,6 @@ pub async fn agent_run(
             prompt,
             session_id,
             Arc::new(AgentChannel(on_event)),
-            None,
         )
         .await
         .map_err(Into::into)

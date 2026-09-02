@@ -2051,84 +2051,9 @@ button:disabled {
   font-size: 10px;
 }
 
-.harness-runtime-strip {
-  min-height: 42px;
-  flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 1px;
-  padding: 1px;
-  border-bottom: 1px solid var(--border);
-  background: var(--border-soft);
-}
-
-.harness-runtime-strip > span {
-  min-width: 0;
-  display: grid;
-  align-content: center;
-  gap: 2px;
-  padding: 5px 7px;
-  background: var(--surface-deep);
-}
-
-.harness-runtime-strip strong,
-.harness-runtime-strip small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.harness-runtime-strip strong {
-  color: var(--text-soft);
-  font: 700 8px/1 "Cascadia Mono", Consolas, monospace;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.harness-runtime-strip small {
-  color: var(--text-muted);
-  font-size: 8px;
-}
-
-.harness-runtime-strip > .is-ready strong {
-  color: var(--green-strong);
-}
-
-.harness-runtime-strip > .is-running strong {
-  color: var(--gold);
-}
-
 .privacy-mark {
   color: var(--text-muted);
   font: 7px/1 "Cascadia Mono", Consolas, monospace;
-}
-
-.permission-switch {
-  height: 23px;
-  min-inline-size: 0;
-  display: flex;
-  flex: 0 0 auto;
-  margin: 0;
-  padding: 2px;
-  border: 1px solid var(--border);
-  background: var(--surface-deep);
-  border-radius: 4px;
-}
-
-.permission-switch button {
-  min-width: 33px;
-  padding: 0 5px;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 8.5px;
-  cursor: pointer;
-}
-
-.permission-switch button.is-active {
-  background: var(--gold-surface);
-  color: var(--gold);
-  border-radius: 2px;
 }
 
 .agent-history-toolbar {
@@ -2642,42 +2567,6 @@ button:disabled {
   padding: 3px 8px;
 }
 
-.tool-policy {
-  min-height: 27px;
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
-  align-items: center;
-  gap: 6px;
-  padding: 5px 8px;
-  border-top: 1px solid var(--border-soft);
-  color: var(--text-muted);
-  font: 8px/1.35 "Cascadia Mono", Consolas, monospace;
-}
-
-.tool-policy > span,
-.tool-policy > strong {
-  padding: 2px 4px;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  text-transform: uppercase;
-}
-
-.tool-policy.risk-high > strong,
-.tool-policy.risk-critical > strong {
-  border-color: var(--red-border);
-  color: var(--red);
-}
-
-.tool-policy.risk-medium > strong {
-  border-color: var(--gold-border);
-  color: var(--gold);
-}
-
-.tool-policy > small {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 .tool-approval > span {
   color: var(--gold);
   font-size: 9px;
@@ -3101,20 +2990,25 @@ input:checked + .toggle-track > span {
   position: relative;
   min-height: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--border-strong);
   background: var(--surface-control);
-  border-radius: 5px;
+  border-radius: 8px;
+  box-shadow: 0 5px 18px rgb(0 0 0 / 8%);
 }
 
 .composer-box:focus-within {
-  border-color: var(--border-strong);
+  border-color: var(--green-border);
+  box-shadow: 0 0 0 1px var(--green-soft), 0 7px 22px rgb(0 0 0 / 10%);
 }
 
 .composer-box textarea {
   width: 100%;
-  height: 100%;
+  height: auto;
   min-height: 0;
-  padding: 8px 70px 8px 9px;
+  flex: 1;
+  padding: 10px 11px 6px;
   border: 0;
   outline: 0;
   resize: none;
@@ -3124,10 +3018,120 @@ input:checked + .toggle-track > span {
   line-height: 1.45;
 }
 
-.composer-send {
+.agent-composer-footer {
+  position: relative;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 5px 5px 7px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.harness-access-selector {
+  position: relative;
+  min-width: 0;
+}
+
+.harness-access-trigger {
+  height: 25px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 5px;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.harness-access-trigger:hover,
+.harness-access-trigger[aria-expanded="true"] {
+  border-color: var(--border);
+  background: var(--surface-hover);
+  color: var(--text-soft);
+}
+
+.harness-access-trigger.is-danger {
+  color: var(--red);
+}
+
+.harness-access-trigger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.harness-access-menu {
   position: absolute;
-  right: 6px;
-  bottom: 6px;
+  z-index: 20;
+  bottom: calc(100% + 7px);
+  left: 0;
+  width: min(285px, calc(100vw - 38px));
+  display: grid;
+  gap: 3px;
+  padding: 5px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel-raised);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 22%);
+}
+
+.harness-access-menu > button {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-soft);
+  border-radius: 5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.harness-access-menu > button:hover,
+.harness-access-menu > button.is-active {
+  border-color: var(--green-border);
+  background: var(--green-surface);
+}
+
+.harness-access-menu > button.is-danger:hover,
+.harness-access-menu > button.is-danger.is-active {
+  border-color: var(--red-border);
+  background: var(--red-surface);
+}
+
+.harness-access-menu span,
+.harness-access-menu strong,
+.harness-access-menu small {
+  min-width: 0;
+  display: block;
+}
+
+.harness-access-menu strong {
+  color: inherit;
+  font-size: 9.5px;
+}
+
+.harness-access-menu small {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.agent-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.composer-send {
+  position: static;
   width: 26px;
   height: 26px;
   display: grid;
@@ -3151,9 +3155,7 @@ input:checked + .toggle-track > span {
 }
 
 .composer-stop {
-  position: absolute;
-  right: 38px;
-  bottom: 6px;
+  position: static;
   width: 26px;
   height: 26px;
   display: grid;
@@ -3163,6 +3165,47 @@ input:checked + .toggle-track > span {
   color: var(--red);
   border-radius: 4px;
   cursor: pointer;
+}
+
+.harness-access-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid var(--red-border);
+  background: var(--red-surface);
+  color: var(--red);
+  border-radius: 7px;
+}
+
+.harness-access-warning svg {
+  flex: 0 0 auto;
+}
+
+.harness-access-warning strong {
+  color: var(--text);
+}
+
+.harness-access-warning p {
+  margin: 5px 0 0;
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
+.harness-access-acknowledge {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 13px;
+  color: var(--text-soft);
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.button.is-danger {
+  border-color: var(--red-border);
+  background: var(--red-surface);
+  color: var(--red);
 }
 
 .ai-rail {
@@ -5132,10 +5175,6 @@ input:checked + .toggle-track > span {
   .form-grid,
   .ai-settings-form {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .harness-runtime-strip {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .mcp-fields {

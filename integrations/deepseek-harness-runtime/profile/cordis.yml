@@ -1,10 +1,9 @@
 # myterm's lean DeepSeek Harness ACP profile.
 #
 # DeepSeek Harness owns the Agent loop, durable session, compaction, goals and
-# local Skill discovery. myterm owns every remote SSH/CLI/SFTP side effect and
-# exposes those capabilities through the per-session Streamable HTTP MCP bridge.
-# Local tools and remote tools coexist. Local tools are sandboxed and remote
-# SSH/CLI/SFTP tools arrive through myterm's per-session MCP bridge.
+# local Skill discovery and permission lifecycle. myterm exposes remote
+# SSH/CLI/SFTP capabilities through the per-session Streamable HTTP MCP bridge;
+# Harness applies the active access preset before those tools execute.
 
 - id: timer
   name: '@deepseek-ai/cordis-plugin-timer'
@@ -21,13 +20,6 @@
 
 - id: session
   name: '@deepseek-ai/dsh-session'
-
-- id: session-title
-  name: '@deepseek-ai/dsh-session-title'
-  config:
-    fallbackMaxWords: 5
-    fallbackMaxBytes: 40
-    maxTitleBytes: 80
 
 - id: session-projection
   name: '@deepseek-ai/dsh-session-projection'
@@ -50,22 +42,24 @@
 - id: sandbox-policy
   name: '@deepseek-ai/dsh-sandbox-policy'
   config:
-    mode: !!js process.env.MYTERM_HARNESS_PERMISSION_MODE ?? 'workspace-write'
+    mode: workspace-write
     workspaceRoot: !!js process.env.MYTERM_HARNESS_CWD ?? process.cwd()
 
 - id: permission
   name: '@deepseek-ai/dsh-permission-presets'
   config:
+    defaultPreset: !!js process.env.MYTERM_HARNESS_ACCESS_PRESET ?? 'workspace-write'
     presets:
-      read-only:
-        sandbox: read-only
-        approval: ask
       workspace-write:
         sandbox: workspace-write
         approval: ask
+        name: Workspace Write
+        description: Work inside the workspace; operations outside the sandbox require approval.
       danger-full-access:
         sandbox: danger-full-access
         approval: never
+        name: Full Access
+        description: Run without sandbox confinement or approval prompts.
 
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
@@ -149,7 +143,11 @@
 - id: approval
   name: '@deepseek-ai/dsh-user-approval'
   config:
-    policy: !!js process.env.MYTERM_HARNESS_PERMISSION_MODE === 'danger-full-access' && 'never' || 'ask'
+    policy: ask
+
+- id: myterm-harness-access-bridge
+  name: '../launcher/myterm-harness-access-bridge.mjs'
+  inject: [permissionPresets, sessions, tools]
 
 - id: token-meter
   name: '@deepseek-ai/dsh-token-meter'

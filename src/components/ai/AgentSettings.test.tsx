@@ -19,7 +19,7 @@ const ipcMocks = vi.hoisted(() => ({
 vi.mock("../../ipc", () => ipcMocks);
 
 const settings = {
-  permission_mode: "confirm" as const,
+  harness_access_preset: "workspace-write" as const,
   skill_directories: [],
   enabled_skills: [],
   mcp_servers: [],

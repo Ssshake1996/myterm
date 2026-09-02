@@ -21,7 +21,7 @@ use super::{
 use crate::{
     ai::routing::ResolvedAiModelRoute,
     config::DEFAULT_AGENT_SYSTEM_PROMPT,
-    types::{AgentPermissionMode, AgentRunResult, AgentSettings, AiProfile, AiReasoningEffort},
+    types::{AgentRunResult, AgentSettings, AiProfile, AiReasoningEffort},
     AppError,
 };
 
@@ -112,7 +112,7 @@ pub(crate) async fn run(
             state_dir: state_dir.clone(),
             workspace: workspace.clone(),
             system_prompt: system_prompt.clone(),
-            permission_mode: settings.permission_mode,
+            access_preset: settings.harness_access_preset.as_str().to_owned(),
             skill_directories: settings.skill_directories.clone(),
             route: route.clone(),
         };
@@ -187,7 +187,7 @@ struct HarnessLaunch {
     state_dir: PathBuf,
     workspace: PathBuf,
     system_prompt: String,
-    permission_mode: AgentPermissionMode,
+    access_preset: String,
     skill_directories: Vec<String>,
     route: ResolvedAiModelRoute,
 }
@@ -212,7 +212,6 @@ async fn run_route(
             json!({"protocolVersion": ACP_PROTOCOL_VERSION, "clientCapabilities": {}}),
             run_id,
             sink.clone(),
-            launch.permission_mode,
             abort.clone(),
             false,
             None,
@@ -237,7 +236,6 @@ async fn run_route(
                 }),
                 run_id,
                 sink.clone(),
-                launch.permission_mode,
                 abort.clone(),
                 false,
                 None,
@@ -259,7 +257,6 @@ async fn run_route(
                     mcp_servers.clone(),
                     run_id,
                     sink.clone(),
-                    launch.permission_mode,
                     abort.clone(),
                 )
                 .await?
@@ -272,7 +269,6 @@ async fn run_route(
             mcp_servers,
             run_id,
             sink.clone(),
-            launch.permission_mode,
             abort.clone(),
         )
         .await?
@@ -308,7 +304,6 @@ async fn run_route(
                 }),
                 run_id,
                 sink.clone(),
-                launch.permission_mode,
                 abort.clone(),
                 true,
                 Some(steering),
@@ -389,7 +384,6 @@ async fn create_session(
     mcp_servers: Value,
     run_id: &str,
     sink: Arc<dyn AgentEventSink>,
-    permission_mode: AgentPermissionMode,
     abort: watch::Receiver<bool>,
 ) -> Result<String, AppError> {
     let response = process
@@ -398,7 +392,6 @@ async fn create_session(
             json!({"cwd": workspace, "mcpServers": mcp_servers}),
             run_id,
             sink,
-            permission_mode,
             abort,
             false,
             None,
@@ -448,10 +441,7 @@ impl AcpProcess {
             .env("MYTERM_HARNESS_MODEL", &launch.route.model.model)
             .env("MYTERM_HARNESS_DEEPSEEK_CONFIG_JSON", deepseek_config_json)
             .env("MYTERM_HARNESS_DEEPSEEK_API_KEY", &launch.route.api_key)
-            .env(
-                "MYTERM_HARNESS_PERMISSION_MODE",
-                harness_permission_mode(launch.permission_mode),
-            )
+            .env("MYTERM_HARNESS_ACCESS_PRESET", &launch.access_preset)
             .env(
                 "MYTERM_HARNESS_SKILL_DIRS_JSON",
                 serde_json::to_string(&launch.skill_directories)?,
@@ -520,7 +510,6 @@ impl AcpProcess {
         params: Value,
         run_id: &str,
         sink: Arc<dyn AgentEventSink>,
-        permission_mode: AgentPermissionMode,
         mut abort: watch::Receiver<bool>,
         cancellable: bool,
         mut steering: Option<&mut mpsc::Receiver<String>>,
@@ -551,6 +540,8 @@ impl AcpProcess {
                     })?;
                     if message.get("id").and_then(Value::as_u64) == Some(id) {
                         if let Some(error) = message.get("error") {
+                            tokio::task::yield_now().await;
+                            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                             let stderr = self.stderr.lock().await.clone();
                             return Err(AppError::Agent(
                                 json!({
@@ -564,7 +555,7 @@ impl AcpProcess {
                         }
                         return Ok(message.get("result").cloned().unwrap_or(Value::Null));
                     }
-                    self.handle_message(&message, run_id, sink.clone(), permission_mode, &mut abort).await?;
+                    self.handle_message(&message, run_id, sink.clone(), &mut abort).await?;
                 }
                 changed = abort.changed(), if cancellable && !cancel_sent => {
                     if changed.is_err() || *abort.borrow() {
@@ -596,14 +587,12 @@ impl AcpProcess {
         message: &Value,
         run_id: &str,
         sink: Arc<dyn AgentEventSink>,
-        permission_mode: AgentPermissionMode,
         abort: &mut watch::Receiver<bool>,
     ) -> Result<(), AppError> {
         match message.get("method").and_then(Value::as_str) {
             Some("session/update") => self.handle_update(message, run_id, sink),
             Some("session/request_permission") => {
-                self.handle_permission(message, run_id, sink, permission_mode, abort)
-                    .await
+                self.handle_permission(message, run_id, sink, abort).await
             }
             Some(method) if message.get("id").is_some() => {
                 let id = message.get("id").cloned().unwrap_or(Value::Null);
@@ -706,7 +695,6 @@ impl AcpProcess {
         message: &Value,
         run_id: &str,
         sink: Arc<dyn AgentEventSink>,
-        permission_mode: AgentPermissionMode,
         abort: &mut watch::Receiver<bool>,
     ) -> Result<(), AppError> {
         let id = message.get("id").cloned().unwrap_or(Value::Null);
@@ -723,14 +711,9 @@ impl AcpProcess {
             .and_then(Value::as_str)
             .unwrap_or("Harness local tool")
             .to_owned();
-        let approved = match permission_mode {
-            AgentPermissionMode::FullAccess => true,
-            AgentPermissionMode::ReadOnly => false,
-            AgentPermissionMode::Confirm => {
-                self.context_approval(run_id, &call_id, &tool_name, params.clone(), sink, abort)
-                    .await?
-            }
-        };
+        let approved = self
+            .context_approval(run_id, &call_id, &tool_name, params.clone(), sink, abort)
+            .await?;
         let selected = params
             .get("options")
             .and_then(Value::as_array)
@@ -775,18 +758,7 @@ impl AcpProcess {
                 run_id,
                 call_id,
                 tool_name,
-                json!({
-                    "toolArguments": details,
-                    "policy": {
-                        "action": "ask",
-                        "effect": "execute",
-                        "risk": "high",
-                        "reason": "DeepSeek Harness local tool requested permission",
-                        "commands": [tool_name],
-                        "resources": [],
-                        "parsed": false
-                    }
-                }),
+                json!({ "toolArguments": details }),
                 sink,
                 abort,
             )
@@ -852,15 +824,18 @@ fn deepseek_config_json(route: &ResolvedAiModelRoute) -> Result<String, AppError
         .to_string()
         .trim_end_matches('/')
         .to_owned();
-    Ok(serde_json::to_string(&json!({
+    let mut config = json!({
         "apiKeyEnv": "MYTERM_HARNESS_DEEPSEEK_API_KEY",
         "baseURL": base_url,
-        "reasoningEffort": reasoning_effort(route.provider.reasoning_effort),
         "models": [{
             "id": route.model.model,
             "name": route.model.name,
         }],
-    }))?)
+    });
+    if !matches!(route.provider.reasoning_effort, AiReasoningEffort::Off) {
+        config["reasoningEffort"] = json!(reasoning_effort(route.provider.reasoning_effort));
+    }
+    Ok(serde_json::to_string(&config)?)
 }
 
 fn reasoning_effort(value: AiReasoningEffort) -> &'static str {
@@ -888,14 +863,6 @@ fn build_system_prompt(profile: &AiProfile) -> String {
         prompt.push_str(profile.system_prompt.trim());
     }
     prompt
-}
-
-fn harness_permission_mode(mode: AgentPermissionMode) -> &'static str {
-    match mode {
-        AgentPermissionMode::ReadOnly => "read-only",
-        AgentPermissionMode::Confirm => "workspace-write",
-        AgentPermissionMode::FullAccess => "danger-full-access",
-    }
 }
 
 fn resolve_runtime_root() -> Result<PathBuf, AppError> {
@@ -1061,6 +1028,15 @@ mod tests {
         assert_eq!(value["models"][0]["id"], "model-a");
         assert!(value.get("api").is_none());
         assert!(value.get("headers").is_none());
+    }
+
+    #[test]
+    fn provider_json_omits_deepseek_thinking_extension_when_reasoning_is_off() {
+        let value: Value =
+            serde_json::from_str(&deepseek_config_json(&route(AiReasoningEffort::Off)).unwrap())
+                .expect("provider JSON");
+        assert!(value.get("reasoningEffort").is_none());
+        assert!(value.get("thinking").is_none());
     }
 
     #[test]

@@ -6,7 +6,7 @@ use serde::Serialize;
 use crate::{
     ai::routing::resolve_model_routes,
     config::{ConfigService, CredentialVault, DEFAULT_SYSTEM_PROMPT},
-    types::AiProfile,
+    types::{AiProfile, AiReasoningEffort},
     AppError,
 };
 
@@ -295,6 +295,12 @@ impl AiService {
         } else {
             profile.system_prompt.as_str()
         };
+        let (thinking, reasoning_effort) = match route.provider.reasoning_effort {
+            AiReasoningEffort::Off => (None, None),
+            AiReasoningEffort::Low => (Some(ThinkingRequest { r#type: "enabled" }), Some("low")),
+            AiReasoningEffort::High => (Some(ThinkingRequest { r#type: "enabled" }), Some("high")),
+            AiReasoningEffort::Max => (Some(ThinkingRequest { r#type: "enabled" }), Some("max")),
+        };
         let request = ChatRequest {
             model: selected_model,
             messages: vec![
@@ -307,7 +313,12 @@ impl AiService {
                     content: prompt,
                 },
             ],
-            stream: false,
+            stream: true,
+            stream_options: StreamOptions {
+                include_usage: true,
+            },
+            thinking,
+            reasoning_effort,
         };
         let started = std::time::Instant::now();
         let response = match with_auth(self.client.post(chat_endpoint.clone()), &key)
@@ -327,6 +338,12 @@ impl AiService {
             }
         };
         let status = response.status();
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
         let body = match response.text().await {
             Ok(body) => body,
             Err(error) => {
@@ -357,42 +374,50 @@ impl AiService {
                 )),
             });
         }
-        let value = match serde_json::from_str::<serde_json::Value>(&body) {
-            Ok(value) => value,
+        if !content_type
+            .to_ascii_lowercase()
+            .contains("text/event-stream")
+        {
+            return Ok(failed_model_response_test(
+                "validate_model_stream",
+                "unexpected_content_type",
+                "校验 Harness 流式响应 · unexpected_content_type",
+                format!(
+                    "Expected content-type text/event-stream, received '{}'.\nEndpoint: {}\nResponse body:\n{}",
+                    content_type,
+                    chat_endpoint,
+                    redact_and_bound(&body, &key)
+                ),
+                selected_model,
+                &chat_endpoint,
+                &body,
+                started.elapsed().as_millis(),
+                &key,
+            ));
+        }
+        let (response_model, content) = match extract_streamed_message(&body) {
+            Ok(result) => result,
             Err(error) => {
-                return Ok(failed_model_test(
-                    "parse_model_response",
-                    "json_parse",
-                    "解析模型测试响应 · json_parse",
+                return Ok(failed_model_response_test(
+                    "parse_model_stream",
+                    "sse_parse",
+                    "解析 Harness 流式响应 · sse_parse",
                     format!(
-                        "JSON parse error: {error}\nResponse body:\n{}",
+                        "{error}\nEndpoint: {}\nResponse body:\n{}",
+                        chat_endpoint,
                         redact_and_bound(&body, &key)
                     ),
+                    selected_model,
+                    &chat_endpoint,
+                    &body,
+                    started.elapsed().as_millis(),
                     &key,
                 ));
             }
         };
-        let Some(content) = extract_message_content(&value) else {
-            return Ok(failed_model_test(
-                "validate_model_response",
-                "json_schema",
-                "校验模型测试响应 · json_schema",
-                format!(
-                    "JSON validation error: $.choices[0].message.content is missing\nResponse body:\n{}",
-                    redact_and_bound(&body, &key)
-                ),
-                &key,
-            ));
-        };
         Ok(AiModelTestResult {
             ok: true,
-            model: Some(
-                value
-                    .get("model")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or(selected_model)
-                    .to_owned(),
-            ),
+            model: Some(response_model.unwrap_or_else(|| selected_model.to_owned())),
             content: Some(content),
             elapsed_ms: Some(started.elapsed().as_millis()),
             raw_response: Some(redact_and_bound(&body, &key)),
@@ -415,6 +440,21 @@ struct ChatRequest<'a> {
     model: &'a str,
     messages: Vec<RequestMessage<'a>>,
     stream: bool,
+    stream_options: StreamOptions,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<ThinkingRequest<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct StreamOptions {
+    include_usage: bool,
+}
+
+#[derive(Serialize)]
+struct ThinkingRequest<'a> {
+    r#type: &'a str,
 }
 
 #[derive(Serialize)]
@@ -515,6 +555,38 @@ fn failed_model_test(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn failed_model_response_test(
+    stage: &str,
+    code: impl Into<String>,
+    summary: impl Into<String>,
+    detail: String,
+    model: &str,
+    endpoint: &reqwest::Url,
+    body: &str,
+    elapsed_ms: u128,
+    secret: &str,
+) -> AiModelTestResult {
+    AiModelTestResult {
+        ok: false,
+        model: Some(model.to_owned()),
+        content: None,
+        elapsed_ms: Some(elapsed_ms),
+        raw_response: Some(redact_and_bound(body, secret)),
+        endpoint: Some(endpoint.to_string()),
+        error: Some(AiErrorDiagnostic {
+            stage: stage.to_owned(),
+            code: code.into(),
+            summary: summary.into(),
+            detail: redact_and_bound(&detail, secret),
+            stack: Some(redact_and_bound(
+                &Backtrace::force_capture().to_string(),
+                secret,
+            )),
+        }),
+    }
+}
+
 fn http_failure_diagnostic(
     stage: &str,
     status: reqwest::StatusCode,
@@ -545,25 +617,48 @@ fn http_failure_diagnostic_for(
     }
 }
 
-fn extract_message_content(value: &serde_json::Value) -> Option<String> {
-    let content = value.pointer("/choices/0/message/content")?;
-    if let Some(text) = content.as_str() {
-        return Some(text.to_owned());
-    }
-    let parts = content.as_array()?;
-    let text = parts
-        .iter()
-        .filter_map(|part| {
-            part.get("text")
+fn extract_streamed_message(body: &str) -> Result<(Option<String>, String), String> {
+    let mut model = None;
+    let mut content = String::new();
+    let mut saw_event = false;
+    let mut saw_done = false;
+    for line in body.lines() {
+        let Some(data) = line.trim().strip_prefix("data:").map(str::trim) else {
+            continue;
+        };
+        if data.is_empty() {
+            continue;
+        }
+        if data == "[DONE]" {
+            saw_done = true;
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(data)
+            .map_err(|error| format!("SSE JSON parse error: {error}; event: {data}"))?;
+        saw_event = true;
+        if model.is_none() {
+            model = value
+                .get("model")
                 .and_then(serde_json::Value::as_str)
-                .or_else(|| {
-                    part.pointer("/text/value")
-                        .and_then(serde_json::Value::as_str)
-                })
-        })
-        .collect::<Vec<_>>()
-        .join("");
-    (!text.is_empty()).then_some(text)
+                .map(str::to_owned);
+        }
+        if let Some(text) = value
+            .pointer("/choices/0/delta/content")
+            .and_then(serde_json::Value::as_str)
+        {
+            content.push_str(text);
+        }
+    }
+    if !saw_event {
+        return Err("SSE response did not contain a data event".to_owned());
+    }
+    if !saw_done {
+        return Err("SSE stream ended without [DONE]".to_owned());
+    }
+    if content.is_empty() {
+        return Err("SSE response did not contain choices[0].delta.content".to_owned());
+    }
+    Ok((model, content))
 }
 
 fn transport_error_code(error: &reqwest::Error) -> &'static str {
@@ -641,7 +736,7 @@ fn redact_api_key(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        endpoint, extract_message_content, failed_test, format_http_failure, parse_model_count,
+        endpoint, extract_streamed_message, failed_test, format_http_failure, parse_model_count,
         redact_and_bound, redact_api_key, with_auth, MAX_DIAGNOSTIC_CHARS,
     };
     use crate::types::{AiModelConfig, AiModelRole, AiProfile, AiReasoningEffort, AiRoutingConfig};
@@ -713,26 +808,18 @@ mod tests {
     }
 
     #[test]
-    fn extracts_text_from_string_and_structured_chat_content() {
-        let plain = serde_json::json!({
-            "choices": [{ "message": { "content": "pong" } }]
-        });
-        assert_eq!(extract_message_content(&plain).as_deref(), Some("pong"));
-
-        let structured = serde_json::json!({
-            "choices": [{
-                "message": {
-                    "content": [
-                        { "type": "text", "text": "hello " },
-                        { "type": "output_text", "text": { "value": "world" } }
-                    ]
-                }
-            }]
-        });
-        assert_eq!(
-            extract_message_content(&structured).as_deref(),
-            Some("hello world")
+    fn harness_model_test_requires_a_complete_sse_stream() {
+        let body = concat!(
+            "data: {\"model\":\"model-a\",\"choices\":[{\"delta\":{\"content\":\"he\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"llo\"}}]}\n\n",
+            "data: [DONE]\n\n"
         );
+        let (model, content) = extract_streamed_message(body).expect("complete stream");
+        assert_eq!(model.as_deref(), Some("model-a"));
+        assert_eq!(content, "hello");
+        assert!(extract_streamed_message("data: {\"choices\":[]}\n\n")
+            .unwrap_err()
+            .contains("without [DONE]"));
     }
 
     #[test]

@@ -57,7 +57,7 @@ const aiProfile = {
 };
 
 const settings = {
-  permission_mode: "full_access" as const,
+  harness_access_preset: "danger-full-access" as const,
   skill_directories: [],
   enabled_skills: [],
   mcp_servers: [],
@@ -230,8 +230,38 @@ describe("AiPanel Agent trace", () => {
     expect(screen.queryByText("未配置模型")).not.toBeInTheDocument();
   });
 
-  it("pauses for tool approval in confirmation mode", async () => {
-    ipcMocks.agentSettingsGet.mockResolvedValue({ ...settings, permission_mode: "confirm" });
+  it("places Harness access below the input and confirms full access explicitly", async () => {
+    ipcMocks.agentSettingsGet.mockResolvedValue({
+      ...settings,
+      harness_access_preset: "workspace-write",
+    });
+    const user = userEvent.setup();
+    render(<AiPanel collapsed={false} onCollapsedChange={vi.fn()} />);
+
+    await screen.findByRole("option", { name: "Ops AI · ops-model" });
+    expect(screen.queryByLabelText("DeepSeek Harness 运行能力")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "权限模式" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /工作区访问/u }));
+    await user.click(screen.getByRole("menuitem", { name: /完全访问/u }));
+    const enable = screen.getByRole("button", { name: "启用完全访问" });
+    expect(enable).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: /我了解完全访问/u }));
+    await user.click(enable);
+
+    await waitFor(() =>
+      expect(ipcMocks.agentSettingsSave).toHaveBeenCalledWith({
+        ...settings,
+        harness_access_preset: "danger-full-access",
+      }),
+    );
+  });
+
+  it("renders a permission request emitted by Harness", async () => {
+    ipcMocks.agentSettingsGet.mockResolvedValue({
+      ...settings,
+      harness_access_preset: "workspace-write",
+    });
     ipcMocks.agentRun.mockImplementation(
       async (
         _profileId: string,
@@ -349,7 +379,6 @@ describe("AiPanel Agent trace", () => {
         profileId: "ai-1",
         prompt: "检查旧任务",
         state: "succeeded",
-        permissionMode: "confirm",
         sessionId: "session-active",
         createdAtMs: Date.now(),
         updatedAtMs: Date.now(),

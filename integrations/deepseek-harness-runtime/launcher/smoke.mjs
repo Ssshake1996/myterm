@@ -27,7 +27,7 @@ const child = spawn(process.execPath, [join(root, "launcher", "start.mjs")], {
       models: [{ id: "smoke-model", name: "Smoke Model" }],
     }),
     MYTERM_HARNESS_DEEPSEEK_API_KEY: "smoke-key-not-used",
-    MYTERM_HARNESS_PERMISSION_MODE: "read-only",
+    MYTERM_HARNESS_ACCESS_PRESET: "workspace-write",
     MYTERM_HARNESS_SKILL_DIRS_JSON: "[]",
     MYTERM_HARNESS_SYSTEM_PROMPT: "You are the myterm operations assistant.",
   },

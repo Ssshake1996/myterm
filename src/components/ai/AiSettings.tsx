@@ -79,7 +79,7 @@ export function AiSettings({
     profile?.routing?.fallback_on_error ?? true,
   );
   const [reasoningEffort, setReasoningEffort] = useState<AiReasoningEffort>(
-    profile?.reasoning_effort ?? "high",
+    profile?.reasoning_effort ?? "off",
   );
   const [systemPrompt, setSystemPrompt] = useState(profile?.system_prompt ?? "");
   const [apiKey, setApiKey] = useState("");
@@ -345,7 +345,7 @@ export function AiSettings({
               onChange={(event) => setReasoningEffort(event.target.value as AiReasoningEffort)}
               value={reasoningEffort}
             >
-              <option value="off">关闭 · 低延迟任务</option>
+              <option value="off">关闭 · 通用兼容</option>
               <option value="low">低 · 简单排查</option>
               <option value="high">高 · 默认运维任务</option>
               <option value="max">最大 · 复杂长任务</option>

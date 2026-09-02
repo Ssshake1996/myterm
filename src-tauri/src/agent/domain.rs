@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::types::AgentPermissionMode;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentTaskState {
@@ -213,7 +211,6 @@ pub struct AgentTask {
     pub session_id: Option<String>,
     pub prompt: String,
     pub state: AgentTaskState,
-    pub permission_mode: AgentPermissionMode,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
     pub finish_reason: Option<String>,

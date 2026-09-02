@@ -201,7 +201,7 @@ export function formatIpcError(error: unknown, fallback: string): string {
   return `${diagnostic.summary} [${diagnostic.code} · ${diagnostic.stage}]\n${detail}`;
 }
 
-export type AgentPermissionMode = "read_only" | "confirm" | "full_access";
+export type HarnessAccessPreset = "workspace-write" | "danger-full-access";
 
 export interface McpServerConfig {
   id: string;
@@ -221,7 +221,7 @@ export interface McpHeader {
 }
 
 export interface AgentSettings {
-  permission_mode: AgentPermissionMode;
+  harness_access_preset: HarnessAccessPreset;
   skill_directories: string[];
   enabled_skills: string[];
   mcp_servers: McpServerConfig[];
@@ -356,7 +356,6 @@ export interface AgentTask {
   sessionId: string | null;
   prompt: string;
   state: AgentTaskState;
-  permissionMode: AgentPermissionMode;
   createdAtMs: number;
   updatedAtMs: number;
   finishReason: string | null;

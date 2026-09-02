@@ -27,7 +27,6 @@ use super::{
     capability::{
         CapabilityDescriptor, CapabilityProvider, CapabilityRegistry, McpServerDiagnostic,
     },
-    policy::{self, PolicyAction},
     service::{self, AgentEventSink, AgentService},
 };
 use crate::{types::AgentSettings, AppError};
@@ -353,66 +352,6 @@ impl HostMcpHandler {
             .cloned()
             .ok_or_else(|| AppError::NotFound(format!("capability provider '{id}'")))
     }
-
-    async fn authorize(
-        &self,
-        call_id: &str,
-        name: &str,
-        arguments: &Value,
-    ) -> Result<(), AppError> {
-        let targeted_session_id = arguments
-            .get("session_id")
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .or_else(|| {
-                arguments
-                    .get("use_active_session")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-                    .then_some(self.context.active_session_id.as_deref())
-                    .flatten()
-            });
-        let policy_context = self
-            .context
-            .service
-            .policy_context(targeted_session_id, self.context.settings.permission_mode)?;
-        let decision = policy::evaluate_tool(name, arguments, policy_context);
-        let mut policy_event = service::event(
-            &self.context.run_id,
-            "policy",
-            Some(decision.reason.clone()),
-        );
-        policy_event.call_id = Some(call_id.to_owned());
-        policy_event.tool_name = Some(name.to_owned());
-        policy_event.plugin_id = Some(service::plugin_id_for_tool(name).to_owned());
-        policy_event.arguments = Some(serde_json::to_value(&decision)?);
-        let _ = self.context.sink.send(policy_event);
-        let approved = match decision.action {
-            PolicyAction::Allow => true,
-            PolicyAction::Deny => false,
-            PolicyAction::Ask => {
-                let mut abort = self.context.abort.clone();
-                self.context
-                    .service
-                    .wait_for_approval(
-                        &self.context.run_id,
-                        call_id,
-                        name,
-                        json!({"toolArguments": arguments, "policy": decision}),
-                        self.context.sink.clone(),
-                        &mut abort,
-                    )
-                    .await?
-            }
-        };
-        if approved {
-            Ok(())
-        } else {
-            Err(AppError::Agent(format!(
-                "tool '{name}' was denied by the active permission policy"
-            )))
-        }
-    }
 }
 
 impl ServerHandler for HostMcpHandler {
@@ -443,11 +382,7 @@ impl ServerHandler for HostMcpHandler {
     ) -> Result<CallToolResponse, rmcp::ErrorData> {
         let name = request.name.into_owned();
         let arguments = Value::Object(request.arguments.unwrap_or_default());
-        let call_id = format!("mcp-{}", uuid::Uuid::new_v4().simple());
-        let result = match self.authorize(&call_id, &name, &arguments).await {
-            Ok(()) => self.execute(&name, arguments).await,
-            Err(error) => Err(error),
-        };
+        let result = self.execute(&name, arguments).await;
         Ok(match result {
             Ok(content) => CallToolResult::success(vec![ContentBlock::text(content)]),
             Err(error) => CallToolResult::error(vec![ContentBlock::text(

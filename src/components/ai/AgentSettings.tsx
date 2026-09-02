@@ -6,7 +6,6 @@ import {
   Plug,
   Plus,
   RefreshCw,
-  ShieldCheck,
   Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -24,7 +23,7 @@ import {
 import { useUiStore } from "../../store/ui";
 import { Modal } from "../shell/Modal";
 
-type SettingsTab = "execution" | "skills" | "mcp";
+type SettingsTab = "skills" | "mcp";
 type McpTestState =
   | { status: "testing" }
   | { status: "success"; tools: McpToolInfo[] }
@@ -84,7 +83,7 @@ async function copyText(value: string): Promise<void> {
 
 export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps) {
   const notify = useUiStore((state) => state.notify);
-  const [tab, setTab] = useState<SettingsTab>("execution");
+  const [tab, setTab] = useState<SettingsTab>("skills");
   const [draft, setDraft] = useState<AgentSettingsValue>(() => structuredClone(settings));
   const [directoryText, setDirectoryText] = useState(settings.skill_directories.join("\n"));
   const [skills, setSkills] = useState<SkillInfo[]>([]);
@@ -231,13 +230,6 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
       <div className="agent-settings">
         <nav aria-label="Agent 设置分类" className="settings-tabs">
           <button
-            className={tab === "execution" ? "is-active" : ""}
-            onClick={() => setTab("execution")}
-            type="button"
-          >
-            <ShieldCheck size={14} /> 执行权限
-          </button>
-          <button
             className={tab === "skills" ? "is-active" : ""}
             onClick={() => setTab("skills")}
             type="button"
@@ -260,53 +252,6 @@ export function AgentSettings({ settings, onClose, onSaved }: AgentSettingsProps
             官方 ACP · 原生 DeepSeek Provider · Session · Goal · Compaction · Skill · MCP
           </small>
         </div>
-
-        {tab === "execution" ? (
-          <section className="settings-pane">
-            <div className="setting-row setting-row-stack">
-              <div>
-                <strong>工具执行权限</strong>
-                <small>只读禁止变更；用户确认逐次询问；完全授权在硬拒绝规则之外不再弹窗。</small>
-              </div>
-              <fieldset aria-label="工具执行权限" className="segmented">
-                <button
-                  className={draft.permission_mode === "read_only" ? "is-active" : ""}
-                  onClick={() =>
-                    setDraft((current) => ({ ...current, permission_mode: "read_only" }))
-                  }
-                  type="button"
-                >
-                  只读
-                </button>
-                <button
-                  className={draft.permission_mode === "confirm" ? "is-active" : ""}
-                  onClick={() =>
-                    setDraft((current) => ({ ...current, permission_mode: "confirm" }))
-                  }
-                  type="button"
-                >
-                  用户确认
-                </button>
-                <button
-                  className={draft.permission_mode === "full_access" ? "is-active" : ""}
-                  onClick={() =>
-                    setDraft((current) => ({ ...current, permission_mode: "full_access" }))
-                  }
-                  type="button"
-                >
-                  完全授权
-                </button>
-              </fieldset>
-            </div>
-            <div className="permission-note">
-              <ShieldCheck size={15} />
-              <span>
-                Agent Loop、Goal、上下文压缩和本地工具由 DeepSeek Harness 管理；SSH、CLI、SFTP 与多
-                SSH 协同由 myterm Host MCP 提供。
-              </span>
-            </div>
-          </section>
-        ) : null}
 
         {tab === "skills" ? (
           <section className="settings-pane">

@@ -124,7 +124,7 @@ function parseDemoQuickCommands(fileName: string, bytes: number[]): ParsedQuickC
 }
 
 const DEFAULT_AGENT_SETTINGS: AgentSettings = {
-  permission_mode: "confirm",
+  harness_access_preset: "workspace-write",
   skill_directories: [],
   enabled_skills: [],
   mcp_servers: [],
@@ -285,20 +285,16 @@ function writeStored(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function normalizeAgentSettings(settings: AgentSettings): AgentSettings {
-  if ((settings.permission_mode as string) === "task_grant") {
-    return { ...settings, permission_mode: "full_access" };
-  }
-  return settings;
+function readStoredAgentSettings(): AgentSettings {
+  const settings = readStored<Partial<AgentSettings> | null>("myterm.demo.agent-settings", null);
+  return settings?.harness_access_preset ? (settings as AgentSettings) : DEFAULT_AGENT_SETTINGS;
 }
 
 class DemoBackend {
   private profiles = readStored("myterm.demo.profiles", DEFAULT_PROFILES);
   private commands = readStored("myterm.demo.commands", DEFAULT_COMMANDS);
   private aiProfiles = readStored("myterm.demo.ai-profiles", DEFAULT_AI_PROFILES);
-  private agentSettings = normalizeAgentSettings(
-    readStored("myterm.demo.agent-settings", DEFAULT_AGENT_SETTINGS),
-  );
+  private agentSettings = readStoredAgentSettings();
   private theme = readStored<AppTheme>("myterm.demo.theme", "dark");
   private fontScale = readStored<AppFontScale>("myterm.demo.font-scale", "standard");
   private terminalFontSize = readStored<number>("myterm.demo.terminal-font-size", 13);
@@ -868,7 +864,7 @@ class DemoBackend {
       arguments: toolArguments,
     });
     const requiresApproval = !["mcp_status", "session_info"].includes(toolName);
-    if (this.agentSettings.permission_mode === "confirm" && requiresApproval) {
+    if (this.agentSettings.harness_access_preset !== "danger-full-access" && requiresApproval) {
       emit({
         eventType: "approval_required",
         runId,

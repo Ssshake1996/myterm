@@ -15,7 +15,7 @@ use myterm_lib::{
     },
     sftp::service::{NullTransferSink, SftpService, TransferEventSink},
     types::{
-        AgentEvent, AgentPermissionMode, AiProfile, AuthMethod, McpServerConfig, McpTransportKind,
+        AgentEvent, AiProfile, AuthMethod, HarnessAccessPreset, McpServerConfig, McpTransportKind,
         SessionProfile, SessionTarget, TransferProgress, TransferState,
     },
     AppError, SecretResolver,
@@ -497,17 +497,12 @@ async fn verify_agent() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn verify_harness() -> Result<(), Box<dyn std::error::Error>> {
-    let source = default_config_path(false)?;
-    let temporary_root =
-        std::env::temp_dir().join(format!("myterm-harness-live-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&temporary_root)?;
-    let temporary_config = temporary_root.join("config.json");
-    std::fs::copy(&source, &temporary_config)?;
+    let (temporary_root, temporary_config) = isolated_current_config("myterm-harness-live")?;
 
     let result = async {
         let config = Arc::new(ConfigService::open(temporary_config)?);
         let mut settings = config.agent_settings()?;
-        settings.permission_mode = AgentPermissionMode::ReadOnly;
+        settings.harness_access_preset = HarnessAccessPreset::WorkspaceWrite;
         config.agent_settings_save(settings)?;
         let ai_profile = config
             .ai_profile_list()?
@@ -584,6 +579,22 @@ async fn verify_harness() -> Result<(), Box<dyn std::error::Error>> {
     cleanup
 }
 
+fn isolated_current_config(
+    prefix: &str,
+) -> Result<(std::path::PathBuf, std::path::PathBuf), Box<dyn std::error::Error>> {
+    let source = default_config_path(false)?;
+    let temporary_root = std::env::temp_dir().join(format!("{prefix}-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&temporary_root)?;
+    let temporary_config = temporary_root.join("config.json");
+    let mut raw_config: serde_json::Value = serde_json::from_slice(&std::fs::read(&source)?)?;
+    // Live diagnostics must never migrate or rewrite the user's real config.
+    // Mark the isolated copy as current so a pre-native profile can still be
+    // exercised against the native Harness transport during upgrade debugging.
+    raw_config["version"] = serde_json::json!(6);
+    std::fs::write(&temporary_config, serde_json::to_vec_pretty(&raw_config)?)?;
+    Ok((temporary_root, temporary_config))
+}
+
 #[derive(Default)]
 struct StreamProbe {
     network_chunks: usize,
@@ -599,7 +610,17 @@ struct StreamProbe {
 }
 
 async fn verify_ai_protocol() -> Result<(), Box<dyn std::error::Error>> {
-    let config = Arc::new(ConfigService::open(default_config_path(false)?)?);
+    let (temporary_root, temporary_config) = isolated_current_config("myterm-ai-protocol")?;
+    let result = verify_ai_protocol_with_config(temporary_config).await;
+    let cleanup = remove_temporary_directory(&temporary_root).await;
+    result?;
+    cleanup
+}
+
+async fn verify_ai_protocol_with_config(
+    config_path: std::path::PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = Arc::new(ConfigService::open(config_path)?);
     let owner = config
         .ai_profile_list()?
         .into_iter()
@@ -852,7 +873,7 @@ async fn verify_agent_with_config(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = Arc::new(ConfigService::open(config_path)?);
     let mut settings = config.agent_settings()?;
-    settings.permission_mode = AgentPermissionMode::ReadOnly;
+    settings.harness_access_preset = HarnessAccessPreset::WorkspaceWrite;
     config.agent_settings_save(settings)?;
     let profile = find_profile(&config)?;
     let ai_profile = config

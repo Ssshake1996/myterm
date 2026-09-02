@@ -5,7 +5,6 @@ pub mod harness;
 pub mod hooks;
 pub mod host_mcp;
 pub mod mcp;
-pub mod policy;
 pub mod protocol;
 pub mod service;
 pub mod skills;

@@ -4,7 +4,7 @@ use std::{
     sync::Mutex,
 };
 
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Transaction};
 
 use super::domain::{
     now_ms, AgentConversation, AgentEvidence, AgentGoal, AgentGoalStatus, AgentInputMode,
@@ -15,7 +15,7 @@ use crate::{
     AppError,
 };
 
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 pub struct AgentStore {
     path: PathBuf,
@@ -454,7 +454,7 @@ impl AgentStore {
         self.with_connection(|connection| {
             let mut statement = connection.prepare(
                 "SELECT id, conversation_id, goal_id, turn_index, continuation_index,
-                        profile_id, session_id, prompt, state, permission_mode, created_at_ms,
+                        profile_id, session_id, prompt, state, created_at_ms,
                         updated_at_ms, finish_reason, steps, error_code, error_message
                  FROM agent_tasks WHERE conversation_id = ?1
                  ORDER BY turn_index ASC, created_at_ms ASC",
@@ -514,9 +514,9 @@ impl AgentStore {
             connection.execute(
                 "INSERT INTO agent_tasks (
                     id, conversation_id, goal_id, turn_index, continuation_index, profile_id,
-                    session_id, prompt, state, permission_mode, created_at_ms, updated_at_ms, finish_reason, steps,
+                    session_id, prompt, state, created_at_ms, updated_at_ms, finish_reason, steps,
                     error_code, error_message, next_sequence
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 1)",
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 1)",
                 params![
                     task.id,
                     task.conversation_id,
@@ -527,7 +527,6 @@ impl AgentStore {
                     task.session_id,
                     task.prompt,
                     task.state.as_str(),
-                    serde_json::to_string(&task.permission_mode)?,
                     task.created_at_ms,
                     task.updated_at_ms,
                     task.finish_reason,
@@ -674,7 +673,7 @@ impl AgentStore {
             connection
                 .query_row(
                     "SELECT id, conversation_id, goal_id, turn_index, continuation_index,
-                            profile_id, session_id, prompt, state, permission_mode, created_at_ms,
+                            profile_id, session_id, prompt, state, created_at_ms,
                             updated_at_ms, finish_reason, steps, error_code, error_message
                      FROM agent_tasks WHERE id = ?1",
                     [task_id],
@@ -689,7 +688,7 @@ impl AgentStore {
         self.with_connection(|connection| {
             let mut statement = connection.prepare(
                 "SELECT id, conversation_id, goal_id, turn_index, continuation_index,
-                        profile_id, session_id, prompt, state, permission_mode, created_at_ms,
+                        profile_id, session_id, prompt, state, created_at_ms,
                         updated_at_ms, finish_reason, steps, error_code, error_message
                  FROM agent_tasks ORDER BY created_at_ms DESC LIMIT ?1",
             )?;
@@ -986,6 +985,7 @@ fn open_and_migrate(path: &Path) -> Result<Connection, AppError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
+    reset_incompatible_database(path)?;
     let mut connection = Connection::open(path)?;
     connection.pragma_update(None, "foreign_keys", "ON")?;
     connection.pragma_update(None, "journal_mode", "WAL")?;
@@ -993,12 +993,51 @@ fn open_and_migrate(path: &Path) -> Result<Connection, AppError> {
     connection.busy_timeout(std::time::Duration::from_secs(5))?;
 
     let transaction = connection.transaction()?;
-    migrate(&transaction)?;
+    initialize_schema(&transaction)?;
     transaction.commit()?;
     Ok(connection)
 }
 
-fn migrate(transaction: &Transaction<'_>) -> Result<(), AppError> {
+fn reset_incompatible_database(path: &Path) -> Result<(), AppError> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let current_version = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .and_then(|connection| {
+            connection
+                .query_row(
+                    "SELECT value FROM schema_meta WHERE key = 'schema_version'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+        });
+    if matches!(current_version, Ok(Some(version)) if version == SCHEMA_VERSION) {
+        return Ok(());
+    }
+
+    tracing::warn!(
+        event = "agent_database_reset",
+        path = %path.display(),
+        found_schema = ?current_version.as_ref().ok().and_then(|value| value.as_ref()),
+        expected_schema = SCHEMA_VERSION,
+        error = current_version.as_ref().err().map(ToString::to_string),
+        "removing incompatible development-stage Agent database"
+    );
+    for suffix in ["", "-wal", "-shm"] {
+        let mut value = path.as_os_str().to_os_string();
+        value.push(suffix);
+        let candidate = PathBuf::from(value);
+        if let Err(error) = fs::remove_file(&candidate) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                return Err(AppError::Io(error));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn initialize_schema(transaction: &Transaction<'_>) -> Result<(), AppError> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_meta (
             key TEXT PRIMARY KEY,
@@ -1035,7 +1074,7 @@ fn migrate(transaction: &Transaction<'_>) -> Result<(), AppError> {
             ON agent_goals(conversation_id, created_at_ms DESC);
          CREATE TABLE IF NOT EXISTS agent_tasks (
             id TEXT PRIMARY KEY,
-            conversation_id TEXT,
+            conversation_id TEXT NOT NULL,
             goal_id TEXT,
             turn_index INTEGER NOT NULL DEFAULT 1,
             continuation_index INTEGER NOT NULL DEFAULT 0,
@@ -1043,7 +1082,6 @@ fn migrate(transaction: &Transaction<'_>) -> Result<(), AppError> {
             session_id TEXT,
             prompt TEXT NOT NULL,
             state TEXT NOT NULL,
-            permission_mode TEXT NOT NULL,
             created_at_ms INTEGER NOT NULL,
             updated_at_ms INTEGER NOT NULL,
             finish_reason TEXT,
@@ -1051,10 +1089,16 @@ fn migrate(transaction: &Transaction<'_>) -> Result<(), AppError> {
             error_code TEXT,
             error_message TEXT,
             next_sequence INTEGER NOT NULL DEFAULT 1,
-            cancel_requested INTEGER NOT NULL DEFAULT 0
-         );
-         CREATE INDEX IF NOT EXISTS agent_tasks_created_idx
-            ON agent_tasks(created_at_ms DESC);
+            cancel_requested INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE,
+            FOREIGN KEY(goal_id) REFERENCES agent_goals(id) ON DELETE SET NULL
+          );
+          CREATE INDEX IF NOT EXISTS agent_tasks_created_idx
+             ON agent_tasks(created_at_ms DESC);
+          CREATE INDEX IF NOT EXISTS agent_tasks_conversation_idx
+             ON agent_tasks(conversation_id, turn_index, created_at_ms);
+          CREATE INDEX IF NOT EXISTS agent_tasks_goal_idx
+             ON agent_tasks(goal_id, continuation_index, created_at_ms);
          CREATE TABLE IF NOT EXISTS agent_queued_inputs (
             id TEXT PRIMARY KEY,
             conversation_id TEXT NOT NULL,
@@ -1135,119 +1179,9 @@ fn migrate(transaction: &Transaction<'_>) -> Result<(), AppError> {
             completed_at_ms INTEGER,
             artifact_path TEXT,
             FOREIGN KEY(task_id) REFERENCES agent_tasks(id) ON DELETE CASCADE
-         );",
-    )?;
-    transaction.execute("DROP TABLE IF EXISTS api_idempotency_keys", [])?;
-    let has_cancel_column: i64 = transaction.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('agent_tasks') WHERE name = 'cancel_requested'",
-        [],
-        |row| row.get(0),
-    )?;
-    if has_cancel_column == 0 {
-        transaction.execute(
-            "ALTER TABLE agent_tasks ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0",
-            [],
-        )?;
-    }
-    let has_conversation_column: i64 = transaction.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('agent_tasks') WHERE name = 'conversation_id'",
-        [],
-        |row| row.get(0),
-    )?;
-    if has_conversation_column == 0 {
-        transaction.execute(
-            "ALTER TABLE agent_tasks ADD COLUMN conversation_id TEXT",
-            [],
-        )?;
-    }
-    let has_turn_index_column: i64 = transaction.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('agent_tasks') WHERE name = 'turn_index'",
-        [],
-        |row| row.get(0),
-    )?;
-    if has_turn_index_column == 0 {
-        transaction.execute(
-            "ALTER TABLE agent_tasks ADD COLUMN turn_index INTEGER NOT NULL DEFAULT 1",
-            [],
-        )?;
-    }
-
-    let has_goal_id_column: i64 = transaction.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('agent_tasks') WHERE name = 'goal_id'",
-        [],
-        |row| row.get(0),
-    )?;
-    if has_goal_id_column == 0 {
-        transaction.execute("ALTER TABLE agent_tasks ADD COLUMN goal_id TEXT", [])?;
-    }
-    let has_continuation_index_column: i64 = transaction.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('agent_tasks') WHERE name = 'continuation_index'",
-        [],
-        |row| row.get(0),
-    )?;
-    if has_continuation_index_column == 0 {
-        transaction.execute(
-            "ALTER TABLE agent_tasks ADD COLUMN continuation_index INTEGER NOT NULL DEFAULT 0",
-            [],
-        )?;
-    }
-    let has_job_goal_column: i64 = transaction.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('execution_jobs') WHERE name = 'goal_id'",
-        [],
-        |row| row.get(0),
-    )?;
-    if has_job_goal_column == 0 {
-        transaction.execute("ALTER TABLE execution_jobs ADD COLUMN goal_id TEXT", [])?;
-    }
-    let has_job_conversation_column: i64 = transaction.query_row(
-        "SELECT COUNT(*) FROM pragma_table_info('execution_jobs') WHERE name = 'conversation_id'",
-        [],
-        |row| row.get(0),
-    )?;
-    if has_job_conversation_column == 0 {
-        transaction.execute(
-            "ALTER TABLE execution_jobs ADD COLUMN conversation_id TEXT",
-            [],
-        )?;
-    }
-    transaction.execute(
-        "INSERT OR IGNORE INTO agent_conversations(
-            id, title, profile_id, created_at_ms, updated_at_ms
-         )
-         SELECT id,
-                CASE WHEN length(trim(prompt)) > 48
-                     THEN substr(trim(prompt), 1, 48) || '…'
-                     WHEN length(trim(prompt)) = 0 THEN '历史任务'
-                     ELSE trim(prompt) END,
-                profile_id, created_at_ms, updated_at_ms
-         FROM agent_tasks",
-        [],
-    )?;
-    transaction.execute(
-        "UPDATE agent_tasks SET conversation_id = id
-         WHERE conversation_id IS NULL OR trim(conversation_id) = ''",
-        [],
-    )?;
-    transaction.execute(
-        "CREATE INDEX IF NOT EXISTS agent_tasks_conversation_idx
-         ON agent_tasks(conversation_id, turn_index, created_at_ms)",
-        [],
-    )?;
-    transaction.execute(
-        "CREATE INDEX IF NOT EXISTS agent_tasks_goal_idx
-         ON agent_tasks(goal_id, continuation_index, created_at_ms)",
-        [],
-    )?;
-    transaction.execute(
-        "UPDATE execution_jobs SET
-            goal_id = COALESCE(goal_id, (SELECT goal_id FROM agent_tasks WHERE id = task_id)),
-            conversation_id = COALESCE(conversation_id, (SELECT conversation_id FROM agent_tasks WHERE id = task_id))",
-        [],
-    )?;
-    transaction.execute(
-        "CREATE INDEX IF NOT EXISTS execution_jobs_goal_idx
-         ON execution_jobs(goal_id, state, started_at_ms)",
-        [],
+          );
+          CREATE INDEX IF NOT EXISTS execution_jobs_goal_idx
+             ON execution_jobs(goal_id, state, started_at_ms);",
     )?;
     transaction.execute(
         "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?1)
@@ -1316,7 +1250,6 @@ fn recover_interrupted_tasks(
 
 fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentTask> {
     let state: String = row.get(8)?;
-    let permission: String = row.get(9)?;
     let state = AgentTaskState::try_from(state.as_str()).map_err(|message| {
         rusqlite::Error::FromSqlConversionFailure(
             8,
@@ -1326,9 +1259,6 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentTask> {
                 message,
             )),
         )
-    })?;
-    let permission_mode = serde_json::from_str(&permission).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Text, Box::new(error))
     })?;
     Ok(AgentTask {
         id: row.get(0)?,
@@ -1340,13 +1270,12 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentTask> {
         session_id: row.get(6)?,
         prompt: row.get(7)?,
         state,
-        permission_mode,
-        created_at_ms: row.get(10)?,
-        updated_at_ms: row.get(11)?,
-        finish_reason: row.get(12)?,
-        steps: row.get(13)?,
-        error_code: row.get(14)?,
-        error_message: row.get(15)?,
+        created_at_ms: row.get(9)?,
+        updated_at_ms: row.get(10)?,
+        finish_reason: row.get(11)?,
+        steps: row.get(12)?,
+        error_code: row.get(13)?,
+        error_message: row.get(14)?,
     })
 }
 
@@ -1457,7 +1386,7 @@ mod tests {
             now_ms, AgentEvidence, AgentGoalStatus, AgentInputMode, AgentTask, AgentTaskState,
             ExecutionJob,
         },
-        types::{AgentEvent, AgentPermissionMode},
+        types::AgentEvent,
     };
     use rusqlite::Connection;
 
@@ -1472,7 +1401,6 @@ mod tests {
             session_id: Some("ssh".to_owned()),
             prompt: "inspect host".to_owned(),
             state: AgentTaskState::Queued,
-            permission_mode: AgentPermissionMode::Confirm,
             created_at_ms: now_ms(),
             updated_at_ms: now_ms(),
             finish_reason: None,
@@ -1480,6 +1408,14 @@ mod tests {
             error_code: None,
             error_message: None,
         }
+    }
+
+    fn create_task_with_conversation(
+        store: &AgentStore,
+        task: &AgentTask,
+    ) -> Result<(), crate::AppError> {
+        store.create_conversation(&task.conversation_id, &task.profile_id, &task.prompt)?;
+        store.create_task(task)
     }
 
     #[test]
@@ -1502,7 +1438,7 @@ mod tests {
 
         let store = AgentStore::new(database_path);
         let task = task("task-job");
-        store.create_task(&task)?;
+        create_task_with_conversation(&store, &task)?;
         store.job_started(&ExecutionJob {
             id: "job-1".to_owned(),
             task_id: task.id.clone(),
@@ -1538,7 +1474,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_tasks_are_migrated_to_single_turn_conversations(
+    fn incompatible_agent_database_is_recreated_without_legacy_tasks(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let root = std::env::temp_dir().join(format!(
             "myterm-conversation-migrate-{}",
@@ -1573,12 +1509,17 @@ mod tests {
 
         let store = AgentStore::new(database_path);
         let conversations = store.conversations(10)?;
-        assert_eq!(conversations.len(), 1);
-        assert_eq!(conversations[0].id, "legacy-task");
-        let tasks = store.conversation_tasks("legacy-task")?;
-        assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0].conversation_id, "legacy-task");
-        assert_eq!(tasks[0].turn_index, 1);
+        assert!(conversations.is_empty());
+        let permission_columns = store.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('agent_tasks') WHERE name = 'permission_mode'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(Into::into)
+        })?;
+        assert_eq!(permission_columns, 0);
         drop(store);
         std::fs::remove_dir_all(root)?;
         Ok(())
@@ -1611,7 +1552,7 @@ mod tests {
         let path = root.join("agent.db");
         let store = AgentStore::new(path.clone());
         assert!(!path.exists());
-        store.create_task(&task("task-1"))?;
+        create_task_with_conversation(&store, &task("task-1"))?;
         for _ in 0..10_000 {
             store.append_event(event("task-1"))?;
         }
@@ -1638,7 +1579,7 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("myterm-agent-state-{}", uuid::Uuid::new_v4()));
         let store = AgentStore::new(root.join("agent.db"));
-        store.create_task(&task("task-1"))?;
+        create_task_with_conversation(&store, &task("task-1"))?;
         store.transition_task("task-1", AgentTaskState::Running, None, 0, None)?;
         store.transition_task("task-1", AgentTaskState::Succeeded, Some("stop"), 1, None)?;
         assert!(store

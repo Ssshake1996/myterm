@@ -253,9 +253,9 @@ pub enum AiModelRole {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AiReasoningEffort {
+    #[default]
     Off,
     Low,
-    #[default]
     High,
     Max,
 }
@@ -321,13 +321,20 @@ impl AiProfile {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentPermissionMode {
-    ReadOnly,
+#[serde(rename_all = "kebab-case")]
+pub enum HarnessAccessPreset {
     #[default]
-    Confirm,
-    #[serde(alias = "task_grant")]
-    FullAccess,
+    WorkspaceWrite,
+    DangerFullAccess,
+}
+
+impl HarnessAccessPreset {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WorkspaceWrite => "workspace-write",
+            Self::DangerFullAccess => "danger-full-access",
+        }
+    }
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -377,7 +384,7 @@ pub struct AgentSettings {
     #[serde(skip)]
     pub enabled_plugins: Vec<String>,
     #[serde(default)]
-    pub permission_mode: AgentPermissionMode,
+    pub harness_access_preset: HarnessAccessPreset,
     #[serde(default)]
     pub skill_directories: Vec<String>,
     #[serde(default)]
@@ -410,7 +417,7 @@ impl Default for AgentSettings {
             profile: default_agent_profile(),
             bundles: Vec::new(),
             enabled_plugins: Vec::new(),
-            permission_mode: AgentPermissionMode::Confirm,
+            harness_access_preset: HarnessAccessPreset::WorkspaceWrite,
             skill_directories: Vec::new(),
             enabled_skills: Vec::new(),
             mcp_servers: Vec::new(),

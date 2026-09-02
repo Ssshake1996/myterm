@@ -540,6 +540,9 @@ impl McpConnectionManager {
             for server in servers {
                 let transport = transport_label(&server.transport).to_owned();
                 if !server.enabled {
+                    if let Some(entry) = entries.remove(&server.id) {
+                        close_after_unlock.push(entry.provider);
+                    }
                     diagnostics.push(McpServerDiagnostic {
                         server_id: server.id.clone(),
                         server_name: server.name.clone(),
@@ -890,7 +893,12 @@ fn sanitize(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{custom_headers, discovery_failure_status, tool_name, validate_schema};
+    use std::{sync::Arc, time::Instant};
+
+    use super::{
+        custom_headers, discovery_failure_status, server_fingerprint, tool_name, validate_schema,
+        McpCapabilityProvider, McpConnectionManager, PoolEntry,
+    };
     use crate::types::{McpHeader, McpServerConfig, McpTransportKind};
     use serde_json::json;
 
@@ -987,6 +995,39 @@ mod tests {
         };
         let error = custom_headers(&server).expect_err("invalid header should fail");
         assert!(error.detail().contains("invalid HTTP header name"));
+    }
+
+    #[tokio::test]
+    async fn disabling_a_server_evicts_its_existing_provider_without_reconnecting() {
+        let manager = McpConnectionManager::default();
+        let mut server = McpServerConfig {
+            id: "server".to_owned(),
+            name: "HTTP MCP".to_owned(),
+            transport: McpTransportKind::StreamableHttp,
+            command: String::new(),
+            args: Vec::new(),
+            cwd: None,
+            url: Some("https://mcp.example.test/mcp".to_owned()),
+            headers: Vec::new(),
+            enabled: true,
+        };
+        manager.entries.lock().await.insert(
+            server.id.clone(),
+            PoolEntry {
+                fingerprint: server_fingerprint(&server),
+                provider: Arc::new(McpCapabilityProvider::new(server.clone())),
+                last_used: Instant::now(),
+            },
+        );
+        server.enabled = false;
+
+        let prepared = manager.prepare(&[server]).await;
+
+        assert!(manager.entries.lock().await.is_empty());
+        assert!(prepared.providers.is_empty());
+        assert!(prepared.capabilities.is_empty());
+        assert_eq!(prepared.diagnostics[0].status, "disabled");
+        assert!(prepared.diagnostics[0].error_code.is_none());
     }
 
     #[test]

@@ -26,7 +26,7 @@ pub const DEFAULT_AGENT_SYSTEM_PROMPT: &str = r#"You are the myterm operations A
 - When a command is known, send one complete command with its exact whitespace. For interactive product CLIs, pass the full intended command to cli_execute; myterm safely sends only the suffix missing from the visible input. Batch independent known commands with cli_execute_batch. Use terminal_context only when terminal state matters, not as a mandatory pre-step.
 - When a vendor CLI command is uncertain, query the configured MCP capabilities, parse their structured or text result, synthesize the complete command, and then execute it. Do not guess commands or split one decision into many tiny model requests.
 - Preserve exact stdout, stderr, exit codes, provider errors, timeouts, and stack details. Do not claim success without tool evidence.
-- Follow the selected permission mode. Read-only cannot change state; user-confirm asks through myterm; full access still obeys hard-deny rules.
+- Tool access, approval prompts, and execution boundaries are owned by DeepSeek Harness. Follow the active Harness access preset and its approval result; do not invent or apply a second myterm permission policy.
 - Treat every normal request as potentially long-running. Use Harness goals, checkpoints, compaction, retry, and resumable sessions as needed; users do not need to select a long-task mode or use /goal.
 - Ask concise clarification questions only when a material decision cannot be discovered safely. Reply in the user's language."#;
 pub const CONFIG_SCHEMA_VERSION: u32 = 6;
@@ -95,7 +95,7 @@ pub struct ConfigService {
 
 impl ConfigService {
     pub fn open(path: PathBuf) -> Result<Self, AppError> {
-        let legacy_agent_fields = legacy_agent_fields_present(&path);
+        let rewrite_agent_config = agent_config_requires_rewrite(&path);
         let mut value = load_config(&path)?;
         let config_missing = !path.exists();
         let migrated = migrate_config(&mut value);
@@ -105,7 +105,7 @@ impl ConfigService {
             .settings
             .remove(REMOVED_REST_TOKEN_SETTING_KEY)
             .is_some();
-        if config_missing || migrated || removed_legacy_rest || legacy_agent_fields {
+        if config_missing || migrated || removed_legacy_rest || rewrite_agent_config {
             write_atomic(&path, &value)?;
         }
         Ok(Self {
@@ -494,7 +494,7 @@ fn load_config(path: &Path) -> Result<AppConfig, AppError> {
     }
 }
 
-fn legacy_agent_fields_present(path: &Path) -> bool {
+fn agent_config_requires_rewrite(path: &Path) -> bool {
     let Ok(source) = fs::read(path) else {
         return false;
     };
@@ -504,9 +504,16 @@ fn legacy_agent_fields_present(path: &Path) -> bool {
     let Some(agent) = value.get("agent").and_then(Value::as_object) else {
         return false;
     };
-    ["profile", "bundles", "enabled_plugins", "max_steps"]
-        .iter()
-        .any(|key| agent.contains_key(*key))
+    const CURRENT_FIELDS: &[&str] = &[
+        "harness_access_preset",
+        "skill_directories",
+        "enabled_skills",
+        "mcp_servers",
+        "hooks",
+    ];
+    agent
+        .keys()
+        .any(|key| !CURRENT_FIELDS.contains(&key.as_str()))
 }
 
 fn migrate_config(config: &mut AppConfig) -> bool {
@@ -919,6 +926,8 @@ mod tests {
         assert!(!agent.contains_key("bundles"));
         assert!(!agent.contains_key("enabled_plugins"));
         assert!(!agent.contains_key("max_steps"));
+        assert!(!agent.contains_key("permission_mode"));
+        assert_eq!(agent["harness_access_preset"], "workspace-write");
         assert_eq!(service.agent_settings()?.profile, "deepseek-harness");
         fs::remove_dir_all(root)?;
         Ok(())

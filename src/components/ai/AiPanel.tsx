@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
+  ChevronDown,
   CircleDot,
   Flag,
   History,
@@ -50,13 +51,14 @@ import {
 import { getActivePane, useLayoutStore } from "../../store/layout";
 import { useUiStore } from "../../store/ui";
 import { Icon } from "../shell/Icon";
+import { Modal } from "../shell/Modal";
 import { AgentSettings } from "./AgentSettings";
 import { AiSettings } from "./AiSettings";
 import { aiProfileModelLabel } from "./ai-profile";
 import { MarkdownContent } from "./MarkdownContent";
 
 const DEFAULT_AGENT_SETTINGS: AgentSettingsValue = {
-  permission_mode: "confirm",
+  harness_access_preset: "workspace-write",
   skill_directories: [],
   enabled_skills: [],
   mcp_servers: [],
@@ -76,14 +78,6 @@ function clampAgentComposerHeight(value: number, panel: HTMLElement | null) {
 }
 
 type ToolStatus = "requested" | "approval" | "running" | "success" | "error";
-
-interface PolicySummary {
-  action?: "allow" | "ask" | "deny";
-  effect?: "read" | "execute" | "write";
-  risk?: "low" | "medium" | "high" | "critical";
-  reason?: string;
-  resources?: string[];
-}
 
 type TraceEntry =
   | {
@@ -115,7 +109,6 @@ type TraceEntry =
       result?: string;
       stdout?: string;
       stderr?: string;
-      policy?: PolicySummary;
       step?: number;
       status: ToolStatus;
       jobId?: string;
@@ -189,17 +182,11 @@ function reduceAgentEvent(current: TraceEntry[], event: AgentEvent): TraceEntry[
       },
     ];
   }
-  if (event.eventType === "policy" && event.callId) {
-    return updateTool(current, event.callId, {
-      policy: asRecord(event.arguments) as PolicySummary,
-    });
-  }
   if (event.eventType === "approval_required" && event.callId) {
     const detail = asRecord(event.arguments);
     return updateTool(current, event.callId, {
       arguments: detail.toolArguments ?? event.arguments,
       target: targetLabel(detail.toolArguments ?? event.arguments),
-      policy: asRecord(detail.policy) as PolicySummary,
       status: "approval",
     });
   }
@@ -437,6 +424,9 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
   const [runningInputMode, setRunningInputMode] = useState<"steer" | "queue">("steer");
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
+  const [accessMenuOpen, setAccessMenuOpen] = useState(false);
+  const [fullAccessConfirmOpen, setFullAccessConfirmOpen] = useState(false);
+  const [fullAccessAcknowledged, setFullAccessAcknowledged] = useState(false);
   const [width, setWidth] = useState(372);
   const [composerHeight, setComposerHeight] = useState(MIN_AGENT_COMPOSER_HEIGHT);
   const [composerMaxHeight, setComposerMaxHeight] = useState(() => agentComposerMaxHeight(null));
@@ -795,15 +785,16 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
     }
   };
 
-  const changePermission = async (permissionMode: AgentSettingsValue["permission_mode"]) => {
+  const changeAccessPreset = async (accessPreset: AgentSettingsValue["harness_access_preset"]) => {
     const previous = agentSettings;
-    const next = { ...agentSettings, permission_mode: permissionMode };
+    const next = { ...agentSettings, harness_access_preset: accessPreset };
     setAgentSettings(next);
+    setAccessMenuOpen(false);
     try {
       setAgentSettings(await agentSettingsSave(next));
     } catch (error) {
       setAgentSettings(previous);
-      notify(errorMessage(error, "权限模式保存失败：未返回可读的错误信息"), "error");
+      notify(errorMessage(error, "Harness 访问模式保存失败：未返回可读的错误信息"), "error");
     }
   };
 
@@ -875,7 +866,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
           </span>
           <div>
             <strong>DeepSeek Harness Agent</strong>
-            <small>原生 DeepSeek Provider · ACP · 本地工具 + Host MCP</small>
+            <small>本地工具、远程终端与 MCP</small>
           </div>
         </div>
         <div className="ai-header-actions">
@@ -938,67 +929,7 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             </option>
           ))}
         </select>
-        <fieldset aria-label="权限模式" className="permission-switch">
-          <button
-            className={agentSettings.permission_mode === "read_only" ? "is-active" : ""}
-            disabled={running}
-            onClick={() => void changePermission("read_only")}
-            title="仅允许读取工具"
-            type="button"
-          >
-            只读
-          </button>
-          <button
-            className={agentSettings.permission_mode === "confirm" ? "is-active" : ""}
-            disabled={running}
-            onClick={() => void changePermission("confirm")}
-            title="每次工具调用前确认"
-            type="button"
-          >
-            用户确认
-          </button>
-          <button
-            className={agentSettings.permission_mode === "full_access" ? "is-active" : ""}
-            disabled={running}
-            onClick={() => void changePermission("full_access")}
-            title="硬拒绝规则之外不再确认"
-            type="button"
-          >
-            完全授权
-          </button>
-        </fieldset>
       </div>
-
-      <section className="harness-runtime-strip" aria-label="DeepSeek Harness 运行能力">
-        <span className={selectedConversationId ? "is-ready" : ""}>
-          <strong>Session</strong>
-          <small>{selectedConversationId ? "已绑定" : "待创建"}</small>
-        </span>
-        <span className={goal?.status === "active" ? "is-running" : goal ? "is-ready" : ""}>
-          <strong>Goal</strong>
-          <small>{goal ? GOAL_STATUS_LABELS[goal.status] : "自动"}</small>
-        </span>
-        <span className={goal?.lastCheckpoint ? "is-ready" : ""}>
-          <strong>Checkpoint</strong>
-          <small>{goal?.lastCheckpoint ? "可恢复" : "自动"}</small>
-        </span>
-        <span>
-          <strong>Compaction</strong>
-          <small>自适应</small>
-        </span>
-        <span className={agentSettings.enabled_skills.length ? "is-ready" : ""}>
-          <strong>Skill</strong>
-          <small>{agentSettings.enabled_skills.length} 启用</small>
-        </span>
-        <span
-          className={agentSettings.mcp_servers.some((server) => server.enabled) ? "is-ready" : ""}
-        >
-          <strong>Host MCP</strong>
-          <small>
-            {agentSettings.mcp_servers.filter((server) => server.enabled).length} 外部 · SSH 内置
-          </small>
-        </span>
-      </section>
 
       <div className="agent-history-toolbar">
         <button
@@ -1135,18 +1066,16 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
               <Bot size={17} />
             </span>
             <h3>把排查任务交给 DeepSeek Harness</h3>
-            <p>Session、Goal、Checkpoint、Compaction 与工具执行会在这里形成一条可追踪时间线。</p>
+            <p>模型决策、工具调用、审批、结果和最终答复会在这里形成可追踪时间线。</p>
             <div className="agent-capabilities">
               <span>
                 <Wrench size={11} /> 终端与文件工具
               </span>
               <span>
                 <ShieldCheck size={11} />{" "}
-                {agentSettings.permission_mode === "read_only"
-                  ? "只读"
-                  : agentSettings.permission_mode === "confirm"
-                    ? "用户确认"
-                    : "完全授权"}
+                {agentSettings.harness_access_preset === "danger-full-access"
+                  ? "Harness 完全访问"
+                  : "Harness 工作区访问"}
               </span>
             </div>
             <div className="prompt-suggestions">
@@ -1238,13 +1167,6 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
                 <summary>参数摘要</summary>
                 <pre>{formatArguments(entry.arguments)}</pre>
               </details>
-              {entry.policy ? (
-                <div className={`tool-policy risk-${entry.policy.risk ?? "high"}`}>
-                  <span>{entry.policy.action ?? "ask"}</span>
-                  <strong>{entry.policy.risk ?? "high"}</strong>
-                  <small>{entry.policy.reason}</small>
-                </div>
-              ) : null}
               {entry.jobId ? (
                 <div className="job-control">
                   <span>
@@ -1398,26 +1320,95 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
             rows={3}
             value={input}
           />
-          <button
-            aria-label={currentConversationRunning ? "追加要求" : "运行 Agent"}
-            className={currentConversationRunning ? "composer-send is-steer" : "composer-send"}
-            disabled={!input.trim()}
-            onClick={() => void send()}
-            type="button"
-          >
-            <Icon name="send" />
-          </button>
-          {currentConversationRunning ? (
-            <button
-              aria-label="停止 Agent"
-              className="composer-stop"
-              onClick={() => void agentAbort(selectedConversationId)}
-              title="停止当前回合"
-              type="button"
-            >
-              <Icon name="stop" />
-            </button>
-          ) : null}
+          <div className="agent-composer-footer">
+            <div className="harness-access-selector">
+              <button
+                aria-expanded={accessMenuOpen}
+                aria-haspopup="menu"
+                className={
+                  agentSettings.harness_access_preset === "danger-full-access"
+                    ? "harness-access-trigger is-danger"
+                    : "harness-access-trigger"
+                }
+                disabled={currentConversationRunning}
+                onClick={() => setAccessMenuOpen((open) => !open)}
+                title="由 DeepSeek Harness 执行访问控制"
+                type="button"
+              >
+                {agentSettings.harness_access_preset === "danger-full-access" ? (
+                  <AlertTriangle size={12} />
+                ) : (
+                  <ShieldCheck size={12} />
+                )}
+                <span>
+                  {agentSettings.harness_access_preset === "danger-full-access"
+                    ? "完全访问"
+                    : "工作区访问"}
+                </span>
+                <ChevronDown size={11} />
+              </button>
+              {accessMenuOpen ? (
+                <div aria-label="Harness 访问模式" className="harness-access-menu" role="menu">
+                  <button
+                    className={
+                      agentSettings.harness_access_preset === "workspace-write" ? "is-active" : ""
+                    }
+                    onClick={() => void changeAccessPreset("workspace-write")}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <ShieldCheck size={14} />
+                    <span>
+                      <strong>工作区访问</strong>
+                      <small>在 Harness 沙箱内操作，必要时请求批准</small>
+                    </span>
+                  </button>
+                  <button
+                    className={
+                      agentSettings.harness_access_preset === "danger-full-access"
+                        ? "is-active is-danger"
+                        : "is-danger"
+                    }
+                    onClick={() => {
+                      setAccessMenuOpen(false);
+                      setFullAccessAcknowledged(false);
+                      setFullAccessConfirmOpen(true);
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <AlertTriangle size={14} />
+                    <span>
+                      <strong>完全访问</strong>
+                      <small>Harness 不启用沙箱，也不逐次请求批准</small>
+                    </span>
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <div className="agent-composer-actions">
+              <button
+                aria-label={currentConversationRunning ? "追加要求" : "运行 Agent"}
+                className={currentConversationRunning ? "composer-send is-steer" : "composer-send"}
+                disabled={!input.trim()}
+                onClick={() => void send()}
+                type="button"
+              >
+                <Icon name="send" />
+              </button>
+              {currentConversationRunning ? (
+                <button
+                  aria-label="停止 Agent"
+                  className="composer-stop"
+                  onClick={() => void agentAbort(selectedConversationId)}
+                  title="停止当前回合"
+                  type="button"
+                >
+                  <Icon name="stop" />
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
       </div>
       {aiSettingsOpen ? (
@@ -1446,6 +1437,52 @@ export function AiPanel({ collapsed, onCollapsedChange }: AiPanelProps) {
           onSaved={setAgentSettings}
           settings={agentSettings}
         />
+      ) : null}
+      {fullAccessConfirmOpen ? (
+        <Modal
+          className="harness-access-confirm"
+          footer={
+            <>
+              <button
+                className="button button-ghost"
+                onClick={() => setFullAccessConfirmOpen(false)}
+                type="button"
+              >
+                取消
+              </button>
+              <button
+                className="button button-primary is-danger"
+                disabled={!fullAccessAcknowledged}
+                onClick={() => {
+                  setFullAccessConfirmOpen(false);
+                  void changeAccessPreset("danger-full-access");
+                }}
+                type="button"
+              >
+                启用完全访问
+              </button>
+            </>
+          }
+          onClose={() => setFullAccessConfirmOpen(false)}
+          size="small"
+          title="启用 Harness 完全访问？"
+        >
+          <div className="harness-access-warning">
+            <AlertTriangle size={20} />
+            <div>
+              <strong>DeepSeek Harness 将关闭沙箱和逐次批准。</strong>
+              <p>模型可直接调用本地、SSH、SFTP 和 MCP 工具。仅在你信任当前任务与其输入时启用。</p>
+            </div>
+          </div>
+          <label className="harness-access-acknowledge">
+            <input
+              checked={fullAccessAcknowledged}
+              onChange={(event) => setFullAccessAcknowledged(event.target.checked)}
+              type="checkbox"
+            />
+            我了解完全访问会允许 Harness 直接执行工具
+          </label>
+        </Modal>
       ) : null}
     </aside>
   );
