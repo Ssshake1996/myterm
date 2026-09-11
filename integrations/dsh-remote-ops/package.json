@@ -1,0 +1,26 @@
+{
+  "name": "@dsh/remote-ops",
+  "version": "0.13.0",
+  "private": false,
+  "type": "module",
+  "description": "DeepSeek Harness plugin for SSH environments, persistent terminals, SFTP and multi-target operations",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": ["@deepseek-ai/dsh-client-ui-sidebar-right", "@deepseek-ai/dsh-client-ui-session"],
+      "platform": "web"
+    }
+  },
+  "files": ["lib", "README.md", "README.zh-CN.md", "cordis.patch.yml", "package.json"],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/client.js && node test/smoke.mjs"
+  },
+  "dependencies": {
+    "ssh2": "1.17.0"
+  }
+}

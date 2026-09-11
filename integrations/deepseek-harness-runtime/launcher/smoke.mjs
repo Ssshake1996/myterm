@@ -1,6 +1,5 @@
 import { execFile, spawn } from "node:child_process";
 import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,21 +9,7 @@ const homes = await Promise.all([
   mkdtemp(join(tmpdir(), "myterm-dsh-web-smoke-a-")),
   mkdtemp(join(tmpdir(), "myterm-dsh-web-smoke-b-")),
 ]);
-const bridge = createServer((_request, response) => {
-  response.writeHead(200, { "content-type": "application/json" });
-  response.end(JSON.stringify({ ok: true, value: {} }));
-});
-await new Promise((resolve, reject) => {
-  bridge.once("error", reject);
-  bridge.listen(0, "127.0.0.1", resolve);
-});
-const address = bridge.address();
-if (!address || typeof address === "string") throw new Error("unable to start smoke bridge");
-
 async function start(home, label) {
-  const homeBridge = join(home, "node_modules", "@myterm", "dsh-bridge");
-  await mkdir(join(home, "node_modules", "@myterm"), { recursive: true });
-  await cp(join(root, "bridge"), homeBridge, { recursive: true });
   const child = spawn(
     process.execPath,
     [
@@ -41,8 +26,6 @@ async function start(home, label) {
         ...process.env,
         DSH_HOME: home,
         DSH_TELEMETRY_DISABLED: "1",
-        MYTERM_DSH_BRIDGE_URL: `http://127.0.0.1:${address.port}`,
-        MYTERM_DSH_BRIDGE_BEARER: `smoke-${label}`,
       },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -103,6 +86,7 @@ try {
       child.kill("SIGTERM");
     }
   }
-  await new Promise((resolve) => bridge.close(resolve));
-  await Promise.all(homes.map((home) => rm(home, { recursive: true, force: true })));
+  await Promise.all(homes.map((home) => rm(home, { recursive: true, force: true }).catch((error) => {
+    if (error?.code !== "EBUSY" && error?.code !== "EPERM") throw error;
+  })));
 }

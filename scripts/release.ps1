@@ -56,6 +56,7 @@ function Update-VersionFiles {
   Replace-Required (Join-Path $projectRoot "README.md") '\d+\.\d+\.\d+' $Version
   Replace-Required (Join-Path $projectRoot "README.en.md") 'Current version: `[^`]+`' ('Current version: `{0}`' -f $Version)
   Replace-Required (Join-Path $projectRoot "docs\user-guide.zh-CN.md") '\d+\.\d+\.\d+' $Version
+  Replace-Required (Join-Path $projectRoot "integrations\dsh-remote-ops\package.json") '"version"\s*:\s*"[^"]+"' ('"version": "{0}"' -f $Version)
 }
 
 function Get-GitHubToken {
@@ -103,6 +104,7 @@ Invoke-Step "Frontend tests (single thread)" 'npm test -- --pool=threads --poolO
 Invoke-Step "Frontend lint" 'npm run lint' $projectRoot
 Invoke-Step "Frontend build" 'npm run build' $projectRoot
 Invoke-Step "DeepSeek Harness ACP and profile gate" 'npm run test:harness-runtime' $projectRoot
+Invoke-Step "dsh-remote-ops plugin check" 'npm run check:remote-ops' $projectRoot
 Invoke-Step "Rust format" 'cargo fmt --all -- --check' (Join-Path $projectRoot "src-tauri")
 Invoke-Step "Rust type check" 'cargo check -j 1' (Join-Path $projectRoot "src-tauri")
 
@@ -113,6 +115,29 @@ if ($RunRustTests) {
 $env:CARGO_BUILD_JOBS = "1"
 Invoke-Step "Windows Release build" 'npm run build:release' $projectRoot
 Invoke-Step "Distribution audit" 'npm run check:dist' $projectRoot
+
+$pluginSource = Join-Path $projectRoot "integrations\dsh-remote-ops"
+$pluginPackRoot = Join-Path $projectRoot "dist-release"
+if (-not (Test-Path -LiteralPath $pluginPackRoot -PathType Container)) {
+  New-Item -ItemType Directory -Path $pluginPackRoot | Out-Null
+}
+Push-Location $pluginSource
+try {
+  $packedName = (& npm pack --silent --pack-destination $pluginPackRoot).Trim()
+  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($packedName)) {
+    throw "dsh-remote-ops npm pack failed with exit code $LASTEXITCODE"
+  }
+} finally {
+  Pop-Location
+}
+$pluginPackedPath = Join-Path $pluginPackRoot $packedName
+$pluginArtifact = Join-Path $pluginPackRoot "dsh-remote-ops-v${Version}.tgz"
+if (-not (Test-Path -LiteralPath $pluginPackedPath -PathType Leaf)) {
+  throw "dsh-remote-ops package was not created: $pluginPackedPath"
+}
+if (-not $pluginPackedPath.Equals($pluginArtifact, [System.StringComparison]::OrdinalIgnoreCase)) {
+  Copy-Item -LiteralPath $pluginPackedPath -Destination $pluginArtifact -Force
+}
 
 if (-not $SkipMemoryCheck) {
   $exe = (Resolve-Path -LiteralPath (Join-Path $projectRoot "src-tauri\target\release\myterm.exe")).Path
@@ -149,13 +174,13 @@ if (-not $SkipMemoryCheck) {
 
 $installer = Join-Path $projectRoot "src-tauri\target\release\bundle\nsis\myterm_${Version}_x64-setup.exe"
 $portable = Join-Path $projectRoot "dist-release\myterm-portable-v${Version}-windows-x64.zip"
-foreach ($artifact in @($installer, $portable)) {
+foreach ($artifact in @($installer, $portable, $pluginArtifact)) {
   if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) {
     throw "Expected release artifact was not found: $artifact"
   }
 }
 $checksumPath = Join-Path $projectRoot "dist-release\SHA256SUMS-v${Version}.txt"
-$checksumLines = foreach ($artifact in @($installer, $portable)) {
+$checksumLines = foreach ($artifact in @($installer, $portable, $pluginArtifact)) {
   $hash = Get-Sha256 -Path $artifact
   "$hash  $([System.IO.Path]::GetFileName($artifact))"
 }
@@ -210,11 +235,11 @@ if (-not $SkipPublish) {
     $release = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$repo/releases" -Headers $headers -ContentType "application/json; charset=utf-8" -Body $payload
   }
   $uploadBase = ($release.upload_url -replace '\{\?name,label\}$', '')
-  $assetNames = @($installer, $portable, $checksumPath) | ForEach-Object { [System.IO.Path]::GetFileName($_) }
+  $assetNames = @($installer, $portable, $pluginArtifact, $checksumPath) | ForEach-Object { [System.IO.Path]::GetFileName($_) }
   foreach ($oldAsset in @($release.assets | Where-Object { $assetNames -contains $_.name })) {
     Invoke-RestMethod -Method Delete -Uri "https://api.github.com/repos/$repo/releases/assets/$($oldAsset.id)" -Headers $headers | Out-Null
   }
-  foreach ($artifact in @($installer, $portable, $checksumPath)) {
+  foreach ($artifact in @($installer, $portable, $pluginArtifact, $checksumPath)) {
     $name = [System.IO.Path]::GetFileName($artifact)
     $asset = Invoke-RestMethod -Method Post -Uri ("{0}?name={1}" -f $uploadBase, [uri]::EscapeDataString($name)) -Headers $headers -InFile (Resolve-Path -LiteralPath $artifact).Path -ContentType "application/octet-stream"
     Write-Host "Uploaded $($asset.name)" -ForegroundColor Green
