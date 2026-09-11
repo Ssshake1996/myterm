@@ -6,7 +6,6 @@ window.__ModuleLoader__.load({
     const NS = "dshRemoteOps";
     const TAB_ID = "@dsh/remote-ops";
     const TAB_KIND = "dsh-remote-ops";
-    const MAIN_PANEL_ID = "dsh-remote-ops";
     const styleId = "dsh-remote-ops-style";
 
     if (!document.getElementById(styleId)) {
@@ -32,10 +31,10 @@ window.__ModuleLoader__.load({
         .dsh-remote-ops input{width:100%;box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:7px;padding:7px;margin:4px 0;background:var(--dsw-alias-bg-base,#fff);color:inherit;font:inherit}
         .dsh-remote-ops h3{font-size:13px;margin:2px 0 10px}
         .dsh-remote-ops__launch{border:.5px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--dsw-alias-bg-layer-1,#f8fafb)}
-        .dsh-remote-ops__launch p{margin:6px 0 10px;color:var(--dsw-alias-label-secondary,#667085)}
-        .dsh-remote-ops__launchButton{background:var(--dsw-alias-button-primary-fill,#4d6bfe)!important;color:var(--dsw-alias-label-primary-inverted,#fff)!important;border-color:transparent!important}
-        .dsh-remote-ops__panelIcon{display:inline-flex;align-items:center;justify-content:center;font:600 11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:-.04em}
-        .dsh-remote-ops__panelIcon[data-active=true]{color:var(--dsw-alias-brand-primary,#4d6bfe)}
+        .dsh-remote-ops__launch p{margin:6px 0;color:var(--dsw-alias-label-secondary,#667085)}
+        .dsh-remote-ops__launchControl{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:36px;height:36px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:9px;background:var(--dsw-alias-button-elevated-fill,#fff);color:var(--dsw-alias-label-secondary,#667085);cursor:pointer;font:500 12px/1 system-ui,sans-serif}
+        .dsh-remote-ops__launchControl:hover{background:var(--dsw-alias-interactive-bg-hover,#edf1f5);color:var(--dsw-alias-label-primary,#182230)}
+        .dsh-remote-ops__launchControlIcon{font:600 11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:-.04em}
       `;
       document.head.appendChild(style);
     }
@@ -49,8 +48,8 @@ window.__ModuleLoader__.load({
       return value;
     }
 
-    function RemoteOpsPanel({ sessionId, onStartSession }) {
-      const [snapshot, setSnapshot] = useState({ environments: [], sessions: [], quickCommands: [], events: [] });
+    function RemoteOpsPanel({ sessionId }) {
+      const [snapshot, setSnapshot] = useState({ environments: [], sessions: [], quickCommands: [], events: [], bound: false });
       const [tab, setTab] = useState("environments");
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState("");
@@ -58,9 +57,9 @@ window.__ModuleLoader__.load({
       const [entries, setEntries] = useState([]);
 
       const refresh = useCallback(async () => {
+        if (!sessionId) return;
         try {
-          const endpoint = sessionId ? `/api/dsh-remote-ops/state?sessionId=${encodeURIComponent(sessionId)}` : "/api/dsh-remote-ops/catalog";
-          setSnapshot(await request(endpoint));
+          setSnapshot(await request(`/api/dsh-remote-ops/state?sessionId=${encodeURIComponent(sessionId)}`));
           setError("");
         } catch (cause) {
           setError(cause instanceof Error ? cause.message : String(cause));
@@ -74,10 +73,6 @@ window.__ModuleLoader__.load({
       }, [refresh]);
 
       const action = useCallback(async (body) => {
-        if (!sessionId) {
-          setError("请先新建或选择一个 DSH 对话，再执行 SSH 或 SFTP 操作。");
-          return undefined;
-        }
         setBusy(true);
         try {
           const value = await request("/api/dsh-remote-ops/action", {
@@ -96,12 +91,14 @@ window.__ModuleLoader__.load({
         }
       }, [refresh, sessionId]);
 
+      if (!sessionId) return h("div", { className: "dsh-remote-ops" }, h("div", { className: "dsh-remote-ops__body dsh-remote-ops__muted" }, "请先打开或选择一个 DSH 对话。"));
+
       const renderEnvironments = () => h("section", null,
         h("h3", null, "已保存环境"),
         snapshot.environments.length ? snapshot.environments.map((env) => h("div", { className: "dsh-remote-ops__card", key: env.id },
           h("div", { className: "dsh-remote-ops__row" },
             h("span", null, `${env.group} / ${env.name}`),
-            h("button", { disabled: busy || !sessionId, onClick: () => void action({ action: "open", environment: env.id }) }, sessionId ? (env.active ? "复用" : "连接") : "需绑定对话")
+            h("button", { disabled: busy || snapshot.bound === false, onClick: () => void action({ action: "open", environment: env.id }) }, snapshot.bound === false ? "等待 Agent" : (env.active ? "复用" : "连接"))
           ),
           h("div", { className: "dsh-remote-ops__muted" }, `${env.username}@${env.host}:${env.port ?? 22}`)
         )) : h("div", { className: "dsh-remote-ops__muted" }, "没有环境；可通过 Agent 工具创建。")
@@ -122,7 +119,7 @@ window.__ModuleLoader__.load({
         snapshot.quickCommands.length ? snapshot.quickCommands.map((item) => h("div", { className: "dsh-remote-ops__card", key: item.id },
           h("div", { className: "dsh-remote-ops__row" },
             h("span", null, item.name),
-            h("button", { disabled: busy || !sessionId || !snapshot.environments.length, onClick: () => void action({ action: "send", environment: snapshot.environments[0]?.id, text: item.command, submit: true }) }, sessionId ? "执行" : "需绑定对话")
+            h("button", { disabled: busy || snapshot.bound === false || !snapshot.environments.length, onClick: () => void action({ action: "send", environment: snapshot.environments[0]?.id, text: item.command, submit: true }) }, snapshot.bound === false ? "等待 Agent" : "执行")
           )
         )) : h("div", { className: "dsh-remote-ops__muted" }, "没有快捷命令。")
       );
@@ -133,7 +130,7 @@ window.__ModuleLoader__.load({
         snapshot.environments.map((env) => h("div", { className: "dsh-remote-ops__card", key: env.id },
           h("div", { className: "dsh-remote-ops__row" },
             h("span", null, env.name),
-            h("button", { disabled: busy || !sessionId, onClick: async () => { const value = await action({ action: "sftp", operation: "list", environment: env.id, path }); if (value?.entries) setEntries(value.entries); } }, sessionId ? "读取" : "需绑定对话")
+            h("button", { disabled: busy || snapshot.bound === false, onClick: async () => { const value = await action({ action: "sftp", operation: "list", environment: env.id, path }); if (value?.entries) setEntries(value.entries); } }, snapshot.bound === false ? "等待 Agent" : "读取")
           )
         )),
         h("div", null, entries.map((entry) => h(
@@ -154,15 +151,14 @@ window.__ModuleLoader__.load({
       return h("div", { className: "dsh-remote-ops" },
         h("div", { className: "dsh-remote-ops__head" },
           h("span", { className: "dsh-remote-ops__title" }, "Remote Ops"),
-          h("span", { className: "dsh-remote-ops__meta" }, sessionId ? `${snapshot.sessions.length} 个会话` : "未绑定 DSH 对话"),
+          h("span", { className: "dsh-remote-ops__meta" }, snapshot.bound === false ? "等待 Agent 初始化" : `${snapshot.sessions.length} 个会话`),
           h("button", { disabled: busy, onClick: () => void refresh }, "刷新")
         ),
         h("div", { className: "dsh-remote-ops__tabs" }, tabs.map(([id, title]) => h("button", { key: id, "data-active": tab === id, onClick: () => setTab(id) }, title))),
         h("div", { className: "dsh-remote-ops__body" },
-          !sessionId ? h("div", { className: "dsh-remote-ops__launch" },
-            h("h3", null, "Remote Ops 已启动"),
-            h("p", null, "环境和快捷命令已加载。连接 SSH、终端和 SFTP 操作需要绑定一个 DSH 对话。"),
-            onStartSession ? h("button", { className: "dsh-remote-ops__launchButton", onClick: onStartSession }, "新建 DSH 对话并继续") : null,
+          snapshot.bound === false ? h("div", { className: "dsh-remote-ops__launch" },
+            h("h3", null, "等待当前对话初始化"),
+            h("p", null, "右侧 Sidebar 已打开。请先在当前 DSH 对话发送一条消息，Agent 初始化后即可连接 SSH、执行终端命令和使用 SFTP。"),
           ) : null,
           error ? h("div", { className: "dsh-remote-ops__error" }, error) : null,
           body,
@@ -171,16 +167,22 @@ window.__ModuleLoader__.load({
     }
 
     function RemoteOpsTitle() { return h("span", null, "Remote Ops"); }
-    function RemoteOpsIcon({ active, size }) {
-      return h("span", { className: "dsh-remote-ops__panelIcon", "data-active": active, style: { width: size, height: size }, "aria-hidden": true }, "SSH");
+    function RemoteOpsLaunch({ wide, onClick, label }) {
+      return h("button", { type: "button", className: "dsh-remote-ops__launchControl", title: label, "aria-label": label, onClick }, h("span", { className: "dsh-remote-ops__launchControlIcon", "aria-hidden": true }, "SSH"), wide ? h("span", null, label) : null);
     }
 
-    const inject = ["slots", "locale", "sidebarRightTabs", "layout", "uiWorkspace"];
+    const inject = ["slots", "locale", "sidebarRight", "sidebarRightTabs", "uiWorkspace"];
     function apply(ctx) {
       const t = ctx.locale.bind(NS);
       ctx.effect(() => ctx.locale.register(NS, { zh: { title: "Remote Ops", guideTitle: "远程运维", guideDescription: "管理 SSH 环境、终端和 SFTP" }, en: { title: "Remote Ops", guideTitle: "Remote operations", guideDescription: "Manage SSH environments, terminals and SFTP" } }), "dsh-remote-ops: dictionaries");
-      ctx.effect(() => ctx.slots.inject("main", () => ctx.slots.register({ name: "main", key: MAIN_PANEL_ID }, () => h(RemoteOpsPanel, { onStartSession: () => ctx.uiWorkspace.startSession() })), "dsh-remote-ops: main panel"));
-      ctx.effect(() => ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({ name: "sidebar.panellist", id: MAIN_PANEL_ID, order: 40, label: () => t("title") }, RemoteOpsIcon)), "dsh-remote-ops: launch button");
+      const openRemoteOps = () => {
+        try {
+          ctx.sidebarRight.openTab(TAB_KIND);
+        } catch {
+          ctx.uiWorkspace.startSession();
+        }
+      };
+      ctx.effect(() => ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({ name: "sidebar.footer.action", id: "dsh-remote-ops-launch", order: 40, label: () => t("title") }, (props) => h(RemoteOpsLaunch, { ...props, onClick: openRemoteOps, label: t("title") }))), "dsh-remote-ops: launch button");
       ctx.effect(() => ctx.sidebarRightTabs.register({
         id: TAB_ID,
         kind: TAB_KIND,
