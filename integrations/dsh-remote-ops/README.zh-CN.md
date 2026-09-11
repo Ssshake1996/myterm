@@ -15,6 +15,21 @@
 
 ## 安装
 
-将本包安装到 DSH profile，并把 `cordis.patch.yml` 中的两行加入 profile patch。插件不修改 DSH 核心，也不依赖 myterm，可直接用于 DSH Web 或其他 DSH Host。
+使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
+
+```sh
+dsh plugin --profile web add ./dsh-remote-ops-v0.1.0.tgz
+dsh web
+```
+
+如果使用已经发布到 registry 的包，则包名为：
+
+```sh
+dsh plugin --profile web add @dsh/remote-ops
+```
+
+本仓库以 GitHub Release 压缩包作为标准交付物；本地源码也可以先执行 `npm pack`，再用同样的命令安装。
+
+插件与 myterm 完全独立，宿主只需要提供 DSH 文档中定义的服务即可。
 
 SSH PTY 遵循 Harness 约定，只在进程内存中存在；环境定义会持久化，DSH 重启后按需重新打开连接。

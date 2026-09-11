@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { validateEnvironment, normalizeGroupName, summarizeError } from "../lib/index.js";
+
+const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
+assert.equal(manifest.dsh?.bundle?.patch, "./cordis.patch.yml");
+assert.deepEqual(manifest.dsh?.client?.inject, ["@deepseek-ai/dsh-client-ui-sidebar-right", "@deepseek-ai/dsh-client-ui-session"]);
 
 assert.equal(normalizeGroupName("生产/华东"), "生产-华东");
 assert.equal(normalizeGroupName("  "), "default");
