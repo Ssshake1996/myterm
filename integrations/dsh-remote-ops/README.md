@@ -12,6 +12,8 @@ depend on or start the myterm desktop application.
 - SFTP list, read, write, mkdir, delete, and rename operations.
 - Quick command storage and execution.
 - Agent-visible diagnostics and a native DSH right-sidebar tab.
+- A visible `Remote Ops` launch button in the DSH Web sidebar; it opens the
+  plugin workspace without waiting for an Agent tool call.
 - Credential references through Harness credentials; plaintext passwords are
   never persisted.
 
@@ -22,7 +24,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.1.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.1.1.tgz
 dsh web
 ```
 
@@ -40,6 +42,12 @@ The plugin is independent from myterm and works in DSH hosts that provide the
 documented Agent, terminal, tools, system-prompt, credentials, and connection
 services. SSH PTYs are process-local by design; saved environment definitions
 survive restarts and reconnect on demand.
+
+After DSH Web starts, click `Remote Ops` in the left sidebar to launch the
+plugin workspace. If no DSH conversation is selected, the workspace can show
+saved environments and offers `New DSH conversation`; SSH and SFTP actions are
+enabled after a conversation is selected so terminal ownership remains under
+Harness.
 
 ## Data
 

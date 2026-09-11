@@ -224,6 +224,14 @@ class RemoteOpsState {
   async saveQuickCommands() { await writeFile(join(this.base, "quick-commands.json"), `${JSON.stringify(this.quickCommands, null, 2)}\n`, "utf8"); }
 
   allEnvironments() { return [...this.environments.entries()].flatMap(([group, values]) => values.map((value) => ({ ...value, group }))); }
+  catalog() {
+    return {
+      environments: this.allEnvironments().map((value) => ({ ...value, passwordRef: value.passwordRef ? "configured" : undefined, active: false })),
+      quickCommands: this.quickCommands,
+      sessions: [],
+      events: [],
+    };
+  }
   findEnvironment(idOrName) { return this.allEnvironments().find((value) => value.id === idOrName || value.name === idOrName); }
   event(owner, kind, data = {}) {
     const id = ownerId(owner);
@@ -390,6 +398,7 @@ export function apply(ctx) {
   registerTool(ctx, { name: "remote_diagnostics", description: "Read recent remote operation diagnostics for this Agent.", parameters: {}, execute: async (_args, exec) => ({ events: state.events.get(ownerId(owner(exec))) ?? [] }) });
 
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/state", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const sessionId = new URL(request.url).searchParams.get("sessionId"); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; if (!agent) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); return Response.json(state.snapshot(agent), { headers: { "Cache-Control": "no-store" } }); } }), "dsh-remote-ops state route");
+  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/catalog", methods: ["GET"], requestBody: "buffered", fetch: async () => { await state.ready; return Response.json(state.catalog(), { headers: { "Cache-Control": "no-store" } }); } }), "dsh-remote-ops catalog route");
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); const agent = ctx.agents.get(body.sessionId); if (!agent) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "open") value = await state.open(agent, body.environment); else if (body.action === "send") value = await state.send(agent, body.session, body); else if (body.action === "sftp") value = await state.sftp(agent, body.environment, body.operation, body); else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400 }); } } }), "dsh-remote-ops action route");
 
 }

@@ -11,6 +11,7 @@
 - 支持 SFTP 列目录、读写、创建目录、删除和重命名。
 - 支持快捷命令保存和执行。
 - 提供 Agent 可读取的诊断事件，以及 DSH 右侧 Sidebar。
+- 在 DSH Web 左侧 Sidebar 提供可见的 `Remote Ops` 启动按钮，不需要等待 Agent 工具调用。
 - 密码只通过 Harness credentials 的 `passwordRef` 引用，不保存明文。
 
 ## 安装
@@ -18,7 +19,7 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.1.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.1.1.tgz
 dsh web
 ```
 
@@ -33,3 +34,5 @@ dsh plugin --profile web add @dsh/remote-ops
 插件与 myterm 完全独立，宿主只需要提供 DSH 文档中定义的服务即可。
 
 SSH PTY 遵循 Harness 约定，只在进程内存中存在；环境定义会持久化，DSH 重启后按需重新打开连接。
+
+DSH Web 启动后，点击左侧的 `Remote Ops` 即可主动打开插件工作区。没有选中 DSH 对话时，工作区仍可查看已保存环境，并提供“新建 DSH 对话并继续”按钮；选择对话后才启用 SSH 和 SFTP 操作，从而保持终端所有权由 Harness 管理。

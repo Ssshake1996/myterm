@@ -7,7 +7,12 @@ import { validateEnvironment, normalizeGroupName, summarizeError } from "../lib/
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
 assert.equal(manifest.dsh?.bundle?.patch, "./cordis.patch.yml");
-assert.deepEqual(manifest.dsh?.client?.inject, ["@deepseek-ai/dsh-client-ui-sidebar-right", "@deepseek-ai/dsh-client-ui-session"]);
+assert.deepEqual(manifest.dsh?.client?.inject, [
+  "@deepseek-ai/dsh-client-ui-sidebar-right",
+  "@deepseek-ai/dsh-client-ui-session",
+  "@deepseek-ai/dsh-client-ui-layout",
+  "@deepseek-ai/dsh-client-ui-workspace",
+]);
 
 assert.equal(normalizeGroupName("生产/华东"), "生产-华东");
 assert.equal(normalizeGroupName("  "), "default");
