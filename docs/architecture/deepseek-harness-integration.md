@@ -30,7 +30,7 @@ React Agent 面板
 
 ## 终端主工作区与 Harness 工作区
 
-myterm 的中央区域始终是终端/SFTP 工作区，官方 Harness Web UI 作为右侧独立全尺寸 Webview 按需打开，默认收起。Webview 加载官方 `--profile web` 入口，不在 React 中复刻 Harness 组件，也不修改上游 Agent Loop、Session、Goal、权限、项目或对话逻辑；myterm 只维护宿主 Webview 生命周期和 Host MCP 适配。
+myterm 的中央区域始终是终端/SFTP 工作区，官方 Harness Web UI 作为右侧独立全尺寸 Webview 在应用首次打开时启动；用户可以随时收起或再次展开。Webview 加载官方 `--profile web` 入口，不在 React 中复刻 Harness 组件，也不修改上游 Agent Loop、Session、Goal、权限、项目或对话逻辑；myterm 只维护宿主 Webview 生命周期和 Host MCP 适配。
 
 Harness 对话与 SSH 环境是显式的多对多关系：对话可以绑定多个已保存环境、选择主目标或解绑；绑定变更通过本地 Host MCP API 持久化到 `deepseek-harness-web/bindings.json`，每一次远程工具调用在 Rust 后端重新解析绑定，未绑定或目标不明确时直接返回结构化错误。Agent 自动建立的连接拥有 15 分钟空闲租约，用户主动打开的连接不属于 Agent 租约，不会被自动关闭。
 

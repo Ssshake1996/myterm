@@ -174,11 +174,17 @@ The prioritized optimization options and their pros/cons are recorded in [`docs/
 Version 0.12.0 replaces the custom Agent surface with the official DeepSeek Harness Web profile:
 
 - The shipped runtime pins the upstream `@deepseek-ai/dsh` package and records its tag/commit in `harness.lock.json`; the source is not copied into a second Agent implementation.
-- A Tauri top-level Webview loads the unmodified Harness UI on demand. The terminal remains myterm's primary workspace and the Harness panel is collapsed by default.
+- A Tauri top-level Webview loads the unmodified Harness UI when the application first opens. The terminal remains myterm's primary workspace, and users can collapse the Agent panel after startup.
 - A small Host MCP bridge exposes saved SSH environments, per-conversation binding/unbinding, interactive CLI, SFTP/file operations, and external capability calls. Rust revalidates the binding on every remote call.
 - Agent-created SSH sessions use a 15-minute idle lease; user-opened sessions are never closed by cleanup. This keeps context warm without taking ownership of operator sessions.
 - A failed Windows launch can leave stale generated profile links. The launcher now copies the official package scope and removes only the generated `profiles/web` projection before rebuilding it; conversation data remains outside the projection.
 - The tradeoff is a larger packaged runtime (official Node + Harness dependencies) in exchange for upstream Agent Loop, Goal, compaction, permissions, and Web UI updates without maintaining a private fork.
+
+Version 0.12.1 fixes the first packaged WebView startup boundary and makes runtime isolation explicit:
+
+- Tauri's `unstable` feature is enabled only because the official top-level WebView API requires it; no alternate browser or iframe path is introduced.
+- Every myterm process generates its own WebView label, while the embedded Harness receives a private `DSH_HOME` under the myterm application data namespace. The parent environment and a standalone DSH installation are untouched.
+- The Harness smoke test starts two isolated Web profiles concurrently and verifies both random origins remain available, covering the port/configuration/process-conflict failure mode.
 
 The SSH diagnostics and non-active-session boundary was tightened after validating the desktop failure path:
 

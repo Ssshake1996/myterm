@@ -6,7 +6,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { dshWorkspaceStart, isDesktopRuntime } from "../../ipc";
 import { fontScaleFactor, useUiStore } from "../../store/ui";
 
-const WEBVIEW_LABEL = "deepseek-harness-workspace";
+// A label is unique per myterm process so another myterm window (or a
+// standalone Harness WebView) can never be mistaken for this workspace.
+const WEBVIEW_INSTANCE_ID =
+  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const WEBVIEW_LABEL = `deepseek-harness-workspace-${WEBVIEW_INSTANCE_ID}`;
 
 function errorText(cause: unknown): string {
   if (cause instanceof Error) return cause.stack || cause.message;

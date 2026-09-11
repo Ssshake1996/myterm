@@ -237,7 +237,8 @@ impl DshWebService {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join("deepseek-harness-web")
-            .join("runtime-0.1.5-rc.2-myterm1");
+            .join("myterm")
+            .join("runtime-0.1.5-rc.2");
         std::fs::create_dir_all(&dsh_home)?;
         install_bridge_package(&runtime_root, &dsh_home)?;
 
@@ -252,6 +253,8 @@ impl DshWebService {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        #[cfg(windows)]
+        command.creation_flags(0x0800_0000);
         command.current_dir(&dsh_home);
         let mut child = command.spawn().map_err(|error| {
             AppError::Agent(format!(

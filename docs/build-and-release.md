@@ -4,7 +4,7 @@
 
 ```powershell
 cd F:\myterm
-npm run release -- -Version 0.12.0 -RunRustTests
+npm run release -- -Version 0.12.1 -RunRustTests
 ```
 
 把示例版本号换成目标三段式版本号。脚本会自动更新版本文件、执行校验、构建安装包、生成便携包和 SHA256，并推送 GitHub Release。除非只做本地诊断，不要临时拼接另一套发布命令。
@@ -31,7 +31,7 @@ npm run release -- -Version 0.12.0 -RunRustTests
 需要检查本地产物但不创建 GitHub Release 时：
 
 ```powershell
-npm run release -- -Version 0.12.0 -SkipPublish -RunRustTests
+npm run release -- -Version 0.12.1 -SkipPublish -RunRustTests
 ```
 
 该模式仍会提交、打标签并推送代码；如果连 Git 操作也不希望执行，应直接使用：
@@ -46,7 +46,7 @@ npm run check:dist
 默认发布流程使用 `cargo check`，因为 Windows Debug 测试链接会构建大型桌面依赖。具备足够虚拟内存和完整工具链时，可以额外执行：
 
 ```powershell
-npm run release -- -Version 0.12.0 -RunRustTests
+npm run release -- -Version 0.12.1 -RunRustTests
 ```
 
 Harness runtime、前端或宿主 Rust 测试失败时脚本不会创建 Release。不能通过跳过失败、复用旧 EXE 或把旧产物改名来发布。

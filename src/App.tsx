@@ -35,7 +35,7 @@ export function App() {
   const [profiles, setProfiles] = useState<SessionProfile[]>([]);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 900);
-  const [aiCollapsed, setAiCollapsed] = useState(true);
+  const [aiCollapsed, setAiCollapsed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo>({

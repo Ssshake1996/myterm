@@ -1,6 +1,6 @@
 [package]
 name = "myterm"
-version = "0.12.0"
+version = "0.12.1"
 description = "A lightweight SSH terminal with a native AI assistant"
 authors = ["myterm contributors"]
 edition = "2021"
@@ -29,7 +29,7 @@ russh-sftp = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["unstable"] }
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 tokio-util = "0.7"
