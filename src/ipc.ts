@@ -35,6 +35,11 @@ export interface SessionInfo {
   diagnostic?: SessionDiagnostic | null;
 }
 
+export interface DshWorkspaceInfo {
+  url: string;
+  harnessVersion: string;
+}
+
 export interface RemoteEntry {
   name: string;
   path: string;
@@ -934,6 +939,13 @@ export async function agentTaskDelete(taskId: string): Promise<boolean> {
 export async function onSessionState(handler: (payload: SessionInfo) => void): Promise<UnlistenFn> {
   if (!isDesktopRuntime) return demoBackend.onSessionState(handler);
   return listen<SessionInfo>("session://state", (event) => handler(event.payload));
+}
+
+export async function dshWorkspaceStart(): Promise<DshWorkspaceInfo> {
+  if (!isDesktopRuntime) {
+    throw new Error("DeepSeek Harness Web 工作区仅在桌面版中可用");
+  }
+  return invoke<DshWorkspaceInfo>("dsh_workspace_start");
 }
 
 export async function onTransferProgress(

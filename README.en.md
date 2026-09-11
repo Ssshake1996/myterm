@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 myterm is a lightweight desktop terminal for development, operations, and server administration. Built with Tauri 2, Rust, React, and xterm.js, it combines SSH, local shells, saved servers, SFTP, quick commands, and a tool-using AI Agent in one compact workbench.
 
-Current version: `0.11.7`
+Current version: `0.12.0`
 
 ## Core Features
 
@@ -101,6 +101,12 @@ Hard-deny commands, production/root escalation, output limits, audit records, an
 - The official native DeepSeek Provider owns model protocol, streaming, reasoning effort, retries, and provider error codes. myterm injects only the credential reference, Base URL, model, and System Prompt.
 - The myterm Host MCP supplies SSH, CLI, SFTP, multi-SSH, and external MCP capabilities through the existing target, permission, approval, cancellation, diagnostic, and audit boundaries.
 - The Agent panel exposes Session, Goal, Checkpoint, Compaction, Skill, Host MCP, permission, and tool events instead of legacy loop-step or compatibility-provider controls.
+- The Agent panel embeds the official DeepSeek Harness Web UI directly. myterm does not copy or rewrite Harness project, conversation, Goal, permission, or tool components; it only supplies the host window, lazy startup, and Host MCP boundary. The panel is collapsed by default so the terminal remains the primary workspace.
+- Each Harness conversation can bind one or more saved SSH environments through its binding strip and can unbind them at any time. The myterm Host MCP backend enforces the binding, so a model cannot bypass it when calling remote tools.
+- SSH connections created automatically by the Agent stay warm for 15 minutes after the task becomes idle. User-opened SSH sessions are never closed automatically; application shutdown only reclaims connections owned by the Agent.
+- The Agent panel embeds the official DeepSeek Harness Web UI directly. myterm does not copy or rewrite Harness project, conversation, Goal, permission, or tool components; it only supplies the host window, lazy startup, and Host MCP boundary. The panel is collapsed by default so the terminal remains the primary workspace.
+- Each Harness conversation can bind one or more saved SSH environments through its binding strip and can unbind them at any time. The myterm Host MCP backend enforces the binding, so a model cannot bypass it when calling remote tools.
+- SSH connections created automatically by the Agent stay warm for 15 minutes after the task becomes idle. User-opened SSH sessions are never closed automatically; application shutdown only reclaims connections owned by the Agent.
 
 ### Remote CLI, REST, and Multi-SSH
 

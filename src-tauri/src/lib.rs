@@ -13,6 +13,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use agent::dsh_web::DshWebService;
 use agent::service::AgentService;
 use ai::service::AiService;
 use config::{ConfigService, CredentialVault, KeyringVault};
@@ -208,6 +209,7 @@ pub struct AppState {
     pub sftp: Arc<SftpService>,
     pub ai: Arc<AiService>,
     pub agent: Arc<AgentService>,
+    pub dsh: Arc<DshWebService>,
     pub startup_profile: Option<String>,
     pub portable: bool,
 }
@@ -278,6 +280,11 @@ pub fn run() {
             sessions.clone(),
             sftp.clone(),
         )?);
+        let dsh = Arc::new(DshWebService::new(
+            config.clone(),
+            sessions.clone(),
+            agent.clone(),
+        )?);
         app.manage(AppState {
             config: config.clone(),
             vault: credential_vault.clone(),
@@ -285,6 +292,7 @@ pub fn run() {
             sftp,
             ai,
             agent,
+            dsh,
             startup_profile: startup_profile.clone(),
             portable,
         });
@@ -293,6 +301,7 @@ pub fn run() {
     let app = builder
         .invoke_handler(tauri::generate_handler![
             ipc::app_info,
+            ipc::dsh_workspace_start,
             ipc::session_connect,
             ipc::session_disconnect,
             ipc::session_list,
@@ -365,8 +374,13 @@ pub fn run() {
     match app {
         Ok(app) => app.run(|handle, event| {
             if matches!(event, tauri::RunEvent::Exit) {
-                let agent = handle.state::<AppState>().agent.clone();
-                tauri::async_runtime::block_on(agent.shutdown());
+                let state = handle.state::<AppState>();
+                let dsh = state.dsh.clone();
+                let agent = state.agent.clone();
+                tauri::async_runtime::block_on(async move {
+                    dsh.shutdown().await;
+                    agent.shutdown().await;
+                });
             }
         }),
         Err(error) => eprintln!("Unable to build myterm: {error}"),

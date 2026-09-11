@@ -1,0 +1,3 @@
+- insert:
+    - id: myterm-dsh-bridge
+      name: '@myterm/dsh-bridge'

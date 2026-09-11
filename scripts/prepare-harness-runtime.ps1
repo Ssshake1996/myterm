@@ -28,8 +28,12 @@ function Get-Sha256 {
 foreach ($required in @(
   (Join-Path $sourceRoot "package.json"),
   $packageLock,
+  (Join-Path $sourceRoot "harness.lock.json"),
   (Join-Path $sourceRoot "launcher\start.mjs"),
-  (Join-Path $sourceRoot "profile\cordis.yml")
+  (Join-Path $sourceRoot "bridge\package.json"),
+  (Join-Path $sourceRoot "bridge\cordis.patch.yml"),
+  (Join-Path $sourceRoot "bridge\lib\index.js"),
+  (Join-Path $sourceRoot "bridge\lib\client.js")
 )) {
   if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
     throw "DeepSeek Harness runtime source is incomplete: $required"
@@ -89,9 +93,18 @@ if (Test-Path -LiteralPath $resourceRoot) {
 }
 New-Item -ItemType Directory -Path $resourceRoot | Out-Null
 
-foreach ($directory in @("launcher", "profile", "node_modules")) {
+foreach ($directory in @("launcher", "bridge", "node_modules")) {
   Copy-Item -LiteralPath (Join-Path $sourceRoot $directory) -Destination (Join-Path $resourceRoot $directory) -Recurse
 }
+$stagedBridgePackage = Join-Path $resourceRoot "node_modules\@myterm\dsh-bridge"
+if (Test-Path -LiteralPath $stagedBridgePackage) {
+  $resolvedStagedBridge = (Resolve-Path -LiteralPath $stagedBridgePackage).Path
+  if (-not $resolvedStagedBridge.StartsWith($resourceRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Staged bridge dependency escaped the Harness resource directory."
+  }
+  Remove-Item -LiteralPath $stagedBridgePackage -Recurse -Force
+}
+Copy-Item -LiteralPath (Join-Path $sourceRoot "bridge") -Destination $stagedBridgePackage -Recurse
 foreach ($file in @("package.json", "package-lock.json", "harness.lock.json")) {
   Copy-Item -LiteralPath (Join-Path $sourceRoot $file) -Destination (Join-Path $resourceRoot $file)
 }

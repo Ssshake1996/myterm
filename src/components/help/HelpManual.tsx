@@ -1,6 +1,6 @@
 import userGuide from "../../../docs/user-guide.zh-CN.md?raw";
-import { getDocumentHeadings, MarkdownContent } from "../ai/MarkdownContent";
 import { Modal } from "../shell/Modal";
+import { getDocumentHeadings, MarkdownDocument } from "./MarkdownDocument";
 
 interface HelpManualProps {
   onClose: () => void;
@@ -27,7 +27,7 @@ export function HelpManual({ onClose }: HelpManualProps) {
           ))}
         </nav>
         <article className="help-manual-content">
-          <MarkdownContent content={userGuide} variant="document" />
+          <MarkdownDocument content={userGuide} />
         </article>
       </div>
     </Modal>

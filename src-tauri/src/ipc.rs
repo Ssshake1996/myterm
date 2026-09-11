@@ -9,6 +9,7 @@ use tauri::{
 use crate::{
     agent::{
         domain::{AgentConversation, AgentGoal, AgentQueuedInput, AgentTask},
+        dsh_web::DshWorkspaceInfo,
         mcp,
         service::AgentEventSink,
         skills,
@@ -73,6 +74,11 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
         startup_profile: state.startup_profile.clone(),
         portable: state.portable,
     }
+}
+
+#[tauri::command]
+pub async fn dsh_workspace_start(state: State<'_, AppState>) -> Result<DshWorkspaceInfo, IpcError> {
+    state.dsh.start().await.map_err(Into::into)
 }
 
 #[tauri::command]

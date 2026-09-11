@@ -5,62 +5,54 @@ const repo = resolve(import.meta.dirname, "..");
 const runtime = join(repo, "integrations", "deepseek-harness-runtime");
 const findings: string[] = [];
 const lock = JSON.parse(readFileSync(join(runtime, "harness.lock.json"), "utf8")) as {
+  harnessPackage?: string;
   harnessVersion?: string;
-  acpProtocolVersion?: number;
-  excludedSurfaces?: string[];
-  enabledToolPacks?: string[];
+  profile?: string;
+  sourceModified?: boolean;
 };
 const packageJson = JSON.parse(readFileSync(join(runtime, "package.json"), "utf8")) as {
   dependencies?: Record<string, string>;
 };
-const profile = readFileSync(join(runtime, "profile", "cordis.yml"), "utf8");
+const patch = readFileSync(join(runtime, "bridge", "cordis.patch.yml"), "utf8");
+const hostPlugin = readFileSync(join(runtime, "bridge", "lib", "index.js"), "utf8");
+const clientPlugin = readFileSync(join(runtime, "bridge", "lib", "client.js"), "utf8");
 
-for (const [name, version] of Object.entries(packageJson.dependencies ?? {})) {
-  if (name.startsWith("@deepseek-ai/dsh-") && version !== lock.harnessVersion) {
-    findings.push(`${name} is ${version}; expected pinned Harness version ${lock.harnessVersion}`);
-  }
-}
-for (const surface of ["web", "tui", "headless-cli", "telemetry"]) {
-  if (!lock.excludedSurfaces?.includes(surface))
-    findings.push(`excluded surface is missing: ${surface}`);
-}
-for (const toolPack of ["harness-local", "myterm-ssh-mcp", "external-mcp"]) {
-  if (!lock.enabledToolPacks?.includes(toolPack))
-    findings.push(`required tool pack is missing: ${toolPack}`);
-}
-for (const marker of [
-  "@deepseek-ai/dsh-acp",
-  "@deepseek-ai/dsh-agent-loop",
-  "@deepseek-ai/dsh-compaction-basic",
-  "@deepseek-ai/dsh-goal",
-  "@deepseek-ai/dsh-llm-deepseek",
-  "@deepseek-ai/dsh-skill-filesystem",
-  "@deepseek-ai/dsh-tool-pwsh",
-  "@deepseek-ai/dsh-tool-fs",
+if (lock.harnessPackage !== "@deepseek-ai/dsh")
+  findings.push("official aggregate DSH package is not pinned");
+if (packageJson.dependencies?.["@deepseek-ai/dsh"] !== lock.harnessVersion)
+  findings.push("installed DSH range differs from harness.lock.json");
+if (packageJson.dependencies?.["@myterm/dsh-bridge"] !== "file:bridge")
+  findings.push("external myterm bridge is not installed as a local package");
+if (lock.profile !== "web") findings.push("official Web profile is not selected");
+if (lock.sourceModified !== false) findings.push("upstream DSH source must remain unmodified");
+if (!patch.includes("@myterm/dsh-bridge")) findings.push("Cordis patch does not load the bridge");
+for (const marker of ["myterm_ssh_environments", "myterm_ssh_cli", "myterm_ssh_exec"])
+  if (!hostPlugin.includes(marker)) findings.push(`host bridge marker is missing: ${marker}`);
+if (!clientPlugin.includes("conversation.input.dock"))
+  findings.push("conversation environment-binding dock is missing");
+for (const path of [
+  ["launcher", "start.mjs"],
+  ["bridge", "package.json"],
+  ["bridge", "lib", "index.js"],
+  ["bridge", "lib", "client.js"],
 ]) {
-  if (!profile.includes(marker)) findings.push(`profile plugin is missing: ${marker}`);
+  if (!existsSync(join(runtime, ...path)))
+    findings.push(`runtime file is missing: ${path.join("/")}`);
 }
-if (!profile.includes("MYTERM_HARNESS_DEEPSEEK_CONFIG_JSON"))
-  findings.push("DeepSeek provider config injection is missing");
-if (!profile.includes("provider: deepseek-official"))
-  findings.push("ACP does not use the native deepseek-official route");
-if (!profile.includes("MYTERM_HARNESS_SYSTEM_PROMPT"))
-  findings.push("system prompt injection is missing");
-if (!profile.includes("MYTERM_HARNESS_SKILL_DIRS_JSON"))
-  findings.push("Skill directory injection is missing");
-if (lock.acpProtocolVersion !== 1)
-  findings.push(`unsupported ACP protocol: ${lock.acpProtocolVersion}`);
-if (!existsSync(join(runtime, "launcher", "start.mjs"))) findings.push("ACP launcher is missing");
 
-const report = {
-  status: findings.length === 0 ? "PASS" : "FAIL",
-  harnessVersion: lock.harnessVersion,
-  acpProtocolVersion: lock.acpProtocolVersion,
-  excludedSurfaces: lock.excludedSurfaces,
-  enabledToolPacks: lock.enabledToolPacks,
-  note: "Official DeepSeek Harness and dsh-llm-deepseek own model networking. myterm adds only a loopback authenticated Streamable HTTP MCP bridge for host tools.",
-  findings,
-};
-
-console.log(JSON.stringify(report, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      status: findings.length === 0 ? "PASS" : "FAIL",
+      harnessPackage: lock.harnessPackage,
+      harnessVersion: lock.harnessVersion,
+      profile: lock.profile,
+      integration: "official DSH Web UI plus an external authenticated myterm SSH bridge",
+      sourceModified: lock.sourceModified,
+      findings,
+    },
+    null,
+    2,
+  ),
+);
 if (findings.length > 0) process.exitCode = 1;

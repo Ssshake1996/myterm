@@ -28,6 +28,12 @@ React Agent 面板
             -> myterm 外部 MCP CapabilityProvider
 ```
 
+## 终端主工作区与 Harness 工作区
+
+myterm 的中央区域始终是终端/SFTP 工作区，官方 Harness Web UI 作为右侧独立全尺寸 Webview 按需打开，默认收起。Webview 加载官方 `--profile web` 入口，不在 React 中复刻 Harness 组件，也不修改上游 Agent Loop、Session、Goal、权限、项目或对话逻辑；myterm 只维护宿主 Webview 生命周期和 Host MCP 适配。
+
+Harness 对话与 SSH 环境是显式的多对多关系：对话可以绑定多个已保存环境、选择主目标或解绑；绑定变更通过本地 Host MCP API 持久化到 `deepseek-harness-web/bindings.json`，每一次远程工具调用在 Rust 后端重新解析绑定，未绑定或目标不明确时直接返回结构化错误。Agent 自动建立的连接拥有 15 分钟空闲租约，用户主动打开的连接不属于 Agent 租约，不会被自动关闭。
+
 每次运行只在回环地址启动一个临时 Streamable HTTP MCP 服务，使用随机 URL 路径和随机 Bearer Token。任务结束或取消后服务关闭。外部 MCP 仍由 myterm 预连接和发现，因此单个外部服务器失败不会让整个 Harness 会话无法创建，`mcp_status` 也能返回原始连接/发现错误。
 
 ## 会话、长任务与运行中追加要求

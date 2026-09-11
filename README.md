@@ -4,7 +4,7 @@
 
 myterm 是一款面向开发、运维和服务器管理场景的轻量级桌面终端。它使用 Tauri 2、Rust、React 和 xterm.js 构建，在一个紧凑工作区中整合 SSH、本地终端、服务器管理、SFTP、快捷命令和可执行工具的 AI Agent。
 
-当前版本：`0.11.7`
+当前版本：`0.12.0`
 
 ## 核心功能
 
@@ -101,6 +101,9 @@ Agent 使用类似 Claude Code 的循环：
 - 官方原生 DeepSeek Provider 直接负责模型协议、流式响应、推理强度、重试和错误码；myterm 只注入凭据引用、Base URL、模型和 System Prompt。
 - myterm Host MCP 提供 SSH、CLI、SFTP、多 SSH 与外部 MCP 能力，统一经过目标选择、权限、审批、取消、错误保真和审计。
 - Agent 面板直接展示 Session、Goal、Checkpoint、Compaction、Skill、Host MCP、权限和工具事件，不再显示旧 Core 的循环步数或兼容 Provider 概念。
+- Agent 面板现在直接承载官方 DeepSeek Harness Web UI；myterm 不复制或改写 Harness 的项目、对话、Goal、权限和工具组件，只负责提供宿主窗口、按需启动和 Host MCP 边界。面板默认收起，终端仍是主要工作区。
+- 每个 Harness Conversation 可以通过会话内的环境绑定条绑定一个或多个已保存 SSH 环境，也可以随时解绑。绑定状态由 myterm Host MCP 后端强制校验，模型不能绕过绑定调用远程工具。
+- Agent 自动建立的 SSH 连接在任务完成后保留 15 分钟以复用；用户主动打开的 SSH 会话不会被 Agent 自动关闭。应用退出时仅回收 Agent 自己建立的连接。
 
 ### 远端 CLI、REST 与多 SSH
 

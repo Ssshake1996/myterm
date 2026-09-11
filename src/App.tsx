@@ -1,6 +1,6 @@
 import { CircleHelp, Leaf, Moon, Sun } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { AiPanel } from "./components/ai/AiPanel";
+import { DshWorkspace } from "./components/ai/DshWorkspace";
 import { HelpManual } from "./components/help/HelpManual";
 import { QuickBar } from "./components/quickbar/QuickBar";
 import { SessionSidebar } from "./components/sessions/SessionSidebar";
@@ -35,7 +35,7 @@ export function App() {
   const [profiles, setProfiles] = useState<SessionProfile[]>([]);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 900);
-  const [aiCollapsed, setAiCollapsed] = useState(() => window.innerWidth <= 900);
+  const [aiCollapsed, setAiCollapsed] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [appInfo, setAppInfo] = useState<AppInfo>({
@@ -268,7 +268,7 @@ export function App() {
               <Workspace profiles={profiles} />
               <QuickBar />
             </main>
-            <AiPanel collapsed={aiCollapsed} onCollapsedChange={setAiCollapsed} />
+            <DshWorkspace collapsed={aiCollapsed} onCollapsedChange={setAiCollapsed} />
           </div>
         </div>
       </div>
@@ -286,7 +286,7 @@ export function App() {
         <span>{activePane?.sessionId ? "SFTP READY" : "SFTP IDLE"}</span>
         <span className="status-spacer" />
         <span className="status-ai">
-          <Icon name="spark" /> AI {aiCollapsed ? "STANDBY" : "READY"}
+          <Icon name="spark" /> DSH {aiCollapsed ? "STANDBY" : "READY"}
         </span>
         <span title={`core ${appInfo.commitHash}`}>v{appInfo.version}</span>
       </footer>

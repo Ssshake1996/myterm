@@ -1,6 +1,6 @@
 # myterm 使用说明书
 
-本说明书适用于 myterm 0.11.7。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 DeepSeek Harness Linux 运维 Agent 放在同一个紧凑工作区中。
+本说明书适用于 myterm 0.12.0。myterm 将服务器管理、SSH 与本地终端、SFTP、快捷命令和 DeepSeek Harness Linux 运维 Agent 放在同一个紧凑工作区中。
 
 ## 界面总览
 
@@ -11,6 +11,8 @@
 - 下方快捷命令库用于执行常用、部署和排查命令。
 - 即使当前没有活动会话，快捷命令库也固定在工作区底部；服务器和会话区域独立占用上方空间。
 - 右侧 Agent 面板显示任务、工具调用、审批、后台 Job 和最终答复。
+- Agent 面板直接加载官方 DeepSeek Harness Web UI，默认收起；终端是主要工作区。展开后可在 Harness 自己的项目、对话、Goal 和权限界面中工作。
+- 每个 Harness 对话都可绑定一个或多个已保存 SSH 环境，也可随时解绑。绑定由 myterm Host MCP 后端强制执行，未绑定的远程环境不会被工具调用。
 - 底部状态栏显示连接、编码、SFTP、Agent 和版本状态。
 
 ## 首次使用

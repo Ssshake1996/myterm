@@ -1920,6 +1920,189 @@ button:disabled {
   box-shadow: inset 1px 0 0 var(--border-soft);
 }
 
+.dsh-workspace {
+  position: relative;
+  min-width: 480px;
+  max-width: min(860px, 66vw);
+  flex: 0 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface-panel-alt);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: inset 1px 0 0 var(--border-soft), -5px 0 18px rgba(8, 15, 13, 0.1);
+}
+
+.dsh-workspace.is-collapsed {
+  display: none;
+}
+
+.dsh-resizer {
+  position: absolute;
+  z-index: 6;
+  inset: 0 auto 0 -3px;
+  width: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.dsh-resizer:hover,
+.dsh-resizer:focus-visible {
+  background: color-mix(in srgb, var(--gold) 45%, transparent);
+}
+
+.dsh-workspace-header {
+  height: 48px;
+  flex: 0 0 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 9px 0 13px;
+  background: var(--surface-hover);
+  border-bottom: 1px solid var(--border-strong);
+  box-shadow: 0 1px 0 var(--border-soft);
+}
+
+.dsh-workspace-title,
+.dsh-workspace-title > span:last-child {
+  min-width: 0;
+  display: flex;
+}
+
+.dsh-workspace-title {
+  align-items: center;
+  gap: 9px;
+}
+
+.dsh-workspace-title > span:last-child {
+  flex-direction: column;
+}
+
+.dsh-workspace-title strong {
+  color: var(--text);
+  font-size: var(--type-title);
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.dsh-workspace-title small {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font: 500 9px/1.15 "Cascadia Mono", Consolas, monospace;
+}
+
+.dsh-workspace-mark {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: grid;
+  place-items: center;
+  color: var(--gold);
+  background: var(--gold-surface);
+  border: 1px solid var(--gold-border);
+  border-radius: 6px;
+}
+
+.dsh-workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.dsh-workspace-actions button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.dsh-workspace-actions button:hover {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--panel-strong);
+}
+
+.dsh-webview-host {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  background: var(--surface-deep);
+}
+
+.dsh-workspace-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 26px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.dsh-workspace-state strong {
+  color: var(--text);
+  font-size: var(--type-title);
+}
+
+.dsh-workspace-state small {
+  font-size: var(--type-small);
+}
+
+.dsh-workspace-state pre {
+  width: min(100%, 560px);
+  max-height: 45%;
+  margin: 5px 0;
+  padding: 10px;
+  overflow: auto;
+  color: var(--red);
+  background: var(--surface-panel);
+  border: 1px solid var(--red-border);
+  border-radius: 5px;
+  text-align: left;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.dsh-workspace-state button {
+  min-height: 30px;
+  padding: 0 13px;
+  border: 1px solid var(--gold-border);
+  border-radius: 5px;
+  color: var(--text);
+  background: var(--gold-surface);
+  cursor: pointer;
+}
+
+.dsh-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: dsh-spin 700ms linear infinite;
+}
+
+@keyframes dsh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .ai-resizer {
   position: absolute;
   z-index: 5;
@@ -5023,6 +5206,11 @@ input:checked + .toggle-track > span {
     min-width: 320px;
   }
 
+  .dsh-workspace {
+    width: min(520px, 56vw) !important;
+    min-width: 420px;
+  }
+
   .topbar-meta {
     display: none;
   }
@@ -5052,6 +5240,16 @@ input:checked + .toggle-track > span {
     bottom: 0;
     width: min(360px, calc(100vw - 46px)) !important;
     min-width: 0;
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.45);
+  }
+
+  .dsh-workspace {
+    position: absolute;
+    z-index: 18;
+    inset: 0 0 0 auto;
+    width: min(680px, calc(100vw - 46px)) !important;
+    min-width: 0;
+    max-width: none;
     box-shadow: -12px 0 32px rgba(0, 0, 0, 0.45);
   }
 
