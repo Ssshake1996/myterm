@@ -15,7 +15,8 @@
 - 支持快捷命令保存和执行。
 - 提供 Agent 可读取的诊断事件，以及 DSH 右侧 Sidebar。
 - 在 DSH Web Sidebar 底部提供可见的 `Remote Ops` 启动按钮，点击后只展开右侧 Sidebar，不隐藏当前对话。
-- Sidebar 顶部显示已安装版本，可检查 GitHub Release，并一键安装新版本；安装完成后需要重启 DSH。
+- Sidebar 顶部显示已安装版本，可检查 GitHub Release，并一键安装新版本；检查更新和刷新都会显示进行中、成功或失败状态，安装完成后需要重启 DSH。
+- 快捷命令区域上边界可拖拽调整高度，双击恢复默认高度；环境表单不展示内部 Harness 凭据引用，密码由系统自动管理。
 - 环境表单单独提供 SSH 密码输入框；密码通过 `credentials.set` 写入 Harness credentials，环境 JSON 只保存引用，不保存明文。
 
 ## 安装
@@ -23,7 +24,7 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.5.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.6.tgz
 dsh web
 ```
 

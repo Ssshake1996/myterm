@@ -9,6 +9,8 @@
 - 环境分组、SSH 环境的创建、编辑、删除和持久化。
 - 多 SSH 终端标签，终端始终作为主要工作区。
 - 快捷命令分组管理，快捷命令位于终端下方。
+- 快捷命令区域支持拖拽调整高度，检查更新和刷新均提供明确的进行中、成功或失败反馈。
+- 快捷命令区域支持拖拽调整高度，检查更新和刷新均提供明确的进行中、成功或失败反馈。
 - 多行命令一次性下发，不拆成大量短请求。
 - SFTP 目录读取、文件读写、创建目录、删除和重命名。
 - Multi-SSH 顺序协同工具、Agent 可读诊断和 Harness 凭据引用。
@@ -19,7 +21,7 @@
 从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.5.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.6.tgz
 dsh web
 ```
 
@@ -54,7 +56,7 @@ SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.5
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.6
 ```
 
 发布脚本会执行插件检查、打包、提交、创建 Tag、推送主分支和发布 GitHub Release。

@@ -18,8 +18,12 @@ depend on or start the myterm desktop application.
 - A visible `Remote Ops` launch button in the DSH Web sidebar footer; it opens
   the right Sidebar without waiting for an Agent tool call.
 - The Sidebar header shows the installed plugin version, checks the latest
-  GitHub Release, and can install an update with one click; restart DSH after
-  the package manager finishes.
+  GitHub Release, and can install an update with one click; refresh and update
+  actions expose loading/success/failure feedback. Restart DSH after the package
+  manager finishes.
+- The quick-command dock can be resized by dragging its top boundary (double-click
+  to restore the default height). The environment form hides the internal Harness
+  credential reference; SSH passwords are stored through the Harness credentials service.
 - Credential references through Harness credentials; plaintext passwords are
   never persisted.
 
@@ -30,7 +34,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.5.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.6.tgz
 dsh web
 ```
 
@@ -70,7 +74,7 @@ key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.5 exposes environment list/create/update/delete, group management,
+Version 0.2.6 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells
