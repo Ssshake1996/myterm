@@ -8,7 +8,7 @@ const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
 const client = await readFile(join(packageRoot, "lib/client.js"), "utf8");
 const server = await readFile(join(packageRoot, "lib/index.js"), "utf8");
-assert.equal(manifest.version, "0.2.4");
+assert.equal(manifest.version, "0.2.5");
 assert.equal(manifest.dsh?.bundle?.patch, "./cordis.patch.yml");
 assert.deepEqual(manifest.dsh?.client?.inject, [
   "@deepseek-ai/dsh-client-ui-sidebar-right",
@@ -31,6 +31,7 @@ assert.match(server, /remote_terminal_input/);
 assert.match(server, /const opened = await state.open/);
 assert.match(server, /TextDecoder/);
 assert.match(client, /terminalVisibleText/);
+assert.match(client, /key.length === 1/);
 assert.match(client, /quick-group\.create/);
 assert.match(client, /sidebarRight.*sidebarRightTabs/);
 assert.match(client, /检查更新/);

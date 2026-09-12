@@ -30,7 +30,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.4.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.5.tgz
 dsh web
 ```
 
@@ -70,7 +70,7 @@ key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.4 exposes environment list/create/update/delete, group management,
+Version 0.2.5 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells

@@ -836,3 +836,6 @@ sidebarRight, sidebarRightTabs)`。根因是插件把可选的浏览器 Sidebar 
 4. SSH 数据不能只按 UTF-8 粗暴转换。会话使用流式 `TextDecoder`，请求远端 UTF-8 locale，并在 Sidebar 展示前清洗 ANSI/OSC 控制序列；这样既降低乱码，也避免把终端控制码当业务文本显示。
 5. action 路由不得直接序列化包含 channel/client 的内部会话对象；连接成功后只返回 sessionId、环境名称、状态和 viewport 等公开快照。
 6. 验证必须使用实际运行中的 DSH Web 端口，覆盖真实 SSH 连接、中文输出、直接命令、Tab 和 Ctrl+C，而不是只做静态烟测。
+## 28. 修饰键事件边界（0.2.5）
+
+浏览器键盘事件会分别派发 `Control` 修饰键和实际字符键；判断 Ctrl 组合时必须先约束 `event.key.length === 1`，否则 `Control` 会被字符串范围比较误判成字母，导致 Ctrl+C 等控制字符重复发送。交互终端回归测试不能只验证按键名称，还要检查 action 请求中的实际控制字节数量。
