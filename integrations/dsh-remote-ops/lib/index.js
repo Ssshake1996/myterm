@@ -14,6 +14,11 @@ const ROOT = "remote-ops";
 const MAX_SCROLLBACK_BYTES = 4 * 1024 * 1024;
 const MAX_SFTP_BYTES = 2 * 1024 * 1024;
 const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
+const TERMINAL_ENCODINGS = new Set(["utf-8", "gb18030", "big5", "windows-1252", "iso-8859-1"]);
+function normalizeTerminalEncoding(value) {
+  const normalized = String(value ?? "utf-8").trim().toLowerCase();
+  return TERMINAL_ENCODINGS.has(normalized) ? normalized : "utf-8";
+}
 const CREDENTIAL_REF_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export function defaultPasswordRef(environmentId) {
   const suffix = String(environmentId ?? "").trim().replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "").toUpperCase();
@@ -49,6 +54,7 @@ export function validateEnvironment(value) {
   if (value.privateKeyPath !== undefined && typeof value.privateKeyPath !== "string") errors.push("privateKeyPath must be a string");
   if (value.passwordRef !== undefined && typeof value.passwordRef !== "string") errors.push("passwordRef must be a string");
   if (typeof value.passwordRef === "string" && value.passwordRef !== "" && !CREDENTIAL_REF_RE.test(value.passwordRef)) errors.push("passwordRef must be a valid Harness credential reference");
+  if (value.encoding !== undefined && !TERMINAL_ENCODINGS.has(String(value.encoding).trim().toLowerCase())) errors.push("encoding must be one of utf-8, gb18030, big5, windows-1252 or iso-8859-1");
   return { ok: errors.length === 0, errors };
 }
 
@@ -209,13 +215,14 @@ class SshTerminalSession {
     this.channel = channel;
     this.environment = environment;
     this.output = "";
+    this.decoder = new TextDecoder(normalizeTerminalEncoding(environment.encoding), { fatal: false });
     this.active = undefined;
     this.closed = false;
     this.exitCode = undefined;
     this.lastActivity = Date.now();
     this.motd = "";
-    channel.on("data", (chunk) => this.append(chunk.toString("utf8")));
-    channel.stderr?.on("data", (chunk) => this.append(chunk.toString("utf8")));
+    channel.on("data", (chunk) => this.append(this.decoder.decode(chunk, { stream: true })));
+    channel.stderr?.on("data", (chunk) => this.append(this.decoder.decode(chunk, { stream: true })));
     channel.on("exit", (code, signal) => { this.exitCode = code ?? null; this.exitSignal = signal ?? null; });
     channel.on("close", () => {
       this.closed = true;
@@ -238,6 +245,15 @@ class SshTerminalSession {
     if (this.closed) throw sessionError("REMOTE_SESSION_EXITED", "SSH session has exited");
     if (this.active) throw sessionError("SEND_ACTIVE", "SSH session already has an active send");
     return new SendOperation(this, request);
+  }
+
+  writeInput(text) {
+    if (this.closed) throw sessionError("REMOTE_SESSION_EXITED", "SSH session has exited");
+    const value = String(text ?? "");
+    if (!value) return { accepted: true, bytes: 0 };
+    this.channel.write(value, "utf8");
+    this.lastActivity = Date.now();
+    return { accepted: true, bytes: Buffer.byteLength(value, "utf8") };
   }
 
   read(request = {}) {
@@ -405,7 +421,7 @@ class RemoteOpsState {
       if (password) config.password = password;
       const channel = await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(sessionError("SSH_CONNECT_TIMEOUT", `SSH connection timed out: ${environment.host}:${config.port}`)), config.readyTimeout);
-        client.once("ready", () => client.shell({ term: "xterm-256color", rows: 40, cols: 160 }, (error, stream) => { clearTimeout(timer); if (error) reject(error); else resolve(stream); }));
+        client.once("ready", () => client.shell({ term: "xterm-256color", rows: 40, cols: 160 }, (error, stream) => { clearTimeout(timer); if (error) reject(error); else { stream.write("export LANG=C.UTF-8 LC_ALL=C.UTF-8 LC_CTYPE=C.UTF-8\r"); resolve(stream); } }));
         client.once("error", (error) => { clearTimeout(timer); reject(error); });
         client.connect(config);
       });
@@ -471,6 +487,13 @@ class RemoteOpsState {
     return { sessionId: record.sessionId, environment: record.environment.name, ...result };
   }
 
+  input(owner, target, text) {
+    const record = this.getSession(owner, target);
+    const result = record.session.writeInput(text);
+    this.event(owner, "ssh.input", { sessionId: record.sessionId, environment: record.environment.name, inputBytes: result.bytes });
+    return { sessionId: record.sessionId, environment: record.environment.name, ...result };
+  }
+
   async signal(owner, target, signal) {
     const record = this.getSession(owner, target);
     return { sessionId: record.sessionId, ...record.session.signal(signal) };
@@ -526,7 +549,7 @@ export function apply(ctx) {
   ctx.systemPrompt.section({
     name: "dsh-remote-ops",
     order: 410,
-    text: "Remote operations are provided by dsh-remote-ops. Use remote_environment_list when the target is ambiguous. Use remote_terminal_open/send/read for SSH work and preserve command spaces exactly. Prefer one complete command or a short batch when the command is known; use incremental reads only when live terminal state is needed. For multiple SSH targets, name each target explicitly, execute sequentially, observe the result, and only then continue. Product CLI knowledge may come from MCP, but MCP results are knowledge/validation, not a substitute for executing through the remote terminal. Never invent credentials or claim a connection succeeded without an observed result.",
+    text: "Remote operations are provided by dsh-remote-ops. Use remote_environment_list when the target is ambiguous. Use remote_terminal_open/send/read for SSH work and preserve command spaces exactly. Prefer one complete command or a short batch when the command is known; use incremental reads only when live terminal state is needed. Use remote_terminal_input for raw interactive keys such as Tab, arrows, passwords, and Ctrl+C without waiting for a result. For multiple SSH targets, name each target explicitly, execute sequentially, observe the result, and only then continue. Product CLI knowledge may come from MCP, but MCP results are knowledge/validation, not a substitute for executing through the remote terminal. Never invent credentials or claim a connection succeeded without an observed result.",
   });
 
   const owner = (exec) => exec.agent;
@@ -538,6 +561,7 @@ export function apply(ctx) {
   registerTool(ctx, { name: "remote_environment_delete", description: "Delete a saved SSH environment and close its owner sessions.", parameters: { environment: stringParam("Environment id or name", true) }, execute: async (args, exec) => state.deleteEnvironment(owner(exec), args.environment) });
   registerTool(ctx, { name: "remote_terminal_open", description: "Open or reuse an SSH terminal for an environment.", parameters: { environment: stringParam("Environment id or name", true) }, execute: async (_args, exec) => { const record = await state.open(owner(exec), _args.environment); return { sessionId: record.sessionId, environment: record.environment.name, status: record.session.status(), viewport: record.session.output.slice(-64 * 1024) }; } });
   registerTool(ctx, { name: "remote_terminal_send", description: "Send a complete command or interactive input to an owner-scoped SSH terminal and wait for output.", parameters: { session: stringParam("Session id or environment id"), environment: stringParam("Environment id or name when opening on demand"), text: stringParam("Input text; preserve every separator", true), submit: boolParam("Append Enter; defaults true"), quietMs: numberParam("Quiet completion window in milliseconds"), timeoutSeconds: numberParam("Timeout in seconds") }, execute: async (args, exec) => state.send(owner(exec), args.session, args) });
+  registerTool(ctx, { name: "remote_terminal_input", description: "Write raw terminal input immediately without waiting. Use for Tab completion, arrow keys, password prompts, interactive programs, or control characters.", parameters: { session: stringParam("Session id or environment id", true), text: stringParam("Raw UTF-8 terminal input", true) }, execute: async (args, exec) => state.input(owner(exec), args.session, args.text) });
   registerTool(ctx, { name: "remote_terminal_read", description: "Read bounded retained output from an SSH terminal.", parameters: { session: stringParam("Session id or environment id", true), offset: numberParam("Newest-relative line offset"), count: numberParam("Line count") }, execute: async (args, exec) => { const record = state.getSession(owner(exec), args.session); return { sessionId: record.sessionId, environment: record.environment.name, ...ctx.terminals.read(owner(exec), record.sessionId, args) }; } });
   registerTool(ctx, { name: "remote_terminal_signal", description: "Send an interrupt or allowed signal to the SSH foreground process.", parameters: { session: stringParam("Session id or environment id", true), signal: stringParam("Signal such as SIGINT or SIGTERM", true) }, execute: async (args, exec) => { const record = state.getSession(owner(exec), args.session); return { sessionId: record.sessionId, ...ctx.terminals.signal(owner(exec), record.sessionId, args.signal) }; } });
   registerTool(ctx, { name: "remote_terminal_close", description: "Close an owner-scoped SSH terminal.", parameters: { session: stringParam("Session id", true) }, execute: async (args, exec) => { const record = state.getSession(owner(exec), args.session); await ctx.terminals.kill(owner(exec), record.sessionId, "agent request"); state.sessions.delete(record.sessionId); return { closed: true, sessionId: record.sessionId }; } });
@@ -558,6 +582,6 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/state", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const sessionId = new URL(request.url).searchParams.get("sessionId"); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; await state.ready; return Response.json(agent ? { ...state.snapshot(agent), bound: true } : state.catalog(), { headers: { "Cache-Control": "no-store" } }); } }), "dsh-remote-ops state route");
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/update", methods: ["GET", "POST"], requestBody: "buffered", fetch: async (request) => { try { await state.ready; if (request.method === "POST") return Response.json(await state.upgrade(), { headers: { "Cache-Control": "no-store" } }); return Response.json(await state.checkForUpdate(), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); } } }), "dsh-remote-ops update route");
-  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action)) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = { ...body.environment, group: normalizeGroupName(body.environment?.group) }; const password = typeof body.password === "string" ? body.password : ""; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); if (password) { const previous = state.findEnvironment(environment.id); const reference = String(environment.passwordRef ?? "").trim() || previous?.passwordRef || defaultPasswordRef(environment.id); environment.passwordRef = await state.storePassword(reference, password); } value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") value = await state.open(agent, body.environment); else if (body.action === "send") value = await state.send(agent, body.session, body); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400 }); } } }), "dsh-remote-ops action route");
+  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action)) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = { ...body.environment, group: normalizeGroupName(body.environment?.group) }; const password = typeof body.password === "string" ? body.password : ""; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); if (password) { const previous = state.findEnvironment(environment.id); const reference = String(environment.passwordRef ?? "").trim() || previous?.passwordRef || defaultPasswordRef(environment.id); environment.passwordRef = await state.storePassword(reference, password); } value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") { const opened = await state.open(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024) }; } else if (body.action === "send") value = await state.send(agent, body.session, body); else if (body.action === "input") value = await state.input(agent, body.session, body.text); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400 }); } } }), "dsh-remote-ops action route");
 
 }

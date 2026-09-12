@@ -828,3 +828,11 @@ sidebarRight, sidebarRightTabs)`。根因是插件把可选的浏览器 Sidebar 
 5. SSH 密码不能填写到凭据引用字段；Sidebar 表单增加独立密码输入，后端通过 Harness `credentials.set` 保存，环境文件只保留合法的引用名。编辑时密码留空表示保留原凭据。
 6. 终端和快捷命令区使用两行紧凑网格布局，快捷命令区按内容高度占用空间并限制自身滚动高度，避免无命令时出现大块留白。
 7. 启动按钮不再调用 `uiWorkspace.startSession()` 作为降级路径；右侧 Sidebar 服务或插件 Tab 尚未就绪时持续重试，最终显示具体错误和 DSH Web profile 的修复提示。
+## 27. SSH 终端原始输入与编码显示（0.2.4）
+
+1. 终端输入不应再复用“命令输入框 + 等待执行”模型；交互式 SSH 必须提供原始按键通道，否则 Tab、方向键、退格、Ctrl+C 和交互式程序都会失真。
+2. 前端使用不可见的键盘捕获层，把普通字符按短时间窗口批量发送，把特殊键映射为 ANSI/控制字符；输出区仍保持滚动和选择能力，输入层不能拦截鼠标滚轮。
+3. 后端区分“等待结果的完整命令”与“立即写入的原始输入”：前者继续使用 `ctx.terminals.startSend`，后者通过 owner-scoped session 的 `writeInput`，避免每个按键等待 700ms。
+4. SSH 数据不能只按 UTF-8 粗暴转换。会话使用流式 `TextDecoder`，请求远端 UTF-8 locale，并在 Sidebar 展示前清洗 ANSI/OSC 控制序列；这样既降低乱码，也避免把终端控制码当业务文本显示。
+5. action 路由不得直接序列化包含 channel/client 的内部会话对象；连接成功后只返回 sessionId、环境名称、状态和 viewport 等公开快照。
+6. 验证必须使用实际运行中的 DSH Web 端口，覆盖真实 SSH 连接、中文输出、直接命令、Tab 和 Ctrl+C，而不是只做静态烟测。

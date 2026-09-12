@@ -8,7 +8,8 @@
 - 右侧 Sidebar 使用窄导航栏、可隐藏环境抽屉、常驻 SSH 终端和终端下方快捷命令区。
 - 环境和快捷命令都支持手动创建、编辑、删除和分组管理；删除非空分组会被拒绝。
 - 使用 `ctx.terminals` 管理按 Agent 隔离的 SSH 会话。
-- 支持完整命令下发、交互式输入和信号控制。
+- 支持完整命令下发、直接终端键盘输入和信号控制；终端支持 Tab 补齐、方向键、退格、Enter、Ctrl+C 等按键。
+- 终端会请求 UTF-8 locale，并清洗 ANSI 控制序列；环境字节流支持 UTF-8、GB18030、Big5 等编码配置。
 - 支持多个目标顺序协同执行，并返回每个目标的结果。
 - 支持 SFTP 列目录、读写、创建目录、删除和重命名。
 - 支持快捷命令保存和执行。
@@ -22,7 +23,7 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.3.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.4.tgz
 dsh web
 ```
 

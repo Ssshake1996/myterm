@@ -7,7 +7,8 @@ import { validateEnvironment, normalizeGroupName, summarizeError, defaultPasswor
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
 const client = await readFile(join(packageRoot, "lib/client.js"), "utf8");
-assert.equal(manifest.version, "0.2.3");
+const server = await readFile(join(packageRoot, "lib/index.js"), "utf8");
+assert.equal(manifest.version, "0.2.4");
 assert.equal(manifest.dsh?.bundle?.patch, "./cordis.patch.yml");
 assert.deepEqual(manifest.dsh?.client?.inject, [
   "@deepseek-ai/dsh-client-ui-sidebar-right",
@@ -25,6 +26,11 @@ assert.equal(defaultPasswordRef("prod-east").startsWith("DSH_REMOTE_OPS_PROD_EAS
 assert.match(summarizeError(new Error("ECONNREFUSED")), /ECONNREFUSED/);
 assert.match(client, /dsh-remote-ops__drawer/);
 assert.match(client, /dsh-remote-ops__terminal/);
+assert.match(client, /dsh-remote-ops__inputCapture/);
+assert.match(server, /remote_terminal_input/);
+assert.match(server, /const opened = await state.open/);
+assert.match(server, /TextDecoder/);
+assert.match(client, /terminalVisibleText/);
 assert.match(client, /quick-group\.create/);
 assert.match(client, /sidebarRight.*sidebarRightTabs/);
 assert.match(client, /检查更新/);
