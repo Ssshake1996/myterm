@@ -15,13 +15,14 @@ Agent kernel.
 - Complete multiline command submission without short-request splitting.
 - SFTP directory listing, file read/write, mkdir, delete, and rename.
 - Sequential Multi-SSH tools, Agent diagnostics, and Harness credential references.
+- The Sidebar shows the installed plugin version, checks GitHub Releases, and can install an update with one click; restart DSH after the upgrade.
 
 ## Installation
 
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.0.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.1.tgz
 dsh web
 ```
 
@@ -57,7 +58,7 @@ never written to JSON.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.0
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.1
 ```
 
 The release script checks, packs, commits, tags, pushes the main branch, and

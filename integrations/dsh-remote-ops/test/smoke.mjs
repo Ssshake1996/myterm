@@ -7,7 +7,7 @@ import { validateEnvironment, normalizeGroupName, summarizeError } from "../lib/
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
 const client = await readFile(join(packageRoot, "lib/client.js"), "utf8");
-assert.equal(manifest.version, "0.2.0");
+assert.equal(manifest.version, "0.2.1");
 assert.equal(manifest.dsh?.bundle?.patch, "./cordis.patch.yml");
 assert.deepEqual(manifest.dsh?.client?.inject, [
   "@deepseek-ai/dsh-client-ui-sidebar-right",
@@ -23,4 +23,6 @@ assert.match(summarizeError(new Error("ECONNREFUSED")), /ECONNREFUSED/);
 assert.match(client, /dsh-remote-ops__drawer/);
 assert.match(client, /dsh-remote-ops__terminal/);
 assert.match(client, /quick-group\.create/);
+assert.match(client, /sidebarRight.*sidebarRightTabs/);
+assert.match(client, /检查更新/);
 console.log("dsh-remote-ops smoke: ok");

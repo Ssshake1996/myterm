@@ -16,6 +16,9 @@ depend on or start the myterm desktop application.
 - Agent-visible diagnostics and a native DSH right-sidebar tab.
 - A visible `Remote Ops` launch button in the DSH Web sidebar footer; it opens
   the right Sidebar without waiting for an Agent tool call.
+- The Sidebar header shows the installed plugin version, checks the latest
+  GitHub Release, and can install an update with one click; restart DSH after
+  the package manager finishes.
 - Credential references through Harness credentials; plaintext passwords are
   never persisted.
 
@@ -26,7 +29,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.1.tgz
 dsh web
 ```
 
@@ -63,9 +66,14 @@ private key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.0 exposes environment list/create/update/delete, group management,
+Version 0.2.1 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells
 the model to send a complete command when it is known and to use incremental
 terminal feedback only when the current CLI state is genuinely uncertain.
+
+The client dependency on `sidebarRight` and `sidebarRightTabs` is optional at
+activation time. On older or non-Web DSH profiles the plugin no longer blocks
+boot; the Sidebar UI attaches automatically when those services become
+available.

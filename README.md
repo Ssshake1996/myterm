@@ -12,13 +12,14 @@
 - 多行命令一次性下发，不拆成大量短请求。
 - SFTP 目录读取、文件读写、创建目录、删除和重命名。
 - Multi-SSH 顺序协同工具、Agent 可读诊断和 Harness 凭据引用。
+- Sidebar 显示插件版本，支持检查 GitHub Release 并一键安装升级；升级后重启 DSH 即可生效。
 
 ## 安装
 
 从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.0.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.1.tgz
 dsh web
 ```
 
@@ -53,7 +54,7 @@ remote-ops/
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.0
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.1
 ```
 
 发布脚本会执行插件检查、打包、提交、创建 Tag、推送主分支和发布 GitHub Release。

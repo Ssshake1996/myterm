@@ -1,10 +1,13 @@
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { Buffer } from "node:buffer";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { Client as SshClient } from "ssh2";
+import { PLUGIN_NAME, PLUGIN_VERSION, RELEASE_REPOSITORY } from "./version.js";
 
-export const name = "dsh-remote-ops";
+export const name = PLUGIN_NAME;
 export const inject = ["connection", "systemPrompt", "tools", "terminals", "agents", "credentials"];
 
 const ROOT = "remote-ops";
@@ -53,6 +56,74 @@ function sessionError(code, message, cause) {
   const error = new Error(`${code}: ${message}${cause ? `; ${summarizeError(cause)}` : ""}`);
   error.code = code;
   return error;
+}
+
+const VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
+const RELEASE_API = `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/latest`;
+const UPDATE_CACHE_MS = 10 * 60 * 1000;
+
+function parseVersion(value) {
+  const match = VERSION_RE.exec(String(value ?? "").trim());
+  return match ? { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]), value: `${match[1]}.${match[2]}.${match[3]}` } : undefined;
+}
+
+function compareVersions(left, right) {
+  const a = parseVersion(left) ?? { major: 0, minor: 0, patch: 0 };
+  const b = parseVersion(right) ?? { major: 0, minor: 0, patch: 0 };
+  return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
+}
+
+async function fetchLatestRelease() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch(RELEASE_API, { headers: { Accept: "application/vnd.github+json", "User-Agent": PLUGIN_NAME }, signal: controller.signal });
+    if (!response.ok) throw sessionError("UPDATE_CHECK_FAILED", `GitHub release API returned HTTP ${response.status}`);
+    const payload = await response.json();
+    const version = parseVersion(String(payload.tag_name ?? "").replace(/^dsh-remote-ops-v/, ""));
+    if (!version) throw sessionError("UPDATE_METADATA_INVALID", "Latest release tag does not contain a valid plugin version");
+    const assetName = `dsh-remote-ops-v${version.value}.tgz`;
+    const asset = Array.isArray(payload.assets) ? payload.assets.find((item) => item?.name === assetName && typeof item.browser_download_url === "string") : undefined;
+    if (!asset) throw sessionError("UPDATE_ASSET_MISSING", `Latest release does not contain ${assetName}`);
+    return { currentVersion: PLUGIN_VERSION, latestVersion: version.value, updateAvailable: compareVersions(version.value, PLUGIN_VERSION) > 0, releaseUrl: payload.html_url, assetUrl: asset.browser_download_url, assetName, publishedAt: payload.published_at ?? null };
+  } catch (error) {
+    if (error?.name === "AbortError") throw sessionError("UPDATE_CHECK_TIMEOUT", "GitHub release check timed out");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function findProfileRoot() {
+  const starts = [process.cwd(), dirname(fileURLToPath(import.meta.url))];
+  for (const start of starts) {
+    let current = resolve(start);
+    for (let depth = 0; depth < 10; depth += 1) {
+      const manifest = await readFile(join(current, "package.json"), "utf8").then((value) => JSON.parse(value)).catch(() => undefined);
+      if (manifest?.dsh?.profile?.bundles && manifest?.dependencies?.["@dsh/remote-ops"]) return current;
+      const parent = dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+  }
+  throw sessionError("UPDATE_PROFILE_NOT_FOUND", "Unable to locate the active DSH profile package.json");
+}
+
+function runPnpm(cwd, args) {
+  const command = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, { cwd, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    const append = (target, chunk) => {
+      const value = target + chunk.toString("utf8");
+      return value.length > 24_000 ? value.slice(-24_000) : value;
+    };
+    child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
+    child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolvePromise({ code: code ?? 1, signal, stdout, stderr }));
+  });
 }
 
 class SendOperation {
@@ -205,6 +276,9 @@ class RemoteOpsState {
     this.sessions = new Map();
     this.events = new Map();
     this.backendSessions = new Map();
+    this.release = { currentVersion: PLUGIN_VERSION, latestVersion: PLUGIN_VERSION, updateAvailable: false };
+    this.releaseCheckedAt = 0;
+    this.releaseCheckPromise = undefined;
     this.ready = this.load();
   }
 
@@ -248,6 +322,23 @@ class RemoteOpsState {
   async saveQuickCommand(value) { const group = normalizeGroupName(value.group); const previous = this.quickCommands.find((item) => item.id === value.id); this.quickGroups.add(group); this.quickCommands = [...this.quickCommands.filter((item) => item.id !== value.id), { ...value, group }]; for (const name of new Set([group, previous?.group].filter(Boolean))) await this.saveQuickGroup(name); return value; }
   async deleteQuickCommand(id) { const value = this.quickCommands.find((item) => item.id === id); if (!value) throw sessionError("REMOTE_QUICK_COMMAND_NOT_FOUND", id); this.quickCommands = this.quickCommands.filter((item) => item.id !== id); await this.saveQuickGroup(value.group); return { deleted: true, id }; }
 
+  async checkForUpdate(force = false) {
+    if (!force && Date.now() - this.releaseCheckedAt < UPDATE_CACHE_MS) return this.release;
+    if (this.releaseCheckPromise) return this.releaseCheckPromise;
+    this.releaseCheckPromise = fetchLatestRelease().then((value) => { this.release = value; this.releaseCheckedAt = Date.now(); return value; }).finally(() => { this.releaseCheckPromise = undefined; });
+    return this.releaseCheckPromise;
+  }
+
+  async upgrade() {
+    const release = await this.checkForUpdate(true);
+    if (!release.updateAvailable) return { ...release, updated: false, restartRequired: false };
+    const profileRoot = await findProfileRoot();
+    const result = await runPnpm(profileRoot, ["add", release.assetUrl, "--save-prod"]);
+    if (result.code !== 0) throw sessionError("UPDATE_INSTALL_FAILED", `pnpm add ${release.assetName} exited with code ${result.code}`, result.stderr || result.stdout);
+    this.release = { ...release, updated: true, restartRequired: true, profileRoot: "active DSH profile" };
+    return { ...this.release, command: `pnpm add ${release.assetName} --save-prod`, output: result.stdout || result.stderr };
+  }
+
   allEnvironments() { return [...this.environments.entries()].flatMap(([group, values]) => values.map((value) => ({ ...value, group }))); }
   catalog() {
     return {
@@ -258,6 +349,9 @@ class RemoteOpsState {
       sessions: [],
       events: [],
       bound: false,
+      pluginName: PLUGIN_NAME,
+      pluginVersion: PLUGIN_VERSION,
+      update: this.release,
     };
   }
   findEnvironment(idOrName) { return this.allEnvironments().find((value) => value.id === idOrName || value.name === idOrName); }
@@ -271,7 +365,7 @@ class RemoteOpsState {
   snapshot(owner) {
     const id = ownerId(owner);
     const sessions = [...this.sessions.values()].filter((x) => x.ownerId === id).map((x) => ({ sessionId: x.sessionId, environmentId: x.environment.id, name: x.environment.name, status: x.session.status(), viewport: x.session.output.slice(-32 * 1024) }));
-    return { groups: this.groupList(), environments: this.allEnvironments().map((x) => ({ ...x, passwordRef: x.passwordRef ? "configured" : undefined, active: sessions.some((s) => s.environmentId === x.id) })), quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, events: this.events.get(id) ?? [] };
+    return { groups: this.groupList(), environments: this.allEnvironments().map((x) => ({ ...x, passwordRef: x.passwordRef ? "configured" : undefined, active: sessions.some((s) => s.environmentId === x.id) })), quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, events: this.events.get(id) ?? [], pluginName: PLUGIN_NAME, pluginVersion: PLUGIN_VERSION, update: this.release };
   }
 
   async resolvePassword(environment) {
@@ -446,6 +540,7 @@ export function apply(ctx) {
   registerTool(ctx, { name: "remote_diagnostics", description: "Read recent remote operation diagnostics for this Agent.", parameters: {}, execute: async (_args, exec) => ({ events: state.events.get(ownerId(owner(exec))) ?? [] }) });
 
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/state", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const sessionId = new URL(request.url).searchParams.get("sessionId"); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; await state.ready; return Response.json(agent ? { ...state.snapshot(agent), bound: true } : state.catalog(), { headers: { "Cache-Control": "no-store" } }); } }), "dsh-remote-ops state route");
+  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/update", methods: ["GET", "POST"], requestBody: "buffered", fetch: async (request) => { try { await state.ready; if (request.method === "POST") return Response.json(await state.upgrade(), { headers: { "Cache-Control": "no-store" } }); return Response.json(await state.checkForUpdate(), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); } } }), "dsh-remote-ops update route");
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action)) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = { ...body.environment, group: normalizeGroupName(body.environment?.group) }; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") value = await state.open(agent, body.environment); else if (body.action === "send") value = await state.send(agent, body.session, body); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400 }); } } }), "dsh-remote-ops action route");
 
 }
