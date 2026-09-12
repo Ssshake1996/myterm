@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { Buffer } from "node:buffer";
@@ -197,8 +197,11 @@ class RemoteOpsState {
   constructor(ctx) {
     this.ctx = ctx;
     this.base = join(resolveRemoteHome(), ROOT);
+    this.environmentRoot = join(this.base, "environments");
+    this.quickRoot = join(this.base, "quick-commands");
     this.environments = new Map();
     this.quickCommands = [];
+    this.quickGroups = new Set();
     this.sessions = new Map();
     this.events = new Map();
     this.backendSessions = new Map();
@@ -207,26 +210,50 @@ class RemoteOpsState {
 
   async load() {
     await mkdir(this.base, { recursive: true });
-    const files = await (await import("node:fs/promises")).readdir(this.base).catch(() => []);
-    for (const file of files.filter((x) => x.endsWith("-environments.json"))) {
-      const group = file.slice(0, -"-environments.json".length);
-      const data = await this.readJson(join(this.base, file), []);
-      if (Array.isArray(data)) this.environments.set(normalizeGroupName(group), data.filter((item) => validateEnvironment(item).ok));
+    await mkdir(this.environmentRoot, { recursive: true });
+    await mkdir(this.quickRoot, { recursive: true });
+    const environmentDirs = await readdir(this.environmentRoot, { withFileTypes: true }).catch(() => []);
+    for (const entry of environmentDirs.filter((item) => item.isDirectory())) {
+      const group = normalizeGroupName(entry.name);
+      const data = await this.readJson(this.envFile(group), []);
+      this.environments.set(group, Array.isArray(data) ? data.filter((item) => validateEnvironment(item).ok) : []);
     }
-    this.quickCommands = await this.readJson(join(this.base, "quick-commands.json"), []);
-    if (!Array.isArray(this.quickCommands)) this.quickCommands = [];
+    const quickDirs = await readdir(this.quickRoot, { withFileTypes: true }).catch(() => []);
+    for (const entry of quickDirs.filter((item) => item.isDirectory())) {
+      const group = normalizeGroupName(entry.name);
+      this.quickGroups.add(group);
+      const data = await this.readJson(this.quickFile(group), []);
+      if (Array.isArray(data)) this.quickCommands.push(...data.filter((item) => item && typeof item.id === "string"));
+    }
   }
 
   async readJson(path, fallback) { try { return JSON.parse(await readFile(path, "utf8")); } catch { return fallback; } }
-  envFile(group) { return join(this.base, `${normalizeGroupName(group)}-environments.json`); }
+  groupDir(group) { return join(this.environmentRoot, normalizeGroupName(group)); }
+  envFile(group) { const safe = normalizeGroupName(group); return join(this.groupDir(safe), `environments.${safe}.json`); }
+  quickGroupDir(group) { return join(this.quickRoot, normalizeGroupName(group)); }
+  quickFile(group) { const safe = normalizeGroupName(group); return join(this.quickGroupDir(safe), `commands.${safe}.json`); }
 
-  async saveGroup(group) { await mkdir(this.base, { recursive: true }); await writeFile(this.envFile(group), `${JSON.stringify(this.environments.get(group) ?? [], null, 2)}\n`, "utf8"); }
-  async saveQuickCommands() { await writeFile(join(this.base, "quick-commands.json"), `${JSON.stringify(this.quickCommands, null, 2)}\n`, "utf8"); }
+  async saveGroup(group) { const safe = normalizeGroupName(group); await mkdir(this.groupDir(safe), { recursive: true }); await writeFile(this.envFile(safe), `${JSON.stringify(this.environments.get(safe) ?? [], null, 2)}\n`, "utf8"); }
+  async saveQuickGroup(group) { const safe = normalizeGroupName(group); await mkdir(this.quickGroupDir(safe), { recursive: true }); const values = this.quickCommands.filter((item) => normalizeGroupName(item.group) === safe); await writeFile(this.quickFile(safe), `${JSON.stringify(values, null, 2)}\n`, "utf8"); }
+
+  groupList() { return [...this.environments.keys()].sort((a, b) => a.localeCompare(b)); }
+  quickGroupList() { return [...this.quickGroups].sort((a, b) => a.localeCompare(b)); }
+  async createGroup(name) { const group = normalizeGroupName(name); if (this.environments.has(group)) throw sessionError("REMOTE_GROUP_EXISTS", `Environment group already exists: ${group}`); this.environments.set(group, []); await this.saveGroup(group); return { group }; }
+  async renameGroup(from, to) { const source = normalizeGroupName(from); const target = normalizeGroupName(to); if (!this.environments.has(source)) throw sessionError("REMOTE_GROUP_NOT_FOUND", source); if (source === target) return { group: target }; if (this.environments.has(target)) throw sessionError("REMOTE_GROUP_EXISTS", target); this.environments.set(target, (this.environments.get(source) ?? []).map((item) => ({ ...item, group: target }))); this.environments.delete(source); await this.saveGroup(target); await rm(this.groupDir(source), { recursive: true, force: true }); return { group: target }; }
+  async deleteGroup(name) { const group = normalizeGroupName(name); const values = this.environments.get(group); if (!values) throw sessionError("REMOTE_GROUP_NOT_FOUND", group); if (values.length) throw sessionError("REMOTE_GROUP_NOT_EMPTY", `Environment group is not empty: ${group}`); this.environments.delete(group); await rm(this.groupDir(group), { recursive: true, force: true }); return { deleted: true, group }; }
+  async saveEnvironment(value) { const group = normalizeGroupName(value.group); const previousGroups = []; for (const [name, list] of this.environments) { const next = list.filter((item) => item.id !== value.id); if (next.length !== list.length) { this.environments.set(name, next); previousGroups.push(name); } } if (!this.environments.has(group)) this.environments.set(group, []); this.environments.set(group, [...this.environments.get(group), { ...value, group }]); for (const name of new Set([...previousGroups, group])) await this.saveGroup(name); return this.findEnvironment(value.id); }
+  async createQuickGroup(name) { const group = normalizeGroupName(name); if (this.quickGroups.has(group)) throw sessionError("REMOTE_QUICK_GROUP_EXISTS", `Quick command group already exists: ${group}`); this.quickGroups.add(group); await this.saveQuickGroup(group); return { group }; }
+  async renameQuickGroup(from, to) { const source = normalizeGroupName(from); const target = normalizeGroupName(to); if (!this.quickGroups.has(source)) throw sessionError("REMOTE_QUICK_GROUP_NOT_FOUND", source); if (this.quickGroups.has(target)) throw sessionError("REMOTE_QUICK_GROUP_EXISTS", target); this.quickGroups.delete(source); this.quickGroups.add(target); this.quickCommands = this.quickCommands.map((item) => normalizeGroupName(item.group) === source ? { ...item, group: target } : item); await this.saveQuickGroup(target); await rm(this.quickGroupDir(source), { recursive: true, force: true }); return { group: target }; }
+  async deleteQuickGroup(name) { const group = normalizeGroupName(name); if (!this.quickGroups.has(group)) throw sessionError("REMOTE_QUICK_GROUP_NOT_FOUND", group); if (this.quickCommands.some((item) => normalizeGroupName(item.group) === group)) throw sessionError("REMOTE_QUICK_GROUP_NOT_EMPTY", `Quick command group is not empty: ${group}`); this.quickGroups.delete(group); await rm(this.quickGroupDir(group), { recursive: true, force: true }); return { deleted: true, group }; }
+  async saveQuickCommand(value) { const group = normalizeGroupName(value.group); const previous = this.quickCommands.find((item) => item.id === value.id); this.quickGroups.add(group); this.quickCommands = [...this.quickCommands.filter((item) => item.id !== value.id), { ...value, group }]; for (const name of new Set([group, previous?.group].filter(Boolean))) await this.saveQuickGroup(name); return value; }
+  async deleteQuickCommand(id) { const value = this.quickCommands.find((item) => item.id === id); if (!value) throw sessionError("REMOTE_QUICK_COMMAND_NOT_FOUND", id); this.quickCommands = this.quickCommands.filter((item) => item.id !== id); await this.saveQuickGroup(value.group); return { deleted: true, id }; }
 
   allEnvironments() { return [...this.environments.entries()].flatMap(([group, values]) => values.map((value) => ({ ...value, group }))); }
   catalog() {
     return {
+      groups: this.groupList(),
       environments: this.allEnvironments().map((value) => ({ ...value, passwordRef: value.passwordRef ? "configured" : undefined, active: false })),
+      quickGroups: this.quickGroupList(),
       quickCommands: this.quickCommands,
       sessions: [],
       events: [],
@@ -243,8 +270,8 @@ class RemoteOpsState {
   }
   snapshot(owner) {
     const id = ownerId(owner);
-    const sessions = [...this.sessions.values()].filter((x) => x.ownerId === id).map((x) => ({ sessionId: x.sessionId, environmentId: x.environment.id, name: x.environment.name, status: x.session.status() }));
-    return { environments: this.allEnvironments().map((x) => ({ ...x, passwordRef: x.passwordRef ? "configured" : undefined, active: sessions.some((s) => s.environmentId === x.id) })), quickCommands: this.quickCommands, sessions, events: this.events.get(id) ?? [] };
+    const sessions = [...this.sessions.values()].filter((x) => x.ownerId === id).map((x) => ({ sessionId: x.sessionId, environmentId: x.environment.id, name: x.environment.name, status: x.session.status(), viewport: x.session.output.slice(-32 * 1024) }));
+    return { groups: this.groupList(), environments: this.allEnvironments().map((x) => ({ ...x, passwordRef: x.passwordRef ? "configured" : undefined, active: sessions.some((s) => s.environmentId === x.id) })), quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, events: this.events.get(id) ?? [] };
   }
 
   async resolvePassword(environment) {
@@ -308,9 +335,10 @@ class RemoteOpsState {
     await this.ready;
     const target = this.findEnvironment(idOrName);
     if (!target) throw sessionError("REMOTE_ENV_NOT_FOUND", idOrName);
+    const ownerKey = owner ? ownerId(owner) : undefined;
     for (const record of [...this.sessions.values()]) {
-      if (record.environment.id === target.id && record.ownerId === ownerId(owner)) {
-        await this.ctx.terminals.kill(owner, record.sessionId, "environment deleted").catch(() => {});
+      if (record.environment.id === target.id && (!ownerKey || record.ownerId === ownerKey)) {
+        await this.ctx.terminals.kill(record.owner, record.sessionId, "environment deleted").catch(() => {});
         this.sessions.delete(record.sessionId);
       }
     }
@@ -330,6 +358,18 @@ class RemoteOpsState {
     const result = await operation.done;
     this.event(owner, "ssh.send", { sessionId: record.sessionId, environment: record.environment.name, inputChars: String(args.text ?? args.command ?? "").length, waitReason: result.waitReason });
     return { sessionId: record.sessionId, environment: record.environment.name, ...result };
+  }
+
+  async signal(owner, target, signal) {
+    const record = this.getSession(owner, target);
+    return { sessionId: record.sessionId, ...record.session.signal(signal) };
+  }
+
+  async close(owner, target) {
+    const record = this.getSession(owner, target);
+    await this.ctx.terminals.kill(owner, record.sessionId, "closed by user");
+    this.sessions.delete(record.sessionId);
+    return { closed: true, sessionId: record.sessionId };
   }
 
   async sftp(owner, environmentId, action, args) {
@@ -380,7 +420,10 @@ export function apply(ctx) {
 
   const owner = (exec) => exec.agent;
   registerTool(ctx, { name: "remote_environment_list", description: "List saved SSH environments and active owner-scoped sessions.", parameters: {}, execute: async (_args, exec) => { await state.ready; return state.snapshot(owner(exec)); } });
-  registerTool(ctx, { name: "remote_environment_create", description: "Create or replace one saved SSH environment. Use passwordRef instead of plaintext passwords.", parameters: { id: stringParam("Stable environment id", true), name: stringParam("Display name", true), host: stringParam("SSH host", true), username: stringParam("SSH username", true), group: stringParam("Environment group"), port: numberParam("SSH port"), privateKeyPath: stringParam("Local private key path"), passwordRef: stringParam("Harness credential reference") }, execute: async (args, exec) => { await state.ready; const value = { ...args, group: normalizeGroupName(args.group) }; const validation = validateEnvironment(value); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); const list = state.environments.get(value.group) ?? []; const next = list.filter((x) => x.id !== value.id); next.push(value); state.environments.set(value.group, next); await state.saveGroup(value.group); state.event(owner(exec), "environment.create", { environment: value.name }); return { saved: true, environment: { ...value, passwordRef: value.passwordRef ? "configured" : undefined } }; } });
+  registerTool(ctx, { name: "remote_environment_create", description: "Create or replace one saved SSH environment. Use passwordRef instead of plaintext passwords.", parameters: { id: stringParam("Stable environment id", true), name: stringParam("Display name", true), host: stringParam("SSH host", true), username: stringParam("SSH username", true), group: stringParam("Environment group"), port: numberParam("SSH port"), privateKeyPath: stringParam("Local private key path"), passwordRef: stringParam("Harness credential reference") }, execute: async (args, exec) => { await state.ready; const value = { ...args, group: normalizeGroupName(args.group) }; const validation = validateEnvironment(value); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); const saved = await state.saveEnvironment(value); state.event(owner(exec), "environment.create", { environment: value.name }); return { saved: true, environment: { ...saved, passwordRef: saved.passwordRef ? "configured" : undefined } }; } });
+  registerTool(ctx, { name: "remote_environment_group_create", description: "Create an empty saved SSH environment group.", parameters: { group: stringParam("Environment group", true) }, execute: async (args) => state.createGroup(args.group) });
+  registerTool(ctx, { name: "remote_environment_group_rename", description: "Rename a saved SSH environment group.", parameters: { group: stringParam("Existing group", true), name: stringParam("New group name", true) }, execute: async (args) => state.renameGroup(args.group, args.name) });
+  registerTool(ctx, { name: "remote_environment_group_delete", description: "Delete an empty saved SSH environment group.", parameters: { group: stringParam("Environment group", true) }, execute: async (args) => state.deleteGroup(args.group) });
   registerTool(ctx, { name: "remote_environment_delete", description: "Delete a saved SSH environment and close its owner sessions.", parameters: { environment: stringParam("Environment id or name", true) }, execute: async (args, exec) => state.deleteEnvironment(owner(exec), args.environment) });
   registerTool(ctx, { name: "remote_terminal_open", description: "Open or reuse an SSH terminal for an environment.", parameters: { environment: stringParam("Environment id or name", true) }, execute: async (_args, exec) => { const record = await state.open(owner(exec), _args.environment); return { sessionId: record.sessionId, environment: record.environment.name, status: record.session.status(), viewport: record.session.output.slice(-64 * 1024) }; } });
   registerTool(ctx, { name: "remote_terminal_send", description: "Send a complete command or interactive input to an owner-scoped SSH terminal and wait for output.", parameters: { session: stringParam("Session id or environment id"), environment: stringParam("Environment id or name when opening on demand"), text: stringParam("Input text; preserve every separator", true), submit: boolParam("Append Enter; defaults true"), quietMs: numberParam("Quiet completion window in milliseconds"), timeoutSeconds: numberParam("Timeout in seconds") }, execute: async (args, exec) => state.send(owner(exec), args.session, args) });
@@ -388,7 +431,11 @@ export function apply(ctx) {
   registerTool(ctx, { name: "remote_terminal_signal", description: "Send an interrupt or allowed signal to the SSH foreground process.", parameters: { session: stringParam("Session id or environment id", true), signal: stringParam("Signal such as SIGINT or SIGTERM", true) }, execute: async (args, exec) => { const record = state.getSession(owner(exec), args.session); return { sessionId: record.sessionId, ...ctx.terminals.signal(owner(exec), record.sessionId, args.signal) }; } });
   registerTool(ctx, { name: "remote_terminal_close", description: "Close an owner-scoped SSH terminal.", parameters: { session: stringParam("Session id", true) }, execute: async (args, exec) => { const record = state.getSession(owner(exec), args.session); await ctx.terminals.kill(owner(exec), record.sessionId, "agent request"); state.sessions.delete(record.sessionId); return { closed: true, sessionId: record.sessionId }; } });
   registerTool(ctx, { name: "remote_terminal_batch", description: "Execute complete commands sequentially on one or more explicit SSH environments and return each result.", parameters: { targets: { type: "array", required: true, items: { type: "string" }, description: "Environment ids or names" }, commands: { type: "array", required: true, items: { type: "string" }, description: "Complete commands in order" }, timeoutSeconds: numberParam("Per-command timeout") }, execute: async (args, exec) => { const results = []; for (const target of args.targets) { const targetResults = []; for (const command of args.commands) targetResults.push(await state.send(owner(exec), undefined, { environment: target, text: command, submit: true, timeoutSeconds: args.timeoutSeconds })); results.push({ target, results: targetResults }); } return { results }; } });
-  registerTool(ctx, { name: "remote_quick_command_list", description: "List saved quick commands.", parameters: {}, execute: async () => { await state.ready; return { commands: state.quickCommands }; } });
+  registerTool(ctx, { name: "remote_quick_command_list", description: "List saved quick commands and groups.", parameters: {}, execute: async () => { await state.ready; return { groups: state.quickGroupList(), commands: state.quickCommands }; } });
+  registerTool(ctx, { name: "remote_quick_command_save", description: "Create or replace a saved quick command. The command can contain multiple lines.", parameters: { id: stringParam("Stable command id", true), name: stringParam("Display name", true), command: stringParam("Complete command text", true), group: stringParam("Quick command group") }, execute: async (args) => state.saveQuickCommand({ ...args, group: normalizeGroupName(args.group) }) });
+  registerTool(ctx, { name: "remote_quick_command_delete", description: "Delete a saved quick command.", parameters: { commandId: stringParam("Quick command id", true) }, execute: async (args) => state.deleteQuickCommand(args.commandId) });
+  registerTool(ctx, { name: "remote_quick_command_group_create", description: "Create an empty quick command group.", parameters: { group: stringParam("Quick command group", true) }, execute: async (args) => state.createQuickGroup(args.group) });
+  registerTool(ctx, { name: "remote_quick_command_group_delete", description: "Delete an empty quick command group.", parameters: { group: stringParam("Quick command group", true) }, execute: async (args) => state.deleteQuickGroup(args.group) });
   registerTool(ctx, { name: "remote_quick_command_run", description: "Run a saved quick command on one explicit environment.", parameters: { commandId: stringParam("Quick command id", true), environment: stringParam("Environment id or name", true) }, execute: async (args, exec) => { await state.ready; const command = state.quickCommands.find((x) => x.id === args.commandId); if (!command) throw sessionError("REMOTE_QUICK_COMMAND_NOT_FOUND", args.commandId); return state.send(owner(exec), undefined, { environment: args.environment, text: command.command, submit: true }); } });
   registerTool(ctx, { name: "remote_sftp_list", description: "List a remote SFTP directory.", parameters: { environment: stringParam("Environment id or name", true), path: stringParam("Remote path") }, execute: async (args, exec) => state.sftp(owner(exec), args.environment, "list", args) });
   registerTool(ctx, { name: "remote_sftp_read", description: "Read a bounded UTF-8 remote SFTP file.", parameters: { environment: stringParam("Environment id or name", true), path: stringParam("Remote path", true) }, execute: async (args, exec) => state.sftp(owner(exec), args.environment, "read", args) });
@@ -399,6 +446,6 @@ export function apply(ctx) {
   registerTool(ctx, { name: "remote_diagnostics", description: "Read recent remote operation diagnostics for this Agent.", parameters: {}, execute: async (_args, exec) => ({ events: state.events.get(ownerId(owner(exec))) ?? [] }) });
 
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/state", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const sessionId = new URL(request.url).searchParams.get("sessionId"); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; await state.ready; return Response.json(agent ? { ...state.snapshot(agent), bound: true } : state.catalog(), { headers: { "Cache-Control": "no-store" } }); } }), "dsh-remote-ops state route");
-  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); const agent = ctx.agents.get(body.sessionId); if (!agent) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "open") value = await state.open(agent, body.environment); else if (body.action === "send") value = await state.send(agent, body.session, body); else if (body.action === "sftp") value = await state.sftp(agent, body.environment, body.operation, body); else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400 }); } } }), "dsh-remote-ops action route");
+  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action)) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = { ...body.environment, group: normalizeGroupName(body.environment?.group) }; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") value = await state.open(agent, body.environment); else if (body.action === "send") value = await state.send(agent, body.session, body); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400 }); } } }), "dsh-remote-ops action route");
 
 }

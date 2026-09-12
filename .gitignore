@@ -1,19 +1,8 @@
-# Frontend
+# DSH plugin
 node_modules/
-dist/
 coverage/
 dist-release/
-.build-tools/
-*.tsbuildinfo
-/integrations/dsh-codex-agent/lib/
-/integrations/dsh-codex-agent/native-dist/
-/integrations/deepseek-harness-runtime/node_modules/
-/src-tauri/resources/deepseek-harness-runtime/
-
-# Rust and Tauri
-target/
-src-tauri/target/
-src-tauri/gen/
+.cache/
 
 # Runtime data and credentials
 data/
@@ -28,7 +17,6 @@ data/
 test-results/
 playwright-report/
 .playwright-cli/
-output/
 .idea/
 .vscode/
 *.swp

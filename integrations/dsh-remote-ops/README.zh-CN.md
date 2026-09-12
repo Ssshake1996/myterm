@@ -4,7 +4,9 @@
 
 ## 能力
 
-- 按分组保存环境，文件位于 `remote-ops/<分组>-environments.json`。
+- 按分组保存环境，文件位于 `remote-ops/environments/<分组>/environments.<分组>.json`。
+- 右侧 Sidebar 使用窄导航栏、可隐藏环境抽屉、常驻 SSH 终端和终端下方快捷命令区。
+- 环境和快捷命令都支持手动创建、编辑、删除和分组管理；删除非空分组会被拒绝。
 - 使用 `ctx.terminals` 管理按 Agent 隔离的 SSH 会话。
 - 支持完整命令下发、交互式输入和信号控制。
 - 支持多个目标顺序协同执行，并返回每个目标的结果。
@@ -19,7 +21,7 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.1.4.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.0.tgz
 dsh web
 ```
 
@@ -31,8 +33,10 @@ dsh plugin --profile web add @dsh/remote-ops
 
 本仓库以 GitHub Release 压缩包作为标准交付物；本地源码也可以先执行 `npm pack`，再用同样的命令安装。
 
-插件与 myterm 完全独立，宿主只需要提供 DSH 文档中定义的服务即可。
+插件是纯 DeepSeek Harness 插件，仓库不再包含 myterm 桌面程序。
 
 SSH PTY 遵循 Harness 约定，只在进程内存中存在；环境定义会持久化，DSH 重启后按需重新打开连接。
 
 DSH Web 启动后，点击 Sidebar 底部的 `Remote Ops` 即可主动展开右侧 Sidebar，同时保留当前对话。没有选中 DSH 对话时，按钮会先启动新的 DSH 对话；选择对话后，SSH 和 SFTP 操作仍由 Harness 会话管理。
+
+环境抽屉默认收起，终端始终保留在主区域。双击环境或点击“连接”创建终端标签；关闭抽屉、切换快捷命令或打开 SFTP 不会卸载终端。快捷命令支持多行内容，点击“执行”时一次性发送完整文本。
