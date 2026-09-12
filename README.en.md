@@ -22,7 +22,7 @@ Agent kernel.
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.1.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.2.tgz
 dsh web
 ```
 
@@ -58,7 +58,7 @@ never written to JSON.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.1
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.2
 ```
 
 The release script checks, packs, commits, tags, pushes the main branch, and
