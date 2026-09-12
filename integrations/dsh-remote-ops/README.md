@@ -29,7 +29,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.2.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.3.tgz
 dsh web
 ```
 
@@ -50,9 +50,10 @@ services. SSH PTYs are process-local by design; saved environment definitions
 survive restarts and reconnect on demand.
 
 After DSH Web starts, click `Remote Ops` in the sidebar footer to open the
-right Sidebar while keeping the current conversation visible. If no DSH
-conversation is selected, the button starts a new DSH conversation; SSH and
-SFTP actions remain owned by the selected Harness session.
+right Sidebar while keeping the current conversation visible. The button never
+starts a fallback conversation; if the Sidebar service is not ready, the plugin
+retries and reports the exact failure. SSH and SFTP actions remain owned by the
+selected Harness session.
 
 ## Data
 
@@ -61,12 +62,14 @@ The plugin stores its own data under `$DSH_HOME/remote-ops`:
 - `environments/<group>/environments.<group>.json` for environment definitions.
 - `quick-commands/<group>/commands.<group>.json` for reusable commands.
 
-Use a Harness credential reference such as `passwordRef` for passwords. A
-private key may be referenced by local path.
+Use a Harness credential reference such as `passwordRef` for passwords. The
+Sidebar form also accepts an SSH password and stores it through
+`credentials.set`; the environment JSON keeps only the reference. A private
+key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.2 exposes environment list/create/update/delete, group management,
+Version 0.2.3 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells

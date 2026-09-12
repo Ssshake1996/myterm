@@ -14,6 +14,11 @@ const ROOT = "remote-ops";
 const MAX_SCROLLBACK_BYTES = 4 * 1024 * 1024;
 const MAX_SFTP_BYTES = 2 * 1024 * 1024;
 const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
+const CREDENTIAL_REF_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+export function defaultPasswordRef(environmentId) {
+  const suffix = String(environmentId ?? "").trim().replace(/[^a-zA-Z0-9_]+/g, "_").replace(/^_+|_+$/g, "").toUpperCase();
+  return `DSH_REMOTE_OPS_${suffix || "ENV"}_PASSWORD`;
+}
 function resolveRemoteHome() { const configured = process.env.DSH_HOME?.trim(); return configured ? configured.replace(/^~(?=[\\/])/, homedir()) : join(homedir(), ".dsh"); }
 
 export function normalizeGroupName(value) {
@@ -43,6 +48,7 @@ export function validateEnvironment(value) {
   if (value.port !== undefined && (!Number.isInteger(value.port) || value.port < 1 || value.port > 65535)) errors.push("port must be 1-65535");
   if (value.privateKeyPath !== undefined && typeof value.privateKeyPath !== "string") errors.push("privateKeyPath must be a string");
   if (value.passwordRef !== undefined && typeof value.passwordRef !== "string") errors.push("passwordRef must be a string");
+  if (typeof value.passwordRef === "string" && value.passwordRef !== "" && !CREDENTIAL_REF_RE.test(value.passwordRef)) errors.push("passwordRef must be a valid Harness credential reference");
   return { ok: errors.length === 0, errors };
 }
 
@@ -376,6 +382,17 @@ class RemoteOpsState {
     return result?.value;
   }
 
+  async storePassword(reference, password) {
+    const ref = String(reference ?? "").trim();
+    if (!CREDENTIAL_REF_RE.test(ref)) throw sessionError("REMOTE_CREDENTIAL_REF_INVALID", `Invalid Harness credential reference: ${ref || "<empty>"}`);
+    const secret = String(password ?? "");
+    if (!secret) throw sessionError("REMOTE_PASSWORD_EMPTY", "SSH password cannot be empty");
+    const credentials = this.ctx.credentials;
+    if (!credentials?.set) throw sessionError("REMOTE_CREDENTIALS_UNAVAILABLE", "Harness credentials service is not available");
+    await credentials.set(ref, secret);
+    return ref;
+  }
+
   async spawnBackend(spec) {
     await this.ready;
     const environment = this.findEnvironment(spec.name);
@@ -541,6 +558,6 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/state", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const sessionId = new URL(request.url).searchParams.get("sessionId"); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; await state.ready; return Response.json(agent ? { ...state.snapshot(agent), bound: true } : state.catalog(), { headers: { "Cache-Control": "no-store" } }); } }), "dsh-remote-ops state route");
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/update", methods: ["GET", "POST"], requestBody: "buffered", fetch: async (request) => { try { await state.ready; if (request.method === "POST") return Response.json(await state.upgrade(), { headers: { "Cache-Control": "no-store" } }); return Response.json(await state.checkForUpdate(), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); } } }), "dsh-remote-ops update route");
-  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action)) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = { ...body.environment, group: normalizeGroupName(body.environment?.group) }; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") value = await state.open(agent, body.environment); else if (body.action === "send") value = await state.send(agent, body.session, body); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400 }); } } }), "dsh-remote-ops action route");
+  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action)) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = { ...body.environment, group: normalizeGroupName(body.environment?.group) }; const password = typeof body.password === "string" ? body.password : ""; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); if (password) { const previous = state.findEnvironment(environment.id); const reference = String(environment.passwordRef ?? "").trim() || previous?.passwordRef || defaultPasswordRef(environment.id); environment.passwordRef = await state.storePassword(reference, password); } value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") value = await state.open(agent, body.environment); else if (body.action === "send") value = await state.send(agent, body.session, body); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400 }); } } }), "dsh-remote-ops action route");
 
 }

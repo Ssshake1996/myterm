@@ -15,14 +15,14 @@
 - 提供 Agent 可读取的诊断事件，以及 DSH 右侧 Sidebar。
 - 在 DSH Web Sidebar 底部提供可见的 `Remote Ops` 启动按钮，点击后只展开右侧 Sidebar，不隐藏当前对话。
 - Sidebar 顶部显示已安装版本，可检查 GitHub Release，并一键安装新版本；安装完成后需要重启 DSH。
-- 密码只通过 Harness credentials 的 `passwordRef` 引用，不保存明文。
+- 环境表单单独提供 SSH 密码输入框；密码通过 `credentials.set` 写入 Harness credentials，环境 JSON 只保存引用，不保存明文。
 
 ## 安装
 
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.2.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.3.tgz
 dsh web
 ```
 
@@ -38,7 +38,7 @@ dsh plugin --profile web add @dsh/remote-ops
 
 SSH PTY 遵循 Harness 约定，只在进程内存中存在；环境定义会持久化，DSH 重启后按需重新打开连接。
 
-DSH Web 启动后，点击 Sidebar 底部的 `Remote Ops` 即可主动展开右侧 Sidebar，同时保留当前对话。没有选中 DSH 对话时，按钮会先启动新的 DSH 对话；选择对话后，SSH 和 SFTP 操作仍由 Harness 会话管理。
+DSH Web 启动后，点击 Sidebar 底部的 `Remote Ops` 即可主动展开右侧 Sidebar，同时保留当前对话。按钮不会再降级启动新的 DSH 对话；如果右侧 Sidebar 服务尚未就绪，会持续重试并显示具体诊断。SSH 和 SFTP 操作仍由 Harness 会话管理。
 
 环境抽屉默认收起，终端始终保留在主区域。双击环境或点击“连接”创建终端标签；关闭抽屉、切换快捷命令或打开 SFTP 不会卸载终端。快捷命令支持多行内容，点击“执行”时一次性发送完整文本。
 

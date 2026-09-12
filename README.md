@@ -19,7 +19,7 @@
 从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.2.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.3.tgz
 dsh web
 ```
 
@@ -48,13 +48,13 @@ remote-ops/
 └─ quick-commands/<group>/commands.<group>.json
 ```
 
-密码和私钥不写入 JSON，使用 Harness credentials 的引用。
+SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness credentials，环境文件只保存引用。
 
 ## 发布
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.2
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.3
 ```
 
 发布脚本会执行插件检查、打包、提交、创建 Tag、推送主分支和发布 GitHub Release。

@@ -22,7 +22,7 @@ Agent kernel.
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.2.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.3.tgz
 dsh web
 ```
 
@@ -51,14 +51,15 @@ remote-ops/
 └─ quick-commands/<group>/commands.<group>.json
 ```
 
-Passwords and private keys are referenced through Harness credentials and are
-never written to JSON.
+SSH passwords and private keys are never written to JSON. The Sidebar
+password field stores the password through Harness credentials and keeps only
+the reference in the environment file.
 
 ## Release
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.2
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.3
 ```
 
 The release script checks, packs, commits, tags, pushes the main branch, and
