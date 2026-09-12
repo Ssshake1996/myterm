@@ -9,7 +9,7 @@ depend on or start the myterm desktop application.
 - The right Sidebar uses a narrow navigation rail, a hideable environment drawer, a persistent SSH terminal, and a quick-command dock below the terminal.
 - Environments and quick commands support manual create, edit, delete, and group management; non-empty groups cannot be deleted.
 - Owner-scoped SSH sessions backed by the Harness `ctx.terminals` service.
-- Complete command submission, direct terminal keyboard input, signals, and retained output; Tab completion, arrows, backspace, Enter, and Ctrl+C are forwarded as terminal keys.
+- Complete command submission, direct terminal keyboard input, signals, and retained output; Tab completion, arrows, backspace, Enter, and Ctrl+C are forwarded as terminal keys. With no active session, type ssh [user@]host and press Enter; saved environments are reused first, while -p and -i are supported for direct sessions.
 - SSH sessions request a UTF-8 locale and the UI removes ANSI control sequences; the backend accepts UTF-8, GB18030, Big5, and related terminal encodings.
 - Sequential multi-target execution for observe-then-continue workflows.
 - SFTP list, read, write, mkdir, delete, and rename operations.
@@ -24,7 +24,7 @@ depend on or start the myterm desktop application.
 - The quick-command dock can be resized by dragging its top boundary (double-click
   to restore the default height). The environment form hides the internal Harness
   credential reference; SSH passwords are stored through the Harness credentials service.
-- Credential references through Harness credentials; plaintext passwords are
+- Connection errors remain visible until dismissed; credential references through Harness credentials and plaintext passwords are
   never persisted.
 
 ## Installation
@@ -34,7 +34,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.6.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.7.tgz
 dsh web
 ```
 
@@ -74,7 +74,7 @@ key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.6 exposes environment list/create/update/delete, group management,
+Version 0.2.7 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells

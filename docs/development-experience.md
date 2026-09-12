@@ -1,5 +1,12 @@
 # myterm Development Experience Record
 
+## 30. 无活动会话的 SSH 命令入口与持久错误（0.2.7）
+
+1. 没有活动 SSH 会话时，终端仍需要保持可输入状态，但只有按 Enter 完成一行后才解析 SSH 命令，避免把普通字符逐字发送到不存在的通道。
+2. SSH 命令先匹配已保存环境；匹配不到时创建不落盘的临时会话，支持 user@host、-p 端口和 -i 私钥路径。密码不嵌入命令，认证失败必须显示后端原始错误。
+3. 自动状态轮询不能清除用户正在查看的错误；错误区域提供滚动内容和关闭按钮，启动失败提示也保持到用户关闭。
+4. 回归测试需要覆盖：无活动会话输入普通命令、输入有效 ssh 命令、保存环境复用、临时连接参数透传和错误持久显示。
+
 This document captures the decisions, failure modes, verification evidence, and reusable workflow developed while turning `myterm-spec/` into the first working release. It is written as source material for a future Codex Skill.
 
 ## 1. Objective and Boundaries
