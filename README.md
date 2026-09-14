@@ -8,6 +8,7 @@
 - 窄导航栏与可隐藏的环境抽屉。
 - 环境分组、SSH 环境的创建、编辑、删除和持久化。
 - 多 SSH 终端标签，终端始终作为主要工作区。
+- 终端使用轻量 VT 屏幕模型处理 ConPTY 清屏、光标定位和回车覆盖；输出增量传输，完整滚动条可滚动到最后一行。
 - 无 SSH 会话时默认进入本地 CMD，工作目录为 `$DSH_HOME/remote-ops`；可直接执行 `ssh` 等命令，SSH 断开后自动回退。
 - 快捷命令分组管理，快捷命令位于终端下方。
 - 快捷命令区域支持拖拽调整高度，检查更新和刷新均提供明确的进行中、成功或失败反馈。
@@ -21,7 +22,7 @@
 从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.8.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.9.tgz
 dsh web
 ```
 
@@ -56,7 +57,7 @@ SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.8
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.9
 ```
 
 发布脚本会执行插件检查、打包、提交、创建 Tag、推送主分支和发布 GitHub Release。

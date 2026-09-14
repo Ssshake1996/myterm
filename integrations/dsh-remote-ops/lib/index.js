@@ -14,6 +14,8 @@ const ROOT = "remote-ops";
 const LOCAL_SESSION_ID = "local-cmd";
 const LOCAL_SESSION_NAME = "本地 CMD";
 const MAX_SCROLLBACK_BYTES = 4 * 1024 * 1024;
+const RETAINED_SCROLLBACK_BYTES = 3 * 1024 * 1024;
+const UI_SCROLLBACK_CHARS = 256 * 1024;
 const MAX_SFTP_BYTES = 2 * 1024 * 1024;
 const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 const TERMINAL_ENCODINGS = new Set(["utf-8", "gb18030", "big5", "windows-1252", "iso-8859-1"]);
@@ -27,6 +29,79 @@ export function defaultPasswordRef(environmentId) {
   return `DSH_REMOTE_OPS_${suffix || "ENV"}_PASSWORD`;
 }
 function resolveRemoteHome() { const configured = process.env.DSH_HOME?.trim(); return configured ? configured.replace(/^~(?=[\\/])/, homedir()) : join(homedir(), ".dsh"); }
+
+export class TerminalOutputBuffer {
+  constructor(maxBytes = MAX_SCROLLBACK_BYTES, retainedBytes = RETAINED_SCROLLBACK_BYTES) {
+    this.maxBytes = maxBytes;
+    this.retainedBytes = Math.min(retainedBytes, maxBytes);
+    this.value = "";
+    this.byteLength = 0;
+    this.startOffset = 0;
+    this.revision = 0;
+    this.waiters = new Set();
+  }
+
+  get length() { return this.value.length; }
+  get endOffset() { return this.startOffset + this.value.length; }
+  slice(start, end) { return this.value.slice(start, end); }
+
+  append(value) {
+    const text = String(value ?? "");
+    if (!text) return;
+    this.value += text;
+    this.byteLength += Buffer.byteLength(text, "utf8");
+    this.revision += 1;
+    if (this.byteLength > this.maxBytes) {
+      const encoded = Buffer.from(this.value, "utf8");
+      let byteStart = Math.max(0, encoded.length - this.retainedBytes);
+      while (byteStart < encoded.length && (encoded[byteStart] & 0xc0) === 0x80) byteStart += 1;
+      const retained = encoded.subarray(byteStart).toString("utf8");
+      this.startOffset += this.value.length - retained.length;
+      this.value = retained;
+      this.byteLength = Buffer.byteLength(retained, "utf8");
+    }
+    this.notify();
+  }
+
+  tail(maxChars = UI_SCROLLBACK_CHARS) {
+    return this.value.slice(Math.max(0, this.value.length - maxChars));
+  }
+
+  readFrom(offset, maxChars = UI_SCROLLBACK_CHARS) {
+    const endOffset = this.endOffset;
+    const minimumOffset = Math.max(this.startOffset, endOffset - maxChars);
+    const validOffset = Number.isSafeInteger(offset) && offset >= minimumOffset && offset <= endOffset;
+    const startOffset = validOffset ? offset : minimumOffset;
+    return {
+      text: this.value.slice(startOffset - this.startOffset),
+      startOffset,
+      nextOffset: endOffset,
+      reset: !validOffset,
+      revision: this.revision,
+    };
+  }
+
+  notify() {
+    for (const finish of this.waiters) finish();
+    this.waiters.clear();
+  }
+
+  waitForChange(offset, timeoutMs = 20_000, signal) {
+    if (!Number.isSafeInteger(offset) || offset !== this.endOffset || signal?.aborted) return Promise.resolve();
+    return new Promise((resolve) => {
+      let timer;
+      const finish = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", finish);
+        this.waiters.delete(finish);
+        resolve();
+      };
+      timer = setTimeout(finish, timeoutMs);
+      signal?.addEventListener("abort", finish, { once: true });
+      this.waiters.add(finish);
+    });
+  }
+}
 
 export function normalizeGroupName(value) {
   const normalized = String(value ?? "default")
@@ -145,9 +220,9 @@ class SendOperation {
     this.session = session;
     this.request = request;
     this.startedAt = Date.now();
-    this.startOffset = session.output.length;
+    this.startOffset = session.outputBuffer.endOffset;
     this.cancelled = false;
-    this.output = { consume: () => session.output.slice(this.startOffset) };
+    this.output = { consume: () => session.outputBuffer.readFrom(this.startOffset, Number.MAX_SAFE_INTEGER).text };
     this.promise = new Promise((resolve, reject) => { this.resolve = resolve; this.reject = reject; });
     this.timer = setTimeout(() => this.finish("timeout"), Math.min(request.timeoutMs ?? 30_000, 300_000));
     this.write();
@@ -181,8 +256,8 @@ class SendOperation {
     if (this.session.active === this) this.session.active = undefined;
     this.resolve({
       waitReason,
-      output: this.session.output.slice(this.startOffset),
-      viewport: this.session.output.slice(Math.max(0, this.session.output.length - 64 * 1024)),
+      output: this.session.outputBuffer.readFrom(this.startOffset, Number.MAX_SAFE_INTEGER).text,
+      viewport: this.session.outputBuffer.tail(64 * 1024),
       sessionStatus: this.session.status(),
       startedAt: this.startedAt,
       finishedAt: Date.now(),
@@ -208,7 +283,7 @@ class SendOperation {
 
   get donePromise() { return this.promise; }
   get done() { return this.promise; }
-  readOutput() { return { delta: this.session.output.slice(this.startOffset), truncated: false }; }
+  readOutput() { return { delta: this.session.outputBuffer.readFrom(this.startOffset, Number.MAX_SAFE_INTEGER).text, truncated: false }; }
 }
 
 class SshTerminalSession {
@@ -216,7 +291,7 @@ class SshTerminalSession {
     this.client = client;
     this.channel = channel;
     this.environment = environment;
-    this.output = "";
+    this.outputBuffer = new TerminalOutputBuffer();
     this.decoder = new TextDecoder(normalizeTerminalEncoding(environment.encoding), { fatal: false });
     this.closed = false;
     this.exitCode = undefined;
@@ -227,20 +302,18 @@ class SshTerminalSession {
     channel.on("exit", (code, signal) => { this.exitCode = code ?? null; this.exitSignal = signal ?? null; });
     channel.on("close", () => {
       this.closed = true;
+      this.outputBuffer.notify();
       if (this.active) this.active.finish("session_exit");
     });
   }
 
   append(text) {
     if (!text) return;
-    this.output += text;
+    this.outputBuffer.append(text);
     this.lastActivity = Date.now();
-    if (Buffer.byteLength(this.output, "utf8") > MAX_SCROLLBACK_BYTES) {
-      const chars = Array.from(this.output);
-      while (Buffer.byteLength(chars.join(""), "utf8") > MAX_SCROLLBACK_BYTES) chars.splice(0, Math.max(1, Math.floor(chars.length * 0.1)));
-      this.output = chars.join("");
-    }
   }
+
+  get output() { return this.outputBuffer.value; }
 
   startSend(request) {
     if (this.closed) throw sessionError("REMOTE_SESSION_EXITED", "SSH session has exited");
@@ -298,7 +371,7 @@ class LocalCmdTerminalSession {
   constructor(terminal, environment) {
     this.terminal = terminal;
     this.environment = environment;
-    this.output = "";
+    this.outputBuffer = new TerminalOutputBuffer();
     this.decoder = new TextDecoder("utf-8", { fatal: false });
     this.active = undefined;
     this.closed = false;
@@ -324,18 +397,16 @@ class LocalCmdTerminalSession {
 
   append(text) {
     if (!text) return;
-    this.output += text;
+    this.outputBuffer.append(text);
     this.lastActivity = Date.now();
-    if (Buffer.byteLength(this.output, "utf8") > MAX_SCROLLBACK_BYTES) {
-      const chars = Array.from(this.output);
-      while (Buffer.byteLength(chars.join(""), "utf8") > MAX_SCROLLBACK_BYTES) chars.splice(0, Math.max(1, Math.floor(chars.length * 0.1)));
-      this.output = chars.join("");
-    }
   }
+
+  get output() { return this.outputBuffer.value; }
 
   finishExit() {
     if (this.closed) return;
     this.closed = true;
+    this.outputBuffer.notify();
     this.onClose?.();
   }
 
@@ -474,7 +545,7 @@ class RemoteOpsState {
   localSnapshot() {
     const session = this.localSession;
     if (!session || session.status().kind === "exited") return undefined;
-    return { sessionId: LOCAL_SESSION_ID, name: session.environment.name, kind: "local", status: session.status(), viewport: session.output.slice(-32 * 1024), workingDirectory: this.base };
+    return { sessionId: LOCAL_SESSION_ID, name: session.environment.name, kind: "local", status: session.status(), workingDirectory: this.base };
   }
   catalog() {
     const local = this.localSnapshot();
@@ -503,9 +574,36 @@ class RemoteOpsState {
   snapshot(owner) {
     const id = ownerId(owner);
     const local = this.localSnapshot();
-    const remoteSessions = [...this.sessions.values()].filter((x) => x.ownerId === id && x.session.status().kind !== "exited").map((x) => ({ sessionId: x.sessionId, environmentId: x.environment.id, name: x.environment.name, kind: "ssh", status: x.session.status(), viewport: x.session.output.slice(-32 * 1024) }));
+    const remoteSessions = [...this.sessions.values()].filter((x) => x.ownerId === id && x.session.status().kind !== "exited").map((x) => ({ sessionId: x.sessionId, environmentId: x.environment.id, name: x.environment.name, kind: "ssh", status: x.session.status() }));
     const sessions = [...(local ? [local] : []), ...remoteSessions];
     return { groups: this.groupList(), environments: this.allEnvironments().map((x) => ({ ...x, passwordRef: x.passwordRef ? "configured" : undefined, active: remoteSessions.some((s) => s.environmentId === x.id) })), quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, events: this.events.get(id) ?? [], localError: this.localError || undefined, pluginName: PLUGIN_NAME, pluginVersion: PLUGIN_VERSION, update: this.release };
+  }
+
+  async terminalOutput(owner, target, offset, waitMs = 0, signal) {
+    let session;
+    let environmentId;
+    let name;
+    let kind;
+    if (target === LOCAL_SESSION_ID) {
+      session = await this.ensureLocalSession();
+      name = session.environment.name;
+      kind = "local";
+    } else {
+      const record = this.getSession(owner, target);
+      session = record.session;
+      environmentId = record.environment.id;
+      name = record.environment.name;
+      kind = "ssh";
+    }
+    if (waitMs > 0) await session.outputBuffer.waitForChange(offset, waitMs, signal);
+    return {
+      sessionId: target,
+      environmentId,
+      name,
+      kind,
+      status: session.status(),
+      ...session.outputBuffer.readFrom(offset),
+    };
   }
 
   async ensureLocalSession() {
@@ -662,7 +760,7 @@ class RemoteOpsState {
       const session = await this.ensureLocalSession();
       const text = `${args.text ?? args.command ?? ""}${(args.submit ?? args.newline ?? true) ? "\r" : ""}`;
       const result = await session.writeInput(text);
-      return { sessionId: LOCAL_SESSION_ID, environment: session.environment.name, status: session.status(), viewport: session.output.slice(-64 * 1024), ...result };
+      return { sessionId: LOCAL_SESSION_ID, environment: session.environment.name, status: session.status(), viewport: session.outputBuffer.tail(64 * 1024), ...result };
     }
     const record = target ? this.getSession(owner, target) : await this.open(owner, args.environment);
     const operation = this.ctx.terminals.startSend(owner, record.sessionId, { text: args.text ?? args.command ?? "", submit: args.submit ?? args.newline ?? true, quietMs: args.quietMs, timeoutMs: (args.timeoutSeconds ?? 30) * 1000, signal: args.signal });
@@ -776,6 +874,7 @@ export function apply(ctx) {
   registerTool(ctx, { name: "remote_diagnostics", description: "Read recent remote operation diagnostics for this Agent.", parameters: {}, execute: async (_args, exec) => ({ events: state.events.get(ownerId(owner(exec))) ?? [] }) });
 
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/state", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const sessionId = new URL(request.url).searchParams.get("sessionId"); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; await state.ready; return Response.json(agent ? { ...state.snapshot(agent), bound: true } : state.catalog(), { headers: { "Cache-Control": "no-store" } }); } }), "dsh-remote-ops state route");
+  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/terminal", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const url = new URL(request.url); const target = url.searchParams.get("session"); const sessionId = url.searchParams.get("sessionId"); const rawOffset = url.searchParams.get("offset"); const waitMs = Math.max(0, Math.min(25_000, Number(url.searchParams.get("waitMs") ?? 0) || 0)); if (!target) return Response.json({ error: "REMOTE_SESSION_REQUIRED" }, { status: 400 }); const offset = rawOffset === null ? undefined : Number(rawOffset); if (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0)) return Response.json({ error: "REMOTE_OFFSET_INVALID" }, { status: 400 }); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; if (target !== LOCAL_SESSION_ID && !agent) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { await state.ready; return Response.json(await state.terminalOutput(agent, target, offset, waitMs, request.signal), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); } } }), "dsh-remote-ops terminal route");
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/update", methods: ["GET", "POST"], requestBody: "buffered", fetch: async (request) => { try { await state.ready; if (request.method === "POST") return Response.json(await state.upgrade(), { headers: { "Cache-Control": "no-store" } }); return Response.json(await state.checkForUpdate(), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); } } }), "dsh-remote-ops update route");
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const localTerminalAction = body.session === LOCAL_SESSION_ID && ["send", "input", "signal"].includes(body.action); const agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action) && !localTerminalAction) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = { ...body.environment, group: normalizeGroupName(body.environment?.group) }; const password = typeof body.password === "string" ? body.password : ""; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); if (password) { const previous = state.findEnvironment(environment.id); const reference = String(environment.passwordRef ?? "").trim() || previous?.passwordRef || defaultPasswordRef(environment.id); environment.passwordRef = await state.storePassword(reference, password); } value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") { const opened = await state.open(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024) }; } else if (body.action === "open-command") { const opened = await state.openDirect(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024), direct: true }; } else if (body.action === "send") value = await state.send(agent, body.session, body); else if (body.action === "input") value = await state.input(agent, body.session, body.text); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400 }); } } }), "dsh-remote-ops action route");
 

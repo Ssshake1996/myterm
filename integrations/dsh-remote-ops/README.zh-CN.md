@@ -14,6 +14,8 @@
 - 插件启动后默认提供本地 CMD，工作目录为 `$DSH_HOME/remote-ops`；可直接运行 `ssh`、网络检查及其他本地命令，不要求先初始化 Agent。
 - 保存环境建立的 SSH 会话断开后自动回到本地 CMD；本地 CMD 中启动的 `ssh` 退出后自然返回同一提示符。
 - 终端会请求 UTF-8 locale，并清洗 ANSI 控制序列；环境字节流支持 UTF-8、GB18030、Big5 等编码配置。
+- 前端使用轻量 VT 屏幕模型还原 ConPTY 清屏、光标定位、行覆盖和滚屏，避免屏幕快照产生大段空白；终端高度严格受容器约束，纵向滚动条始终完整可用。
+- 终端输出通过游标增量和长轮询传输，键盘输入串行合并发送；空闲时不再反复传输完整状态或持续产生高频终端请求。
 - 支持多个目标顺序协同执行，并返回每个目标的结果。
 - 支持 SFTP 列目录、读写、创建目录、删除和重命名。
 - 支持快捷命令保存和执行。
@@ -29,7 +31,7 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.8.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.9.tgz
 dsh web
 ```
 
