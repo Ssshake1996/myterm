@@ -24,14 +24,15 @@ Agent kernel.
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.9.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.10.tgz
 dsh web
 ```
 
 Local checks:
 
 ```powershell
-npm --prefix integrations/dsh-remote-ops install
+npm --prefix integrations/dsh-remote-ops ci
+npm --prefix integrations/dsh-remote-ops test
 npm --prefix integrations/dsh-remote-ops run check
 ```
 
@@ -42,7 +43,7 @@ integrations/dsh-remote-ops/
 ├─ lib/index.js       # Harness host, SSH, SFTP, tools, persistence
 ├─ lib/client.js      # DSH Web Sidebar UI
 ├─ cordis.patch.yml   # Official DSH bundle patch
-└─ test/smoke.mjs     # Plugin smoke test
+└─ test/               # Unit, client behavior, contract, and smoke regression tests
 ```
 
 Runtime data is isolated under `$DSH_HOME/remote-ops`:
@@ -61,11 +62,14 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.9
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.10
 ```
 
-The release script checks, packs, commits, tags, pushes the main branch, and
-publishes the GitHub Release.
+The release script runs one complete regression gate (syntax, unit, client
+behavior, contract, and smoke tests), then packs, commits, tags, pushes the
+main branch, and publishes the GitHub Release. See
+`docs/testing/dsh-remote-ops-test-plan.md` for the test matrix and 3080 page
+acceptance requirements.
 
 ## Boundary
 

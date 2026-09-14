@@ -17,6 +17,7 @@ data/
 test-results/
 playwright-report/
 .playwright-cli/
+output/
 .idea/
 .vscode/
 *.swp

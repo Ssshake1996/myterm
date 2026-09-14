@@ -460,7 +460,7 @@ class LocalCmdTerminalSession {
   }
 }
 
-class RemoteOpsState {
+export class RemoteOpsState {
   constructor(ctx) {
     this.ctx = ctx;
     this.base = join(resolveRemoteHome(), ROOT);
