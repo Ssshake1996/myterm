@@ -8,7 +8,7 @@ const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
 const client = await readFile(join(packageRoot, "lib/client.js"), "utf8");
 const server = await readFile(join(packageRoot, "lib/index.js"), "utf8");
-assert.equal(manifest.version, "0.2.7");
+assert.equal(manifest.version, "0.2.8");
 assert.equal(manifest.dsh?.bundle?.patch, "./cordis.patch.yml");
 assert.deepEqual(manifest.dsh?.client?.inject, [
   "@deepseek-ai/dsh-client-ui-sidebar-right",
@@ -41,4 +41,10 @@ assert.match(client, /无法打开 Remote Ops/);
 assert.match(client, /open-command/);
 assert.match(client, /parseSshCommand/);
 assert.match(client, /调整快捷命令区域高度/);
+assert.match(server, /LOCAL_SESSION_ID/);
+assert.match(server, /spawnTerminal/);
+assert.match(server, /chcp 65001>nul/);
+assert.match(server, /workingDirectory/);
+assert.match(client, /本地 CMD/);
+assert.match(client, /本地终端尚未就绪/);
 console.log("dsh-remote-ops smoke: ok");

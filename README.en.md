@@ -11,6 +11,7 @@ Agent kernel.
 - Narrow navigation rail and a hideable environment drawer.
 - Create, edit, delete, group, and persist SSH environments.
 - Multiple SSH terminal tabs with the terminal as the primary workspace.
+- A local CMD terminal starts at `$DSH_HOME/remote-ops` when no SSH session is active; it accepts `ssh` and returns after an SSH child exits.
 - Quick-command groups docked below the terminal.
 - Complete multiline command submission without short-request splitting.
 - SFTP directory listing, file read/write, mkdir, delete, and rename.
@@ -22,7 +23,7 @@ Agent kernel.
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.5.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.8.tgz
 dsh web
 ```
 
@@ -59,7 +60,7 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.5
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.8
 ```
 
 The release script checks, packs, commits, tags, pushes the main branch, and

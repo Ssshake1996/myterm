@@ -8,9 +8,11 @@ import { Client as SshClient } from "ssh2";
 import { PLUGIN_NAME, PLUGIN_VERSION, RELEASE_REPOSITORY } from "./version.js";
 
 export const name = PLUGIN_NAME;
-export const inject = ["connection", "systemPrompt", "tools", "terminals", "agents", "credentials"];
+export const inject = ["connection", "systemPrompt", "tools", "terminals", "agents", "credentials", "subprocess"];
 
 const ROOT = "remote-ops";
+const LOCAL_SESSION_ID = "local-cmd";
+const LOCAL_SESSION_NAME = "本地 CMD";
 const MAX_SCROLLBACK_BYTES = 4 * 1024 * 1024;
 const MAX_SFTP_BYTES = 2 * 1024 * 1024;
 const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
@@ -155,7 +157,7 @@ class SendOperation {
     try {
       if (this.request.signal?.aborted) throw this.request.signal.reason ?? new Error("aborted");
       const text = `${this.request.text ?? ""}${this.request.submit ? "\r" : ""}`;
-      if (text) this.session.channel.write(text);
+      if (text) await this.session.write(text);
       this.session.active = this;
       this.session.lastActivity = Date.now();
       this.poll();
@@ -199,7 +201,7 @@ class SendOperation {
   cancel() {
     if (this.settled) return false;
     this.cancelled = true;
-    try { this.session.channel.write("\u0003"); } catch { /* channel may already be closed */ }
+    try { void this.session.write("\u0003"); } catch { /* session may already be closed */ }
     this.finish("cancelled");
     return true;
   }
@@ -216,7 +218,6 @@ class SshTerminalSession {
     this.environment = environment;
     this.output = "";
     this.decoder = new TextDecoder(normalizeTerminalEncoding(environment.encoding), { fatal: false });
-    this.active = undefined;
     this.closed = false;
     this.exitCode = undefined;
     this.lastActivity = Date.now();
@@ -245,6 +246,13 @@ class SshTerminalSession {
     if (this.closed) throw sessionError("REMOTE_SESSION_EXITED", "SSH session has exited");
     if (this.active) throw sessionError("SEND_ACTIVE", "SSH session already has an active send");
     return new SendOperation(this, request);
+  }
+
+  write(text) {
+    if (this.closed) throw sessionError("REMOTE_SESSION_EXITED", "SSH session has exited");
+    const value = String(text ?? "");
+    if (!value) return;
+    this.channel.write(value, "utf8");
   }
 
   writeInput(text) {
@@ -286,6 +294,101 @@ class SshTerminalSession {
   }
 }
 
+class LocalCmdTerminalSession {
+  constructor(terminal, environment) {
+    this.terminal = terminal;
+    this.environment = environment;
+    this.output = "";
+    this.decoder = new TextDecoder("utf-8", { fatal: false });
+    this.active = undefined;
+    this.closed = false;
+    this.exitCode = undefined;
+    this.exitSignal = undefined;
+    this.lastActivity = Date.now();
+    this.motd = "";
+    terminal.output.on("data", (chunk) => this.append(this.decoder.decode(Buffer.from(chunk), { stream: true })));
+    terminal.output.on("end", () => {
+      const tail = this.decoder.decode();
+      if (tail) this.append(tail);
+      this.finishExit();
+    });
+    terminal.done.then((outcome) => {
+      this.exitCode = outcome?.exitCode ?? null;
+      this.exitSignal = outcome?.signal ?? null;
+      this.finishExit();
+    }, (error) => {
+      this.transportError = error;
+      this.finishExit();
+    });
+  }
+
+  append(text) {
+    if (!text) return;
+    this.output += text;
+    this.lastActivity = Date.now();
+    if (Buffer.byteLength(this.output, "utf8") > MAX_SCROLLBACK_BYTES) {
+      const chars = Array.from(this.output);
+      while (Buffer.byteLength(chars.join(""), "utf8") > MAX_SCROLLBACK_BYTES) chars.splice(0, Math.max(1, Math.floor(chars.length * 0.1)));
+      this.output = chars.join("");
+    }
+  }
+
+  finishExit() {
+    if (this.closed) return;
+    this.closed = true;
+    this.onClose?.();
+  }
+
+  async write(text) {
+    if (this.closed) throw sessionError("LOCAL_SESSION_EXITED", "Local CMD session has exited");
+    const value = String(text ?? "");
+    if (!value) return;
+    await this.terminal.write(value);
+  }
+
+  async writeInput(text) {
+    if (this.closed) throw sessionError("LOCAL_SESSION_EXITED", "Local CMD session has exited");
+    const value = String(text ?? "");
+    if (!value) return { accepted: true, bytes: 0 };
+    await this.terminal.write(value);
+    this.lastActivity = Date.now();
+    return { accepted: true, bytes: Buffer.byteLength(value, "utf8") };
+  }
+
+  read(request = {}) {
+    const lines = this.output.split(/\r?\n/);
+    const totalLines = this.output ? lines.length : 0;
+    const offset = request.offset ?? 0;
+    const count = request.count ?? 500;
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("offset must be a non-negative integer");
+    const end = Math.max(0, totalLines - offset);
+    const selected = lines.slice(Math.max(0, end - count), end).join("\n");
+    return { text: selected, totalLines, lineBegin: offset, lineEnd: offset + (selected ? selected.split("\n").length : 0), truncated: false };
+  }
+
+  status() {
+    return this.closed ? { kind: "exited", exitCode: this.exitCode ?? null, signal: this.exitSignal ?? null } : { kind: "running" };
+  }
+
+  async signal(signal) {
+    if (this.closed) throw sessionError("LOCAL_SESSION_EXITED", "Local CMD session has exited");
+    try {
+      const targetPgid = await this.terminal.signalForeground(signal === "INT" ? "SIGINT" : signal);
+      return { delivered: true, targetPgid };
+    } catch (error) {
+      throw sessionError("LOCAL_SIGNAL_FAILED", `Unable to signal local CMD: ${summarizeError(error)}`);
+    }
+  }
+
+  async close() {
+    if (this.closePromise) return this.closePromise;
+    this.closePromise = this.terminal.terminate().catch((error) => {
+      throw sessionError("LOCAL_SESSION_CLOSE_FAILED", "Unable to close local CMD session", error);
+    });
+    await this.closePromise;
+  }
+}
+
 class RemoteOpsState {
   constructor(ctx) {
     this.ctx = ctx;
@@ -299,6 +402,10 @@ class RemoteOpsState {
     this.events = new Map();
     this.backendSessions = new Map();
     this.directEnvironments = new Map();
+    this.localSession = undefined;
+    this.localStarting = undefined;
+    this.localError = "";
+    this.disposed = false;
     this.release = { currentVersion: PLUGIN_VERSION, latestVersion: PLUGIN_VERSION, updateAvailable: false };
     this.releaseCheckedAt = 0;
     this.releaseCheckPromise = undefined;
@@ -322,6 +429,7 @@ class RemoteOpsState {
       const data = await this.readJson(this.quickFile(group), []);
       if (Array.isArray(data)) this.quickCommands.push(...data.filter((item) => item && typeof item.id === "string"));
     }
+    await this.ensureLocalSession().catch((error) => { this.localError = summarizeError(error); });
   }
 
   async readJson(path, fallback) { try { return JSON.parse(await readFile(path, "utf8")); } catch { return fallback; } }
@@ -363,15 +471,22 @@ class RemoteOpsState {
   }
 
   allEnvironments() { return [...this.environments.entries()].flatMap(([group, values]) => values.map((value) => ({ ...value, group }))); }
+  localSnapshot() {
+    const session = this.localSession;
+    if (!session || session.status().kind === "exited") return undefined;
+    return { sessionId: LOCAL_SESSION_ID, name: session.environment.name, kind: "local", status: session.status(), viewport: session.output.slice(-32 * 1024), workingDirectory: this.base };
+  }
   catalog() {
+    const local = this.localSnapshot();
     return {
       groups: this.groupList(),
       environments: this.allEnvironments().map((value) => ({ ...value, passwordRef: value.passwordRef ? "configured" : undefined, active: false })),
       quickGroups: this.quickGroupList(),
       quickCommands: this.quickCommands,
-      sessions: [],
+      sessions: local ? [local] : [],
       events: [],
       bound: false,
+      localError: this.localError || undefined,
       pluginName: PLUGIN_NAME,
       pluginVersion: PLUGIN_VERSION,
       update: this.release,
@@ -387,8 +502,46 @@ class RemoteOpsState {
   }
   snapshot(owner) {
     const id = ownerId(owner);
-    const sessions = [...this.sessions.values()].filter((x) => x.ownerId === id).map((x) => ({ sessionId: x.sessionId, environmentId: x.environment.id, name: x.environment.name, status: x.session.status(), viewport: x.session.output.slice(-32 * 1024) }));
-    return { groups: this.groupList(), environments: this.allEnvironments().map((x) => ({ ...x, passwordRef: x.passwordRef ? "configured" : undefined, active: sessions.some((s) => s.environmentId === x.id) })), quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, events: this.events.get(id) ?? [], pluginName: PLUGIN_NAME, pluginVersion: PLUGIN_VERSION, update: this.release };
+    const local = this.localSnapshot();
+    const remoteSessions = [...this.sessions.values()].filter((x) => x.ownerId === id && x.session.status().kind !== "exited").map((x) => ({ sessionId: x.sessionId, environmentId: x.environment.id, name: x.environment.name, kind: "ssh", status: x.session.status(), viewport: x.session.output.slice(-32 * 1024) }));
+    const sessions = [...(local ? [local] : []), ...remoteSessions];
+    return { groups: this.groupList(), environments: this.allEnvironments().map((x) => ({ ...x, passwordRef: x.passwordRef ? "configured" : undefined, active: remoteSessions.some((s) => s.environmentId === x.id) })), quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, events: this.events.get(id) ?? [], localError: this.localError || undefined, pluginName: PLUGIN_NAME, pluginVersion: PLUGIN_VERSION, update: this.release };
+  }
+
+  async ensureLocalSession() {
+    if (this.localSession?.status().kind === "running") return this.localSession;
+    if (this.localStarting) return this.localStarting;
+    this.localStarting = this.startLocalSession().catch((error) => {
+      this.localError = summarizeError(error);
+      throw error;
+    }).finally(() => { this.localStarting = undefined; });
+    return this.localStarting;
+  }
+
+  async startLocalSession() {
+    if (this.disposed) throw sessionError("LOCAL_SESSION_DISPOSED", "Remote Ops is shutting down");
+    await mkdir(this.base, { recursive: true });
+    const windows = process.platform === "win32";
+    const requested = windows ? (process.env.ComSpec?.trim() || "cmd.exe") : (process.env.SHELL?.trim() || "/bin/sh");
+    const executable = await this.ctx.subprocess.resolveExecutable(requested);
+    const terminal = await this.ctx.subprocess.spawnTerminal({
+      argv: windows ? [executable, "/D", "/Q", "/K", "chcp 65001>nul"] : [executable, "-i"],
+      cwd: this.base,
+      env: windows ? { PROMPT: "$P$G", TERM: "xterm-256color" } : { TERM: "xterm-256color" },
+      rows: 40,
+      cols: 160,
+      graceMs: 3_000,
+    });
+    const environment = { id: LOCAL_SESSION_ID, name: windows ? LOCAL_SESSION_NAME : "本地 Shell", host: "localhost", username: process.env.USERNAME || process.env.USER || "local", port: 0 };
+    const session = new LocalCmdTerminalSession(terminal, environment);
+    session.onClose = () => {
+      if (this.localSession !== session) return;
+      this.localSession = undefined;
+      if (!this.disposed) setTimeout(() => { void this.ensureLocalSession().catch((error) => { this.localError = summarizeError(error); }); }, 200);
+    };
+    this.localSession = session;
+    this.localError = "";
+    return session;
   }
 
   async resolvePassword(environment) {
@@ -505,6 +658,12 @@ class RemoteOpsState {
   }
 
   async send(owner, target, args) {
+    if (target === LOCAL_SESSION_ID) {
+      const session = await this.ensureLocalSession();
+      const text = `${args.text ?? args.command ?? ""}${(args.submit ?? args.newline ?? true) ? "\r" : ""}`;
+      const result = await session.writeInput(text);
+      return { sessionId: LOCAL_SESSION_ID, environment: session.environment.name, status: session.status(), viewport: session.output.slice(-64 * 1024), ...result };
+    }
     const record = target ? this.getSession(owner, target) : await this.open(owner, args.environment);
     const operation = this.ctx.terminals.startSend(owner, record.sessionId, { text: args.text ?? args.command ?? "", submit: args.submit ?? args.newline ?? true, quietMs: args.quietMs, timeoutMs: (args.timeoutSeconds ?? 30) * 1000, signal: args.signal });
     const result = await operation.done;
@@ -512,7 +671,12 @@ class RemoteOpsState {
     return { sessionId: record.sessionId, environment: record.environment.name, ...result };
   }
 
-  input(owner, target, text) {
+  async input(owner, target, text) {
+    if (target === LOCAL_SESSION_ID) {
+      const session = await this.ensureLocalSession();
+      const result = await session.writeInput(text);
+      return { sessionId: LOCAL_SESSION_ID, environment: session.environment.name, ...result };
+    }
     const record = this.getSession(owner, target);
     const result = record.session.writeInput(text);
     this.event(owner, "ssh.input", { sessionId: record.sessionId, environment: record.environment.name, inputBytes: result.bytes });
@@ -520,8 +684,12 @@ class RemoteOpsState {
   }
 
   async signal(owner, target, signal) {
+    if (target === LOCAL_SESSION_ID) {
+      const session = await this.ensureLocalSession();
+      return { sessionId: LOCAL_SESSION_ID, ...await session.signal(signal) };
+    }
     const record = this.getSession(owner, target);
-    return { sessionId: record.sessionId, ...record.session.signal(signal) };
+    return { sessionId: record.sessionId, ...await record.session.signal(signal) };
   }
 
   async close(owner, target) {
@@ -566,6 +734,8 @@ function registerTool(ctx, definition) {
 export function apply(ctx) {
   const state = new RemoteOpsState(ctx);
   ctx.effect(() => async () => {
+    state.disposed = true;
+    await state.localSession?.close("dsh-remote-ops disposed").catch(() => {});
     for (const record of state.sessions.values()) await ctx.terminals.kill(record.owner, record.sessionId, "dsh-remote-ops disposed").catch(() => {});
     state.sessions.clear();
   }, "dsh-remote-ops cleanup");
@@ -607,6 +777,6 @@ export function apply(ctx) {
 
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/state", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const sessionId = new URL(request.url).searchParams.get("sessionId"); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; await state.ready; return Response.json(agent ? { ...state.snapshot(agent), bound: true } : state.catalog(), { headers: { "Cache-Control": "no-store" } }); } }), "dsh-remote-ops state route");
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/update", methods: ["GET", "POST"], requestBody: "buffered", fetch: async (request) => { try { await state.ready; if (request.method === "POST") return Response.json(await state.upgrade(), { headers: { "Cache-Control": "no-store" } }); return Response.json(await state.checkForUpdate(), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); } } }), "dsh-remote-ops update route");
-  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action)) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = { ...body.environment, group: normalizeGroupName(body.environment?.group) }; const password = typeof body.password === "string" ? body.password : ""; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); if (password) { const previous = state.findEnvironment(environment.id); const reference = String(environment.passwordRef ?? "").trim() || previous?.passwordRef || defaultPasswordRef(environment.id); environment.passwordRef = await state.storePassword(reference, password); } value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") { const opened = await state.open(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024) }; } else if (body.action === "open-command") { const opened = await state.openDirect(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024), direct: true }; } else if (body.action === "send") value = await state.send(agent, body.session, body); else if (body.action === "input") value = await state.input(agent, body.session, body.text); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400 }); } } }), "dsh-remote-ops action route");
+  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const localTerminalAction = body.session === LOCAL_SESSION_ID && ["send", "input", "signal"].includes(body.action); const agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action) && !localTerminalAction) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = { ...body.environment, group: normalizeGroupName(body.environment?.group) }; const password = typeof body.password === "string" ? body.password : ""; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); if (password) { const previous = state.findEnvironment(environment.id); const reference = String(environment.passwordRef ?? "").trim() || previous?.passwordRef || defaultPasswordRef(environment.id); environment.passwordRef = await state.storePassword(reference, password); } value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") { const opened = await state.open(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024) }; } else if (body.action === "open-command") { const opened = await state.openDirect(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024), direct: true }; } else if (body.action === "send") value = await state.send(agent, body.session, body); else if (body.action === "input") value = await state.input(agent, body.session, body.text); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400 }); } } }), "dsh-remote-ops action route");
 
 }

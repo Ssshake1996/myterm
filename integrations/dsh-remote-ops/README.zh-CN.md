@@ -11,8 +11,8 @@
 - 环境和快捷命令都支持手动创建、编辑、删除和分组管理；删除非空分组会被拒绝。
 - 使用 `ctx.terminals` 管理按 Agent 隔离的 SSH 会话。
 - 支持完整命令下发、直接终端键盘输入和信号控制；终端支持 Tab 补齐、方向键、退格、Enter、Ctrl+C 等按键。
-- 没有活动 SSH 会话时，可直接在终端输入 ssh [user@]host 并按 Enter 连接；优先复用已保存环境，也支持 -p 端口和 -i 私钥路径。
-- 没有活动 SSH 会话时，可直接在终端输入 ssh [user@]host 并按 Enter 连接；优先复用已保存环境，也支持 -p 端口和 -i 私钥路径。
+- 插件启动后默认提供本地 CMD，工作目录为 `$DSH_HOME/remote-ops`；可直接运行 `ssh`、网络检查及其他本地命令，不要求先初始化 Agent。
+- 保存环境建立的 SSH 会话断开后自动回到本地 CMD；本地 CMD 中启动的 `ssh` 退出后自然返回同一提示符。
 - 终端会请求 UTF-8 locale，并清洗 ANSI 控制序列；环境字节流支持 UTF-8、GB18030、Big5 等编码配置。
 - 支持多个目标顺序协同执行，并返回每个目标的结果。
 - 支持 SFTP 列目录、读写、创建目录、删除和重命名。
@@ -22,7 +22,6 @@
 - Sidebar 顶部显示已安装版本，可检查 GitHub Release，并一键安装新版本；检查更新和刷新都会显示进行中、成功或失败状态，安装完成后需要重启 DSH。
 - 快捷命令区域上边界可拖拽调整高度，双击恢复默认高度；环境表单不展示内部 Harness 凭据引用，密码由系统自动管理。
 - 连接错误会保留在界面中，直到用户手动关闭，避免错误提示快速消失。
-- 连接错误会保留在界面中，直到用户手动关闭，避免错误提示快速消失。
 - 环境表单单独提供 SSH 密码输入框；密码通过 `credentials.set` 写入 Harness credentials，环境 JSON 只保存引用，不保存明文。
 
 ## 安装
@@ -30,7 +29,7 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.7.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.8.tgz
 dsh web
 ```
 

@@ -9,7 +9,8 @@ depend on or start the myterm desktop application.
 - The right Sidebar uses a narrow navigation rail, a hideable environment drawer, a persistent SSH terminal, and a quick-command dock below the terminal.
 - Environments and quick commands support manual create, edit, delete, and group management; non-empty groups cannot be deleted.
 - Owner-scoped SSH sessions backed by the Harness `ctx.terminals` service.
-- Complete command submission, direct terminal keyboard input, signals, and retained output; Tab completion, arrows, backspace, Enter, and Ctrl+C are forwarded as terminal keys. With no active session, type ssh [user@]host and press Enter; saved environments are reused first, while -p and -i are supported for direct sessions.
+- A local CMD terminal starts with the plugin at `$DSH_HOME/remote-ops`, before an Agent is initialized. It accepts ordinary local commands and interactive `ssh`; saved-environment SSH sessions fall back to this terminal after disconnecting.
+- Complete command submission, direct terminal keyboard input, signals, and retained output; Tab completion, arrows, backspace, Enter, and Ctrl+C are forwarded as terminal keys.
 - SSH sessions request a UTF-8 locale and the UI removes ANSI control sequences; the backend accepts UTF-8, GB18030, Big5, and related terminal encodings.
 - Sequential multi-target execution for observe-then-continue workflows.
 - SFTP list, read, write, mkdir, delete, and rename operations.
@@ -34,7 +35,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.7.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.8.tgz
 dsh web
 ```
 
@@ -74,7 +75,7 @@ key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.7 exposes environment list/create/update/delete, group management,
+Version 0.2.8 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells
