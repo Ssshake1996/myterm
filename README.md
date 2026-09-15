@@ -22,7 +22,7 @@
 从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.11.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.10.tgz
 dsh web
 ```
 
@@ -58,7 +58,7 @@ SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.11
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.10
 ```
 
 发布脚本会执行一次完整回归门禁（包含语法检查、单元、客户端行为、契约和烟测），通过后再打包、提交、创建 Tag、推送主分支和发布 GitHub Release。测试矩阵和 3080 页面验收要求见 `docs/testing/dsh-remote-ops-test-plan.md`。

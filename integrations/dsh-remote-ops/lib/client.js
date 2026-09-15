@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
       `; document.head.appendChild(style);
     }
     async function request(path, init) { const response = await fetch(path, init); const text = await response.text(); let value = {}; try { value = text ? JSON.parse(text) : {}; } catch { throw new Error(`HTTP ${response.status}: ${text}`); } if (!response.ok) throw new Error(value.error ?? `HTTP ${response.status}`); return value; }
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.2.11", update: { currentVersion: "0.2.11", latestVersion: "0.2.11", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.2.10", update: { currentVersion: "0.2.10", latestVersion: "0.2.10", updateAvailable: false } };
     const glyph = { environments: "▦", quick: "⌘", sftp: "⇄", diagnostics: "⌁" };
     const slug = (value) => String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 56) || `item-${Date.now()}`;
     const terminalVisibleText = (value, rows = 40, columns = 160) => {
