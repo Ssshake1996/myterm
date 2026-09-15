@@ -17,7 +17,8 @@ function loadClientFunction(name, endMarker) {
 }
 
 const terminalVisibleText = loadClientFunction("terminalVisibleText", "    const ask =");
-const parseSshCommand = loadClientFunction("parseSshCommand", "\n\n    function RemoteOpsPanel");
+const parseSshCommand = loadClientFunction("parseSshCommand", "\n\n    const terminalInputEnabled");
+const terminalInputEnabled = loadClientFunction("terminalInputEnabled", "\n    function RemoteOpsPanel");
 
 test("VT screen model removes ConPTY initialization blank rows", () => {
   const initial = "\u001b[?25l\u001b[2J\u001b[m\u001b[H\r\n" + "\r\n".repeat(38) + "\u001b[2;34HC:\\Users\\tester\\.dsh\\remote-ops>";
@@ -42,4 +43,10 @@ test("SSH command parser preserves user-supplied host, port and key", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(parseSshCommand("ssh -l admin 10.0.0.8"))), { host: "10.0.0.8", username: "admin", port: 22, privateKeyPath: "" });
   assert.match(parseSshCommand("ssh")?.error, /缺少主机地址/);
   assert.equal(parseSshCommand("echo ssh root@example.com"), undefined);
+});
+
+test("local terminal stays writable before Harness Agent binding", () => {
+  assert.equal(terminalInputEnabled({ bound: false, sessions: [{ kind: "local", status: { kind: "running" } }] }), true);
+  assert.equal(terminalInputEnabled({ bound: true, sessions: [] }), true);
+  assert.equal(terminalInputEnabled({ bound: false, sessions: [{ kind: "local", status: { kind: "starting" } }] }), false);
 });

@@ -48,6 +48,15 @@ test("terminal rendering and transport invariants remain present", () => {
   assert.match(server, /Cache-Control.*no-store/);
 });
 
+test("terminal controls expose usable focus and clear panel toggles", () => {
+  assert.match(client, /terminalInputRef\.current\?\.focus\(\)/);
+  assert.match(client, /setDrawer\(\(value\) => !value\)/);
+  assert.match(client, /dsh-remote-ops__headAction/);
+  assert.match(client, /dsh-remote-ops__drawerClose/);
+  assert.match(client, /aria-expanded/);
+  assert.match(client, /state-error-primary/);
+});
+
 test("environment, quick command, SFTP and update routes stay available", () => {
   for (const marker of [
     "/api/dsh-remote-ops/state", "/api/dsh-remote-ops/action", "/api/dsh-remote-ops/update",
