@@ -24,7 +24,7 @@ Agent kernel.
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.10.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.11.tgz
 dsh web
 ```
 
@@ -62,7 +62,7 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.10
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.11
 ```
 
 The release script runs one complete regression gate (syntax, unit, client
@@ -70,6 +70,9 @@ behavior, contract, and smoke tests), then packs, commits, tags, pushes the
 main branch, and publishes the GitHub Release. See
 `docs/testing/dsh-remote-ops-test-plan.md` for the test matrix and 3080 page
 acceptance requirements.
+
+For handoff and a ready-to-copy prompt for a new development conversation, see
+`docs/development-handoff.md` and `docs/prompts/new-development-session.md`.
 
 ## Boundary
 
