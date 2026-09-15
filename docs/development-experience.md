@@ -918,6 +918,25 @@ Remote Ops 之前在没有活动 SSH 会话时只显示等待提示，用户无�
 - 这套门禁不锁定一次性故障的文件名或历史依赖，而是保护环境、工具、数据和 UI 行为等稳定契约，避免测试本身变得单点和臃肿。
 - 新缺陷必须先增加一个能复现它的回归用例，再修改实现；测试失败日志应保留测试名称和原始错误，方便后续 AI 维护。
 
+## 35. PTY 会话恢复、精确发送和中文输入（0.2.12）
+
+### 问题确认
+
+环境连接报 `PTY session name already exists for this owner [DUPLICATE_NAME]` 有两类通用原因：同一环境被并发打开，或插件状态重建但 Harness owner 仍保留原 PTY。前者会真的重复调用 spawn，后者则会让插件界面丢失可用的终端入口。另一个独立问题是完整发送结果只返回终端视口，Agent 看到命令回显后无法区分“已提交文本”和“命令输出”；前端输入捕获层也会把中文输入法组合期间的罗马字符当作真实输入。
+
+### 实现决定
+
+1. `RemoteOpsState.open()` 使用 owner/environment 维度的 opening promise，所有并发点击共享同一次 spawn；已有宿主 owner PTY 通过 `terminals.list(owner)` 按环境 ID 恢复为可见终端入口，并通过宿主读写/信号接口工作。
+2. `remote_terminal_send` 返回 `submittedText` 和 `submit`，系统提示明确要求保留原始分隔符，不能仅因终端回显而重复发送。
+3. `SendOperation` 在异步写入前立即占用 active 状态，避免两个调用在第一次 channel 写入完成前同时通过检查。
+4. 浏览器输入层区分 IME composition 与普通 change/keyDown，组合中的 `n`、`ni` 等中间值不发送；终端底部增加可见闪烁输入光标。
+
+### 验证与可复用经验
+
+- 单元回归覆盖并发打开只 spawn 一次、宿主已有 PTY 恢复、精确文本/提交标记；客户端回归覆盖 IME 组合边界，契约回归覆盖恢复、光标和发送协议。
+- 自动化测试不声称真实 SSH、SFTP 或模型成功；宿主 PTY 恢复使用 fake terminal 验证数据契约和路由边界。
+- 宿主 `terminals` 只提供 owner-scoped session 的 list/read/startSend/signal/kill，没有公开原始 channel；恢复会话必须经宿主服务，不得私自创建第二套 SSH 管理器。
+
 ## 34. 跨电脑终端输入激活与高可见操作控件（0.2.11）
 
 ### 问题确认

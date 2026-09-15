@@ -55,6 +55,17 @@ test("terminal controls expose usable focus and clear panel toggles", () => {
   assert.match(client, /dsh-remote-ops__drawerClose/);
   assert.match(client, /aria-expanded/);
   assert.match(client, /state-error-primary/);
+  assert.match(client, /dsh-remote-ops__inputCursor/);
+  assert.match(client, /onCompositionStart/);
+  assert.match(client, /onCompositionEnd/);
+  assert.match(client, /event\.isComposing/);
+});
+
+test("terminal transport exposes exact submitted text and existing-session reconciliation", () => {
+  assert.match(server, /submittedText/);
+  assert.match(server, /reconcileHostSessions/);
+  assert.match(server, /terminals\.list/);
+  assert.match(server, /openings/);
 });
 
 test("environment, quick command, SFTP and update routes stay available", () => {

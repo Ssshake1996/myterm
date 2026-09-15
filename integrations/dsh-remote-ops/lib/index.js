@@ -224,6 +224,7 @@ class SendOperation {
     this.cancelled = false;
     this.output = { consume: () => session.outputBuffer.readFrom(this.startOffset, Number.MAX_SAFE_INTEGER).text };
     this.promise = new Promise((resolve, reject) => { this.resolve = resolve; this.reject = reject; });
+    this.session.active = this;
     this.timer = setTimeout(() => this.finish("timeout"), Math.min(request.timeoutMs ?? 30_000, 300_000));
     this.write();
   }
@@ -233,7 +234,6 @@ class SendOperation {
       if (this.request.signal?.aborted) throw this.request.signal.reason ?? new Error("aborted");
       const text = `${this.request.text ?? ""}${this.request.submit ? "\r" : ""}`;
       if (text) await this.session.write(text);
-      this.session.active = this;
       this.session.lastActivity = Date.now();
       this.poll();
     } catch (error) {
@@ -460,6 +460,55 @@ class LocalCmdTerminalSession {
   }
 }
 
+class AdoptedTerminalSession {
+  constructor(ctx, owner, snapshot) {
+    this.ctx = ctx;
+    this.owner = owner;
+    this.sessionId = snapshot.sessionId;
+    this.snapshot = snapshot;
+    this.outputBuffer = new TerminalOutputBuffer();
+    this.refreshPromise = undefined;
+  }
+
+  get output() { return this.outputBuffer.value; }
+
+  status() {
+    const current = this.ctx.terminals.list(this.owner).find((item) => item.sessionId === this.sessionId);
+    return current?.status ?? this.snapshot.status;
+  }
+
+  async refresh() {
+    if (this.refreshPromise) return this.refreshPromise;
+    this.refreshPromise = Promise.resolve(this.ctx.terminals.read(this.owner, this.sessionId, { offset: 0, count: 2_000 })).then((result) => {
+      const text = String(result?.text ?? "");
+      if (text === this.outputBuffer.value) return false;
+      this.outputBuffer = new TerminalOutputBuffer();
+      this.outputBuffer.append(text);
+      return true;
+    }).finally(() => { this.refreshPromise = undefined; });
+    return this.refreshPromise;
+  }
+
+  async waitForChange(waitMs, signal) {
+    const deadline = Date.now() + Math.max(0, waitMs);
+    do {
+      if (await this.refresh()) return;
+      if (signal?.aborted || Date.now() >= deadline) return;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(250, deadline - Date.now())));
+    } while (!signal?.aborted);
+  }
+
+  writeInput(text) {
+    const value = String(text ?? "");
+    if (!value) return { accepted: true, bytes: 0 };
+    const operation = this.ctx.terminals.startSend(this.owner, this.sessionId, { text: value, submit: false });
+    void operation.done.catch(() => {});
+    return { accepted: true, bytes: Buffer.byteLength(value, "utf8") };
+  }
+
+  signal(signal) { return this.ctx.terminals.signal(this.owner, this.sessionId, signal); }
+}
+
 export class RemoteOpsState {
   constructor(ctx) {
     this.ctx = ctx;
@@ -473,6 +522,7 @@ export class RemoteOpsState {
     this.events = new Map();
     this.backendSessions = new Map();
     this.directEnvironments = new Map();
+    this.openings = new Map();
     this.localSession = undefined;
     this.localStarting = undefined;
     this.localError = "";
@@ -573,6 +623,7 @@ export class RemoteOpsState {
   }
   snapshot(owner) {
     const id = ownerId(owner);
+    this.reconcileHostSessions(owner);
     const local = this.localSnapshot();
     const remoteSessions = [...this.sessions.values()].filter((x) => x.ownerId === id && x.session.status().kind !== "exited").map((x) => ({ sessionId: x.sessionId, environmentId: x.environment.id, name: x.environment.name, kind: "ssh", status: x.session.status() }));
     const sessions = [...(local ? [local] : []), ...remoteSessions];
@@ -595,7 +646,10 @@ export class RemoteOpsState {
       name = record.environment.name;
       kind = "ssh";
     }
-    if (waitMs > 0) await session.outputBuffer.waitForChange(offset, waitMs, signal);
+    if (session instanceof AdoptedTerminalSession) {
+      await session.refresh();
+      if (waitMs > 0 && session.outputBuffer.readFrom(offset).text === "") await session.waitForChange(waitMs, signal);
+    } else if (waitMs > 0) await session.outputBuffer.waitForChange(offset, waitMs, signal);
     return {
       sessionId: target,
       environmentId,
@@ -691,15 +745,45 @@ export class RemoteOpsState {
     const environment = this.findEnvironment(environmentId);
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", `Environment not found: ${environmentId}`);
     const id = ownerId(owner);
-    const existing = [...this.sessions.values()].find((x) => x.ownerId === id && x.environment.id === environment.id && x.session.status().kind !== "exited");
-    if (existing) return existing;
-    const spawned = await this.ctx.terminals.spawn(owner, { type: "ssh", name: environment.id });
-    const session = this.backendSessions.get(spawned.sessionId);
-    if (!session) throw new Error("SSH backend did not return a session");
-    const record = { sessionId: spawned.sessionId, ownerId: id, owner, environment, session };
-    this.sessions.set(record.sessionId, record);
-    this.event(owner, "ssh.open", { sessionId: record.sessionId, environment: environment.name });
-    return record;
+    const key = `${id}:${environment.id}`;
+    const existingOpening = this.openings.get(key);
+    if (existingOpening) return existingOpening;
+    const opening = (async () => {
+      const existing = [...this.sessions.values()].find((x) => x.ownerId === id && x.environment.id === environment.id && x.session.status().kind !== "exited");
+      if (existing) return existing;
+      const adopted = this.reconcileHostSessions(owner).find((x) => x.environment.id === environment.id);
+      if (adopted) return adopted;
+      const spawned = await this.ctx.terminals.spawn(owner, { type: "ssh", name: environment.id });
+      const session = this.backendSessions.get(spawned.sessionId);
+      if (!session) throw new Error("SSH backend did not return a session");
+      const record = { sessionId: spawned.sessionId, ownerId: id, owner, environment, session };
+      this.sessions.set(record.sessionId, record);
+      this.event(owner, "ssh.open", { sessionId: record.sessionId, environment: environment.name });
+      return record;
+    })();
+    this.openings.set(key, opening);
+    try { return await opening; } finally { if (this.openings.get(key) === opening) this.openings.delete(key); }
+  }
+
+  reconcileHostSessions(owner) {
+    if (typeof this.ctx.terminals?.list !== "function") return [];
+    const id = ownerId(owner);
+    const hostSessions = this.ctx.terminals.list(owner);
+    const liveIds = new Set();
+    for (const snapshot of hostSessions) {
+      if (snapshot?.type !== "ssh" || snapshot.status?.kind === "exited") continue;
+      const environment = this.findEnvironment(snapshot.name);
+      if (!environment) continue;
+      liveIds.add(snapshot.sessionId);
+      const current = this.sessions.get(snapshot.sessionId);
+      if (current) continue;
+      this.sessions.set(snapshot.sessionId, { sessionId: snapshot.sessionId, ownerId: id, owner, environment, session: new AdoptedTerminalSession(this.ctx, owner, snapshot), adopted: true });
+      this.event(owner, "ssh.reconciled", { sessionId: snapshot.sessionId, environment: environment.name });
+    }
+    for (const [sessionId, record] of this.sessions) {
+      if (record.ownerId === id && record.adopted && !liveIds.has(sessionId)) this.sessions.delete(sessionId);
+    }
+    return [...this.sessions.values()].filter((record) => record.ownerId === id && record.session.status().kind !== "exited");
   }
 
   async openDirect(owner, spec) {
@@ -758,15 +842,19 @@ export class RemoteOpsState {
   async send(owner, target, args) {
     if (target === LOCAL_SESSION_ID) {
       const session = await this.ensureLocalSession();
-      const text = `${args.text ?? args.command ?? ""}${(args.submit ?? args.newline ?? true) ? "\r" : ""}`;
+      const submittedText = String(args.text ?? args.command ?? "");
+      const submit = args.submit ?? args.newline ?? true;
+      const text = `${submittedText}${submit ? "\r" : ""}`;
       const result = await session.writeInput(text);
-      return { sessionId: LOCAL_SESSION_ID, environment: session.environment.name, status: session.status(), viewport: session.outputBuffer.tail(64 * 1024), ...result };
+      return { sessionId: LOCAL_SESSION_ID, environment: session.environment.name, submittedText, submit, status: session.status(), viewport: session.outputBuffer.tail(64 * 1024), ...result };
     }
     const record = target ? this.getSession(owner, target) : await this.open(owner, args.environment);
-    const operation = this.ctx.terminals.startSend(owner, record.sessionId, { text: args.text ?? args.command ?? "", submit: args.submit ?? args.newline ?? true, quietMs: args.quietMs, timeoutMs: (args.timeoutSeconds ?? 30) * 1000, signal: args.signal });
+    const submittedText = String(args.text ?? args.command ?? "");
+    const submit = args.submit ?? args.newline ?? true;
+    const operation = this.ctx.terminals.startSend(owner, record.sessionId, { text: submittedText, submit, quietMs: args.quietMs, timeoutMs: (args.timeoutSeconds ?? 30) * 1000, signal: args.signal });
     const result = await operation.done;
-    this.event(owner, "ssh.send", { sessionId: record.sessionId, environment: record.environment.name, inputChars: String(args.text ?? args.command ?? "").length, waitReason: result.waitReason });
-    return { sessionId: record.sessionId, environment: record.environment.name, ...result };
+    this.event(owner, "ssh.send", { sessionId: record.sessionId, environment: record.environment.name, inputChars: submittedText.length, waitReason: result.waitReason });
+    return { sessionId: record.sessionId, environment: record.environment.name, submittedText, submit, ...result };
   }
 
   async input(owner, target, text) {
@@ -842,7 +930,7 @@ export function apply(ctx) {
   ctx.systemPrompt.section({
     name: "dsh-remote-ops",
     order: 410,
-    text: "Remote operations are provided by dsh-remote-ops. Use remote_environment_list when the target is ambiguous. Use remote_terminal_open/send/read for SSH work and preserve command spaces exactly. Prefer one complete command or a short batch when the command is known; use incremental reads only when live terminal state is needed. Use remote_terminal_input for raw interactive keys such as Tab, arrows, passwords, and Ctrl+C without waiting for a result. For multiple SSH targets, name each target explicitly, execute sequentially, observe the result, and only then continue. Product CLI knowledge may come from MCP, but MCP results are knowledge/validation, not a substitute for executing through the remote terminal. Never invent credentials or claim a connection succeeded without an observed result.",
+    text: "Remote operations are provided by dsh-remote-ops. Use remote_environment_list when the target is ambiguous. Use remote_terminal_open/send/read for SSH work and preserve command spaces exactly. Prefer one complete command or a short batch when the command is known; use incremental reads only when live terminal state is needed. remote_terminal_send returns submittedText and submit so you can verify the exact bytes requested; do not resend a command merely because the terminal echoes it in the viewport. Use remote_terminal_input for raw interactive keys such as Tab, arrows, passwords, and Ctrl+C without waiting for a result. For multiple SSH targets, name each target explicitly, execute sequentially, observe the result, and only then continue. Product CLI knowledge may come from MCP, but MCP results are knowledge/validation, not a substitute for executing through the remote terminal. Never invent credentials or claim a connection succeeded without an observed result.",
   });
 
   const owner = (exec) => exec.agent;
@@ -853,7 +941,7 @@ export function apply(ctx) {
   registerTool(ctx, { name: "remote_environment_group_delete", description: "Delete an empty saved SSH environment group.", parameters: { group: stringParam("Environment group", true) }, execute: async (args) => state.deleteGroup(args.group) });
   registerTool(ctx, { name: "remote_environment_delete", description: "Delete a saved SSH environment and close its owner sessions.", parameters: { environment: stringParam("Environment id or name", true) }, execute: async (args, exec) => state.deleteEnvironment(owner(exec), args.environment) });
   registerTool(ctx, { name: "remote_terminal_open", description: "Open or reuse an SSH terminal for an environment.", parameters: { environment: stringParam("Environment id or name", true) }, execute: async (_args, exec) => { const record = await state.open(owner(exec), _args.environment); return { sessionId: record.sessionId, environment: record.environment.name, status: record.session.status(), viewport: record.session.output.slice(-64 * 1024) }; } });
-  registerTool(ctx, { name: "remote_terminal_send", description: "Send a complete command or interactive input to an owner-scoped SSH terminal and wait for output.", parameters: { session: stringParam("Session id or environment id"), environment: stringParam("Environment id or name when opening on demand"), text: stringParam("Input text; preserve every separator", true), submit: boolParam("Append Enter; defaults true"), quietMs: numberParam("Quiet completion window in milliseconds"), timeoutSeconds: numberParam("Timeout in seconds") }, execute: async (args, exec) => state.send(owner(exec), args.session, args) });
+  registerTool(ctx, { name: "remote_terminal_send", description: "Send one complete command to an owner-scoped SSH terminal and wait for output. The result echoes submittedText and submit; preserve every separator in text and do not resend only because the terminal echoes the command.", parameters: { session: stringParam("Session id or environment id"), environment: stringParam("Environment id or name when opening on demand"), text: stringParam("Input text; preserve every separator", true), submit: boolParam("Append Enter; defaults true"), quietMs: numberParam("Quiet completion window in milliseconds"), timeoutSeconds: numberParam("Timeout in seconds") }, execute: async (args, exec) => state.send(owner(exec), args.session, args) });
   registerTool(ctx, { name: "remote_terminal_input", description: "Write raw terminal input immediately without waiting. Use for Tab completion, arrow keys, password prompts, interactive programs, or control characters.", parameters: { session: stringParam("Session id or environment id", true), text: stringParam("Raw UTF-8 terminal input", true) }, execute: async (args, exec) => state.input(owner(exec), args.session, args.text) });
   registerTool(ctx, { name: "remote_terminal_read", description: "Read bounded retained output from an SSH terminal.", parameters: { session: stringParam("Session id or environment id", true), offset: numberParam("Newest-relative line offset"), count: numberParam("Line count") }, execute: async (args, exec) => { const record = state.getSession(owner(exec), args.session); return { sessionId: record.sessionId, environment: record.environment.name, ...ctx.terminals.read(owner(exec), record.sessionId, args) }; } });
   registerTool(ctx, { name: "remote_terminal_signal", description: "Send an interrupt or allowed signal to the SSH foreground process.", parameters: { session: stringParam("Session id or environment id", true), signal: stringParam("Signal such as SIGINT or SIGTERM", true) }, execute: async (args, exec) => { const record = state.getSession(owner(exec), args.session); return { sessionId: record.sessionId, ...ctx.terminals.signal(owner(exec), record.sessionId, args.signal) }; } });

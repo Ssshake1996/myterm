@@ -56,6 +56,16 @@ test("terminal output buffer provides bounded absolute deltas", async () => {
   await aborted;
 });
 
+function fakeRemoteSession() {
+  return {
+    output: "",
+    outputBuffer: new TerminalOutputBuffer(),
+    status: () => ({ kind: "running" }),
+    writeInput: (text) => ({ accepted: true, bytes: Buffer.byteLength(String(text), "utf8") }),
+    signal: async () => ({ delivered: true, targetPgid: 1 }),
+  };
+}
+
 class FakeTerminal {
   constructor() {
     this.output = new EventEmitter();
@@ -92,6 +102,101 @@ function fakeContext() {
     },
   };
 }
+
+test("opening one environment concurrently reserves one PTY and returns one session", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-remote-ops-open-test-"));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = root;
+  const context = fakeContext();
+  const owner = { id: "agent-open" };
+  const state = new RemoteOpsState(context);
+  let spawnCount = 0;
+  context.terminals = {
+    spawn: async (_owner, request) => {
+      spawnCount += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const sessionId = `pty-${spawnCount}`;
+      state.backendSessions.set(sessionId, fakeRemoteSession());
+      return { sessionId };
+    },
+    list: () => [],
+  };
+  try {
+    await state.ready;
+    await state.saveEnvironment({ id: "prod-1", name: "生产环境", host: "10.0.0.1", username: "root", group: "default", port: 22 });
+    const [first, second] = await Promise.all([state.open(owner, "prod-1"), state.open(owner, "prod-1")]);
+    assert.equal(spawnCount, 1);
+    assert.equal(first.sessionId, second.sessionId);
+  } finally {
+    state.disposed = true;
+    await state.localSession?.close().catch(() => {});
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("host-owned existing environment sessions are visible and reusable", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-remote-ops-host-session-test-"));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = root;
+  const context = fakeContext();
+  const owner = { id: "agent-existing" };
+  const existing = { sessionId: "pty-existing", name: "prod-1", type: "ssh", status: { kind: "running" } };
+  const state = new RemoteOpsState(context);
+  let spawnCount = 0;
+  context.terminals = {
+    list: () => [existing],
+    spawn: async () => { spawnCount += 1; throw new Error("spawn should not be called for an existing PTY"); },
+    read: () => ({ text: "", totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false }),
+    startSend: () => ({ done: Promise.resolve({ waitReason: "inferred_idle", output: "", viewport: "", sessionStatus: existing.status, truncated: false }) }),
+  };
+  try {
+    await state.ready;
+    await state.saveEnvironment({ id: "prod-1", name: "生产环境", host: "10.0.0.1", username: "root", group: "default", port: 22 });
+    const record = await state.open(owner, "prod-1");
+    assert.equal(record.sessionId, existing.sessionId);
+    assert.equal(spawnCount, 0);
+    assert.equal(state.snapshot(owner).sessions.some((item) => item.sessionId === existing.sessionId), true);
+  } finally {
+    state.disposed = true;
+    await state.localSession?.close().catch(() => {});
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("terminal send result reports exact submitted text and submit behavior", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-remote-ops-send-test-"));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = root;
+  const context = fakeContext();
+  const owner = { id: "agent-send" };
+  const state = new RemoteOpsState(context);
+  const remote = fakeRemoteSession();
+  context.terminals = {
+    startSend: (_owner, _sessionId, request) => {
+      context.lastSendRequest = request;
+      return { done: Promise.resolve({ waitReason: "inferred_idle", output: "", viewport: "", sessionStatus: { kind: "running" }, truncated: false }) };
+    },
+  };
+  try {
+    await state.ready;
+    await state.saveEnvironment({ id: "prod-1", name: "生产环境", host: "10.0.0.1", username: "root", group: "default", port: 22 });
+    state.sessions.set("pty-send", { sessionId: "pty-send", ownerId: owner.id, owner, environment: state.findEnvironment("prod-1"), session: remote });
+    const result = await state.send(owner, "pty-send", { text: "echo  两个  空格", submit: true });
+    assert.equal(context.lastSendRequest.text, "echo  两个  空格");
+    assert.equal(result.submittedText, "echo  两个  空格");
+    assert.equal(result.submit, true);
+  } finally {
+    state.disposed = true;
+    await state.localSession?.close().catch(() => {});
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("environment and quick-command persistence survives a state reload", async () => {
   const root = await mkdtemp(join(tmpdir(), "dsh-remote-ops-test-"));

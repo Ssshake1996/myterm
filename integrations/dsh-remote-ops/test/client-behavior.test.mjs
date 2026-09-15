@@ -19,6 +19,7 @@ function loadClientFunction(name, endMarker) {
 const terminalVisibleText = loadClientFunction("terminalVisibleText", "    const ask =");
 const parseSshCommand = loadClientFunction("parseSshCommand", "\n\n    const terminalInputEnabled");
 const terminalInputEnabled = loadClientFunction("terminalInputEnabled", "\n    function RemoteOpsPanel");
+const terminalInputCompositionValue = loadClientFunction("terminalInputCompositionValue", "\n    function RemoteOpsPanel");
 
 test("VT screen model removes ConPTY initialization blank rows", () => {
   const initial = "\u001b[?25l\u001b[2J\u001b[m\u001b[H\r\n" + "\r\n".repeat(38) + "\u001b[2;34HC:\\Users\\tester\\.dsh\\remote-ops>";
@@ -49,4 +50,10 @@ test("local terminal stays writable before Harness Agent binding", () => {
   assert.equal(terminalInputEnabled({ bound: false, sessions: [{ kind: "local", status: { kind: "running" } }] }), true);
   assert.equal(terminalInputEnabled({ bound: true, sessions: [] }), true);
   assert.equal(terminalInputEnabled({ bound: false, sessions: [{ kind: "local", status: { kind: "starting" } }] }), false);
+});
+
+test("IME composition does not submit intermediate roman characters", () => {
+  assert.equal(terminalInputCompositionValue("n", true), undefined);
+  assert.equal(terminalInputCompositionValue("ni", true), undefined);
+  assert.equal(terminalInputCompositionValue("你", false), "你");
 });
