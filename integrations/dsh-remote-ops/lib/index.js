@@ -19,6 +19,12 @@ const UI_SCROLLBACK_CHARS = 256 * 1024;
 const MAX_SFTP_BYTES = 2 * 1024 * 1024;
 const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 const TERMINAL_ENCODINGS = new Set(["utf-8", "gb18030", "big5", "windows-1252", "iso-8859-1"]);
+export function buildSshShellOptions() {
+  return {
+    window: { term: "xterm-256color", rows: 40, cols: 160 },
+    options: { env: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8", LC_CTYPE: "C.UTF-8" } },
+  };
+}
 function normalizeTerminalEncoding(value) {
   const normalized = String(value ?? "utf-8").trim().toLowerCase();
   return TERMINAL_ENCODINGS.has(normalized) ? normalized : "utf-8";
@@ -727,7 +733,7 @@ export class RemoteOpsState {
       if (password) config.password = password;
       const channel = await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(sessionError("SSH_CONNECT_TIMEOUT", `SSH connection timed out: ${environment.host}:${config.port}`)), config.readyTimeout);
-        client.once("ready", () => client.shell({ term: "xterm-256color", rows: 40, cols: 160 }, (error, stream) => { clearTimeout(timer); if (error) reject(error); else { stream.write("export LANG=C.UTF-8 LC_ALL=C.UTF-8 LC_CTYPE=C.UTF-8\r"); resolve(stream); } }));
+        client.once("ready", () => { const shell = buildSshShellOptions(); client.shell(shell.window, shell.options, (error, stream) => { clearTimeout(timer); if (error) reject(error); else resolve(stream); }); });
         client.once("error", (error) => { clearTimeout(timer); reject(error); });
         client.connect(config);
       });

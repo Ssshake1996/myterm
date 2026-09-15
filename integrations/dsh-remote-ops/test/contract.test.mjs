@@ -41,11 +41,14 @@ test("terminal rendering and transport invariants remain present", () => {
   assert.match(client, /waitMs/);
   assert.match(client, /rawInputSending/);
   assert.match(client, /terminalVisibleText/);
+  assert.match(client, /terminalScreenModel/);
   assert.match(client, /parseSshCommand/);
   assert.doesNotMatch(client, /terminalVisibleText\(activeSession\.viewport\)/);
   assert.match(server, /\/api\/dsh-remote-ops\/terminal/);
   assert.match(server, /Math\.min\(25_000/);
   assert.match(server, /Cache-Control.*no-store/);
+  assert.doesNotMatch(server, /export LANG=C\.UTF-8/);
+  assert.match(server, /LC_CTYPE/);
 });
 
 test("terminal controls expose usable focus and clear panel toggles", () => {
@@ -59,6 +62,7 @@ test("terminal controls expose usable focus and clear panel toggles", () => {
   assert.match(client, /onCompositionStart/);
   assert.match(client, /onCompositionEnd/);
   assert.match(client, /event\.isComposing/);
+  assert.doesNotMatch(client, /position:absolute;left:12px;bottom:10px/);
 });
 
 test("terminal transport exposes exact submitted text and existing-session reconciliation", () => {

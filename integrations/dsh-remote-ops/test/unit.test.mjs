@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   RemoteOpsState,
   TerminalOutputBuffer,
+  buildSshShellOptions,
   defaultPasswordRef,
   normalizeGroupName,
   summarizeError,
@@ -25,6 +26,13 @@ test("environment validation normalizes names and rejects unsafe identifiers", (
   assert.equal(validateEnvironment({ id: "prod-1", name: "生产", host: "10.0.0.1", username: "root", passwordRef: "REMOTE_OPS_PROD_1_PASSWORD" }).ok, true);
   assert.equal(validateEnvironment({ id: "prod-1", name: "生产", host: "10.0.0.1", username: "root", passwordRef: "not a ref" }).ok, false);
   assert.match(summarizeError(Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" })), /ECONNREFUSED/);
+});
+
+test("SSH shell requests locale through channel environment without typing a setup command", () => {
+  assert.deepEqual(buildSshShellOptions(), {
+    window: { term: "xterm-256color", rows: 40, cols: 160 },
+    options: { env: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8", LC_CTYPE: "C.UTF-8" } },
+  });
 });
 
 test("terminal output buffer provides bounded absolute deltas", async () => {

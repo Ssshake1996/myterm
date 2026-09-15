@@ -5,8 +5,8 @@ import vm from "node:vm";
 
 const source = await readFile(new URL("../lib/client.js", import.meta.url), "utf8");
 
-function loadClientFunction(name, endMarker) {
-  const start = source.indexOf(`const ${name} =`);
+function loadClientFunction(name, endMarker, includeFrom = name) {
+  const start = source.indexOf(`const ${includeFrom} =`);
   assert.ok(start >= 0, `client function ${name} must exist`);
   const end = source.indexOf(endMarker, start);
   assert.ok(end > start, `client function ${name} must have a stable boundary`);
@@ -16,7 +16,8 @@ function loadClientFunction(name, endMarker) {
   return context[name];
 }
 
-const terminalVisibleText = loadClientFunction("terminalVisibleText", "    const ask =");
+const terminalScreenModel = loadClientFunction("terminalScreenModel", "    const terminalVisibleText");
+const terminalVisibleText = loadClientFunction("terminalVisibleText", "    const ask =", "terminalScreenModel");
 const parseSshCommand = loadClientFunction("parseSshCommand", "\n\n    const terminalInputEnabled");
 const terminalInputEnabled = loadClientFunction("terminalInputEnabled", "\n    function RemoteOpsPanel");
 const terminalInputCompositionValue = loadClientFunction("terminalInputCompositionValue", "\n    function RemoteOpsPanel");
@@ -32,6 +33,11 @@ test("VT screen model preserves cursor overwrites and scrollback", () => {
   assert.equal(terminalVisibleText("old\rnew"), "new");
   assert.equal(terminalVisibleText("one\r\ntwo\r\nthree"), "one\ntwo\nthree");
   assert.equal(terminalVisibleText("\u001b[2J\u001b[Hprompt>"), "prompt>");
+});
+
+test("VT screen model exposes the real cursor position", () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(terminalScreenModel("abc"))), { text: "abc", cursor: { row: 0, column: 3 } });
+  assert.deepEqual(JSON.parse(JSON.stringify(terminalScreenModel("\u001b[2J\u001b[Hprompt>"))), { text: "prompt>", cursor: { row: 0, column: 7 } });
 });
 
 test("SSH command parser preserves user-supplied host, port and key", () => {

@@ -31,7 +31,7 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.12.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.13.tgz
 dsh web
 ```
 
