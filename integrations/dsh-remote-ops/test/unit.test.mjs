@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Client as SshClient } from "ssh2";
 import {
   RemoteOpsState,
   TerminalOutputBuffer,
@@ -27,6 +28,39 @@ test("environment validation normalizes names and rejects unsafe identifiers", (
   assert.equal(validateEnvironment({ id: "prod-1", name: "生产", host: "10.0.0.1", username: "root", passwordRef: "REMOTE_OPS_PROD_1_PASSWORD" }).ok, true);
   assert.equal(validateEnvironment({ id: "prod-1", name: "生产", host: "10.0.0.1", username: "root", passwordRef: "not a ref" }).ok, false);
   assert.match(summarizeError(Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" })), /ECONNREFUSED/);
+});
+
+test("generated PTY names resolve through the SSH backend to their saved environment", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-remote-ops-session-name-test-"));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = root;
+  const state = new RemoteOpsState(fakeContext());
+  const channel = new EventEmitter();
+  channel.stderr = new EventEmitter();
+  channel.write = () => true;
+  channel.end = () => {};
+  let connectionConfig;
+  t.mock.method(SshClient.prototype, "connect", function (config) {
+    connectionConfig = config;
+    queueMicrotask(() => this.emit("ready"));
+    return this;
+  });
+  t.mock.method(SshClient.prototype, "shell", (_window, _options, callback) => callback(null, channel));
+  try {
+    await state.ready;
+    await state.saveEnvironment({ id: "prod-1", name: "生产环境", host: "10.0.0.1", username: "root", group: "default", port: 22 });
+    const session = await state.spawnBackend({ name: "dsh-remote-ops-prod-1-mu3fti1j-1", sessionId: "session-1" });
+    assert.equal(session.environment.id, "prod-1");
+    assert.deepEqual(connectionConfig, { host: "10.0.0.1", port: 22, username: "root", readyTimeout: 15_000, keepaliveInterval: 10_000, keepaliveCountMax: 3 });
+    assert.equal(state.findEnvironmentBySessionName("dsh-remote-ops-unknown-mu3fti1j-1"), undefined);
+    await session.close();
+  } finally {
+    state.disposed = true;
+    await state.localSession?.close().catch(() => {});
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("SSH shell requests locale through channel environment without typing a setup command", () => {

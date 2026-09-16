@@ -630,7 +630,7 @@ export class RemoteOpsState {
   findEnvironment(idOrName) { return this.allEnvironments().find((value) => value.id === idOrName || value.name === idOrName); }
   findEnvironmentBySessionName(name) {
     const value = String(name ?? "");
-    return this.findEnvironment(value) ?? this.allEnvironments().find((environment) => value.startsWith(`${SESSION_NAME_PREFIX}${environment.id}-`));
+    return this.findEnvironment(value) ?? [...this.allEnvironments()].sort((left, right) => right.id.length - left.id.length).find((environment) => value.startsWith(`${SESSION_NAME_PREFIX}${environment.id}-`));
   }
   activeRemoteSessions(ownerKey, environmentId) {
     return [...this.sessions.values()].filter((record) => record.ownerId === ownerKey && record.environment.id === environmentId && record.session.status().kind !== "exited");
@@ -742,7 +742,7 @@ export class RemoteOpsState {
 
   async spawnBackend(spec) {
     await this.ready;
-    const environment = spec.environment ?? this.directEnvironments.get(spec.name) ?? this.findEnvironment(spec.name);
+    const environment = spec.environment ?? this.directEnvironments.get(spec.name) ?? this.findEnvironment(spec.name) ?? this.findEnvironmentBySessionName(spec.name);
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", `Environment not found: ${spec.name}`);
     const client = new SshClient();
     const config = { host: environment.host, port: environment.port ?? 22, username: environment.username, readyTimeout: environment.readyTimeoutMs ?? 15_000, keepaliveInterval: 10_000, keepaliveCountMax: 3 };

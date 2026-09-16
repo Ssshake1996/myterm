@@ -75,6 +75,7 @@ test("terminal transport exposes exact submitted text and existing-session recon
   assert.match(server, /REMOTE_SESSION_REQUIRED/);
   assert.match(server, /connectionCount/);
   assert.match(server, /listLocalFiles/);
+  assert.match(server, /findEnvironmentBySessionName\(spec\.name\)/);
 });
 
 test("environment, quick command, SFTP and update routes stay available", () => {
@@ -87,4 +88,6 @@ test("environment, quick command, SFTP and update routes stay available", () => 
   assert.match(client, /operation: "upload"/);
   assert.match(client, /operation: "download"/);
   assert.match(client, /action: "close"/);
+  assert.match(client, /dsh-remote-ops__sftpIcon/);
+  assert.doesNotMatch(client, /`\$\{item\.type === "d" \? "目录" : "文件"\}/);
 });
