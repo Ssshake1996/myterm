@@ -1,7 +1,7 @@
 # dsh-remote-ops 开发交接说明
 
 > 基线日期：2026-09-15  
-> 基线版本：`dsh-remote-ops v0.2.13`
+> 基线版本：`dsh-remote-ops v0.2.14`
 > 基线提交：以 `git log -1` 为准  
 > 项目根目录：`F:\myterm`  
 > GitHub：`Ssshake1996/myterm`
@@ -30,7 +30,7 @@ Remote Ops 插件负责：
 
 ## 2. 当前版本状态
 
-v0.2.13 在 v0.2.12 的持续回归基础上，补充了 VT 光标定位和 SSH channel locale 初始化；本次交接重点是把需求、开发、测试和发布流程固化为新对话可直接使用的上下文：
+v0.2.14 在 v0.2.13 的持续回归基础上，补充了独立 PTY 会话、连接上限、状态回收和双栏 SFTP 传输；本次交接重点是把需求、开发、测试和发布流程固化为新对话可直接使用的上下文：
 
 - 四层自动化测试已经接入 `npm test`。
 - `npm run check` 是唯一发布门禁。
@@ -88,7 +88,7 @@ connection / systemPrompt / tools / terminals / agents / credentials / subproces
 - 终端是主要工作区，一直占据主区域。
 - 环境通过可隐藏抽屉管理。
 - 快捷命令固定在终端下方，可拖拽调整高度。
-- SFTP 和诊断通过右侧辅助面板打开。
+- SFTP 改为占满插件主区的本地/远端双栏工作区，诊断仍通过辅助面板打开。
 - 没有 SSH 会话时显示本地 CMD。
 - 面板启动按钮只打开右侧 Sidebar，不启动新的 DSH 对话。
 
@@ -115,7 +115,7 @@ remote-ops/
 - 环境：`remote_environment_list/create/delete`，以及环境分组的 create/rename/delete。
 - 终端：`remote_terminal_open/send/input/read/signal/close/batch`。
 - 快捷命令：`remote_quick_command_list/save/delete/group_create/group_delete/run`。
-- SFTP：`remote_sftp_list/read/write/mkdir/delete/rename`。
+- SFTP：`remote_sftp_list/read/write/mkdir/delete/rename/upload/download`。
 - 诊断：`remote_diagnostics`。
 
 工具原则：
@@ -189,7 +189,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 ## 9. 已知限制和后续方向
 
 - 没有把完整浏览器运行时放进插件包；页面测试依赖 DSH Web 宿主。
-- SSH/SFTP 的真实可用性受网络、远端权限、凭据和目标系统影响，自动化测试使用 fake terminal，不伪装成真实远程成功。
+- SSH/SFTP 的真实可用性受网络、远端权限、凭据和目标系统影响，自动化测试使用 fake terminal，不伪装成真实远程成功。每个 owner 在单个环境最多保留 3 个连接，具体连接通过 sessionId 释放。
 - 输出缓冲保留有界历史，过期游标会返回受控最近内容，不承诺无限终端回放。
 - 不新增第二套 Agent 循环、权限门禁、MCP 调度或长期记忆。
 - 后续若引入新 Transport、终端渲染器或持久数据格式，必须先更新交接文档、测试矩阵和迁移说明。
