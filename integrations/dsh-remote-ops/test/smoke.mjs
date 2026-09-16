@@ -8,7 +8,7 @@ const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
 const client = await readFile(join(packageRoot, "lib/client.js"), "utf8");
 const server = await readFile(join(packageRoot, "lib/index.js"), "utf8");
-assert.equal(manifest.version, "0.2.13");
+assert.equal(manifest.version, "0.2.14");
 assert.equal(manifest.dsh?.bundle?.patch, "./cordis.patch.yml");
 assert.deepEqual(manifest.dsh?.client?.inject, [
   "@deepseek-ai/dsh-client-ui-sidebar-right",

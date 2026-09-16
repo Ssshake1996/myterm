@@ -1,6 +1,6 @@
 {
   "name": "@dsh/remote-ops",
-  "version": "0.2.13",
+  "version": "0.2.14",
   "private": false,
   "type": "module",
   "description": "DeepSeek Harness plugin for SSH environments, persistent terminals, SFTP and multi-target operations",
@@ -24,7 +24,13 @@
       "platform": "web"
     }
   },
-  "files": ["lib", "README.md", "README.zh-CN.md", "cordis.patch.yml", "package.json"],
+  "files": [
+    "lib",
+    "README.md",
+    "README.zh-CN.md",
+    "cordis.patch.yml",
+    "package.json"
+  ],
   "scripts": {
     "test": "npm run test:unit && npm run test:client && npm run test:contract && npm run test:smoke",
     "test:unit": "node --test test/unit.test.mjs",

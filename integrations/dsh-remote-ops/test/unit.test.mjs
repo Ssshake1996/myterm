@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,6 +9,7 @@ import {
   TerminalOutputBuffer,
   buildSshShellOptions,
   defaultPasswordRef,
+  MAX_SESSIONS_PER_ENVIRONMENT,
   normalizeGroupName,
   summarizeError,
   validateEnvironment,
@@ -144,18 +145,139 @@ test("opening one environment concurrently reserves one PTY and returns one sess
   }
 });
 
-test("host-owned existing environment sessions are visible and reusable", async () => {
+test("environment sessions use unique PTY names and stop at three owner connections", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-remote-ops-session-limit-test-"));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = root;
+  const context = fakeContext();
+  const owner = { id: "agent-session-limit" };
+  const hostSessions = [];
+  const state = new RemoteOpsState(context);
+  let spawnCount = 0;
+  context.terminals = {
+    list: () => hostSessions,
+    spawn: async (_owner, request) => {
+      spawnCount += 1;
+      const sessionId = `pty-limit-${spawnCount}`;
+      state.backendSessions.set(sessionId, fakeRemoteSession());
+      hostSessions.push({ sessionId, name: request.name, type: "ssh", status: { kind: "running" } });
+      return { sessionId };
+    },
+    kill: async (_owner, sessionId) => {
+      const index = hostSessions.findIndex((item) => item.sessionId === sessionId);
+      if (index >= 0) hostSessions.splice(index, 1);
+    },
+  };
+  try {
+    await state.ready;
+    await state.saveEnvironment({ id: "prod-1", name: "生产环境", host: "10.0.0.1", username: "root", group: "default", port: 22 });
+    const opened = [];
+    for (let index = 0; index < MAX_SESSIONS_PER_ENVIRONMENT; index += 1) opened.push(await state.open(owner, "prod-1"));
+    assert.equal(opened.length, 3);
+    assert.equal(new Set(opened.map((item) => item.sessionId)).size, MAX_SESSIONS_PER_ENVIRONMENT);
+    assert.equal(new Set(hostSessions.map((item) => item.name)).size, MAX_SESSIONS_PER_ENVIRONMENT);
+    assert.ok(hostSessions.every((item) => item.name !== "prod-1"));
+    await assert.rejects(() => state.open(owner, "prod-1"), (error) => error.code === "REMOTE_SESSION_LIMIT" && /3/.test(error.message));
+    assert.equal(spawnCount, MAX_SESSIONS_PER_ENVIRONMENT);
+    assert.throws(() => state.getSession(owner, "prod-1"), (error) => error.code === "REMOTE_SESSION_REQUIRED");
+  } finally {
+    state.disposed = true;
+    await state.localSession?.close().catch(() => {});
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("releasing one environment session removes only that connection and stale PTYs stop running", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-remote-ops-session-release-test-"));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = root;
+  const context = fakeContext();
+  const owner = { id: "agent-session-release" };
+  const hostSessions = [];
+  const state = new RemoteOpsState(context);
+  let spawnCount = 0;
+  context.terminals = {
+    list: () => hostSessions,
+    spawn: async (_owner, request) => {
+      spawnCount += 1;
+      const sessionId = `pty-release-${spawnCount}`;
+      state.backendSessions.set(sessionId, fakeRemoteSession());
+      hostSessions.push({ sessionId, name: request.name, type: "ssh", status: { kind: "running" } });
+      return { sessionId };
+    },
+    kill: async (_owner, sessionId) => {
+      const index = hostSessions.findIndex((item) => item.sessionId === sessionId);
+      if (index >= 0) hostSessions.splice(index, 1);
+    },
+  };
+  try {
+    await state.ready;
+    await state.saveEnvironment({ id: "prod-1", name: "生产环境", host: "10.0.0.1", username: "root", group: "default", port: 22 });
+    const first = await state.open(owner, "prod-1");
+    const second = await state.open(owner, "prod-1");
+    const third = await state.open(owner, "prod-1");
+    const before = state.snapshot(owner);
+    assert.equal(before.environments.find((item) => item.id === "prod-1").connectionCount, 3);
+    await state.close(owner, second.sessionId);
+    assert.equal(state.snapshot(owner).sessions.filter((item) => item.environmentId === "prod-1").length, 2);
+    assert.ok(state.sessions.has(first.sessionId));
+    assert.ok(state.sessions.has(third.sessionId));
+    hostSessions.splice(hostSessions.findIndex((item) => item.sessionId === first.sessionId), 1);
+    const afterHostExit = state.snapshot(owner);
+    assert.equal(afterHostExit.sessions.some((item) => item.sessionId === first.sessionId), false);
+    assert.equal(afterHostExit.environments.find((item) => item.id === "prod-1").connectionCount, 1);
+  } finally {
+    state.disposed = true;
+    await state.localSession?.close().catch(() => {});
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("SFTP local listing exposes files and directories for the transfer workspace", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-remote-ops-sftp-local-test-"));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = root;
+  const state = new RemoteOpsState(fakeContext());
+  try {
+    await state.ready;
+    const localRoot = join(root, "local");
+    await mkdir(join(localRoot, "folder"), { recursive: true });
+    await writeFile(join(localRoot, "hello.txt"), "hello", "utf8");
+    const result = await state.listLocalFiles(localRoot);
+    assert.deepEqual(result.entries.map((item) => [item.name, item.type]).sort(), [["folder", "d"], ["hello.txt", "-"]]);
+    assert.equal(result.entries.find((item) => item.name === "hello.txt").size, 5);
+  } finally {
+    state.disposed = true;
+    await state.localSession?.close().catch(() => {});
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("host-owned existing environment sessions remain visible without blocking a new connection", async () => {
   const root = await mkdtemp(join(tmpdir(), "dsh-remote-ops-host-session-test-"));
   const previousHome = process.env.DSH_HOME;
   process.env.DSH_HOME = root;
   const context = fakeContext();
   const owner = { id: "agent-existing" };
   const existing = { sessionId: "pty-existing", name: "prod-1", type: "ssh", status: { kind: "running" } };
+  const hostSessions = [existing];
   const state = new RemoteOpsState(context);
   let spawnCount = 0;
   context.terminals = {
-    list: () => [existing],
-    spawn: async () => { spawnCount += 1; throw new Error("spawn should not be called for an existing PTY"); },
+    list: () => hostSessions,
+    spawn: async (_owner, request) => {
+      spawnCount += 1;
+      const sessionId = "pty-new";
+      state.backendSessions.set(sessionId, fakeRemoteSession());
+      hostSessions.push({ sessionId, name: request.name, type: "ssh", status: { kind: "running" } });
+      return { sessionId };
+    },
     read: () => ({ text: "", totalLines: 0, lineBegin: 0, lineEnd: 0, truncated: false }),
     startSend: () => ({ done: Promise.resolve({ waitReason: "inferred_idle", output: "", viewport: "", sessionStatus: existing.status, truncated: false }) }),
   };
@@ -163,9 +285,10 @@ test("host-owned existing environment sessions are visible and reusable", async 
     await state.ready;
     await state.saveEnvironment({ id: "prod-1", name: "生产环境", host: "10.0.0.1", username: "root", group: "default", port: 22 });
     const record = await state.open(owner, "prod-1");
-    assert.equal(record.sessionId, existing.sessionId);
-    assert.equal(spawnCount, 0);
+    assert.equal(record.sessionId, "pty-new");
+    assert.equal(spawnCount, 1);
     assert.equal(state.snapshot(owner).sessions.some((item) => item.sessionId === existing.sessionId), true);
+    assert.equal(state.snapshot(owner).sessions.some((item) => item.sessionId === record.sessionId), true);
   } finally {
     state.disposed = true;
     await state.localSession?.close().catch(() => {});

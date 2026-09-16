@@ -28,7 +28,7 @@ test("all remote operation tools remain registered", () => {
     "remote_quick_command_list", "remote_quick_command_save", "remote_quick_command_delete",
     "remote_quick_command_group_create", "remote_quick_command_group_delete", "remote_quick_command_run",
     "remote_sftp_list", "remote_sftp_read", "remote_sftp_write", "remote_sftp_mkdir",
-    "remote_sftp_delete", "remote_sftp_rename", "remote_diagnostics",
+    "remote_sftp_delete", "remote_sftp_rename", "remote_sftp_upload", "remote_sftp_download", "remote_diagnostics",
   ];
   for (const name of requiredTools) assert.match(server, new RegExp(`name: "${name}"`), `${name} is missing`);
 });
@@ -70,6 +70,11 @@ test("terminal transport exposes exact submitted text and existing-session recon
   assert.match(server, /reconcileHostSessions/);
   assert.match(server, /terminals\.list/);
   assert.match(server, /openings/);
+  assert.match(server, /MAX_SESSIONS_PER_ENVIRONMENT/);
+  assert.match(server, /REMOTE_SESSION_LIMIT/);
+  assert.match(server, /REMOTE_SESSION_REQUIRED/);
+  assert.match(server, /connectionCount/);
+  assert.match(server, /listLocalFiles/);
 });
 
 test("environment, quick command, SFTP and update routes stay available", () => {
@@ -77,4 +82,9 @@ test("environment, quick command, SFTP and update routes stay available", () => 
     "/api/dsh-remote-ops/state", "/api/dsh-remote-ops/action", "/api/dsh-remote-ops/update",
     "environment.save", "quick.save", "remote_sftp_list", "remote_terminal_batch", "fetchLatestRelease",
   ]) assert.match(server, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${marker} is missing`);
+  assert.match(client, /dsh-remote-ops__sftpWorkspace/);
+  assert.match(client, /operation: "local-list"/);
+  assert.match(client, /operation: "upload"/);
+  assert.match(client, /operation: "download"/);
+  assert.match(client, /action: "close"/);
 });
