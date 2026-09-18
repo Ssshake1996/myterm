@@ -91,3 +91,11 @@ test("environment, quick command, SFTP and update routes stay available", () => 
   assert.match(client, /dsh-remote-ops__sftpIcon/);
   assert.doesNotMatch(client, /`\$\{item\.type === "d" \? "目录" : "文件"\}/);
 });
+
+test("environment form hides internal ids and defaults blank names to the host", () => {
+  assert.doesNotMatch(client, /环境 ID/);
+  assert.match(client, /environmentForm\.name\.trim\(\) \|\| environmentForm\.host\.trim\(\)/);
+  assert.match(client, /environmentForm\.id \? \{ id: environmentForm\.id\.trim\(\) \} : \{\}/);
+  assert.match(server, /toLosslessJson\(await definition\.execute/);
+  assert.doesNotMatch(server, /id: stringParam\("Stable environment id", true\)/);
+});

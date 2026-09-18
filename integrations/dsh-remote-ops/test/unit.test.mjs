@@ -13,6 +13,7 @@ import {
   MAX_SESSIONS_PER_ENVIRONMENT,
   normalizeGroupName,
   summarizeError,
+  toLosslessJson,
   validateEnvironment,
 } from "../lib/index.js";
 
@@ -28,6 +29,53 @@ test("environment validation normalizes names and rejects unsafe identifiers", (
   assert.equal(validateEnvironment({ id: "prod-1", name: "生产", host: "10.0.0.1", username: "root", passwordRef: "REMOTE_OPS_PROD_1_PASSWORD" }).ok, true);
   assert.equal(validateEnvironment({ id: "prod-1", name: "生产", host: "10.0.0.1", username: "root", passwordRef: "not a ref" }).ok, false);
   assert.match(summarizeError(Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" })), /ECONNREFUSED/);
+});
+
+test("saved environments generate an internal id and default the name to the host", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-remote-ops-environment-name-test-"));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = root;
+  const state = new RemoteOpsState(fakeContext());
+  try {
+    await state.ready;
+    const saved = await state.saveEnvironment({ host: "10.0.0.8", username: "root", group: "default", port: 22 });
+    assert.equal(saved.name, "10.0.0.8");
+    assert.equal(typeof saved.id, "string");
+    assert.ok(saved.id.length > 0);
+    assert.equal(validateEnvironment(saved).ok, true);
+    await assert.rejects(
+      () => state.saveEnvironment({ host: "10.0.0.9", name: "10.0.0.8", username: "root", group: "default", port: 22 }),
+      /REMOTE_ENV_NAME_EXISTS/,
+    );
+  } finally {
+    state.disposed = true;
+    await state.localSession?.close().catch(() => {});
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("environment list output is lossless JSON", async () => {
+  const root = await mkdtemp(join(tmpdir(), "dsh-remote-ops-lossless-output-test-"));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = root;
+  const state = new RemoteOpsState(fakeContext());
+  try {
+    await state.ready;
+    await state.saveEnvironment({ host: "10.0.0.8", username: "root", group: "default", port: 22 });
+    const output = toLosslessJson(state.snapshot({ id: "agent-json" }));
+    assert.doesNotThrow(() => JSON.stringify(output));
+    assert.equal(Object.hasOwn(output, "localError"), false);
+    assert.equal(Object.hasOwn(output.environments[0], "passwordRef"), false);
+    assert.equal(output.environments[0].name, "10.0.0.8");
+  } finally {
+    state.disposed = true;
+    await state.localSession?.close().catch(() => {});
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("generated PTY names resolve through the SSH backend to their saved environment", async (t) => {
