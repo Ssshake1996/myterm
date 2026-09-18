@@ -24,7 +24,7 @@ Agent kernel.
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.15.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.16.tgz
 dsh web
 ```
 
@@ -62,7 +62,7 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.15
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.16
 ```
 
 The release script runs one complete regression gate (syntax, unit, client
