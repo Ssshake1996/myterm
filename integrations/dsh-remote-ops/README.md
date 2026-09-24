@@ -37,7 +37,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.16.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.17.tgz
 dsh web
 ```
 
@@ -77,12 +77,42 @@ key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.16 exposes environment list/create/update/delete, group management,
+Version 0.2.17 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells
 the model to send a complete command when it is known and to use incremental
 terminal feedback only when the current CLI state is genuinely uncertain.
+
+Use `session: "local-cmd"` for the plugin's shared visible local terminal,
+not the Harness built-in bash/pwsh tool. For SSH, reuse an explicit session
+from the environment list. Sending by environment reuses a unique connection;
+multiple connections require an explicit session id.
+
+`remote_terminal_send` waits for fresh output and returns `output`,
+`submittedText`, `submit`, `streamId`, `startOffset`, `nextOffset`, `endOffset`,
+`hasMore`, `reset`, and `truncated`. The default output page is 16,384 UTF-16
+code units, with surrogate pairs kept intact. Old viewport history is omitted
+unless `includeViewport: true` is requested. To continue without typing:
+
+```json
+{"session":"local-cmd","cursor":546,"streamId":"<streamId from send/read>","waitMs":20000}
+```
+
+Pass that object to `remote_terminal_read`, replacing the cursor with the
+previous `nextOffset`. Drain `hasMore` before waiting. Omit the cursor for
+recent history; explicit `offset`/`count` selects backward line history.
+`reset`/`truncated` signals replaced or expired history. Tool output is the
+raw terminal stream, including control sequences; the UI renders that stream
+through its VT model. A running shell, silence (`inferred_idle`), and timeout
+do not prove command completion or success: `completion` remains `unknown`.
+Observe actual results before dependent commands. Cancellation interrupts the
+foreground process; a wait timeout alone does not kill it.
+
+The terminal status bar reports transport and Agent binding, not an Agent
+read receipt. Enlarged icon controls have tooltips. The quick-command dock
+starts collapsed; reading history is preserved across SFTP switches, and new
+output offers a jump to the latest line without taking over the scroll position.
 
 The client dependency on `sidebarRight` and `sidebarRightTabs` is optional at
 activation time. On older or non-Web DSH profiles the plugin no longer blocks

@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { Buffer } from "node:buffer";
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Client as SshClient } from "ssh2";
@@ -16,6 +17,7 @@ const LOCAL_SESSION_NAME = "本地 CMD";
 const MAX_SCROLLBACK_BYTES = 4 * 1024 * 1024;
 const RETAINED_SCROLLBACK_BYTES = 3 * 1024 * 1024;
 const UI_SCROLLBACK_CHARS = 256 * 1024;
+const AGENT_OUTPUT_CHARS = 16 * 1024;
 const MAX_SFTP_BYTES = 2 * 1024 * 1024;
 export const MAX_SESSIONS_PER_ENVIRONMENT = 3;
 const SESSION_NAME_PREFIX = "dsh-remote-ops-";
@@ -48,6 +50,7 @@ export class TerminalOutputBuffer {
     this.byteLength = 0;
     this.startOffset = 0;
     this.revision = 0;
+    this.streamId = randomUUID();
     this.waiters = new Set();
   }
 
@@ -79,13 +82,21 @@ export class TerminalOutputBuffer {
 
   readFrom(offset, maxChars = UI_SCROLLBACK_CHARS) {
     const endOffset = this.endOffset;
-    const minimumOffset = Math.max(this.startOffset, endOffset - maxChars);
-    const validOffset = Number.isSafeInteger(offset) && offset >= minimumOffset && offset <= endOffset;
-    const startOffset = validOffset ? offset : minimumOffset;
+    const limit = Math.max(2, Math.min(UI_SCROLLBACK_CHARS, Math.floor(maxChars) || UI_SCROLLBACK_CHARS));
+    const validOffset = Number.isSafeInteger(offset) && offset >= this.startOffset && offset <= endOffset;
+    let startOffset = validOffset ? offset : Math.max(this.startOffset, endOffset - limit);
+    const isLowSurrogate = (at) => { const code = this.value.charCodeAt(at - this.startOffset); return code >= 0xdc00 && code <= 0xdfff; };
+    if (isLowSurrogate(startOffset)) startOffset += 1;
+    let nextOffset = Math.min(endOffset, startOffset + limit);
+    if (nextOffset < endOffset && isLowSurrogate(nextOffset)) nextOffset -= 1;
     return {
-      text: this.value.slice(startOffset - this.startOffset),
+      text: this.value.slice(startOffset - this.startOffset, nextOffset - this.startOffset),
       startOffset,
-      nextOffset: endOffset,
+      nextOffset,
+      endOffset,
+      streamId: this.streamId,
+      hasMore: nextOffset < endOffset,
+      truncated: !validOffset && (offset !== undefined || startOffset > 0),
       reset: !validOffset,
       revision: this.revision,
     };
@@ -262,11 +273,15 @@ class SendOperation {
     this.request = request;
     this.startedAt = Date.now();
     this.startOffset = session.outputBuffer.endOffset;
+    this.readOffset = this.startOffset;
     this.cancelled = false;
-    this.output = { consume: () => session.outputBuffer.readFrom(this.startOffset, Number.MAX_SAFE_INTEGER).text };
+    this.output = { consume: () => this.readOutput().delta };
     this.promise = new Promise((resolve, reject) => { this.resolve = resolve; this.reject = reject; });
     this.session.active = this;
+    this.session.outputBuffer.notify();
     this.timer = setTimeout(() => this.finish("timeout"), Math.min(request.timeoutMs ?? 30_000, 300_000));
+    this.onAbort = () => this.cancel();
+    request.signal?.addEventListener("abort", this.onAbort, { once: true });
     this.write();
   }
 
@@ -283,10 +298,10 @@ class SendOperation {
   }
 
   poll() {
-    if (this.cancelled || this.session.closed) return;
+    if (this.settled || this.cancelled || this.session.closed) return;
     const quietMs = this.request.quietMs ?? 700;
     if (Date.now() - this.session.lastActivity >= quietMs) return this.finish("inferred_idle");
-    this.pollTimer = setTimeout(() => this.poll(), 100);
+    this.pollTimer = setTimeout(() => this.poll(), Math.max(1, Math.min(100, quietMs - (Date.now() - this.session.lastActivity))));
   }
 
   finish(waitReason) {
@@ -294,11 +309,16 @@ class SendOperation {
     this.settled = true;
     clearTimeout(this.timer);
     clearTimeout(this.pollTimer);
+    this.request.signal?.removeEventListener("abort", this.onAbort);
     if (this.session.active === this) this.session.active = undefined;
+    this.session.lastWaitReason = waitReason;
+    this.session.outputBuffer.notify();
+    const unread = this.readOutput();
     this.resolve({
       waitReason,
-      output: this.session.outputBuffer.readFrom(this.startOffset, Number.MAX_SAFE_INTEGER).text,
-      viewport: this.session.outputBuffer.tail(64 * 1024),
+      completion: "unknown",
+      viewport: unread.delta,
+      truncated: unread.truncated,
       sessionStatus: this.session.status(),
       startedAt: this.startedAt,
       finishedAt: Date.now(),
@@ -310,21 +330,27 @@ class SendOperation {
     this.settled = true;
     clearTimeout(this.timer);
     clearTimeout(this.pollTimer);
+    this.request.signal?.removeEventListener("abort", this.onAbort);
     if (this.session.active === this) this.session.active = undefined;
+    this.session.outputBuffer.notify();
     this.reject(error);
   }
 
   cancel() {
     if (this.settled) return false;
     this.cancelled = true;
-    try { void this.session.write("\u0003"); } catch { /* session may already be closed */ }
+    try { void Promise.resolve(this.session.write("\u0003")).catch(() => {}); } catch { /* session may already be closed */ }
     this.finish("cancelled");
     return true;
   }
 
   get donePromise() { return this.promise; }
   get done() { return this.promise; }
-  readOutput() { return { delta: this.session.outputBuffer.readFrom(this.startOffset, Number.MAX_SAFE_INTEGER).text, truncated: false }; }
+  readOutput() {
+    const result = this.session.outputBuffer.readFrom(this.readOffset);
+    this.readOffset = result.nextOffset;
+    return { delta: result.text, truncated: result.truncated };
+  }
 }
 
 class SshTerminalSession {
@@ -403,6 +429,8 @@ class SshTerminalSession {
   async close(reason = "closed by agent") {
     if (this.closed) return;
     this.closed = true;
+    this.outputBuffer.notify();
+    this.active?.finish("session_exit");
     try { this.channel.end(); } catch { /* noop */ }
     try { this.client.end(); } catch { /* noop */ }
   }
@@ -448,7 +476,14 @@ class LocalCmdTerminalSession {
     if (this.closed) return;
     this.closed = true;
     this.outputBuffer.notify();
+    this.active?.finish("session_exit");
     this.onClose?.();
+  }
+
+  startSend(request) {
+    if (this.closed) throw sessionError("LOCAL_SESSION_EXITED", "Local CMD session has exited");
+    if (this.active) throw sessionError("SEND_ACTIVE", "Local CMD already has an active send");
+    return new SendOperation(this, request);
   }
 
   async write(text) {
@@ -688,7 +723,7 @@ export class RemoteOpsState {
     return { groups: this.groupList(), environments, quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, events: this.events.get(id) ?? [], localError: this.localError || undefined, pluginName: PLUGIN_NAME, pluginVersion: PLUGIN_VERSION, update: this.release };
   }
 
-  async terminalOutput(owner, target, offset, waitMs = 0, signal) {
+  async terminalOutput(owner, target, offset, waitMs = 0, signal, streamId, maxChars = UI_SCROLLBACK_CHARS) {
     let session;
     let environmentId;
     let name;
@@ -706,16 +741,32 @@ export class RemoteOpsState {
     }
     if (session instanceof AdoptedTerminalSession) {
       await session.refresh();
-      if (waitMs > 0 && session.outputBuffer.readFrom(offset).text === "") await session.waitForChange(waitMs, signal);
-    } else if (waitMs > 0) await session.outputBuffer.waitForChange(offset, waitMs, signal);
+      if ((!streamId || streamId === session.outputBuffer.streamId) && waitMs > 0 && session.outputBuffer.readFrom(offset).text === "") await session.waitForChange(waitMs, signal);
+    } else if ((!streamId || streamId === session.outputBuffer.streamId) && waitMs > 0 && session.status().kind !== "exited") await session.outputBuffer.waitForChange(offset, waitMs, signal);
+    const replaced = Boolean(streamId && streamId !== session.outputBuffer.streamId);
     return {
       sessionId: target,
       environmentId,
       name,
       kind,
       status: session.status(),
-      ...session.outputBuffer.readFrom(offset),
+      activity: session.active ? "waiting" : session.lastWaitReason ?? "unobserved",
+      completion: "unknown",
+      format: "terminal-stream",
+      ...session.outputBuffer.readFrom(replaced ? undefined : offset, maxChars),
+      ...(replaced ? { reset: true, truncated: true } : {}),
     };
+  }
+
+  async readTerminal(owner, target, args = {}) {
+    await this.ready;
+    if (args.cursor !== undefined && (!Number.isSafeInteger(args.cursor) || args.cursor < 0)) throw sessionError("REMOTE_OFFSET_INVALID", "cursor must be a non-negative integer");
+    if (args.offset !== undefined || args.count !== undefined) {
+      const session = target === LOCAL_SESSION_ID ? await this.ensureLocalSession() : this.getSession(owner, target).session;
+      const result = target === LOCAL_SESSION_ID ? session.read(args) : await this.ctx.terminals.read(owner, this.getSession(owner, target).sessionId, args);
+      return { sessionId: target, ...result, status: session.status(), format: "terminal-stream", completion: "unknown" };
+    }
+    return this.terminalOutput(owner, target, args.cursor, Math.max(0, Math.min(25_000, Number(args.waitMs) || 0)), args.signal, args.streamId, Math.max(2, Math.min(UI_SCROLLBACK_CHARS, Number(args.maxChars) || AGENT_OUTPUT_CHARS)));
   }
 
   async ensureLocalSession() {
@@ -905,21 +956,36 @@ export class RemoteOpsState {
   }
 
   async send(owner, target, args) {
-    if (target === LOCAL_SESSION_ID) {
-      const session = await this.ensureLocalSession();
-      const submittedText = String(args.text ?? args.command ?? "");
-      const submit = args.submit ?? args.newline ?? true;
-      const text = `${submittedText}${submit ? "\r" : ""}`;
-      const result = await session.writeInput(text);
-      return { sessionId: LOCAL_SESSION_ID, environment: session.environment.name, submittedText, submit, status: session.status(), viewport: session.outputBuffer.tail(64 * 1024), ...result };
+    await this.ready;
+    if (!target && !args.environment) throw sessionError("REMOTE_SESSION_REQUIRED", "Pass session (SSH session id or local-cmd), or environment when opening on demand");
+    if (!target && args.environment) {
+      this.reconcileHostSessions(owner);
+      const environment = this.findEnvironment(args.environment);
+      if (environment && this.activeRemoteSessions(ownerId(owner), environment.id).length) target = this.getSession(owner, environment.id).sessionId;
     }
-    const record = target ? this.getSession(owner, target) : await this.open(owner, args.environment);
+    const record = target === LOCAL_SESSION_ID
+      ? { sessionId: LOCAL_SESSION_ID, session: await this.ensureLocalSession() }
+      : target ? this.getSession(owner, target) : await this.open(owner, args.environment);
+    const session = record.session;
+    if (session instanceof AdoptedTerminalSession) await session.refresh();
+    const startOffset = session.outputBuffer.endOffset;
+    const streamId = session.outputBuffer.streamId;
     const submittedText = String(args.text ?? args.command ?? "");
     const submit = args.submit ?? args.newline ?? true;
-    const operation = this.ctx.terminals.startSend(owner, record.sessionId, { text: submittedText, submit, quietMs: args.quietMs, timeoutMs: (args.timeoutSeconds ?? 30) * 1000, signal: args.signal });
+    const request = { text: submittedText, submit, quietMs: Math.max(0, Math.min(10_000, Number(args.quietMs ?? 700) || 0)), timeoutMs: Math.max(1, Math.min(300_000, (Number(args.timeoutSeconds ?? 30) || 30) * 1000)), signal: args.signal };
+    const operation = target === LOCAL_SESSION_ID ? session.startSend(request) : this.ctx.terminals.startSend(owner, record.sessionId, request);
     const result = await operation.done;
-    this.event(owner, "ssh.send", { sessionId: record.sessionId, environment: record.environment.name, inputChars: submittedText.length, waitReason: result.waitReason });
-    return { sessionId: record.sessionId, environment: record.environment.name, submittedText, submit, ...result };
+    if (session instanceof AdoptedTerminalSession) await session.refresh();
+    const replaced = streamId !== session.outputBuffer.streamId;
+    const delta = {
+      sessionId: record.sessionId, name: record.environment?.name ?? session.environment.name,
+      kind: target === LOCAL_SESSION_ID ? "local" : "ssh", status: session.status(), completion: "unknown", format: "terminal-stream",
+      ...session.outputBuffer.readFrom(replaced ? undefined : startOffset, Math.max(2, Math.min(UI_SCROLLBACK_CHARS, Number(args.maxChars) || AGENT_OUTPUT_CHARS))),
+      ...(replaced ? { reset: true, truncated: true } : {}),
+    };
+    if (owner) this.event(owner, target === LOCAL_SESSION_ID ? "local.send" : "ssh.send", { sessionId: record.sessionId, environment: delta.name, inputChars: submittedText.length, waitReason: result.waitReason });
+    const { text, ...metadata } = delta;
+    return { ...metadata, environment: delta.name, submittedText, submit, output: text, waitReason: result.waitReason, sessionStatus: result.sessionStatus, ...(args.includeViewport ? { viewport: session.outputBuffer.tail(AGENT_OUTPUT_CHARS) } : {}) };
   }
 
   async input(owner, target, text) {
@@ -929,7 +995,7 @@ export class RemoteOpsState {
       return { sessionId: LOCAL_SESSION_ID, environment: session.environment.name, ...result };
     }
     const record = this.getSession(owner, target);
-    const result = record.session.writeInput(text);
+    const result = await record.session.writeInput(text);
     this.event(owner, "ssh.input", { sessionId: record.sessionId, environment: record.environment.name, inputBytes: result.bytes });
     return { sessionId: record.sessionId, environment: record.environment.name, ...result };
   }
@@ -1029,7 +1095,7 @@ export function apply(ctx) {
   ctx.systemPrompt.section({
     name: "dsh-remote-ops",
     order: 410,
-    text: "Remote operations are provided by dsh-remote-ops. Use remote_environment_list when the target is ambiguous. Use remote_terminal_open/send/read for SSH work and preserve command spaces exactly. Prefer one complete command or a short batch when the command is known; use incremental reads only when live terminal state is needed. remote_terminal_send returns submittedText and submit so you can verify the exact bytes requested; do not resend a command merely because the terminal echoes it in the viewport. Use remote_terminal_input for raw interactive keys such as Tab, arrows, passwords, and Ctrl+C without waiting for a result. For multiple SSH targets, name each target explicitly, execute sequentially, observe the result, and only then continue. Product CLI knowledge may come from MCP, but MCP results are knowledge/validation, not a substitute for executing through the remote terminal. Never invent credentials or claim a connection succeeded without an observed result.",
+    text: "Remote operations are provided by dsh-remote-ops. Use remote_environment_list to identify the exact terminal; reuse its sessionId. session=local-cmd is the shared local terminal visible in Remote Ops, NOT the Harness bash/pwsh terminal. For SSH open only when no suitable session exists. Send one complete command preserving spaces; raw input is for interactive keys/passwords. Send returns bounded new output, streamId and nextOffset. Continue with remote_terminal_read(session, cursor=nextOffset, streamId, waitMs=20000); drain hasMore before waiting. No new text, inferred_idle, timeout, and a running shell never prove a command completed or succeeded: completion=unknown. Observe actual results before dependent commands; never resend solely because of echo or silence. reset/truncated means history was replaced or dropped; do not assume missing output. Output is a raw terminal stream, not a rendered screen. For multiple SSH targets name them explicitly and operate sequentially. MCP provides knowledge, not execution evidence. Never invent credentials or connection success.",
   });
 
   const owner = (exec) => exec.agent;
@@ -1040,10 +1106,10 @@ export function apply(ctx) {
   registerTool(ctx, { name: "remote_environment_group_delete", description: "Delete an empty saved SSH environment group.", parameters: { group: stringParam("Environment group", true) }, execute: async (args) => state.deleteGroup(args.group) });
   registerTool(ctx, { name: "remote_environment_delete", description: "Delete a saved SSH environment and close its owner sessions.", parameters: { environment: stringParam("Environment id or name", true) }, execute: async (args, exec) => state.deleteEnvironment(owner(exec), args.environment) });
   registerTool(ctx, { name: "remote_terminal_open", description: `Open a new SSH terminal for an environment. Each environment allows at most ${MAX_SESSIONS_PER_ENVIRONMENT} owner-scoped connections; use the returned sessionId for subsequent operations.`, parameters: { environment: stringParam("Environment id or name", true) }, execute: async (_args, exec) => { const record = await state.open(owner(exec), _args.environment); return { sessionId: record.sessionId, environment: record.environment.name, status: record.session.status(), viewport: record.session.output.slice(-64 * 1024) }; } });
-  registerTool(ctx, { name: "remote_terminal_send", description: "Send one complete command to an owner-scoped SSH terminal and wait for output. When an environment has multiple connections, pass the explicit session id. The result echoes submittedText and submit; preserve every separator in text and do not resend only because the terminal echoes the command.", parameters: { session: stringParam("Explicit session id when multiple connections exist"), environment: stringParam("Environment id or name when opening on demand"), text: stringParam("Input text; preserve every separator", true), submit: boolParam("Append Enter; defaults true"), quietMs: numberParam("Quiet completion window in milliseconds"), timeoutSeconds: numberParam("Timeout in seconds") }, execute: async (args, exec) => state.send(owner(exec), args.session, args) });
+  registerTool(ctx, { name: "remote_terminal_send", description: "Send exact text to a visible SSH session or local-cmd and wait for new output. Returns bounded delta and a resumable cursor, not old history. Silence/timeout is NOT proof of completion. Continue reading, never resend to poll.", parameters: { session: stringParam("Existing SSH session id or local-cmd"), environment: stringParam("Environment id or name only when opening a new connection"), text: stringParam("Input text; preserve every separator", true), submit: boolParam("Append Enter; defaults true"), quietMs: numberParam("Silence before yielding, not command completion; default 700 ms"), timeoutSeconds: numberParam("Wait limit in seconds; does not kill the command"), maxChars: numberParam("Output page size; default 16384, maximum 262144"), includeViewport: boolParam("Include recent history in addition to delta; default false") }, execute: async (args, exec) => state.send(owner(exec), args.session, { ...args, signal: exec.signal }) });
   registerTool(ctx, { name: "remote_terminal_input", description: "Write raw terminal input immediately without waiting. Use for Tab completion, arrow keys, password prompts, interactive programs, or control characters.", parameters: { session: stringParam("Session id or environment id", true), text: stringParam("Raw UTF-8 terminal input", true) }, execute: async (args, exec) => state.input(owner(exec), args.session, args.text) });
-  registerTool(ctx, { name: "remote_terminal_read", description: "Read bounded retained output from an SSH terminal.", parameters: { session: stringParam("Session id or environment id", true), offset: numberParam("Newest-relative line offset"), count: numberParam("Line count") }, execute: async (args, exec) => { const record = state.getSession(owner(exec), args.session); return { sessionId: record.sessionId, environment: record.environment.name, ...ctx.terminals.read(owner(exec), record.sessionId, args) }; } });
-  registerTool(ctx, { name: "remote_terminal_signal", description: "Send an interrupt or allowed signal to the SSH foreground process.", parameters: { session: stringParam("Session id or environment id", true), signal: stringParam("Signal such as SIGINT or SIGTERM", true) }, execute: async (args, exec) => { const record = state.getSession(owner(exec), args.session); return { sessionId: record.sessionId, ...ctx.terminals.signal(owner(exec), record.sessionId, args.signal) }; } });
+  registerTool(ctx, { name: "remote_terminal_read", description: "Read the same terminal stream shown in Remote Ops, including local-cmd. Omit cursor for recent history; then pass nextOffset as cursor and streamId to read only new output. waitMs long-polls without typing. hasMore requires another read; reset/truncated signals missing history. No output does not mean command completion. offset/count explicitly selects backward line history instead.", parameters: { session: stringParam("SSH session id or local-cmd", true), cursor: numberParam("Absolute nextOffset from the previous send/read"), streamId: stringParam("Output stream identity from the previous send/read"), waitMs: numberParam("Wait for new output, 0-25000 milliseconds"), maxChars: numberParam("Output page size; default 16384"), offset: numberParam("Newest-relative line offset for explicit history browsing"), count: numberParam("History line count") }, execute: async (args, exec) => state.readTerminal(owner(exec), args.session, { ...args, signal: exec.signal }) });
+  registerTool(ctx, { name: "remote_terminal_signal", description: "Interrupt the foreground process in a visible SSH terminal or local-cmd.", parameters: { session: stringParam("SSH session id or local-cmd", true), signal: stringParam("Signal such as SIGINT or SIGTERM", true) }, execute: async (args, exec) => state.signal(owner(exec), args.session, args.signal) });
   registerTool(ctx, { name: "remote_terminal_close", description: "Close an owner-scoped SSH terminal.", parameters: { session: stringParam("Session id", true) }, execute: async (args, exec) => { const record = state.getSession(owner(exec), args.session); await ctx.terminals.kill(owner(exec), record.sessionId, "agent request"); state.sessions.delete(record.sessionId); return { closed: true, sessionId: record.sessionId }; } });
   registerTool(ctx, { name: "remote_terminal_batch", description: "Open at most one owner-scoped SSH connection per target and execute complete commands sequentially on that explicit session.", parameters: { targets: { type: "array", required: true, items: { type: "string" }, description: "Environment ids or names" }, commands: { type: "array", required: true, items: { type: "string" }, description: "Complete commands in order" }, timeoutSeconds: numberParam("Per-command timeout") }, execute: async (args, exec) => { const results = []; for (const target of args.targets) { const opened = await state.open(owner(exec), target); const targetResults = []; for (const command of args.commands) targetResults.push(await state.send(owner(exec), opened.sessionId, { text: command, submit: true, timeoutSeconds: args.timeoutSeconds })); results.push({ target, sessionId: opened.sessionId, results: targetResults }); } return { results }; } });
   registerTool(ctx, { name: "remote_quick_command_list", description: "List saved quick commands and groups.", parameters: {}, execute: async () => { await state.ready; return { groups: state.quickGroupList(), commands: state.quickCommands }; } });
@@ -1063,7 +1129,7 @@ export function apply(ctx) {
   registerTool(ctx, { name: "remote_diagnostics", description: "Read recent remote operation diagnostics for this Agent.", parameters: {}, execute: async (_args, exec) => ({ events: state.events.get(ownerId(owner(exec))) ?? [] }) });
 
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/state", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const sessionId = new URL(request.url).searchParams.get("sessionId"); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; await state.ready; return Response.json(agent ? { ...state.snapshot(agent), bound: true } : state.catalog(), { headers: { "Cache-Control": "no-store" } }); } }), "dsh-remote-ops state route");
-  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/terminal", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const url = new URL(request.url); const target = url.searchParams.get("session"); const sessionId = url.searchParams.get("sessionId"); const rawOffset = url.searchParams.get("offset"); const waitMs = Math.max(0, Math.min(25_000, Number(url.searchParams.get("waitMs") ?? 0) || 0)); if (!target) return Response.json({ error: "REMOTE_SESSION_REQUIRED" }, { status: 400 }); const offset = rawOffset === null ? undefined : Number(rawOffset); if (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0)) return Response.json({ error: "REMOTE_OFFSET_INVALID" }, { status: 400 }); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; if (target !== LOCAL_SESSION_ID && !agent) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { await state.ready; return Response.json(await state.terminalOutput(agent, target, offset, waitMs, request.signal), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); } } }), "dsh-remote-ops terminal route");
+  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/terminal", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const url = new URL(request.url); const target = url.searchParams.get("session"); const sessionId = url.searchParams.get("sessionId"); const rawOffset = url.searchParams.get("offset"); const waitMs = Math.max(0, Math.min(25_000, Number(url.searchParams.get("waitMs") ?? 0) || 0)); if (!target) return Response.json({ error: "REMOTE_SESSION_REQUIRED" }, { status: 400 }); const offset = rawOffset === null ? undefined : Number(rawOffset); if (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0)) return Response.json({ error: "REMOTE_OFFSET_INVALID" }, { status: 400 }); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; if (target !== LOCAL_SESSION_ID && !agent) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { await state.ready; return Response.json(await state.terminalOutput(agent, target, offset, waitMs, request.signal, url.searchParams.get("streamId")), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); } } }), "dsh-remote-ops terminal route");
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/update", methods: ["GET", "POST"], requestBody: "buffered", fetch: async (request) => { try { await state.ready; if (request.method === "POST") return Response.json(await state.upgrade(), { headers: { "Cache-Control": "no-store" } }); return Response.json(await state.checkForUpdate(), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); } } }), "dsh-remote-ops update route");
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const localTerminalAction = body.session === LOCAL_SESSION_ID && ["send", "input", "signal"].includes(body.action); const localSftpAction = body.action === "sftp" && body.operation === "local-list"; const agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action) && !localTerminalAction && !localSftpAction) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = state.normalizeEnvironment({ ...body.environment, group: normalizeGroupName(body.environment?.group) }); const password = typeof body.password === "string" ? body.password : ""; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); if (password) { const previous = state.findEnvironment(environment.id); const reference = String(environment.passwordRef ?? "").trim() || previous?.passwordRef || defaultPasswordRef(environment.id); environment.passwordRef = await state.storePassword(reference, password); } value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") { const opened = await state.open(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024) }; } else if (body.action === "open-command") { const opened = await state.openDirect(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024), direct: true }; } else if (body.action === "send") value = await state.send(agent, body.session, body); else if (body.action === "input") value = await state.input(agent, body.session, body.text); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = body.operation === "local-list" ? await state.listLocalFiles(body.path) : await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400 }); } } }), "dsh-remote-ops action route");
 

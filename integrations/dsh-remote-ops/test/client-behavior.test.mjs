@@ -5,13 +5,13 @@ import vm from "node:vm";
 
 const source = await readFile(new URL("../lib/client.js", import.meta.url), "utf8");
 
-function loadClientFunction(name, endMarker, includeFrom = name) {
+function loadClientFunction(name, endMarker, includeFrom = name, globals = {}) {
   const start = source.indexOf(`const ${includeFrom} =`);
   assert.ok(start >= 0, `client function ${name} must exist`);
   const end = source.indexOf(endMarker, start);
   assert.ok(end > start, `client function ${name} must have a stable boundary`);
   const segment = source.slice(start, end).replace(`const ${name}`, `globalThis.${name}`);
-  const context = {};
+  const context = { ...globals };
   vm.runInNewContext(segment, context, { filename: "client.js" });
   return context[name];
 }
@@ -62,4 +62,75 @@ test("IME composition does not submit intermediate roman characters", () => {
   assert.equal(terminalInputCompositionValue("n", true), undefined);
   assert.equal(terminalInputCompositionValue("ni", true), undefined);
   assert.equal(terminalInputCompositionValue("你", false), "你");
+});
+
+test("terminal frames reset on stream replacement and reject discontinuous deltas", () => {
+  const mergeTerminalFrame = loadClientFunction("mergeTerminalFrame", "\n    const queueTerminalInput");
+  const first = mergeTerminalFrame(undefined, { streamId: "first", text: "abc", startOffset: 0, nextOffset: 3, reset: true });
+  const next = mergeTerminalFrame(first, { streamId: "first", text: "def", startOffset: 3, nextOffset: 6, reset: false });
+  assert.equal(next.raw, "abcdef");
+  const replacement = mergeTerminalFrame(next, { streamId: "second", text: "new", startOffset: 0, nextOffset: 3, reset: true });
+  assert.equal(replacement.raw, "new");
+  assert.throws(() => mergeTerminalFrame(next, { streamId: "first", text: "lost", startOffset: 8, nextOffset: 12, reset: false }), /TERMINAL_CURSOR_MISMATCH/);
+});
+
+test("queued input remains pinned to the terminal and owner selected when typing", () => {
+  const queueTerminalInput = loadClientFunction("queueTerminalInput", "\n    function RemoteOpsPanel");
+  const queue = [];
+  queueTerminalInput(queue, { session: "a", sessionId: "owner-1", text: "echo " });
+  queueTerminalInput(queue, { session: "a", sessionId: "owner-1", text: "one\r" });
+  queueTerminalInput(queue, { session: "b", sessionId: "owner-1", text: "two\r" });
+  queueTerminalInput(queue, { session: "a", sessionId: "owner-2", text: "three\r" });
+  assert.deepEqual(JSON.parse(JSON.stringify(queue)), [
+    { session: "a", sessionId: "owner-1", text: "echo one\r" },
+    { session: "b", sessionId: "owner-1", text: "two\r" },
+    { session: "a", sessionId: "owner-2", text: "three\r" },
+  ]);
+});
+
+test("returning from SFTP restores history position or follows latest output according to user intent", () => {
+  const saved = { current: undefined };
+  let cleanup;
+  let previousDeps;
+  let pendingEffect;
+  let onResize;
+  const viewport = loadClientFunction("useTerminalViewport", "\n    function RemoteOpsPanel", "useTerminalViewport", {
+    useRef: (initial) => { if (!saved.current) saved.current = initial; return saved; },
+    useEffect: (effect, deps) => {
+      if (!previousDeps || deps.some((value, index) => value !== previousDeps[index])) {
+        cleanup?.(); pendingEffect = effect; previousDeps = deps;
+      }
+    },
+    window: { requestAnimationFrame: (callback) => { callback(); return 1; }, cancelAnimationFrame() {} },
+    ResizeObserver: class { constructor(callback) { onResize = callback; } observe() {} disconnect() {} },
+  });
+  const output = { current: { scrollTop: 0, scrollHeight: 5000 } };
+  const follow = { current: true };
+  let rememberScroll;
+  const render = (module, height = 190) => {
+    rememberScroll = viewport(output, follow, "owner:cmd", "same output", module, true, height);
+    if (pendingEffect) { cleanup = pendingEffect(); pendingEffect = undefined; }
+  };
+  render("terminal");
+  assert.equal(output.current.scrollTop, 5000);
+  follow.current = false;
+  output.current.scrollTop = 1234;
+  rememberScroll(output.current);
+  // A detached DOM node reports zero before passive effect cleanup runs.
+  output.current.scrollTop = 0;
+  render("sftp");
+  output.current = { scrollTop: 0, scrollHeight: 5000 };
+  render("terminal");
+  assert.equal(output.current.scrollTop, 1234);
+  follow.current = true;
+  render("sftp");
+  output.current = { scrollTop: 0, scrollHeight: 5100 };
+  render("terminal");
+  assert.equal(output.current.scrollTop, 5100);
+  output.current.scrollTop = 2000;
+  render("terminal", 280);
+  assert.equal(output.current.scrollTop, 5100);
+  output.current.scrollHeight = 6000;
+  onResize?.();
+  assert.equal(output.current.scrollTop, 6000);
 });

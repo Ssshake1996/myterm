@@ -194,6 +194,186 @@ function fakeContext() {
   };
 }
 
+async function terminalFixture(t) {
+  const root = await mkdtemp(join(tmpdir(), "dsh-terminal-sync-"));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = root;
+  const ctx = fakeContext();
+  const state = new RemoteOpsState(ctx);
+  await state.ready;
+  t.after(async () => {
+    state.disposed = true;
+    await state.localSession?.close();
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+  });
+  return { ctx, state, terminal: ctx.terminals[0] };
+}
+
+test("local send waits for fresh output and returns a resumable bounded delta, not old history", async (t) => {
+  const { state, terminal } = await terminalFixture(t);
+  terminal.output.emit("data", Buffer.from("old history\r\n"));
+  terminal.write = async (text) => {
+    terminal.writes.push(text);
+    setTimeout(() => terminal.output.emit("data", Buffer.from("fresh result\r\n")), 10);
+  };
+  const result = await state.send({ id: "agent" }, "local-cmd", { text: "echo  fresh", quietMs: 40, timeoutSeconds: 1 });
+  assert.deepEqual(terminal.writes, ["echo  fresh\r"]);
+  assert.equal(result.output, "fresh result\r\n");
+  assert.equal(result.waitReason, "inferred_idle");
+  assert.equal(result.completion, "unknown");
+  assert.equal(Object.hasOwn(result, "viewport"), false);
+  assert.equal(typeof result.streamId, "string");
+  assert.equal(result.nextOffset, state.localSession.outputBuffer.endOffset);
+  terminal.output.emit("data", Buffer.from("late output"));
+  const continuation = await state.readTerminal({ id: "agent" }, "local-cmd", { cursor: result.nextOffset, streamId: result.streamId });
+  assert.equal(continuation.text, "late output");
+  const ui = await state.terminalOutput(undefined, "local-cmd", result.nextOffset, 0, undefined, result.streamId);
+  assert.equal(ui.text, continuation.text);
+  assert.equal(ui.nextOffset, continuation.nextOffset);
+});
+
+test("cursor pages drain retained output without skipping or splitting unicode", () => {
+  const buffer = new TerminalOutputBuffer();
+  buffer.append("a😀中".repeat(30));
+  let cursor = 0;
+  let result = "";
+  do {
+    const page = buffer.readFrom(cursor, 7);
+    assert.equal(page.reset, false);
+    assert.equal(page.truncated, false);
+    assert.equal(page.text.isWellFormed(), true);
+    assert.ok(page.nextOffset > cursor);
+    result += page.text;
+    cursor = page.nextOffset;
+    assert.equal(page.hasMore, cursor < buffer.endOffset);
+  } while (cursor < buffer.endOffset);
+  assert.equal(result, buffer.value);
+});
+
+test("read cursor resets across terminal replacement even when the output length is unchanged", async (t) => {
+  const { state } = await terminalFixture(t);
+  state.localSession.outputBuffer.append("old");
+  const first = await state.terminalOutput(undefined, "local-cmd");
+  state.localSession.outputBuffer = new TerminalOutputBuffer();
+  state.localSession.outputBuffer.append("new");
+  const second = await state.terminalOutput(undefined, "local-cmd", first.nextOffset, 0, undefined, first.streamId);
+  assert.equal(second.reset, true);
+  assert.equal(second.text, "new");
+  assert.notEqual(second.streamId, first.streamId);
+});
+
+test("terminal read long-polls without submitting more input and enforces owner isolation", async (t) => {
+  const { state, terminal } = await terminalFixture(t);
+  const first = await state.readTerminal({ id: "agent" }, "local-cmd");
+  const waiting = state.readTerminal({ id: "agent" }, "local-cmd", { cursor: first.nextOffset, streamId: first.streamId, waitMs: 500 });
+  setTimeout(() => terminal.output.emit("data", Buffer.from("ready")), 10);
+  assert.equal((await waiting).text, "ready");
+  assert.deepEqual(terminal.writes, []);
+  state.sessions.set("ssh-private", { sessionId: "ssh-private", ownerId: "other", session: fakeRemoteSession(), environment: { name: "private" } });
+  await assert.rejects(state.readTerminal({ id: "agent" }, "ssh-private"), { code: "FOREIGN_SESSION" });
+  await assert.rejects(state.readTerminal({ id: "agent" }, "local-cmd", { cursor: -1 }), { code: "REMOTE_OFFSET_INVALID" });
+});
+
+test("send output consumption is incremental and a silent terminal never reports command completion", async (t) => {
+  const { state, terminal } = await terminalFixture(t);
+  const session = state.localSession;
+  const operation = session.startSend({ text: "slow", submit: true, quietMs: 1000, timeoutMs: 80 });
+  assert.throws(() => session.startSend({ text: "duplicate", submit: true }), { code: "SEND_ACTIVE" });
+  terminal.output.emit("data", Buffer.from("one"));
+  assert.equal(operation.readOutput().delta, "one");
+  assert.equal(operation.readOutput().delta, "");
+  terminal.output.emit("data", Buffer.from("two"));
+  assert.equal(operation.readOutput().delta, "two");
+  const result = await operation.done;
+  assert.equal(result.waitReason, "timeout");
+  assert.equal(result.completion, "unknown");
+  assert.equal(result.viewport, "");
+  assert.equal(session.active, undefined);
+});
+
+test("active send releases waiters on abort and session exit", async (t) => {
+  const { state } = await terminalFixture(t);
+  const session = state.localSession;
+  const controller = new AbortController();
+  const operation = session.startSend({ text: "wait", submit: true, signal: controller.signal, timeoutMs: 5000 });
+  controller.abort();
+  assert.equal((await operation.done).waitReason, "cancelled");
+  assert.equal(session.active, undefined);
+  const next = session.startSend({ text: "wait", submit: true, timeoutMs: 5000 });
+  await session.close();
+  assert.equal((await next.done).waitReason, "session_exit");
+});
+
+test("send retains final output from the exited local process instead of reading its replacement", async (t) => {
+  const { state, terminal } = await terminalFixture(t);
+  terminal.write = async () => { terminal.output.emit("data", Buffer.from("goodbye")); await terminal.terminate(); };
+  const result = await state.send({ id: "agent" }, "local-cmd", { text: "exit", timeoutSeconds: 1 });
+  assert.equal(result.output, "goodbye");
+  assert.equal(result.status.kind, "exited");
+  assert.equal(result.waitReason, "session_exit");
+});
+
+test("sending by environment reuses a unique connection and refuses ambiguous connections", async (t) => {
+  const { state, ctx } = await terminalFixture(t);
+  const owner = { id: "agent" };
+  const environment = await state.saveEnvironment({ host: "localhost", username: "test", name: "target" });
+  const remote = fakeRemoteSession();
+  const record = { sessionId: "ssh-one", ownerId: owner.id, owner, environment, session: remote };
+  state.sessions.set(record.sessionId, record);
+  ctx.terminals.startSend = (_owner, id) => {
+    assert.equal(id, "ssh-one");
+    remote.outputBuffer.append("result");
+    return { done: Promise.resolve({ waitReason: "inferred_idle", sessionStatus: remote.status() }) };
+  };
+  const result = await state.send(owner, undefined, { environment: environment.name, text: "echo result" });
+  assert.equal(result.sessionId, "ssh-one");
+  assert.equal(result.output, "result");
+  state.sessions.set("ssh-two", { ...record, sessionId: "ssh-two" });
+  await assert.rejects(state.send(owner, undefined, { environment: environment.name, text: "ambiguous" }), { code: "REMOTE_SESSION_REQUIRED" });
+  await assert.rejects(state.send(owner, undefined, { text: "missing target" }), { code: "REMOTE_SESSION_REQUIRED" });
+});
+
+test("registered terminal tools can read the same local CMD as the UI", async (t) => {
+  const { apply } = await import("../lib/index.js");
+  const root = await mkdtemp(join(tmpdir(), "dsh-terminal-tools-"));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = root;
+  const ctx = fakeContext();
+  const registered = new Map();
+  const routes = new Map();
+  const effects = [];
+  ctx.tools = { register: (definition) => registered.set(definition.name, definition) };
+  ctx.systemPrompt = { section() {} };
+  ctx.agents = { get: () => ({ id: "tool-owner" }) };
+  ctx.connection = { fetch: { register: (route) => routes.set(route.path, route) } };
+  ctx.terminals.registerBackend = () => {};
+  ctx.effect = (effect) => { const cleanup = effect(); if (typeof cleanup === "function") effects.push(cleanup); };
+  apply(ctx);
+  t.after(async () => {
+    for (const cleanup of effects) await cleanup();
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+  });
+  const exec = { agent: { id: "tool-owner" } };
+  await registered.get("remote_environment_list").execute({}, exec);
+  ctx.terminals[0].output.emit("data", Buffer.from("shared CMD"));
+  const output = await registered.get("remote_terminal_read").execute({ session: "local-cmd" }, exec);
+  const route = routes.get("/api/dsh-remote-ops/terminal");
+  const response = await route.fetch(new Request("http://localhost/api/dsh-remote-ops/terminal?session=local-cmd"));
+  const frame = await response.json();
+  assert.equal(output.text, frame.text);
+  assert.equal(output.streamId, frame.streamId);
+  assert.deepEqual(JSON.parse(JSON.stringify(output)), output);
+  assert.equal((await registered.get("remote_terminal_signal").execute({ session: "local-cmd", signal: "SIGINT" }, exec)).delivered, true);
+  const controller = new AbortController();
+  const sending = registered.get("remote_terminal_send").execute({ session: "local-cmd", text: "slow", quietMs: 1000, timeoutSeconds: 2 }, { ...exec, signal: controller.signal });
+  setTimeout(() => controller.abort(), 10);
+  assert.equal((await sending).waitReason, "cancelled");
+});
+
 test("opening one environment concurrently reserves one PTY and returns one session", async () => {
   const root = await mkdtemp(join(tmpdir(), "dsh-remote-ops-open-test-"));
   const previousHome = process.env.DSH_HOME;

@@ -31,7 +31,7 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.16.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.17.tgz
 dsh web
 ```
 
@@ -49,4 +49,14 @@ SSH PTY 遵循 Harness 约定，只在进程内存中存在；环境定义会持
 
 DSH Web 启动后，点击 Sidebar 底部的 `Remote Ops` 即可主动展开右侧 Sidebar，同时保留当前对话。按钮不会再降级启动新的 DSH 对话；如果右侧 Sidebar 服务尚未就绪，会持续重试并显示具体诊断。SSH 和 SFTP 操作仍由 Harness 会话管理。
 
-环境抽屉默认收起，终端始终保留在主区域。双击环境或点击“连接”创建终端标签；关闭抽屉、切换快捷命令或打开 SFTP 不会卸载终端。快捷命令支持多行内容，点击“执行”时一次性发送完整文本。
+环境抽屉和快捷命令区默认收起。双击环境或点击“新连接”创建终端标签；切换 SFTP 不会关闭终端进程，返回后保留历史阅读位置或继续跟随末行。快捷命令支持多行内容，点击“执行”时一次性发送完整文本。
+
+## Agent 与终端同步
+
+- `remote_terminal_send/read/signal` 都支持 `session: "local-cmd"`，指向插件内共享的本地 CMD，不是 Harness 内置 bash/pwsh。SSH 应优先复用环境列表中的明确 sessionId；按环境发送时复用唯一连接，多连接时要求明确指定。
+- 发送等待新输出，默认只返回最多 16,384 个 UTF-16 码元的增量（不拆分代理对），不再重复附带旧 viewport；需要最近历史时显式传 `includeViewport: true`。
+- 续读使用 `remote_terminal_read`，传入 `session`、上次的 `nextOffset` 作为 `cursor`、`streamId` 和 `waitMs: 20000`。`hasMore` 为 true 时继续读完，不要通过重发命令获取输出。
+- 省略游标读取最近历史；显式 `offset/count` 按行向前翻阅。`reset/truncated` 表示流已替换或历史已过期，不能假定遗漏部分不存在。
+- 工具返回原始终端流，包括控制序列；界面在同一流之上进行 VT 渲染，不承诺返回的文本就是渲染后的屏幕。
+- `inferred_idle`、等待超时、PTY 的 running 状态都不能证明命令完成或成功，因此返回 `completion: "unknown"`；依赖前一条结果的命令必须先观察实际输出。取消会中断前台进程，等待超时本身不会杀进程。
+- 状态栏区分输出连接、Agent 绑定和等待状态；“Agent 已绑定”不代表模型已经读取当前输出。上移阅读时新输出不抢位置，可通过“新输出”按钮回到底部。
