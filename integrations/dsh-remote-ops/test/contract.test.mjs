@@ -52,6 +52,7 @@ test("terminal rendering and transport invariants remain present", () => {
 });
 
 test("terminal controls expose usable focus and clear panel toggles", () => {
+  assert.match(client, /terminalInputRef\.current\?\.focus\(\{ preventScroll: true \}\)/);
   assert.match(client, /terminalInputRef\.current\?\.focus\(\)/);
   assert.match(client, /setDrawer\(\(value\) => !value\)/);
   assert.match(client, /dsh-remote-ops__headAction/);

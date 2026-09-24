@@ -22,6 +22,31 @@ const parseSshCommand = loadClientFunction("parseSshCommand", "\n\n    const ter
 const terminalInputEnabled = loadClientFunction("terminalInputEnabled", "\n    function RemoteOpsPanel");
 const terminalInputCompositionValue = loadClientFunction("terminalInputCompositionValue", "\n    function RemoteOpsPanel");
 
+test("shared navigation suppresses the fallback and restores it after unload", () => {
+  let plugin;
+  const disposers = [];
+  const dependencies = new Map();
+  let launcher;
+  const h = (type, props) => typeof type === "function" ? type(props) : ({ type, props });
+  const context = {
+    window: { __ModuleLoader__: { load: (definition) => { plugin = definition.factory((name) => name === "react" ? { createElement: h, useSyncExternalStore: (_subscribe, snapshot) => snapshot() } : {}); } } },
+    document: { getElementById: () => ({ textContent: "" }) },
+  };
+  vm.runInNewContext(source, context);
+  const ctx = {
+    inject: (names, callback) => dependencies.set(names.join(","), callback),
+    effect: (fn) => { const dispose = fn(); if (typeof dispose === "function") disposers.push(dispose); },
+    locale: { bind: () => () => "Remote Ops", register: () => () => {} },
+    slots: { inject: (_name, fn) => fn(), register: (_definition, render) => { launcher = render; } },
+  };
+  plugin.apply(ctx);
+  assert.equal(launcher({wide:true}).type, "button");
+  dependencies.get("pluginNavigation")(ctx);
+  assert.equal(launcher({wide:true}), null);
+  disposers.pop()();
+  assert.equal(launcher({wide:true}).type, "button");
+});
+
 test("VT screen model removes ConPTY initialization blank rows", () => {
   const initial = "\u001b[?25l\u001b[2J\u001b[m\u001b[H\r\n" + "\r\n".repeat(38) + "\u001b[2;34HC:\\Users\\tester\\.dsh\\remote-ops>";
   const visible = terminalVisibleText(initial);

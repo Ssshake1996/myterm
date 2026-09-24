@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
   factory: (require) => {
     const React = require("react");
     const { IconStopFill16, IconRefreshOutline16, IconDownloadOutline16, IconPanelLeftOutline16 } = require("@deepseek-ai/dsh-client-ui-primitives");
-    const { createElement: h, useCallback, useEffect, useMemo, useRef, useState } = React;
+    const { createElement: h, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } = React;
     const NS = "dshRemoteOps";
     const TAB_ID = "@dsh/remote-ops";
     const TAB_KIND = "dsh-remote-ops";
@@ -263,7 +263,7 @@ window.__ModuleLoader__.load({
         const before = line.slice(0, terminalScreen.cursor.column).padEnd(terminalScreen.cursor.column, " ");
         return h("span", { key: `line-${index}` }, before, h("span", { className: "dsh-remote-ops__inputCursor", "aria-hidden": true }), line.slice(terminalScreen.cursor.column), index < lines.length - 1 ? "\n" : null);
       }) : "等待终端输出…";
-      useEffect(() => { if (!terminalReady) return undefined; const frame = window.requestAnimationFrame(() => terminalInputRef.current?.focus()); return () => window.cancelAnimationFrame(frame); }, [activeTerminalId, terminalReady]);
+      useEffect(() => { if (!terminalReady) return undefined; const frame = window.requestAnimationFrame(() => terminalInputRef.current?.focus({ preventScroll: true })); return () => window.cancelAnimationFrame(frame); }, [activeTerminalId, terminalReady]);
       useEffect(() => {
         if (!activeTerminalId) return undefined;
         setOutputConnection("connecting");
@@ -486,6 +486,20 @@ window.__ModuleLoader__.load({
     function RemoteOpsLaunch({ wide, onClick, label }) { return h("button", { type: "button", className: "dsh-remote-ops__launchControl", title: label, "aria-label": label, onClick }, h("span", { className: "dsh-remote-ops__launchControlIcon", "aria-hidden": true }, "⌁"), wide ? h("span", { className: "dsh-remote-ops__launchLabel" }, label) : null); }
     const inject = ["slots", "locale"];
     function apply(ctx) {
+      let grouped = false;
+      const listeners = new Set();
+      const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
+      ctx.inject(["pluginNavigation"], (ready) => {
+        ready.effect(() => {
+          grouped = true;
+          listeners.forEach(fn => fn());
+          return () => { grouped = false; listeners.forEach(fn => fn()); };
+        }, "dsh-remote-ops: shared navigation availability");
+      });
+      function OptionalLaunch(props) {
+        const managed = useSyncExternalStore(subscribe, () => grouped);
+        return managed ? null : h(RemoteOpsLaunch, props);
+      }
       const t = ctx.locale.bind(NS);
       ctx.effect(() => ctx.locale.register(NS, { zh: { title: "Remote Ops", guideTitle: "远程运维", guideDescription: "管理 SSH 环境、终端和 SFTP" }, en: { title: "Remote Ops", guideTitle: "Remote operations", guideDescription: "Manage SSH environments, terminals and SFTP" } }), "dsh-remote-ops: dictionaries");
       const getService = (context, service) => typeof context.get === "function" ? context.get(service) : context[service];
@@ -510,12 +524,12 @@ window.__ModuleLoader__.load({
           }
         }, 250);
       };
-      ctx.effect(() => ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({ name: "sidebar.footer.action", id: "dsh-remote-ops-launch", order: 40, label: () => t("title") }, (props) => h(RemoteOpsLaunch, { ...props, onClick: openRemoteOps, label: t("title") }))), "dsh-remote-ops: launch button");
+      ctx.effect(() => ctx.slots.inject("sidebar.footer.action", () => ctx.slots.register({ name: "sidebar.footer.action", id: "dsh-remote-ops-launch", order: 40, label: () => t("title") }, (props) => h(OptionalLaunch, { ...props, onClick: openRemoteOps, label: t("title") }))), "dsh-remote-ops: launch button");
       ctx.inject(["sidebarRight", "sidebarRightTabs"], (ready) => {
         const sidebarRight = getService(ready, "sidebarRight");
         const sidebarRightTabs = getService(ready, "sidebarRightTabs");
         if (!sidebarRight || !sidebarRightTabs) return;
-        ready.effect(() => sidebarRightTabs.register({ id: TAB_ID, kind: TAB_KIND, priority: "extension", title: () => t("title"), guide: [{ order: 30, title: () => t("guideTitle"), description: () => t("guideDescription") }] }), "dsh-remote-ops: tab type");
+        ready.effect(() => sidebarRightTabs.register({ id: TAB_ID, kind: TAB_KIND, priority: "extension", title: () => t("title"), guide: [{ order: 40, title: () => t("guideTitle"), description: () => t("guideDescription"), icon: IconPanelLeftOutline16 }] }), "dsh-remote-ops: tab type");
         ready.effect(() => ready.slots.inject("sidebar.right.pane.tab", () => ready.slots.register({ name: "sidebar.right.pane.tab", key: TAB_ID }, RemoteOpsPanel)), "dsh-remote-ops: tab body");
         ready.effect(() => ready.slots.inject("sidebar.right.pane.tab.title", () => ready.slots.register({ name: "sidebar.right.pane.tab.title", key: TAB_ID }, RemoteOpsTitle)), "dsh-remote-ops: tab title");
       });
