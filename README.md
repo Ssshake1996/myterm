@@ -10,6 +10,8 @@
 - 多 SSH 终端标签，终端始终作为主要工作区。
 - 终端使用轻量 VT 屏幕模型处理 ConPTY 清屏、光标定位和回车覆盖；输出增量传输，完整滚动条可滚动到最后一行。
 - 无 SSH 会话时默认进入本地 CMD，工作目录为 `$DSH_HOME/remote-ops`；可直接执行 `ssh` 等命令，SSH 断开后自动回退。
+- Agent 与界面读取同一终端输出流；发送返回有界增量，可用 `streamId` 和游标续读，不因回显或静默重复发送。静默不等于命令完成。
+- 终端显示连接、Agent 绑定及等待状态；阅读历史时保留位置，新输出可一键回到底部，SFTP 切换和窗口缩放保持滚动意图。
 - 快捷命令分组管理，快捷命令位于终端下方。
 - 快捷命令区域支持拖拽调整高度，检查更新和刷新均提供明确的进行中、成功或失败反馈。
 - 多行命令一次性下发，不拆成大量短请求。
@@ -22,7 +24,7 @@
 从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.16.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.17.tgz
 dsh web
 ```
 
@@ -58,7 +60,7 @@ SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.16
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.17
 ```
 
 发布脚本会执行一次完整回归门禁（包含语法检查、单元、客户端行为、契约和烟测），通过后再打包、提交、创建 Tag、推送主分支和发布 GitHub Release。测试矩阵和 3080 页面验收要求见 `docs/testing/dsh-remote-ops-test-plan.md`。
