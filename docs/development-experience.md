@@ -1096,3 +1096,19 @@ DSH Web 另一台主机使用最新插件调用 `remote_environment_list` 时，
 - 240 行输出、历史位置恢复、SFTP 往返、复制、快捷命令、桌面与 390px 窄屏通过，临时快捷命令清理。未验证物理多客户端、OS 输入法或不同 SSH 主机互传；本轮不把上一版本的文件字节校验/top/vim 结果重复记为新验证。
 - 正式运行时提交 `fdb1fc5` / Tag `dsh-remote-ops-v0.2.21`，SHA256 `640b2715c1d26c473abd176c2b3f901fb858a74e51a69586af6588970065d8b5` 与 GitHub digest 一致。从正式下载地址安装并重启 3080 后，CMD/复制/SFTP 往返/桌面与 390px、双窗口共享输入及任一窗口交还再次通过。正式 SSH 独立命令实际输出 FORMAL021-SSH、exitCode=9、completion=exited，目标名称为环境名称，连接无编号/备注/clientId，完成后释放。启动 stderr 仅 SQLite ExperimentalWarning；无未捕获页面异常。
 - 发布后匿名 GitHub API 验证返回 `API rate limit exceeded for 141.11.130.56`（HTTP 403）。首个校验命令未立即停止，后续误抛 `RELEASE_DIGEST_MISMATCH`；使用 Stop 错误策略和现有 Git 凭据重新查询后摘要一致，不是包损坏。插件在线检查更新同样受限：HTTP 400，code=UPDATE_CHECK_FAILED，原始错误 `UPDATE_CHECK_FAILED: GitHub release API returned HTTP 403 [UPDATE_CHECK_FAILED]`，阶段为 update/GitHub release API，响应未提供堆栈。这个外部限制明确记录，不当作页面未捕获异常，也不冒称在线检查成功；不为绕过限流给运行插件添加开发凭据。文档单独提交，不再发布一个版本。
+
+## 44. 直接下发按钮与可扩展常用命令窗格（0.2.22）
+
+- 基线为 `559c4dd` / v0.2.21，用户确认按钮位于输出下方，并补充两行不够、边界应上下扩展。旧代码确有 360px 和半屏上限。按插件容器及终端工具栏实测高度计算上限，保留至少 100px 输出区；存用户偏好而非缩小窗口后的截断值，返回大窗口可恢复。鼠标/触摸 Pointer Events、键盘、取消拖动和双击复位共用同一高度约束，不引入布局依赖。
+- 新增命令按钮直接写入路径，不复用会等待输出的 send，不经模型推理。复用原命令库，仅增加 pinned、confirm、order、revision；管理和执行分开。一个完整写入保留空格、中文和多行，只将行尾转换为终端 Enter。UI 明示“已写入终端”，完成状态始终 unknown。
+- 点击固定 owner、具体 sessionId、streamId 及命令版本；不自动重连、切换目标、接管 Agent 或重试。十分钟/1024 回执的内存去重覆盖并发请求与短期网络重试，写入异常也保留未知回执；不宣称永久幂等。浏览器未提交输入检查是本窗口的保守防误发，不重新引入 v0.2.21 已撤回的跨窗口锁，也不能识别所有 shell/编辑器状态。
+- 先补回归确认红灯：`TypeError: state.dispatchQuick is not a function`、`ERR_ASSERTION undefined !== true`、HTTP `400 !== 200`，客户端缺少高度/筛选/目标快照辅助逻辑。完成后测真实 QuickCommands 组件的单击/并发点击/确认期间换目标，管理复选框不会下发命令，不只检查源码字符串。
+- 真实 UI 初次取消显示出现 `Error: locator.uncheck: Clicking the checkbox did not change its state`，阶段为管理复选框保存。受控值依赖异步快照，保存开始触发渲染时短暂跳回。先补客户端行为回归（`ERR_ASSERTION true !== false`），再保留临时勾选状态直到保存快照确认或失败回滚；没有用强制点击掩盖问题。
+- 分组改名后，旧编辑器携带原版本仍可恢复旧组。新增回归得到 `AssertionError [ERR_ASSERTION]: Missing expected rejection`，再让改名更新命令 revision；旧版本保存返回 `QUICK_COMMAND_CHANGED`。正式包 HTTP 实测同样拒绝。
+- pnpm 对同名本地 tgz 的再次安装保留了旧安装内容；检查已安装 client.js 未含新逻辑后，使用不同候选文件名重装并重启。不要只看 package.json 版本判断正在验收的代码。正式安装用 GitHub URL，并比较 client.js 与仓库摘要；这属于开发验证流程，不建永久运行时门禁。
+- 验收脚本的 generic-role 定位超时 `TimeoutError: locator.innerText: Timeout 30000ms exceeded`；改为页面实际输出元素。宿主初次挂载时出现 `page.waitForFunction: TypeError: Cannot read properties of null (reading 'innerText')`（页面 predicate 阶段），先等待插件挂载；截图先等 Sidebar 动画完成，不能把过渡帧越界当插件布局问题。脚本原生 confirm 自动处理会让 CLI 提前显示 modal，后续用实际持久化状态复核结果，不凭 CLI exit=0 宣称整流程完成。
+- 自动化 `npm run check` 与发布脚本再次检查均通过：56 后端/状态/传输/路由/独立命令、27 客户端、7 契约及烟测。没有新增运行依赖。
+- 3080 主流程：36 条命令，190px 拖到 556.4px，折叠、SFTP 往返、刷新恢复；390px 保留 100px 输出区，无水平溢出。实际 CMD 中文/连续空格/多行，双击一个请求，半条输入拦截、Ctrl+C 后恢复，CRUD/搜索/排序/隐藏恢复/确认通过。单次点击至回执样本 63ms、HTTP 约 2.4ms，不能转述为远程执行或模型延迟基准。
+- 240 行历史输出调整窗格和 SFTP 往返保持 scrollTop=8581.6。真实 SSH `笔记本` 的 `pty-2` 回显 `QUICK022-SSH  中文`，本地游标未变；同请求重复返回原 receipt，旧流请求 HTTP 400 / `TERMINAL_STREAM_CHANGED` / `quick.dispatch`。原始堆栈仍由 describeFailure 返回。SFTP /tmp 列出 34 项，测试连接释放。
+- 正式运行时提交 `9d02e2d` / Tag `dsh-remote-ops-v0.2.22`，SHA256 `222222091e1b06fb03c64bdf029330ac85ef8d314a0f40e5140b14950dc75698` 与 GitHub digest 一致。从正式包安装、重启后，版本、CMD/复制、双击单发、492.4px 高度恢复、SFTP 往返、分组版本冲突及 390px 编辑弹窗再次通过。主流程未捕获页面异常为零，预期 HTTP 400 不当作客户端崩溃。启动 stderr 仅 SQLite ExperimentalWarning；检查更新 HTTP 200，current/latest 均 0.2.22，没有注入开发凭据。测试命令/分组清理，环境保留，窗格复位 190px，本地输入交还。
+- 本轮未重跑真实模型、物理双客户端、OS 输入法候选、文件传输字节校验或 top/vim；模拟保护测试与真实 SSH/SFTP 证据分开陈述。验收截图脚本在忽略的 output/playwright，交接文档另提交，不追加 Release。

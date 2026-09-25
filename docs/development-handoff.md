@@ -1,7 +1,7 @@
 # dsh-remote-ops 开发交接说明
 
-> 基线日期：2026-09-25
-> 基线版本：`dsh-remote-ops v0.2.21`
+> 基线日期：2026-09-26
+> 基线版本：`dsh-remote-ops v0.2.22`
 > 基线提交：以 `git log -1` 为准  
 > 项目根目录：`F:\myterm`  
 > GitHub：`Ssshake1996/myterm`
@@ -30,25 +30,26 @@ Remote Ops 插件负责：
 
 ## 2. 当前版本状态
 
-v0.2.21 按用户要求撤回 v0.2.20 的窗口级输入权和稳定连接编号/备注：多个浏览器共享人工输入状态，标签恢复环境名称，不再提供连接备注。人工与 Agent 的输入协调、owner/目标/streamId 校验、每会话每环境最多 3 条连接及指定释放仍保留。保留 v0.2.20 的断开保留/显式重连、实际工具输出回执、SFTP 逐项重试/覆盖预览/定位和路径偏好、独立非交互命令以及 VT 修复。v0.2.19 的连接复用、双位置文件工作区、快捷命令/粘贴预览/诊断和 v0.2.18 可选共享导航不变。旧版本数据不做迁移：
+v0.2.22 提供终端下方直接执行的常用命令按钮及可上下拖拽的窗格。复用现有命令库，支持增删改查、多行、分组、搜索、排序、隐藏/恢复按钮和按命令启用确认。默认展开；高度按插件实际空间限制，不限两行或 360px，命令内部滚动，保留最低终端可视区域并持久化高度和展开状态。
 
-- 四层自动化测试已经接入 `npm test`。
-- `npm run check` 是唯一发布门禁。
-- Release 脚本在打包、提交和发布前必须通过完整检查。
-- 测试计划位于 [dsh-remote-ops-test-plan.md](testing/dsh-remote-ops-test-plan.md)。
-- 正式 Release 位于 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases)。
+下发锁定 owner、具体终端、输出流及命令版本，一次写入完整命令和 Enter，不经过模型，不自动连接/换目标/接管/重发。十分钟、最多 1024 条的进程内回执用于并发及网络重试去重，不宣称无限期持久幂等。当前浏览器未提交输入和 Agent 活动发送会阻止下发；写入回执不代表执行完成，未知错误保留阶段、错误码及堆栈。新增元数据使用正常缺省值，没有旧系统迁移或第二套命令数据。
 
-本机 DSH Web 的 3080 端口只是开发验收环境，不是生产数据或用户环境的事实来源。真实 SSH、SFTP、网络、凭据和 DSH 版本差异必须在对应环境单独验证。
+v0.2.21 已撤回的跨浏览器输入权锁、连接编号/备注保持撤回。人工与 Agent 输入协调、owner/stream 校验、每会话每环境最多 3 条 SSH 连接及指定释放不变；其余 SFTP、独立命令和 VT 能力保留。不得用隐式锁替代已撤回的功能。
 
-本次版本与验收细节见 [v0.2.21](releases/dsh-remote-ops-v0.2.21.md)，运行时提交通过 `git rev-list -n 1 dsh-remote-ops-v0.2.21` 查询。`npm run check` 通过（50 项后端/传输/路由/独立命令、22 项客户端、7 项契约及烟测）。3080 已验证双窗口直接输入及任一窗口交还 Agent、真实 SSH 3 连接上限和指定释放、SFTP 目录读取、快捷命令/滚动/复制/面板往返、桌面与 390px 窄屏。
+- 四层自动化测试接入 `npm test`，`npm run check` 是唯一发布门禁；Release 脚本再次调用。
+- 当前检查通过：56 项后端/传输/路由/独立命令、27 项客户端、7 项契约及烟测，新增回归先红后绿。
+- 测试矩阵见 [测试计划](testing/dsh-remote-ops-test-plan.md)，发布说明见 [v0.2.22](releases/dsh-remote-ops-v0.2.22.md)。
+- 运行时提交 `9d02e2d`，Tag `dsh-remote-ops-v0.2.22`；[正式 Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.2.22) 已发布。交接和验收记录另作文档提交，不再发布版本。
 
-真实模型人工占用拒绝和交还后单次发送/增量续读通过；原始工具结果已展开核对，发送游标 17647→17796，续读为空且维持 17796，UI 回显和回执一致。`completion=unknown` 不被改写为命令成功。
+3080 主流程已验证 CMD 中文/多空格/多行，双击单请求，半条输入拒绝，确认/隐藏/恢复/排序/放弃修改/删除；36 条命令从 190px 拖到约 556px，收起、SFTP 往返及刷新保持高度。390px 窄屏保留 100px 输出区，主流程未捕获页面异常为零。240 行输出的历史阅读位置在调整高度及切换 SFTP 后保持 scrollTop=8581.6。一次本机点击至写入回执样本为 63ms，不是命令完成或其他电脑的性能承诺。
 
-未验证两台物理客户端、OS 输入法候选提交和两台不同 SSH 服务互传。本轮未重复文件传输字节校验及 top/vim 实测，v0.2.20 的历史证据不可写成本轮成功。当前宿主没有运行时 PTY resize API，保留 160×40 网格，不声称完整终端仿真兼容。移除窗口锁后，同时人工输入可以交错，任一浏览器都能交还 Agent；这是确认过的产品边界，不用另一套隐式锁替代。
+真实 SSH `笔记本` 的 `pty-2` 回显 `QUICK022-SSH  中文`，本地 CMD 游标未改变；重复请求复用回执，旧流请求 HTTP 400 / `TERMINAL_STREAM_CHANGED` / `quick.dispatch`。SFTP /tmp 列出 34 项，测试 SSH 已释放。
 
-正式运行时提交 `fdb1fc5`，Tag `dsh-remote-ops-v0.2.21`，已从 GitHub Release 下载地址安装到本机 web profile 并重启 3080。包 SHA256 `640b2715c1d26c473abd176c2b3f901fb858a74e51a69586af6588970065d8b5` 与 GitHub asset digest 一致。正式包 CMD/复制/SFTP 面板往返/桌面及 390px、双窗口输入与交还再次通过；真实 SSH 独立命令返回 stdout=FORMAL021-SSH、exitCode=9，连接元数据无编号/备注/clientId，测试连接已释放。启动 stderr 仅有宿主 SQLite ExperimentalWarning。
+已从 GitHub 正式下载地址安装到 web profile 并重启 3080，页面显示 v0.2.22。正式包 SHA256 `222222091e1b06fb03c64bdf029330ac85ef8d314a0f40e5140b14950dc75698` 与 GitHub asset digest 一致，安装后的 client.js 与源码一致。正式复核 CMD 回显、双击单次下发、复制、SFTP 往返、高度恢复（492.4px）、分组改名拒绝旧版本编辑及 390px 编辑弹窗通过。在线检查更新返回 HTTP 200、current/latest=0.2.22；v0.2.21 的历史匿名 API 403 本轮未复现，未注入开发凭据。启动 stderr 仅宿主 SQLite ExperimentalWarning。
 
-正式包在线检查更新未通过：当前网络 GitHub 匿名 API 限流（HTTP 403），插件 `/api/dsh-remote-ops/update` 返回 HTTP 400，原始错误为 `UPDATE_CHECK_FAILED: GitHub release API returned HTTP 403 [UPDATE_CHECK_FAILED]`。发布资产经已有 Git 凭据读取 GitHub API 校验通过，下载/安装成功；不把这一外部限流写成“检查更新成功”，不向插件注入开发凭据或扩展本次回退范围。v0.2.20 Tag 与历史提交保持不变。
+测试命令和临时分组已清理，保存环境未删除；本地输入已交还，窗格复位 190px。后台宿主日志：`output/dsh-022-release-stdout.log`、`output/dsh-022-release-stderr.log`；截图及临时验收脚本位于忽略的 `output/playwright/`，不能当成可移植自动化门禁。
+
+本轮未重复真实模型调用、两台物理客户端、OS 输入法候选提交、文件传输字节校验及 top/vim；历史证据不能写成本轮成功。插件不能判断所有交互程序是否在等待输入，也不阻止其他浏览器同时输入。宿主没有运行时 PTY resize API，仍为 160×40 网格。3080 仅为开发验收环境，不是其他电脑的生产事实来源。
 
 ## 3. 目录和职责
 
@@ -101,7 +102,7 @@ connection / systemPrompt / tools / terminals / agents / credentials / subproces
 
 - 终端是主要工作区，一直占据主区域。
 - 环境通过可隐藏抽屉管理。
-- 快捷命令位于终端下方，默认收起，可拖拽调整高度。
+- 常用命令位于终端下方，默认展开，记住展开状态及可拖拽高度；按钮直接下发，管理独立。
 - SFTP 改为占满插件主区的本地/远端双栏工作区，诊断仍通过辅助面板打开。
 - 没有 SSH 会话时显示本地 CMD。
 - 面板启动按钮只打开右侧 Sidebar，不启动新的 DSH 对话。
