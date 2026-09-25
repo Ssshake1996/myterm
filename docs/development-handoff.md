@@ -1,7 +1,7 @@
 # dsh-remote-ops 开发交接说明
 
 > 基线日期：2026-09-25
-> 基线版本：`dsh-remote-ops v0.2.20`
+> 基线版本：`dsh-remote-ops v0.2.21`
 > 基线提交：以 `git log -1` 为准  
 > 项目根目录：`F:\myterm`  
 > GitHub：`Ssshake1996/myterm`
@@ -30,7 +30,7 @@ Remote Ops 插件负责：
 
 ## 2. 当前版本状态
 
-v0.2.20 增加稳定连接编号/备注、断开保留/显式重连、窗口级输入权、实际工具输出回执、SFTP 逐项重试/覆盖预览/定位和路径偏好，以及独立非交互命令执行。修复 top/vim 网格、字符集序列和备用屏恢复。保留 v0.2.19 的连接复用、双位置流式文件工作区、快捷命令编辑/粘贴预览和诊断导出，以及 v0.2.18 可选共享导航。旧版本数据不做迁移：
+v0.2.21 按用户要求撤回 v0.2.20 的窗口级输入权和稳定连接编号/备注：多个浏览器共享人工输入状态，标签恢复环境名称，不再提供连接备注。人工与 Agent 的输入协调、owner/目标/streamId 校验、每会话每环境最多 3 条连接及指定释放仍保留。保留 v0.2.20 的断开保留/显式重连、实际工具输出回执、SFTP 逐项重试/覆盖预览/定位和路径偏好、独立非交互命令以及 VT 修复。v0.2.19 的连接复用、双位置文件工作区、快捷命令/粘贴预览/诊断和 v0.2.18 可选共享导航不变。旧版本数据不做迁移：
 
 - 四层自动化测试已经接入 `npm test`。
 - `npm run check` 是唯一发布门禁。
@@ -40,11 +40,15 @@ v0.2.20 增加稳定连接编号/备注、断开保留/显式重连、窗口级�
 
 本机 DSH Web 的 3080 端口只是开发验收环境，不是生产数据或用户环境的事实来源。真实 SSH、SFTP、网络、凭据和 DSH 版本差异必须在对应环境单独验证。
 
-本次版本与验收细节见 [v0.2.20](releases/dsh-remote-ops-v0.2.20.md)，运行时提交通过 `git rev-list -n 1 dsh-remote-ops-v0.2.20` 查询。`npm run check` 通过（50 项后端/传输/路由/独立命令、22 项客户端、7 项契约及烟测）。3080 完成真实模型独立命令原始结果核对、双窗口接管、SSH 连接生命周期/top/vim、SFTP 3 MiB 以上字节校验及仅重试剩余项、快捷命令/滚动/桌面和 390px 窄屏验收。
+本次版本与验收细节见 [v0.2.21](releases/dsh-remote-ops-v0.2.21.md)，运行时提交通过 `git rev-list -n 1 dsh-remote-ops-v0.2.21` 查询。`npm run check` 通过（50 项后端/传输/路由/独立命令、22 项客户端、7 项契约及烟测）。3080 已验证双窗口直接输入及任一窗口交还 Agent、真实 SSH 3 连接上限和指定释放、SFTP 目录读取、快捷命令/滚动/复制/面板往返、桌面与 390px 窄屏。
 
-未验证两台物理客户端、OS 输入法候选提交和两台不同 SSH 服务互传。当前宿主没有运行时 PTY resize API，保留 160×40 网格，不声称完整终端仿真兼容。开发验收下载阶段发现宿主压缩桥 Gzip drain 监听警告；二进制响应增加 no-transform 后，两次大文件下载字节一致且未复现警告。宿主 SQLite ExperimentalWarning 单独记录，不视为插件启动错误。
+真实模型人工占用拒绝和交还后单次发送/增量续读通过；原始工具结果已展开核对，发送游标 17647→17796，续读为空且维持 17796，UI 回显和回执一致。`completion=unknown` 不被改写为命令成功。
 
-正式运行时提交为 `50343b9`，Tag 为 `dsh-remote-ops-v0.2.20`。已从 GitHub Release 安装正式包到本机 web profile 并重启 3080；CMD 回显、复制、SFTP 面板往返、桌面/390px 无溢出、真实 SSH 独立命令与释放、本地超时终止均复核通过。SHA256 `ccf3390d7fae6ec7ba88d203996fc1d4f1fb6dc790c99dbeb2bd80cf5ca01211` 与 GitHub asset digest 一致，启动 stderr 仅有宿主 SQLite ExperimentalWarning。
+未验证两台物理客户端、OS 输入法候选提交和两台不同 SSH 服务互传。本轮未重复文件传输字节校验及 top/vim 实测，v0.2.20 的历史证据不可写成本轮成功。当前宿主没有运行时 PTY resize API，保留 160×40 网格，不声称完整终端仿真兼容。移除窗口锁后，同时人工输入可以交错，任一浏览器都能交还 Agent；这是确认过的产品边界，不用另一套隐式锁替代。
+
+正式运行时提交 `fdb1fc5`，Tag `dsh-remote-ops-v0.2.21`，已从 GitHub Release 下载地址安装到本机 web profile 并重启 3080。包 SHA256 `640b2715c1d26c473abd176c2b3f901fb858a74e51a69586af6588970065d8b5` 与 GitHub asset digest 一致。正式包 CMD/复制/SFTP 面板往返/桌面及 390px、双窗口输入与交还再次通过；真实 SSH 独立命令返回 stdout=FORMAL021-SSH、exitCode=9，连接元数据无编号/备注/clientId，测试连接已释放。启动 stderr 仅有宿主 SQLite ExperimentalWarning。
+
+正式包在线检查更新未通过：当前网络 GitHub 匿名 API 限流（HTTP 403），插件 `/api/dsh-remote-ops/update` 返回 HTTP 400，原始错误为 `UPDATE_CHECK_FAILED: GitHub release API returned HTTP 403 [UPDATE_CHECK_FAILED]`。发布资产经已有 Git 凭据读取 GitHub API 校验通过，下载/安装成功；不把这一外部限流写成“检查更新成功”，不向插件注入开发凭据或扩展本次回退范围。v0.2.20 Tag 与历史提交保持不变。
 
 ## 3. 目录和职责
 
@@ -140,7 +144,7 @@ remote-ops/
 7. 发送默认返回 16 Ki 码元的新输出；续读传 `cursor=nextOffset`、`streamId`、`waitMs`，先读完 `hasMore`。流替换或游标过期必须处理 `reset/truncated`。
 8. `completion: "unknown"` 是刻意的契约：静默、超时和存活 PTY 都不证明命令完成。工具输出是原始流，不是渲染后的屏幕，也不提供任意交互程序的可靠退出码。
 9. 独立命令只有实际观察到正常退出才返回 `completion: "exited"`；取消/超时/没有退出消息保持 unknown。远端通道关闭不证明进程已结束，不能伪造 terminationConfirmed。
-10. 工具回执是 owner/stream 上实际返回的数据范围，不代表模型理解；UI 读流不能产生工具回执。浏览器 clientId 仅用于人工输入协作，不代替 Harness 权限。
+10. 工具回执是 owner/stream 上实际返回的数据范围，不代表模型理解；UI 读流不能产生工具回执。人工输入不再使用浏览器 clientId；Agent 写入仍受人工状态保护，SSH 连接仍按 owner 隔离。
 
 ## 6. 测试和发布门禁
 

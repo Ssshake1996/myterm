@@ -1082,3 +1082,17 @@ DSH Web 另一台主机使用最新插件调用 `remote_environment_list` 时，
 - 真实 SFTP 同远端跨目录：3,145,751 字节一致，冲突后重试仅传剩余 3 项，最终 4 项完成；逐项结果/覆盖预览/自动刷新/定位保留排序、路径与 180px 滚动恢复通过。临时文件、测试书签和快捷命令已清理。240 行输出和 SFTP 返回保留历史位置，复制/快捷命令/桌面及 390px 无溢出通过。
 - 未验证两个物理客户端、OS 输入法候选提交和两台不同 SSH 服务互传；没有可报告的模型耗时/token 降幅基准。真实证据与模拟测试分开记录，3080 不代表另一台电脑的生产状态。
 - 正式运行时提交 `50343b9` / Tag `dsh-remote-ops-v0.2.20`。从 GitHub 正式包安装并重启 3080 后，CMD 回显/复制/SFTP 往返/桌面和 390px 无溢出通过，未捕获页面异常为零。真实 SSH exec 返回中文 stdout、单独 stderr、exitCode=9 后释放连接；本地 1 秒超时返回 timed_out、completion=unknown、terminationConfirmed=true，样本耗时 1019ms，没有冒充命令成功。启动仅 SQLite ExperimentalWarning。包 SHA256 `ccf3390d7fae6ec7ba88d203996fc1d4f1fb6dc790c99dbeb2bd80cf5ca01211` 与 GitHub digest 一致；交接文档另行提交，不追加 Release。
+
+## 43. 有界功能回退（0.2.21）
+
+- 基线为 `5472ac4` / v0.2.20，工作区干净。用户确认仅撤回“多浏览器输入权进一步细分”和“让同一环境的多个连接容易区分”，不对 v0.2.20 整提交 revert，不重写历史 Tag。
+- 先把行为测试改为无窗口身份即可人工输入/交还、人工状态拒绝 Agent、普通环境名称快照和精确 sessionId 释放，并确认旧实现失败，再移除 clientId 锁、另一窗口只读/接管、稳定编号和备注。注册工具与 HTTP 路由一起验证，避免只验证辅助函数。旧流拒绝、owner 隔离、3 连接上限、断开保留和队列目标校验继续保留。
+- 回退输入身份时，`input(owner, target, text, actor, streamId)` 的调用位置必须同步调整，不能让旧 clientId 占位吞掉 streamId。测试直接从已注册 HTTP 路由提交旧流，断言 `TERMINAL_STREAM_CHANGED`。
+- 原有连接选择器、按 sessionId 释放、环境抽屉的连接列表不属于新增备注/稳定编号，应保留。多个浏览器共享人工状态，同时输入可以交错；明确此边界，不换成另一个隐式锁。
+- 自动化 `npm run check`：50 后端/状态/传输/路由/独立命令、22 客户端、7 契约及烟测通过。开发阶段 fake terminal 缺少 kill，原始错误 `TypeError: this.ctx.terminals.kill is not a function`（`RemoteOpsState.close` / `index.js:1134`，测试阶段）；补齐 fake 并断言被释放的精确 ID，不改运行时迎合 mock。
+- 3080 两个页面实际 CMD 回显互相可见，任一页面均可交还 Agent；所有观察到的 input 请求无 clientId、保留 streamId。真实 SSH 3 条连接、第四条 `REMOTE_SESSION_LIMIT`、普通名称标签/无备注、选择 pty-2 和仅释放 pty-2 通过；剩余连接已清理。页面计数首轮遇到 `Error: NUMBERED_TABS_REMAIN`，阶段为刷新后 UI 断言；快照显示异步渲染未完成，改验收为等待实际三标签出现后再断言，运行时代码未调整。
+- 验收脚本误用文件端点 kind=remote，返回 HTTP 400、`SFTP_ENDPOINT_INVALID: Select the DSH host or an SSH environment`，阶段 files，堆栈 `RemoteOpsState.connectFiles (index.js:1153:40)` → `listFiles (index.js:1175:30)` → `workspace-routes.js:24:62`。修正脚本为契约规定的 kind=ssh 后，真实 SFTP 目录读取通过，不为错误参数添加兼容别名。
+- 真实模型 send 在人工占用时返回 `Error: TERMINAL_MANUAL_CONTROL: User is editing this terminal; wait for them to release input control`。交还后 `echo AGENT021-OK` 仅发送一次，游标 17647→17796；read 17796→17796 返回空文本，UI 回显及工具回执一致。已展开原始工具结果核对，未把模型总结当证据。
+- 240 行输出、历史位置恢复、SFTP 往返、复制、快捷命令、桌面与 390px 窄屏通过，临时快捷命令清理。未验证物理多客户端、OS 输入法或不同 SSH 主机互传；本轮不把上一版本的文件字节校验/top/vim 结果重复记为新验证。
+- 正式运行时提交 `fdb1fc5` / Tag `dsh-remote-ops-v0.2.21`，SHA256 `640b2715c1d26c473abd176c2b3f901fb858a74e51a69586af6588970065d8b5` 与 GitHub digest 一致。从正式下载地址安装并重启 3080 后，CMD/复制/SFTP 往返/桌面与 390px、双窗口共享输入及任一窗口交还再次通过。正式 SSH 独立命令实际输出 FORMAL021-SSH、exitCode=9、completion=exited，目标名称为环境名称，连接无编号/备注/clientId，完成后释放。启动 stderr 仅 SQLite ExperimentalWarning；无未捕获页面异常。
+- 发布后匿名 GitHub API 验证返回 `API rate limit exceeded for 141.11.130.56`（HTTP 403）。首个校验命令未立即停止，后续误抛 `RELEASE_DIGEST_MISMATCH`；使用 Stop 错误策略和现有 Git 凭据重新查询后摘要一致，不是包损坏。插件在线检查更新同样受限：HTTP 400，code=UPDATE_CHECK_FAILED，原始错误 `UPDATE_CHECK_FAILED: GitHub release API returned HTTP 403 [UPDATE_CHECK_FAILED]`，阶段为 update/GitHub release API，响应未提供堆栈。这个外部限制明确记录，不当作页面未捕获异常，也不冒称在线检查成功；不为绕过限流给运行插件添加开发凭据。文档单独提交，不再发布一个版本。
