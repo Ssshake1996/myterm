@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse } from "node:path";
 import { Client as SshClient } from "ssh2";
 import {
   RemoteOpsState,
@@ -358,6 +358,7 @@ test("registered terminal tools can read the same local CMD as the UI", async (t
     await rm(root, { recursive: true, force: true });
   });
   const exec = { agent: { id: "tool-owner" } };
+  for (const name of ["remote_sftp_upload", "remote_sftp_download"]) assert.equal(registered.get(name).parameters.overwrite.type, "boolean");
   await registered.get("remote_environment_list").execute({}, exec);
   ctx.terminals[0].output.emit("data", Buffer.from("shared CMD"));
   const output = await registered.get("remote_terminal_read").execute({ session: "local-cmd" }, exec);
@@ -372,6 +373,76 @@ test("registered terminal tools can read the same local CMD as the UI", async (t
   const sending = registered.get("remote_terminal_send").execute({ session: "local-cmd", text: "slow", quietMs: 1000, timeoutSeconds: 2 }, { ...exec, signal: controller.signal });
   setTimeout(() => controller.abort(), 10);
   assert.equal((await sending).waitReason, "cancelled");
+});
+
+test("manual session activation resumes the existing host owner without a model prompt", async (t) => {
+  const { state, ctx } = await terminalFixture(t);
+  const owner = { id: "cold-session" };
+  ctx.agents = { get: () => undefined };
+  ctx.sessionController = { resolveAgent: async (id) => { assert.equal(id, owner.id); return { agent: owner }; } };
+  assert.equal(await state.resolveOwner(owner.id), owner);
+  await assert.rejects(state.resolveOwner(undefined), { code: "REMOTE_SESSION_REQUIRED" });
+  ctx.sessionController = undefined;
+  await assert.rejects(state.resolveOwner(owner.id), { code: "REMOTE_OWNER_UNAVAILABLE" });
+});
+
+test("entering an environment reuses one connection and returns choices without opening another", async (t) => {
+  const { state } = await terminalFixture(t);
+  const owner = { id: "agent" };
+  const environment = await state.saveEnvironment({ host: "localhost", username: "test", name: "target" });
+  const record = { sessionId: "ssh-one", ownerId: owner.id, owner, environment, session: fakeRemoteSession() };
+  state.sessions.set(record.sessionId, record);
+  assert.equal((await state.enter(owner, environment.id)).sessionId, "ssh-one");
+  state.sessions.set("ssh-two", { ...record, sessionId: "ssh-two" });
+  assert.deepEqual((await state.enter(owner, environment.id)).choices.map(x => x.sessionId), ["ssh-one", "ssh-two"]);
+});
+
+test("manual typing blocks Agent writes until released and takeover does not send Ctrl+C", async (t) => {
+  const { state, terminal } = await terminalFixture(t);
+  const owner = { id: "agent" };
+  await state.input(owner, "local-cmd", "draft ", "manual");
+  await assert.rejects(state.send(owner, "local-cmd", { text: "injected" }), { code: "TERMINAL_MANUAL_CONTROL" });
+  await assert.rejects(state.input(owner, "local-cmd", "injected"), { code: "TERMINAL_MANUAL_CONTROL" });
+  await state.control(owner, "local-cmd", "release");
+  const pending = state.send(owner, "local-cmd", { text: "echo hello", quietMs: 1000 });
+  await new Promise(resolve => setTimeout(resolve, 5));
+  await assert.rejects(state.input(owner, "local-cmd", "unsafe", "manual"), { code: "TERMINAL_AGENT_ACTIVE" });
+  await state.control(owner, "local-cmd", "takeover");
+  assert.equal((await pending).waitReason, "wait_stopped");
+  assert.deepEqual(terminal.writes, ["draft ", "echo hello\r"]);
+  await state.input(owner, "local-cmd", "response", "manual");
+  assert.equal((await state.terminalOutput(owner, "local-cmd")).control.holder, "manual");
+});
+
+test("takeover can stop the backend wait when Harness wraps its public operation", async t => {
+  const { state } = await terminalFixture(t);
+  const owner = { id: "agent" };
+  const pending = state.send(owner, "local-cmd", { text: "echo hi", quietMs: 1000 });
+  await new Promise(resolve => setTimeout(resolve, 5));
+  const operation = state.localSession.pendingSend;
+  state.localSession.pendingSend = { done: operation.done };
+  await state.control(owner, "local-cmd", "takeover");
+  assert.equal((await pending).waitReason, "wait_stopped");
+});
+
+test("host activation errors preserve the original error cause", async t => {
+  const { state } = await terminalFixture(t);
+  const cause = Object.assign(new Error("original host stack"), { code: "HOST_TEST" });
+  state.ctx.sessionController = { resolveAgent: async () => ({ error: cause }) };
+  await assert.rejects(state.resolveOwner("cold"), error => error.code === "HOST_TEST" && error.cause === cause);
+});
+
+test("SFTP tool paths preserve a drive-root filename and create download parent directories", async t => {
+  const { state } = await terminalFixture(t);
+  const env = await state.saveEnvironment({ host: "localhost", username: "test", name: "transfer-path" });
+  let request;
+  state.transfers = { start: (_owner, value) => { request = value; return { id: "task" }; }, wait: async () => ({ status: "completed", bytes: 7 }) };
+  await state.sftp({ id: "agent" }, env.id, "upload", { localPath: join(parse(tmpdir()).root, "sample.bin"), remotePath: "/tmp/renamed.bin" });
+  assert.deepEqual(request.names, ["sample.bin"]);
+  assert.equal(request.targetName, "renamed.bin");
+  const parent = join(state.base, "new", "nested");
+  await state.sftp({ id: "agent" }, env.id, "download", { localPath: join(parent, "download.bin"), remotePath: "/tmp/renamed.bin" });
+  assert.ok((await stat(parent)).isDirectory());
 });
 
 test("opening one environment concurrently reserves one PTY and returns one session", async () => {

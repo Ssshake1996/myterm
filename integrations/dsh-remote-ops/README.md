@@ -37,7 +37,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.17.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.19.tgz
 dsh web
 ```
 
@@ -63,7 +63,16 @@ starts a fallback conversation; if the Sidebar service is not ready, the plugin
 retries and reports the exact failure. SSH and SFTP actions remain owned by the
 selected Harness session.
 
-## Data
+## Interactive Workspace
+
+- Enter reuses an existing connection or offers a chooser; the separate plus action opens a new connection (maximum three per environment and owner). Inspect owner/activity and release individual connections. Hosts exposing `sessionController.resolveAgent` can resume a saved session without a model prompt; an unsaved draft is not an SSH owner.
+- Manual input holds the terminal until explicitly returned to the Agent. Takeover, stop-wait, Ctrl+C and connection release are separate operations. The Agent receives `TERMINAL_MANUAL_CONTROL` instead of interleaved input. Adopted backends that cannot stop a wait without interruption report that limitation.
+- Quick commands have a multiline editor, explicit target and input preview. Multiline paste requires confirmation. Search/copy, font size, wrapping and quick-dock height are available; browser preferences persist. The outer Sidebar width remains owned by Harness.
+- Both file panes independently select the DSH host or an SSH environment. Browser upload/download refers to the browser device. Files and directories can be selected together; SSH-to-SSH copies stream through the DSH host. Upload/download no longer buffer entire files or impose a 2 MiB limit.
+- Transfers report bytes/files, cancellation and error/skip/overwrite conflict policies. Tool overwrite requires `overwrite: true`. Two jobs run concurrently, at most 20 are pending/running and 50 recent records are kept. Jobs are not resumed across restarts. Cancellation removes incomplete staging files, not already completed files/directories. Symlinks/devices are not followed; traversal is limited to depth 32 and 10,000 entries. Remote overwrite requires the atomic rename extension.
+- Errors retain phase, code and original causes. Diagnostic export previews a metadata whitelist without credentials, command text, host addresses or terminal content.
+
+## Data Storage
 
 The plugin stores its own data under `$DSH_HOME/remote-ops`:
 
@@ -77,7 +86,7 @@ key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.17 exposes environment list/create/update/delete, group management,
+Version 0.2.19 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells

@@ -65,6 +65,38 @@ test("VT screen model exposes the real cursor position", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(terminalScreenModel("\u001b[2J\u001b[Hprompt>"))), { text: "prompt>", cursor: { row: 0, column: 7 } });
 });
 
+test("terminal wide characters preserve cursor placement after absolute positioning", () => {
+  assert.equal(terminalScreenModel("中文\u001b[5G!").text, "中文!");
+  assert.equal(terminalScreenModel("中文\u001b[5G!").cursor.column, 3);
+  assert.equal(terminalScreenModel("e\u0301x\u001b[2G!").text, "e\u0301!");
+});
+
+test("terminal preferences clamp invalid values and paste previews stay pinned to the original target", () => {
+  const prefs = loadClientFunction("terminalPreferences", "\n    const pasteSubmission");
+  assert.deepEqual(JSON.parse(JSON.stringify(prefs({fontSize:100,wrap:false,quickHeight:-5}))), {fontSize:22,wrap:false,quickHeight:92});
+  const paste = loadClientFunction("pasteSubmission", "\n    const outputMatches");
+  assert.equal(paste({session:"one",owner:"a",text:"echo one\r\necho two"},"a").text,"echo one\recho two");
+  assert.throws(() => paste({session:"one",owner:"a",text:"x"},"b"), /PASTE_TARGET_CHANGED/);
+  const matches = loadClientFunction("outputMatches", "\n    function SftpWorkspace");
+  assert.deepEqual(JSON.parse(JSON.stringify(matches("One\none two\nthree","one"))), [0,1]);
+});
+
+test("file requests contain endpoint identity, not directory rows or checkbox state", () => {
+  const endpoint = loadClientFunction("fileEndpoint", "\n    function SftpWorkspace");
+  assert.deepEqual(JSON.parse(JSON.stringify(endpoint({kind:"host",path:"C:/work",entries:["private"],selected:["a"],draft:"unsubmitted"}))), {kind:"host",path:"C:/work"});
+});
+
+test("browser failures retain HTTP status, phase, code and original stack", () => {
+  const message = loadClientFunction("failureMessage", "\n    async function request");
+  const value = message({code:"EACCES",stage:"file-transfer",error:"denied",stack:"original stack"},400);
+  for (const part of ["HTTP 400", "EACCES", "file-transfer", "denied", "original stack"]) assert.ok(value.includes(part));
+});
+
+test("copy reports restricted browser clipboard access without an unhandled TypeError", async () => {
+  const write = loadClientFunction("writeClipboard", "\n    const terminalPreferences", "writeClipboard", {navigator:{}});
+  await assert.rejects(write("selected output"), /CLIPBOARD_UNAVAILABLE/);
+});
+
 test("SSH command parser preserves user-supplied host, port and key", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(parseSshCommand('ssh -p 2200 -i "C:\\keys\\id_ed25519" root@example.com'))), {
     host: "example.com",

@@ -3,12 +3,13 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { validateEnvironment, normalizeGroupName, summarizeError, defaultPasswordRef, TerminalOutputBuffer } from "../lib/index.js";
+import { PLUGIN_VERSION } from "../lib/version.js";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
 const client = await readFile(join(packageRoot, "lib/client.js"), "utf8");
 const server = await readFile(join(packageRoot, "lib/index.js"), "utf8");
-assert.equal(manifest.version, "0.2.18");
+assert.equal(manifest.version, PLUGIN_VERSION);
 assert.equal(manifest.dsh?.bundle?.patch, "./cordis.patch.yml");
 assert.deepEqual(manifest.dsh?.client?.inject, [
   "@deepseek-ai/dsh-client-ui-sidebar-right",
@@ -63,7 +64,7 @@ assert.match(server, /spawnTerminal/);
 assert.match(server, /chcp 65001>nul/);
 assert.match(server, /workingDirectory/);
 assert.match(client, /本地 CMD/);
-assert.match(client, /本地终端尚未就绪/);
+assert.match(client, /等待本地 CMD 启动/);
 assert.match(client, /scrollbar-gutter:stable/);
 assert.match(client, /terminalFrames/);
 assert.doesNotMatch(client, /terminalVisibleText\(activeSession\.viewport\)/);

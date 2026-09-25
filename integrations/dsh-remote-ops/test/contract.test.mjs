@@ -85,9 +85,9 @@ test("environment, quick command, SFTP and update routes stay available", () => 
     "environment.save", "quick.save", "remote_sftp_list", "remote_terminal_batch", "fetchLatestRelease",
   ]) assert.match(server, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${marker} is missing`);
   assert.match(client, /dsh-remote-ops__sftpWorkspace/);
-  assert.match(client, /operation: "local-list"/);
-  assert.match(client, /operation: "upload"/);
-  assert.match(client, /operation: "download"/);
+  assert.match(client, /action: "files"/);
+  assert.match(client, /action: "transfer"/);
+  assert.match(client, /\/api\/dsh-remote-ops\/browser-file/);
   assert.match(client, /action: "close"/);
   assert.match(client, /dsh-remote-ops__sftpIcon/);
   assert.doesNotMatch(client, /`\$\{item\.type === "d" \? "目录" : "文件"\}/);
