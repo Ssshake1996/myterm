@@ -234,10 +234,12 @@ test("queued input remains pinned to the terminal and owner selected when typing
   queueTerminalInput(queue, { session: "a", sessionId: "owner-1", text: "one\r" });
   queueTerminalInput(queue, { session: "b", sessionId: "owner-1", text: "two\r" });
   queueTerminalInput(queue, { session: "a", sessionId: "owner-2", text: "three\r" });
+  queueTerminalInput(queue, { session: "a", sessionId: "owner-2", streamId: "replacement", text: "new stream\r" });
   assert.deepEqual(JSON.parse(JSON.stringify(queue)), [
     { session: "a", sessionId: "owner-1", text: "echo one\r" },
     { session: "b", sessionId: "owner-1", text: "two\r" },
     { session: "a", sessionId: "owner-2", text: "three\r" },
+    { session: "a", sessionId: "owner-2", streamId: "replacement", text: "new stream\r" },
   ]);
 });
 

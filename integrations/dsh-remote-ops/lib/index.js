@@ -599,7 +599,6 @@ export class RemoteOpsState {
     this.quickCommands = [];
     this.quickGroups = new Set();
     this.sessions = new Map();
-    this.connectionNumbers = new Map();
     this.events = new Map();
     this.backendSessions = new Map();
     this.directEnvironments = new Map();
@@ -716,22 +715,9 @@ export class RemoteOpsState {
     return [...this.sessions.values()].filter((record) => record.ownerId === ownerKey && record.environment.id === environmentId && record.session.status().kind !== "exited");
   }
   connectionSnapshot(record) {
-    if (!record.connectionNumber) {
-      const key = `${record.ownerId}:${record.environment.id}`;
-      record.connectionNumber = (this.connectionNumbers.get(key) ?? 0) + 1;
-      this.connectionNumbers.set(key, record.connectionNumber);
-    }
     return { sessionId: record.sessionId, environmentId: record.environment.id, name: record.environment.name,
-      displayName: `${record.environment.name} · ${record.connectionNumber}${record.note ? ` · ${record.note}` : ""}`,
-      connectionNumber: record.connectionNumber, note: record.note ?? "", kind: "ssh", status: record.session.status(),
+      kind: "ssh", status: record.session.status(),
       ownerId: record.ownerId, lastActivity: record.session.lastActivity ?? null, control: this.controlSnapshot(record.session), direct: Boolean(record.direct) };
-  }
-  async renameConnection(owner, target, note) {
-    const record = this.getSession(owner, target);
-    const value = String(note ?? "").trim();
-    if (value.length > 40 || /[\x00-\x1f\x7f]/.test(value)) throw sessionError("CONNECTION_NOTE_INVALID", "Connection note must be at most 40 characters without control characters");
-    record.note = value;
-    return this.connectionSnapshot(record);
   }
   toolReceipt(owner, session) {
     if (!owner) return null;
@@ -946,25 +932,20 @@ export class RemoteOpsState {
   }
 
   controlSnapshot(session) {
-    return { holder: session.inputHolder ?? "available", clientId: session.inputClientId ?? null, waiting: Boolean(session.pendingSend || session.active) };
+    return { holder: session.inputHolder ?? "available", waiting: Boolean(session.pendingSend || session.active) };
   }
 
-  claimInput(session, actor, clientId, streamId) {
+  claimInput(session, actor, streamId) {
     if (streamId && streamId !== session.outputBuffer.streamId) throw sessionError("TERMINAL_STREAM_CHANGED", "Terminal was replaced; review the new output before typing");
-    if (actor === "manual" && (typeof clientId !== "string" || !clientId || clientId.length > 100)) throw sessionError("TERMINAL_CLIENT_REQUIRED", "Browser input requires a window identity");
-    if (actor === "manual" && session.inputHolder === "manual" && session.inputClientId !== clientId) throw sessionError("TERMINAL_OTHER_WINDOW", "Another browser window owns input; take over explicitly");
     if (actor !== "manual" && session.inputHolder === "manual") throw sessionError("TERMINAL_MANUAL_CONTROL", "User is editing this terminal; wait for them to release input control");
     if (actor === "manual" && session.inputHolder === "agent" && (session.pendingSend || session.active)) throw sessionError("TERMINAL_AGENT_ACTIVE", "Agent is sending; take over explicitly before typing");
     session.inputHolder = actor === "manual" ? "manual" : "agent";
-    session.inputClientId = actor === "manual" ? clientId : null;
     session.outputBuffer.notify();
   }
 
-  async control(owner, target, action, clientId) {
+  async control(owner, target, action) {
     const session = target === LOCAL_SESSION_ID ? await this.ensureLocalSession() : this.getSession(owner, target).session;
     if (!["takeover", "release", "stop-wait"].includes(action)) throw sessionError("TERMINAL_CONTROL_INVALID", `Unknown input control action: ${action}`);
-    if (typeof clientId !== "string" || !clientId || clientId.length > 100) throw sessionError("TERMINAL_CLIENT_REQUIRED", "Browser control requires a window identity");
-    if (action !== "takeover" && session.inputHolder === "manual" && session.inputClientId !== clientId) throw sessionError("TERMINAL_OTHER_WINDOW", "Only the input owner can release control or stop waiting");
     const pending = session.pendingSend;
     const operation = session.active ?? pending;
     if (action !== "release" && operation) {
@@ -973,8 +954,8 @@ export class RemoteOpsState {
       await operation.done;
       if (session.pendingSend === pending) session.pendingSend = undefined;
     }
-    if (action === "takeover") { session.inputHolder = "manual"; session.inputClientId = clientId; }
-    if (action === "release") { session.inputHolder = "available"; session.inputClientId = null; }
+    if (action === "takeover") session.inputHolder = "manual";
+    if (action === "release") session.inputHolder = "available";
     session.outputBuffer.notify();
     return this.controlSnapshot(session);
   }
@@ -1078,7 +1059,7 @@ export class RemoteOpsState {
       job.done = executeCommand({ subprocess: this.ctx.subprocess, client: record?.session.client, command: args.command, cwd: this.base, signal: controller.signal, timeoutMs: (args.timeoutSeconds ?? 30) * 1000, maxBytes: args.maxBytes ?? 65536 });
       const value = await job.done;
       this.event(owner, "command.execute", { sessionId: targetId, status: value.status, exitCode: value.exitCode, durationMs: value.durationMs });
-      return { ...value, requestId, sessionId: targetId, targetName: record ? this.connectionSnapshot(record).displayName : LOCAL_SESSION_NAME };
+      return { ...value, requestId, sessionId: targetId, targetName: record ? record.environment.name : LOCAL_SESSION_NAME };
     } finally { args.signal?.removeEventListener("abort", abort); this.commands.delete(requestId); }
   }
   cancelCommand(owner, requestId) {
@@ -1101,7 +1082,7 @@ export class RemoteOpsState {
       : target ? this.getSession(owner, target) : await this.open(owner, args.environment);
     const session = record.session;
     if (session instanceof AdoptedTerminalSession) await session.refresh();
-    this.claimInput(session, args.actor, args.clientId, args.streamId);
+    this.claimInput(session, args.actor, args.streamId);
     const startOffset = session.outputBuffer.endOffset;
     const streamId = session.outputBuffer.streamId;
     const submittedText = String(args.text ?? args.command ?? "");
@@ -1125,15 +1106,15 @@ export class RemoteOpsState {
     return { ...metadata, environment: delta.name, submittedText, submit, output: text, waitReason: result.waitReason, sessionStatus: result.sessionStatus, ...(args.includeViewport ? { viewport: session.outputBuffer.tail(AGENT_OUTPUT_CHARS) } : {}) };
   }
 
-  async input(owner, target, text, actor = "agent", clientId, streamId) {
+  async input(owner, target, text, actor = "agent", streamId) {
     if (target === LOCAL_SESSION_ID) {
       const session = await this.ensureLocalSession();
-      this.claimInput(session, actor, clientId, streamId);
+      this.claimInput(session, actor, streamId);
       const result = await session.writeInput(text);
       return { sessionId: LOCAL_SESSION_ID, environment: session.environment.name, ...result };
     }
     const record = this.getSession(owner, target);
-    this.claimInput(record.session, actor, clientId, streamId);
+    this.claimInput(record.session, actor, streamId);
     const result = await record.session.writeInput(text);
     this.event(owner, "ssh.input", { sessionId: record.sessionId, environment: record.environment.name, inputBytes: result.bytes });
     return { sessionId: record.sessionId, environment: record.environment.name, ...result };
@@ -1307,6 +1288,6 @@ export function apply(ctx) {
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/state", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const sessionId = new URL(request.url).searchParams.get("sessionId"); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; await state.ready; return Response.json(agent ? { ...state.snapshot(agent), bound: true } : state.catalog(), { headers: { "Cache-Control": "no-store" } }); } }), "dsh-remote-ops state route");
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/terminal", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const url = new URL(request.url); const target = url.searchParams.get("session"); const sessionId = url.searchParams.get("sessionId"); const rawOffset = url.searchParams.get("offset"); const waitMs = Math.max(0, Math.min(25_000, Number(url.searchParams.get("waitMs") ?? 0) || 0)); if (!target) return Response.json({ error: "REMOTE_SESSION_REQUIRED" }, { status: 400 }); const offset = rawOffset === null ? undefined : Number(rawOffset); if (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0)) return Response.json({ error: "REMOTE_OFFSET_INVALID" }, { status: 400 }); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; if (target !== LOCAL_SESSION_ID && !agent) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { await state.ready; return Response.json(await state.terminalOutput(agent, target, offset, waitMs, request.signal, url.searchParams.get("streamId")), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); } } }), "dsh-remote-ops terminal route");
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/update", methods: ["GET", "POST"], requestBody: "buffered", fetch: async (request) => { try { await state.ready; if (request.method === "POST") return Response.json(await state.upgrade(), { headers: { "Cache-Control": "no-store" } }); return Response.json(await state.checkForUpdate(), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); } } }), "dsh-remote-ops update route");
-  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const localTerminalAction = body.session === LOCAL_SESSION_ID && ["send", "input", "signal"].includes(body.action); const localSftpAction = body.action === "sftp" && body.operation === "local-list"; let agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action) && !localTerminalAction && !localSftpAction) { try { agent = await state.resolveOwner(body.sessionId); } catch (error) { return Response.json({ error: summarizeError(error), ...describeFailure(error, "session-activation") }, { status: 400 }); } } if (!agent && !localActions.has(body.action) && !localTerminalAction && !localSftpAction) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = state.normalizeEnvironment({ ...body.environment, group: normalizeGroupName(body.environment?.group) }); const password = typeof body.password === "string" ? body.password : ""; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); if (password) { const previous = state.findEnvironment(environment.id); const reference = String(environment.passwordRef ?? "").trim() || previous?.passwordRef || defaultPasswordRef(environment.id); environment.passwordRef = await state.storePassword(reference, password); } value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") { const opened = await state.open(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024) }; } else if (body.action === "open-command") { const opened = await state.openDirect(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024), direct: true }; } else if (body.action === "send") value = await state.send(agent, body.session, { ...body, actor: "manual" }); else if (body.action === "input") value = await state.input(agent, body.session, body.text, "manual", body.clientId, body.streamId); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = body.operation === "local-list" ? await state.listLocalFiles(body.path) : await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), ...describeFailure(error, body.action) }, { status: 400 }); } } }), "dsh-remote-ops action route");
+  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const localTerminalAction = body.session === LOCAL_SESSION_ID && ["send", "input", "signal"].includes(body.action); const localSftpAction = body.action === "sftp" && body.operation === "local-list"; let agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action) && !localTerminalAction && !localSftpAction) { try { agent = await state.resolveOwner(body.sessionId); } catch (error) { return Response.json({ error: summarizeError(error), ...describeFailure(error, "session-activation") }, { status: 400 }); } } if (!agent && !localActions.has(body.action) && !localTerminalAction && !localSftpAction) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = state.normalizeEnvironment({ ...body.environment, group: normalizeGroupName(body.environment?.group) }); const password = typeof body.password === "string" ? body.password : ""; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); if (password) { const previous = state.findEnvironment(environment.id); const reference = String(environment.passwordRef ?? "").trim() || previous?.passwordRef || defaultPasswordRef(environment.id); environment.passwordRef = await state.storePassword(reference, password); } value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") { const opened = await state.open(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024) }; } else if (body.action === "open-command") { const opened = await state.openDirect(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024), direct: true }; } else if (body.action === "send") value = await state.send(agent, body.session, { ...body, actor: "manual" }); else if (body.action === "input") value = await state.input(agent, body.session, body.text, "manual", body.streamId); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = body.operation === "local-list" ? await state.listLocalFiles(body.path) : await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), ...describeFailure(error, body.action) }, { status: 400 }); } } }), "dsh-remote-ops action route");
 
 }

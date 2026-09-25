@@ -388,6 +388,19 @@ test("registered terminal tools can read the same local CMD as the UI", async (t
   const sending = registered.get("remote_terminal_send").execute({ session: "local-cmd", text: "slow", quietMs: 1000, timeoutSeconds: 2 }, { ...exec, signal: controller.signal });
   setTimeout(() => controller.abort(), 10);
   assert.equal((await sending).waitReason, "cancelled");
+  const invoke = async (path, body) => {
+    const response = await routes.get("/api/dsh-remote-ops/" + path).fetch(new Request("http://localhost/" + path, { method: "POST", body: JSON.stringify({ sessionId: exec.agent.id, ...body }) }));
+    return { status: response.status, body: await response.json() };
+  };
+  await invoke("workspace", { action: "control", session: "local-cmd", control: "takeover" });
+  for (const text of ["browser one ", "browser two"]) assert.equal((await invoke("action", { action: "input", session: "local-cmd", streamId: frame.streamId, text })).status, 200);
+  await assert.rejects(registered.get("remote_terminal_input").execute({ session: "local-cmd", text: "blocked" }, exec), { code: "TERMINAL_MANUAL_CONTROL" });
+  const stale = await invoke("action", { action: "input", session: "local-cmd", streamId: "old-stream", text: "must not write" });
+  assert.equal(stale.status, 400);
+  assert.equal(stale.body.code, "TERMINAL_STREAM_CHANGED");
+  assert.deepEqual((await invoke("workspace", { action: "control", session: "local-cmd", control: "release" })).body, { holder: "available", waiting: false });
+  await registered.get("remote_terminal_input").execute({ session: "local-cmd", text: "released" }, exec);
+  assert.deepEqual(ctx.terminals[0].writes.slice(-3), ["browser one ", "browser two", "released"]);
 });
 
 test("manual session activation resumes the existing host owner without a model prompt", async (t) => {
@@ -415,18 +428,18 @@ test("entering an environment reuses one connection and returns choices without 
 test("manual typing blocks Agent writes until released and takeover does not send Ctrl+C", async (t) => {
   const { state, terminal } = await terminalFixture(t);
   const owner = { id: "agent" };
-  await state.input(owner, "local-cmd", "draft ", "manual", "test-window");
+  await state.input(owner, "local-cmd", "draft ", "manual");
   await assert.rejects(state.send(owner, "local-cmd", { text: "injected" }), { code: "TERMINAL_MANUAL_CONTROL" });
   await assert.rejects(state.input(owner, "local-cmd", "injected"), { code: "TERMINAL_MANUAL_CONTROL" });
-  await state.control(owner, "local-cmd", "release", "test-window");
+  await state.control(owner, "local-cmd", "release");
   const pending = state.send(owner, "local-cmd", { text: "echo hello", quietMs: 1000 });
   await new Promise(resolve => setTimeout(resolve, 5));
-  await assert.rejects(state.input(owner, "local-cmd", "unsafe", "manual", "test-window"), { code: "TERMINAL_AGENT_ACTIVE" });
-  await state.control(owner, "local-cmd", "takeover", "test-window");
+  await assert.rejects(state.input(owner, "local-cmd", "unsafe", "manual"), { code: "TERMINAL_AGENT_ACTIVE" });
+  await state.control(owner, "local-cmd", "takeover");
   assert.equal((await pending).waitReason, "wait_stopped");
   assert.deepEqual(terminal.writes, ["draft ", "echo hello\r"]);
-  await state.input(owner, "local-cmd", "response", "manual", "test-window");
-  assert.equal((await state.terminalOutput(owner, "local-cmd")).control.holder, "manual", "test-window");
+  await state.input(owner, "local-cmd", "response", "manual");
+  assert.equal((await state.terminalOutput(owner, "local-cmd")).control.holder, "manual");
 });
 
 test("takeover can stop the backend wait when Harness wraps its public operation", async t => {
@@ -436,7 +449,7 @@ test("takeover can stop the backend wait when Harness wraps its public operation
   await new Promise(resolve => setTimeout(resolve, 5));
   const operation = state.localSession.pendingSend;
   state.localSession.pendingSend = { done: operation.done };
-  await state.control(owner, "local-cmd", "takeover", "test-window");
+  await state.control(owner, "local-cmd", "takeover");
   assert.equal((await pending).waitReason, "wait_stopped");
 });
 
@@ -447,33 +460,39 @@ test("host activation errors preserve the original error cause", async t => {
   await assert.rejects(state.resolveOwner("cold"), error => error.code === "HOST_TEST" && error.cause === cause);
 });
 
-test("connection labels remain distinct and stable when another connection closes", async t => {
-  const { state } = await terminalFixture(t);
+test("connections use environment names and exact session ids without numbered names or notes", async t => {
+  const { state, ctx } = await terminalFixture(t);
+  ctx.terminals.kill = async (_owner, id) => { assert.equal(id, "two"); };
   const owner = { id: "labels" };
   const environment = await state.saveEnvironment({ host: "localhost", username: "test", name: "target" });
   for (const sessionId of ["one", "two", "three"]) state.sessions.set(sessionId, { sessionId, ownerId: owner.id, owner, environment, session: fakeRemoteSession() });
   const before = state.snapshot(owner).sessions.filter(x => x.kind === "ssh");
-  assert.equal(new Set(before.map(x => x.displayName)).size, 3);
-  await state.renameConnection(owner, "two", "logs");
-  state.sessions.delete("one");
+  assert.deepEqual(before.map(x => x.name), ["target", "target", "target"]);
+  for (const item of before) {
+    for (const key of ["displayName", "connectionNumber", "note"]) assert.equal(Object.hasOwn(item, key), false);
+  }
+  assert.deepEqual((await state.enter(owner, environment.id)).choices.map(x => x.sessionId), ["one", "two", "three"]);
+  await assert.rejects(state.close({ id: "foreign" }, "two"), { code: "FOREIGN_SESSION" });
+  await state.close(owner, "two");
   const after = state.snapshot(owner).sessions.filter(x => x.kind === "ssh");
-  assert.equal(after.find(x => x.sessionId === "three").displayName, before[2].displayName);
-  assert.match(after.find(x => x.sessionId === "two").displayName, /logs/);
-  await assert.rejects(state.renameConnection({ id: "foreign" }, "two", "bad"), { code: "FOREIGN_SESSION" });
+  assert.deepEqual(after.map(x => x.sessionId), ["one", "three"]);
+  assert.deepEqual(after.map(x => x.name), ["target", "target"]);
 });
 
-test("two browser windows cannot interleave manual input or release each other's control", async t => {
+test("manual input is shared across browsers without an identity while Agent coordination remains", async t => {
   const { state, terminal } = await terminalFixture(t);
   const owner = { id: "windows" };
-  await state.input(owner, "local-cmd", "first", "manual", "window-a");
-  await assert.rejects(state.input(owner, "local-cmd", "wrong", "manual", "window-b"), { code: "TERMINAL_OTHER_WINDOW" });
-  await assert.rejects(state.control(owner, "local-cmd", "release", "window-b"), { code: "TERMINAL_OTHER_WINDOW" });
-  await state.control(owner, "local-cmd", "takeover", "window-b");
-  await assert.rejects(state.input(owner, "local-cmd", "stale", "manual", "window-a"), { code: "TERMINAL_OTHER_WINDOW" });
-  await state.input(owner, "local-cmd", "second", "manual", "window-b");
-  assert.deepEqual(terminal.writes, ["first", "second"]);
-  assert.equal((await state.terminalOutput(owner, "local-cmd")).control.clientId, "window-b");
-  await assert.rejects(state.input(owner, "local-cmd", "old stream", "manual", "window-b", "stale-stream"), { code: "TERMINAL_STREAM_CHANGED" });
+  const stream = (await state.terminalOutput(owner, "local-cmd")).streamId;
+  await state.input(owner, "local-cmd", "first ", "manual");
+  await state.input(owner, "local-cmd", "second", "manual", stream);
+  await assert.rejects(state.input(owner, "local-cmd", "agent write"), { code: "TERMINAL_MANUAL_CONTROL" });
+  assert.deepEqual((await state.terminalOutput(owner, "local-cmd")).control, { holder: "manual", waiting: false });
+  await state.control(owner, "local-cmd", "release");
+  await state.input(owner, "local-cmd", "agent write");
+  await state.control(owner, "local-cmd", "takeover");
+  await assert.rejects(state.input(owner, "local-cmd", "old stream", "manual", "stale-stream"), { code: "TERMINAL_STREAM_CHANGED" });
+  await assert.rejects(state.send(owner, "local-cmd", { text: "old send", actor: "manual", streamId: "stale-stream" }), { code: "TERMINAL_STREAM_CHANGED" });
+  assert.deepEqual(terminal.writes, ["first ", "second", "agent write"]);
 });
 
 test("tool receipts record actual returned ranges without treating UI reads as model reads", async t => {

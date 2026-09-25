@@ -13,6 +13,7 @@ test("workspace activates a host owner and browser routes stream upload/download
   const state = {
     ready: Promise.resolve(),
     resolveOwner: async id => { calls.push(id); return { id }; },
+    control: async (owner, target, action) => { assert.deepEqual({ owner, target, action }, { owner: { id: "cold" }, target: "ssh-one", action: "release" }); return { holder: "available", waiting: false }; },
     connectFiles: async () => new HostFiles(),
     transfers: new TransferManager(async () => new HostFiles()),
   };
@@ -20,6 +21,12 @@ test("workspace activates a host owner and browser routes stream upload/download
   const workspace = routes.get("/api/dsh-remote-ops/workspace");
   const activation = await workspace.fetch(new Request("http://localhost/workspace", { method: "POST", body: JSON.stringify({ action: "activate", sessionId: "cold" }) }));
   assert.deepEqual(await activation.json(), { bound: true });
+  const control = await workspace.fetch(new Request("http://localhost/workspace", { method: "POST", body: JSON.stringify({ action: "control", sessionId: "cold", session: "ssh-one", control: "release" }) }));
+  assert.equal(control.status, 200);
+  assert.deepEqual(await control.json(), { holder: "available", waiting: false });
+  const removed = await workspace.fetch(new Request("http://localhost/workspace", { method: "POST", body: JSON.stringify({ action: "connection-rename", sessionId: "cold", session: "ssh-one", note: "removed" }) }));
+  assert.equal(removed.status, 400);
+  assert.equal((await removed.json()).code, "REMOTE_ACTION_INVALID");
   const route = routes.get("/api/dsh-remote-ops/browser-file");
   const uploadRoute = routes.get("/api/dsh-remote-ops/browser-upload");
   assert.equal(route.requestBody, "buffered");

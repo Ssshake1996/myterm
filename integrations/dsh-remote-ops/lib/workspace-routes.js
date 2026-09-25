@@ -18,8 +18,7 @@ export function registerWorkspaceRoutes(ctx, state) {
         const owner = (localControl || localList || body.action === "diagnostics") ? ctx.agents.get(body.sessionId) : await state.resolveOwner(body.sessionId);
         if (body.action === "activate") return json({ bound: true });
         if (body.action === "enter") return json(await state.enter(owner, body.environment));
-        if (body.action === "control") return json(await state.control(owner, body.session, body.control, body.clientId));
-        if (body.action === "connection-rename") return json(await state.renameConnection(owner, body.session, body.note));
+        if (body.action === "control") return json(await state.control(owner, body.session, body.control));
         if (body.action === "command-execute") return json(await state.execute(owner, body.session, { ...body, signal: request.signal }));
         if (body.action === "command-cancel") return json(state.cancelCommand(owner, body.requestId));
         if (body.action === "files") return json(await state.listFiles(body.endpoint, request.signal));

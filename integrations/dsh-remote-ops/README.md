@@ -37,7 +37,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.20.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.21.tgz
 dsh web
 ```
 
@@ -86,7 +86,7 @@ key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.20 exposes environment list/create/update/delete, group management,
+Version 0.2.21 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells
@@ -141,15 +141,17 @@ There is no stdin. Timeout/cancellation does not prove a remote process stopped.
 Limits: 30 seconds by default, 300 seconds maximum, 64 KiB per output stream by
 default, 256 KiB maximum, one active command per target and eight total.
 
-Connections have stable runtime numbers and optional notes. Disconnected tabs
-retain their output until dismissed; reconnection is explicit and never replays
-commands. Browser windows have separate input identities and require explicit
-takeover. Recreated terminal streams require input acknowledgement.
+Connections use their environment name; exact session IDs still select and close
+individual connections. Disconnected tabs retain their output until dismissed;
+reconnection is explicit and never replays commands. Manual input is shared
+across browser windows, without per-window locks or takeover. Human/Agent input
+coordination remains; simultaneous manual input can interleave. Recreated
+terminal streams require input acknowledgement.
 
 SFTP remembers endpoint, path, sort, scroll and bookmarks per Harness session
 in browser storage. Transfer results include per-item state; retries skip
-completed items. Overwrite previews show both sizes and timestamps. Tasks,
-connection notes and receipts are runtime-only, not cross-restart persistence.
+completed items. Overwrite previews show both sizes and timestamps. Tasks and
+receipts are runtime-only, not cross-restart persistence.
 
 The lightweight terminal supports alternate screens, scroll regions and charset
 selection escapes. Full-screen grids do not soft-wrap. The current Harness
