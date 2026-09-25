@@ -37,7 +37,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.21.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.22.tgz
 dsh web
 ```
 
@@ -67,7 +67,9 @@ selected Harness session.
 
 - Enter reuses an existing connection or offers a chooser; the separate plus action opens a new connection (maximum three per environment and owner). Inspect owner/activity and release individual connections. Hosts exposing `sessionController.resolveAgent` can resume a saved session without a model prompt; an unsaved draft is not an SSH owner.
 - Manual input holds the terminal until explicitly returned to the Agent. Takeover, stop-wait, Ctrl+C and connection release are separate operations. The Agent receives `TERMINAL_MANUAL_CONTROL` instead of interleaved input. Adopted backends that cannot stop a wait without interruption report that limitation.
-- Quick commands have a multiline editor, explicit target and input preview. Multiline paste requires confirmation. Search/copy, font size, wrapping and quick-dock height are available; browser preferences persist. The outer Sidebar width remains owned by Harness.
+- Quick buttons below terminal output dispatch the complete saved command plus Enter to the currently visible terminal without a model round trip. Management supports multiline editing, groups, search, ordering, pin/unpin and optional confirmation. Unpinning retains the library entry; deletion requires confirmation. Multiline paste still requires confirmation.
+- The dock opens by default and remembers its height and collapsed state. Drag its top border with a mouse or touch, use arrow keys, or double-click to restore 190px. Height is bounded by actual plugin space, not two rows or 360px, and preserves a minimum terminal viewport. The command list scrolls internally. The outer Sidebar width remains owned by Harness.
+- Dispatch captures the owner, exact terminal, stream and command revision. It neither reconnects nor switches targets. A bounded in-memory receipt cache deduplicates the same request for ten minutes (1024 entries maximum); the UI never automatically retries an uncertain write. Written means accepted by the terminal, not completed. Unsubmitted input from this browser blocks dispatch, but arbitrary interactive-program state and edits from other browsers cannot be inferred. Active Agent input is rejected, not automatically taken over.
 - Both file panes independently select the DSH host or an SSH environment. Browser upload/download refers to the browser device. Files and directories can be selected together; SSH-to-SSH copies stream through the DSH host. Upload/download no longer buffer entire files or impose a 2 MiB limit.
 - Transfers report bytes/files, cancellation and error/skip/overwrite conflict policies. Tool overwrite requires `overwrite: true`. Two jobs run concurrently, at most 20 are pending/running and 50 recent records are kept. Jobs are not resumed across restarts. Cancellation removes incomplete staging files, not already completed files/directories. Symlinks/devices are not followed; traversal is limited to depth 32 and 10,000 entries. Remote overwrite requires the atomic rename extension.
 - Errors retain phase, code and original causes. Diagnostic export previews a metadata whitelist without credentials, command text, host addresses or terminal content.
@@ -86,7 +88,7 @@ key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.21 exposes environment list/create/update/delete, group management,
+Version 0.2.22 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells
@@ -121,7 +123,7 @@ foreground process; a wait timeout alone does not kill it.
 The terminal status bar distinguishes transport, Agent binding, and the last
 tool response range/time. A tool receipt is not proof that a model understood
 the output. Enlarged icon controls have tooltips. The quick-command dock
-starts collapsed; reading history is preserved across SFTP switches, and new
+remembers its expanded state; reading history is preserved across SFTP switches, and new
 output offers a jump to the latest line without taking over the scroll position.
 
 The client dependency on `sidebarRight` and `sidebarRightTabs` is optional at

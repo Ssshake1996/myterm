@@ -743,6 +743,120 @@ test("terminal send result reports exact submitted text and submit behavior", as
   }
 });
 
+test("quick buttons persist visibility, confirmation, order and exact multiline text", async t => {
+  const { state, ctx } = await terminalFixture(t);
+  const first = await state.saveQuickCommand({ id: "first", name: "状态", command: " echo  one\n echo 中文\n", group: "常用" });
+  assert.equal(first.pinned, true);
+  assert.equal(first.confirm, false);
+  assert.equal(typeof first.revision, "string");
+  await state.saveQuickCommand({ id: "second", name: "磁盘", command: "df -h", group: "其他" });
+  await state.moveQuickCommand("second", -1);
+  const edited = await state.saveQuickCommand({ ...first, pinned: false, confirm: true, expectedRevision: first.revision });
+  assert.notEqual(edited.revision, first.revision);
+  await assert.rejects(state.saveQuickCommand({ ...first, expectedRevision: first.revision }), /QUICK_COMMAND_CHANGED/);
+  const restored = new RemoteOpsState(ctx);
+  await restored.ready;
+  t.after(async () => { restored.disposed = true; await restored.localSession?.close(); });
+  const commands = restored.quickCommands.slice().sort((a, b) => a.order - b.order);
+  assert.deepEqual(commands.map(item => item.id), ["second", "first"]);
+  assert.equal(commands[1].pinned, false);
+  assert.equal(commands[1].confirm, true);
+  assert.equal(commands[1].command, " echo  one\n echo 中文\n");
+  await state.deleteQuickCommand("first");
+  assert.equal(state.quickCommands.some(item => item.id === "first"), false);
+  await assert.rejects(state.saveQuickCommand({ id: "blank", name: " ", command: "echo x" }), /QUICK_COMMAND_INVALID/);
+  await assert.rejects(state.saveQuickCommand({ id: "blank", name: "x", command: " " }), /QUICK_COMMAND_INVALID/);
+});
+
+test("quick dispatch writes once without waiting for command output and reuses its receipt", async t => {
+  const { state, terminal } = await terminalFixture(t);
+  const command = await state.saveQuickCommand({ id: "health", name: "健康", command: "echo  one\r\necho 中文\n" });
+  const body = { requestId: "quick-test-one", commandId: command.id, revision: command.revision, session: "local-cmd", streamId: state.localSession.outputBuffer.streamId };
+  let finishWrite;
+  terminal.write = text => { terminal.writes.push(text); return new Promise(resolve => { finishWrite = resolve; }); };
+  const first = state.dispatchQuick(undefined, body);
+  const retry = state.dispatchQuick(undefined, { ...body });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(terminal.writes, ["echo  one\recho 中文\r"]);
+  finishWrite();
+  const receipt = await first;
+  assert.equal(receipt.status, "written");
+  assert.equal(receipt.completion, "unknown");
+  assert.equal(receipt.sessionId, "local-cmd");
+  assert.deepEqual(await retry, receipt);
+  assert.deepEqual(await state.dispatchQuick(undefined, body), receipt);
+  await assert.rejects(state.dispatchQuick(undefined, { ...body, revision: "different" }), /QUICK_REQUEST_CONFLICT/);
+  assert.equal(terminal.writes.length, 1);
+  await assert.rejects(state.input(undefined, "local-cmd", "agent"), /TERMINAL_MANUAL_CONTROL/);
+});
+
+test("renaming a quick group invalidates an editor opened before the rename", async t => {
+  const { state } = await terminalFixture(t);
+  const original = await state.saveQuickCommand({ id: "rename", name: "检查", command: "echo yes", group: "before" });
+  await state.renameQuickGroup("before", "after");
+  await assert.rejects(state.saveQuickCommand({ ...original, expectedRevision: original.revision }), /QUICK_COMMAND_CHANGED/);
+  assert.equal(state.quickCommands[0].group, "after");
+  assert.equal(state.quickGroups.has("before"), false);
+});
+
+test("quick dispatch refuses stale targets, changed commands, confirmation and busy Agent", async t => {
+  const { state, terminal } = await terminalFixture(t);
+  const command = await state.saveQuickCommand({ id: "safe", name: "确认", command: "echo yes", confirm: true });
+  const body = { requestId: "guard", commandId: command.id, revision: command.revision, session: "local-cmd", streamId: state.localSession.outputBuffer.streamId };
+  await assert.rejects(state.dispatchQuick(undefined, body), /QUICK_CONFIRM_REQUIRED/);
+  await assert.rejects(state.dispatchQuick(undefined, { ...body, requestId: "stream", confirmed: true, streamId: "old" }), /TERMINAL_STREAM_CHANGED/);
+  await assert.rejects(state.dispatchQuick(undefined, { ...body, requestId: "revision", confirmed: true, revision: "old" }), /QUICK_COMMAND_CHANGED/);
+  state.localSession.inputHolder = "agent";
+  state.localSession.pendingSend = { done: Promise.resolve() };
+  await assert.rejects(state.dispatchQuick(undefined, { ...body, requestId: "agent", confirmed: true }), /TERMINAL_AGENT_ACTIVE/);
+  state.localSession.pendingSend = undefined;
+  const remote = fakeRemoteSession();
+  remote.writeInput = text => { terminal.writes.push(text); return { accepted: true }; };
+  state.sessions.set("ssh-exact", { sessionId: "ssh-exact", ownerId: "owner", environment: { id: "env", name: "SSH" }, session: remote });
+  await assert.rejects(state.dispatchQuick({ id: "foreign" }, { ...body, requestId: "foreign", session: "ssh-exact", streamId: remote.outputBuffer.streamId, confirmed: true }), /FOREIGN_SESSION/);
+  assert.equal(terminal.writes.length, 0);
+  const sent = await state.dispatchQuick({ id: "owner" }, { ...body, requestId: "remote", session: "ssh-exact", streamId: remote.outputBuffer.streamId, confirmed: true });
+  assert.equal(sent.sessionId, "ssh-exact");
+  assert.deepEqual(terminal.writes, ["echo yes\r"]);
+  await state.localSession.close();
+  await assert.rejects(state.dispatchQuick(undefined, { ...body, requestId: "closed", confirmed: true }), /REMOTE_SESSION_EXITED/);
+});
+
+test("failed quick write stays uncertain and a retry never repeats a possibly accepted write", async t => {
+  const { state, terminal } = await terminalFixture(t);
+  const command = await state.saveQuickCommand({ id: "fail", name: "写入", command: "echo unknown" });
+  terminal.write = async text => { terminal.writes.push(text); throw Object.assign(new Error("transport disconnected after write"), { code: "EPIPE" }); };
+  const body = { requestId: "uncertain", commandId: command.id, revision: command.revision, session: "local-cmd", streamId: state.localSession.outputBuffer.streamId };
+  const one = await state.dispatchQuick(undefined, body);
+  assert.equal(one.status, "unknown");
+  assert.equal(one.error.code, "EPIPE");
+  assert.match(one.error.details, /transport disconnected after write/);
+  assert.deepEqual(await state.dispatchQuick(undefined, body), one);
+  assert.equal(terminal.writes.length, 1);
+});
+
+test("quick button HTTP dispatch works before Agent binding and reports stale stream with original phase", async t => {
+  const { state, terminal } = await terminalFixture(t);
+  const { registerWorkspaceRoutes } = await import("../lib/workspace-routes.js");
+  const routes = new Map();
+  registerWorkspaceRoutes({ effect: fn => fn(), agents: { get: () => undefined }, connection: { fetch: { register: route => routes.set(route.path, route) } } }, state);
+  const command = await state.saveQuickCommand({ id: "http", name: "HTTP", command: "echo route" });
+  const route = routes.get("/api/dsh-remote-ops/workspace");
+  const body = { action: "quick.dispatch", session: "local-cmd", commandId: command.id, revision: command.revision, requestId: "http-request", streamId: state.localSession.outputBuffer.streamId };
+  const post = value => route.fetch(new Request("http://localhost/workspace", { method: "POST", body: JSON.stringify(value) }));
+  const response = await post(body);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).status, "written");
+  assert.equal((await post(body)).status, 200);
+  assert.deepEqual(terminal.writes, ["echo route\r"]);
+  const failed = await post({ ...body, requestId: "http-stale", streamId: "stale" });
+  const error = await failed.json();
+  assert.equal(failed.status, 400);
+  assert.equal(error.code, "TERMINAL_STREAM_CHANGED");
+  assert.equal(error.stage, "quick.dispatch");
+  assert.match(error.details, /TERMINAL_STREAM_CHANGED/);
+});
+
 test("environment and quick-command persistence survives a state reload", async () => {
   const root = await mkdtemp(join(tmpdir(), "dsh-remote-ops-test-"));
   const previousHome = process.env.DSH_HOME;

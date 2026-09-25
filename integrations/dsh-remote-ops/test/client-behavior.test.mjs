@@ -111,9 +111,96 @@ test("terminal preferences clamp invalid values and paste previews stay pinned t
   assert.deepEqual(JSON.parse(JSON.stringify(matches("One\none two\nthree","one"))), [0,1]);
 });
 
+test("quick pane grows beyond two rows, clamps to available terminal space and retains saved height", () => {
+  const bounds = loadClientFunction("quickPaneHeight", "\n    const quickCommandList");
+  assert.equal(bounds(480, 900, 220), 480);
+  assert.equal(bounds(900, 600, 240), 360);
+  assert.equal(bounds(20, 900, 220), 92);
+  const prefs = loadClientFunction("terminalPreferences", "\n    const pasteSubmission");
+  assert.equal(prefs({ quickHeight: 560 }).quickHeight, 560);
+  assert.equal(bounds(prefs({ quickHeight: 560 }).quickHeight, 900, 220), 560);
+});
+
+test("quick dispatch waits for locally typed text or history until Enter or cancellation", () => {
+  const pending = loadClientFunction("terminalDraftPending", "\n    const quickPaneHeight");
+  assert.equal(pending(false, "echo 中文 "), true);
+  assert.equal(pending(true, "\u007f"), true);
+  assert.equal(pending(true, "\r"), false);
+  assert.equal(pending(true, "\u0003"), false);
+  assert.equal(pending(false, "\u001b[A"), true);
+  assert.equal(pending(false, "echo one\recho two"), true);
+});
+
+test("quick command search includes Chinese and command text without running or hiding unpinned library entries", () => {
+  const list = loadClientFunction("quickCommandList", "\n    const quickDispatchDraft");
+  const commands = [{ id: "a", name: "磁盘", command: "df -h", group: "常用", pinned: true, order: 2 }, { id: "b", name: "状态", command: "systemctl status", group: "服务", pinned: false, order: 1 }];
+  assert.deepEqual(Array.from(list(commands, "", "", true), item => item.id), ["a"]);
+  assert.deepEqual(Array.from(list(commands, "STATUS", "", false), item => item.id), ["b"]);
+  assert.deepEqual(Array.from(list(commands, "磁盘", "常用", true), item => item.id), ["a"]);
+  assert.deepEqual(commands.map(item => item.id), ["a", "b"]);
+});
+
+test("quick command confirmation retains target and revision and rejects an owner or stream switch", () => {
+  const draft = loadClientFunction("quickDispatchDraft", "\n    const quickDraftValid");
+  const valid = loadClientFunction("quickDraftValid", "\n    function QuickCommands");
+  const command = { id: "one", name: "状态", command: "echo a", revision: "v1" };
+  const target = { sessionId: "ssh-one", name: "SSH" };
+  const value = draft(command, target, { streamId: "stream-one" }, "owner", "request");
+  command.command = "changed"; target.sessionId = "ssh-two";
+  assert.equal(value.command, "echo a");
+  assert.equal(value.session, "ssh-one");
+  assert.equal(value.revision, "v1");
+  assert.equal(valid(value, "owner", "ssh-one", "stream-one"), true);
+  assert.equal(valid(value, "other", "ssh-one", "stream-one"), false);
+  assert.equal(valid(value, "owner", "ssh-two", "stream-one"), false);
+  assert.equal(valid(value, "owner", "ssh-one", "stream-new"), false);
+});
+
 test("file requests contain endpoint identity, not directory rows or checkbox state", () => {
   const endpoint = loadClientFunction("fileEndpoint", "\n    function SftpWorkspace");
   assert.deepEqual(JSON.parse(JSON.stringify(endpoint({kind:"host",path:"C:/work",entries:["private"],selected:["a"],draft:"unsubmitted"}))), {kind:"host",path:"C:/work"});
+});
+
+test("quick buttons dispatch directly once and confirmation never follows a target switch", async () => {
+  let cursor = 0;
+  const hooks = [], calls = [];
+  let finish;
+  const render = loadClientFunction("QuickCommands", "\n    function RemoteOpsPanel", "quickPaneHeight", {
+    h: (tag, props, ...children) => ({ tag, props: props ?? {}, children: children.flat(Infinity).filter(Boolean) }),
+    React: { Fragment: "fragment" },
+    useState(initial) { const index = cursor++; if (!(index in hooks)) hooks[index] = typeof initial === "function" ? initial() : initial; return [hooks[index], value => { hooks[index] = typeof value === "function" ? value(hooks[index]) : value; }]; },
+    useRef(initial) { const index = cursor++; return hooks[index] ??= { current: initial }; },
+    useEffect() {}, useCallback: value => value,
+    crypto: { randomUUID: () => `request-${calls.length}` },
+    request: async (_path, init) => { calls.push(JSON.parse(init.body)); return new Promise(resolve => { finish = () => resolve({ status: "written" }); }); },
+    IconPlayOutline16: "play", IconPlusOutline16: "plus", IconSettingsOutline16: "settings", IconCloseOutline16: "close", IconChevronDownOutline14: "down", IconChevronUpOutline14: "up", IconEditOutline16: "edit", IconSearchOutline16: "search",
+  });
+  const props = { commands: [{ id: "one", name: "状态", command: "echo x", revision: "v1", pinned: true, confirm: false }], groups: [], owner: "owner", target: { sessionId: "one", name: "SSH" }, frame: { streamId: "stream" }, ready: true, open: true, height: 190, setOpen() {}, setHeight() {}, inputPending: () => false, refresh: async () => {} };
+  const tree = () => { cursor = 0; return render(props); };
+  const find = (node, label) => node?.props?.["aria-label"] === label ? node : node?.children?.map(child => find(child, label)).find(Boolean);
+  const button = find(tree(), "执行 状态");
+  const sending = button.props.onClick({ detail: 1 });
+  button.props.onClick({ detail: 1 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].action, "quick.dispatch");
+  assert.equal(calls[0].session, "one");
+  assert.equal(find(tree(), "执行 状态").props.disabled, true);
+  finish(); await sending;
+  assert.match(JSON.stringify(tree()), /已写入终端/);
+  props.commands[0] = { ...props.commands[0], confirm: true };
+  find(tree(), "执行 状态").props.onClick({ detail: 1 });
+  assert.equal(calls.length, 1);
+  const confirm = find(tree(), "确认下发");
+  assert.ok(confirm);
+  props.target = { sessionId: "two", name: "Other" }; tree();
+  await confirm.props.onClick();
+  assert.equal(calls.length, 1);
+  find(tree(), "关闭快捷命令弹窗").props.onClick();
+  props.action = async () => ({ pinned: false });
+  find(tree(), "管理快捷命令").props.onClick();
+  find(tree(), "显示按钮 状态").props.onChange({ target: { checked: false } });
+  assert.equal(find(tree(), "显示按钮 状态").props.checked, false);
+  assert.equal(calls.length, 1, "management never dispatches a command");
 });
 
 test("browser failures retain HTTP status, phase, code and original stack", () => {

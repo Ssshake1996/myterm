@@ -2,7 +2,7 @@ window.__ModuleLoader__.load({
   id: "@dsh/remote-ops",
   factory: (require) => {
     const React = require("react");
-    const { IconStopFill16, IconRefreshOutline16, IconDownloadOutline16, IconPanelLeftOutline16, IconCopyOutline16, IconEditOutline16, IconFolderClose16, IconPlayOutline16, IconSearchOutline16 } = require("@deepseek-ai/dsh-client-ui-primitives");
+    const { IconStopFill16, IconRefreshOutline16, IconDownloadOutline16, IconPanelLeftOutline16, IconCopyOutline16, IconEditOutline16, IconFolderClose16, IconPlayOutline16, IconSearchOutline16, IconPlusOutline16, IconSettingsOutline16, IconCloseOutline16, IconChevronDownOutline14, IconChevronUpOutline14 } = require("@deepseek-ai/dsh-client-ui-primitives");
     const { createElement: h, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } = React;
     const NS = "dshRemoteOps";
     const TAB_ID = "@dsh/remote-ops";
@@ -72,9 +72,29 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__sftpPaneHead select{flex-basis:90px}.dsh-remote-ops__sftpPaneHead button[aria-pressed=true]{color:#c78100}
       @container(max-width:600px){.dsh-remote-ops__sftpSplit{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) minmax(0,1fr)}.dsh-remote-ops__sftpPane+.dsh-remote-ops__sftpPane{border-left:0;border-top:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__quickItems{grid-template-columns:1fr}.dsh-remote-ops__sftpSize{width:50px}}
     `;
+    if (remoteOpsStyle) remoteOpsStyle.textContent += `
+      .dsh-remote-ops__quickDock{min-height:0;max-height:none;overflow:hidden;background:var(--dsw-alias-bg-base,#fff)}
+      .dsh-remote-ops__quickResize{height:12px;border-top:1px solid var(--dsw-alias-border-l2,#d8dce5);outline-offset:-2px}
+      .dsh-remote-ops__quickHead{flex-wrap:nowrap;padding:3px 8px;border:0;min-height:36px;box-sizing:border-box}
+      .dsh-remote-ops__quickIdentity{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;overflow:hidden}
+      .dsh-remote-ops__quickIdentity small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#667085)}
+      .dsh-remote-ops__quickIcon{display:inline-grid!important;place-items:center;width:30px;height:30px;flex:none;padding:5px!important}
+      .dsh-remote-ops__quickFilters{display:flex;gap:6px;padding:4px 8px 8px;flex:none}
+      .dsh-remote-ops__quickFilters input{flex:1;min-width:0}.dsh-remote-ops__quickFilters select{max-width:35%}
+      .dsh-remote-ops__quickButtons{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(138px,100%),1fr));grid-auto-rows:44px;align-content:start;gap:6px;padding:0 8px 8px;overflow:auto;min-height:0;flex:1;scrollbar-gutter:stable}
+      .dsh-remote-ops__quickButtons button{display:flex;align-items:center;gap:6px;min-width:0;border-radius:5px;padding:4px 8px;text-align:left}
+      .dsh-remote-ops__quickButtons svg{flex:none;color:var(--dsw-alias-state-success-primary,#267c50)}
+      .dsh-remote-ops__quickButtons span{overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere;font-size:12px;line-height:16px}
+      .dsh-remote-ops__quickReceipt{margin:0;padding:4px 8px;border-top:1px solid var(--dsw-alias-border-l3,#d8dce5);font-size:11px;max-height:72px;flex:none;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+      .dsh-remote-ops__quickLibrary{min-height:0;overflow:auto;max-height:42vh}.dsh-remote-ops__quickLibraryRow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l3,#d8dce5)}
+      .dsh-remote-ops__quickLibraryRow>span{flex:1;min-width:110px;overflow-wrap:anywhere}.dsh-remote-ops__quickLibraryRow small{display:block;color:var(--dsw-alias-label-secondary,#667085)}
+      .dsh-remote-ops__quickForm{display:flex;flex-direction:column;gap:10px}.dsh-remote-ops__quickCheck{flex-direction:row!important;align-items:center}
+      .dsh-remote-ops__quickModalHead{display:flex;align-items:center;gap:8px}.dsh-remote-ops__quickModalHead strong{flex:1;min-width:0}
+      .dsh-remote-ops__quickEmpty{grid-column:1/-1;font-size:12px;color:var(--dsw-alias-label-secondary,#667085);padding:8px 0}
+    `;
     const failureMessage = (value, status) => [value.title, `HTTP ${status}`, value.code, value.stage, value.error, value.details ?? value.stack, value.cleanupError].filter(Boolean).join("\n");
     async function request(path, init) { const response = await fetch(path, init); const text = await response.text(); let value = {}; try { value = text ? JSON.parse(text) : {}; } catch { throw new Error(`HTTP ${response.status}: ${text}`); } if (!response.ok) { const error = Object.assign(new Error(value.error ?? `HTTP ${response.status}`), value); error.message = failureMessage(value, response.status); throw error; } return value; }
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.2.21", update: { currentVersion: "0.2.21", latestVersion: "0.2.21", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.2.22", update: { currentVersion: "0.2.22", latestVersion: "0.2.22", updateAvailable: false } };
     const glyph = { environments: "▦", quick: "⌘", sftp: "⇄", diagnostics: "⌁" };
     const terminalScreenModel = (value, rows = 40, columns = 160) => {
       const source = String(value ?? "");
@@ -268,7 +288,7 @@ window.__ModuleLoader__.load({
     const terminalPreferences = (value = {}) => ({
       fontSize: Math.max(11, Math.min(22, Number(value.fontSize) || 13)),
       wrap: value.wrap !== false,
-      quickHeight: Math.max(92, Math.min(360, Number(value.quickHeight) || 190)),
+      quickHeight: Math.max(92, Math.min(4096, Number(value.quickHeight) || 190)),
     });
     const pasteSubmission = (draft, owner) => {
       if (draft.owner !== owner || !draft.session) throw new Error("PASTE_TARGET_CHANGED: 当前会话已改变，请重新选择目标");
@@ -463,11 +483,140 @@ window.__ModuleLoader__.load({
           h("strong", null, "stderr" + (result.stderrTruncated ? " · 已截断" : "")), h("pre", { "aria-label": "命令标准错误" }, result.stderr || "（空）")) : null
       ));
     }
+    const terminalDraftPending = (pending, text) => {
+      for (const char of text) { if (/[\r\n\u0003]/.test(char)) pending = false; else if (char >= " " || char === "\t" || char === "\u001b") pending = true; }
+      return pending;
+    };
+    const quickPaneHeight = (value, availableHeight, terminalReserve) => Math.max(0, Math.min(Math.max(92, Number(value) || 190), Math.max(0, availableHeight - terminalReserve)));
+    const quickCommandList = (commands, query = "", group = "", pinnedOnly = true) => commands.filter(item => (!pinnedOnly || item.pinned !== false) && (!group || item.group === group) && `${item.name}\n${item.command}\n${item.group}`.toLowerCase().includes(query.trim().toLowerCase())).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const quickDispatchDraft = (command, target, frame, owner, requestId) => ({ commandId: command.id, command: command.command, name: command.name, revision: command.revision, session: target?.sessionId, targetName: target?.name, streamId: frame?.streamId, owner, requestId });
+    const quickDraftValid = (draft, owner, session, streamId) => Boolean(draft?.session && draft.streamId && draft.owner === owner && draft.session === session && draft.streamId === streamId);
+    function QuickCommands({ commands, groups, owner, target, frame, ready, open, setOpen, height, setHeight, action, workspaceAction, inputPending, onSending, hidden = false }) {
+      const [query, setQuery] = useState("");
+      const [group, setGroup] = useState("");
+      const [manager, setManager] = useState(false);
+      const [editor, setEditor] = useState(null);
+      const [confirmation, setConfirmation] = useState(null);
+      const [receipt, setReceipt] = useState(null);
+      const [pending, setPending] = useState(false);
+      const [saving, setSaving] = useState(false);
+      const [pinDraft, setPinDraft] = useState(null);
+      const [failure, setFailure] = useState("");
+      const [bounds, setBounds] = useState({ available: 800, reserve: 240 });
+      const dock = useRef(null), drag = useRef(null), sending = useRef(false), editing = useRef(false), dialog = useRef(null);
+      const current = useRef(null);
+      current.current = { owner, target, frame, ready, commands, hidden };
+      const visibleHeight = quickPaneHeight(height, bounds.available, bounds.reserve);
+      useEffect(() => {
+        const node = dock.current, parent = node?.parentElement;
+        if (!parent) return;
+        const terminal = parent.querySelector(".dsh-remote-ops__terminal"), screen = parent.querySelector(".dsh-remote-ops__screen");
+        const measure = () => setBounds({ available: parent.clientHeight, reserve: Math.max(160, (terminal?.clientHeight ?? 0) - (screen?.clientHeight ?? 0) + 100) });
+        const observer = new ResizeObserver(measure);
+        observer.observe(parent); if (terminal) observer.observe(terminal);
+        measure(); return () => observer.disconnect();
+      }, [open, hidden]);
+      useEffect(() => { setConfirmation(null); setReceipt(null); setFailure(""); }, [owner]);
+      useEffect(() => { if (group && !groups.includes(group)) setGroup(""); }, [groups, group]);
+      useEffect(() => { if (pinDraft && commands.some(item => item.id === pinDraft.id && item.pinned === pinDraft.pinned)) setPinDraft(null); }, [commands, pinDraft]);
+      const modalOpen = Boolean(manager || editor || confirmation);
+      useEffect(() => {
+        if (!modalOpen) return;
+        const previous = document.activeElement;
+        dialog.current?.querySelector("input,button,textarea")?.focus({ preventScroll: true });
+        return () => previous?.isConnected && previous.focus({ preventScroll: true });
+      }, [modalOpen, Boolean(editor), Boolean(confirmation)]);
+      const iconButton = (label, Icon, onClick, disabled = false, extra = {}) => h("button", { type: "button", className: "dsh-remote-ops__quickIcon", "aria-label": label, title: label, disabled, onClick, ...extra }, h(Icon, { "aria-hidden": true }));
+      const closeEditor = () => { if (!saving && (!editor || JSON.stringify(editor.value) === editor.original || window.confirm("放弃未保存的修改？"))) { setEditor(null); setFailure(""); } };
+      const closeModal = () => { if (saving || pending) return; if (editor) closeEditor(); else { setManager(false); setConfirmation(null); setFailure(""); } };
+      const modal = (title, content) => h("div", { className: "dsh-remote-ops__modalBackdrop" }, h("section", { className: "dsh-remote-ops__modal", role: "dialog", "aria-modal": true, "aria-label": title, ref: dialog, onKeyDown: event => {
+        if (event.key === "Escape") { event.stopPropagation(); closeModal(); }
+        if (event.key !== "Tab") return;
+        const controls = [...event.currentTarget.querySelectorAll("button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex='0']")];
+        const first = controls[0], last = controls.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      } }, h("div", { className: "dsh-remote-ops__quickModalHead" }, h("strong", null, title), iconButton("关闭快捷命令弹窗", IconCloseOutline16, closeModal, saving || pending, { className: "dsh-remote-ops__quickIcon dsh-remote-ops__dangerAction" })), content, failure ? h("pre", { role: "alert", className: "dsh-remote-ops__dangerAction" }, failure) : null));
+      const startEditor = item => {
+        const value = { id: item?.id ?? crypto.randomUUID(), name: item?.name ?? "", command: item?.command ?? "", group: item?.group ?? (group || groups[0] || "常用"), pinned: item?.pinned ?? true, confirm: item?.confirm ?? false, ...(item?.revision ? { expectedRevision: item.revision } : {}) };
+        setEditor({ value, original: JSON.stringify(value), existing: Boolean(item) }); setFailure("");
+      };
+      const change = (field, value) => setEditor(previous => ({ ...previous, value: { ...previous.value, [field]: value } }));
+      const mutate = async (body, workspace = false) => {
+        if (editing.current) return;
+        editing.current = true; setSaving(true); setFailure("");
+        try {
+          const result = await (workspace ? workspaceAction(body) : action(body));
+          if (!result) setFailure("保存失败，详情见插件错误信息；更改尚未确认。");
+          return result;
+        } finally { editing.current = false; setSaving(false); }
+      };
+      const send = async (draft, confirmed = false) => {
+        if (sending.current) return;
+        const view = current.current;
+        if (view.hidden || !view.ready || !quickDraftValid(draft, view.owner, view.target?.sessionId, view.frame?.streamId) || !view.commands.some(item => item.id === draft.commandId && item.revision === draft.revision)) { setFailure("QUICK_TARGET_CHANGED: 终端或命令已改变，请重新选择。"); return; }
+        if (inputPending()) { setFailure("TERMINAL_INPUT_PENDING: 终端仍有未提交输入，请先完成或取消输入。"); return; }
+        sending.current = true; onSending?.(true); setPending(true); setFailure(""); setReceipt(null);
+        try {
+          const value = await request("/api/dsh-remote-ops/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "quick.dispatch", sessionId: draft.owner, session: draft.session, streamId: draft.streamId, commandId: draft.commandId, revision: draft.revision, requestId: draft.requestId, confirmed }) });
+          if (current.current.owner !== draft.owner) return;
+          setReceipt({ ...value, label: `${draft.name} · ${draft.targetName}` }); setConfirmation(null);
+        } catch (cause) {
+          if (current.current.owner === draft.owner) { setReceipt({ status: cause.code ? "failed" : "unknown", label: `${draft.name} · ${draft.targetName}`, error: { details: cause.message } }); setConfirmation(null); }
+        } finally { sending.current = false; onSending?.(false); setPending(false); }
+      };
+      const run = (item, event) => {
+        if (sending.current || event?.detail > 1) return;
+        const draft = quickDispatchDraft(item, target, frame, owner, crypto.randomUUID());
+        setFailure("");
+        if (item.confirm) { setConfirmation(draft); return; }
+        return send(draft);
+      };
+      const resize = event => {
+        if (event.button !== 0 || !open) return;
+        event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
+        drag.current = { id: event.pointerId, y: event.clientY, height: visibleHeight };
+      };
+      const filters = h("div", { className: "dsh-remote-ops__quickFilters" }, h("input", { type: "search", "aria-label": "搜索快捷命令", placeholder: "搜索命令", value: query, onChange: event => setQuery(event.target.value) }), h("select", { "aria-label": "快捷命令分组", value: group, onChange: event => setGroup(event.target.value) }, h("option", { value: "" }, "全部分组"), groups.map(name => h("option", { key: name, value: name }, name))));
+      const items = quickCommandList(commands, query, group, true);
+      const all = quickCommandList(commands, "", "", false);
+      const editorView = editor ? modal(editor.existing ? "编辑快捷命令" : "新增快捷命令", h("form", { className: "dsh-remote-ops__quickForm", onSubmit: async event => { event.preventDefault(); if (!editor.value.name.trim() || !editor.value.command.trim()) return; if (await mutate({ action: "quick.save", command: editor.value })) setEditor(null); } },
+        h("label", null, "名称", h("input", { value: editor.value.name, maxLength: 100, required: true, onChange: event => change("name", event.target.value) })),
+        h("label", null, "命令", h("textarea", { value: editor.value.command, maxLength: 65536, required: true, spellCheck: false, onChange: event => change("command", event.target.value) })),
+        h("label", null, "分组", h("input", { value: editor.value.group, list: "remote-ops-quick-groups", onChange: event => change("group", event.target.value) }), h("datalist", { id: "remote-ops-quick-groups" }, groups.map(name => h("option", { key: name, value: name })))),
+        h("label", { className: "dsh-remote-ops__quickCheck" }, h("input", { type: "checkbox", checked: editor.value.pinned, onChange: event => change("pinned", event.target.checked) }), "显示为快捷按钮"),
+        h("label", { className: "dsh-remote-ops__quickCheck" }, h("input", { type: "checkbox", checked: editor.value.confirm, onChange: event => change("confirm", event.target.checked) }), "执行前确认"),
+        h("div", { className: "dsh-remote-ops__formActions" }, !editor.existing ? h("button", { type: "button", disabled: saving, onClick: () => { closeEditor(); setManager(true); } }, "已有命令") : null, h("button", { type: "button", disabled: saving, onClick: closeEditor }, "取消"), h("button", { type: "submit", disabled: saving || !editor.value.name.trim() || !editor.value.command.trim() }, saving ? "保存中…" : "保存")))) : null;
+      const managerView = manager && !editor ? modal("管理快捷命令", h(React.Fragment, null, filters,
+        h("div", { className: "dsh-remote-ops__toolbar" }, iconButton("新增快捷命令", IconPlusOutline16, () => startEditor(), saving), h("span", null, `${commands.length} 条`),
+          h("button", { disabled: saving, onClick: async () => { const name = window.prompt("快捷命令分组名称"); if (name?.trim()) await mutate({ action: "quick-group.create", name: name.trim() }); } }, "新建分组"),
+          iconButton("重命名分组", IconEditOutline16, async () => { const name = window.prompt("新的快捷命令分组名称", group); if (name?.trim() && name.trim() !== group && await mutate({ action: "quick-group.rename", group, name: name.trim() })) setGroup(name.trim()); }, saving || !group),
+          iconButton("删除空分组", IconCloseOutline16, async () => { if (window.confirm(`删除空分组“${group}”？`)) await mutate({ action: "quick-group.delete", group }); }, saving || !group)),
+        h("div", { className: "dsh-remote-ops__quickLibrary" }, quickCommandList(commands, query, group, false).map(item => h("div", { key: item.id, className: "dsh-remote-ops__quickLibraryRow" },
+          h("input", { type: "checkbox", checked: pinDraft?.id === item.id ? pinDraft.pinned : item.pinned !== false, "aria-label": `显示按钮 ${item.name}`, disabled: saving || Boolean(pinDraft), onChange: async event => { const pinned = event.target.checked; setPinDraft({ id: item.id, pinned }); if (!await mutate({ action: "quick.save", command: { ...item, expectedRevision: item.revision, pinned } })) setPinDraft(null); } }),
+          h("span", { title: item.command }, item.name, h("small", null, item.group, item.confirm ? " · 执行前确认" : "")),
+          iconButton(`上移 ${item.name}`, IconChevronUpOutline14, () => mutate({ action: "quick.move", commandId: item.id, direction: -1 }, true), saving || all[0]?.id === item.id),
+          iconButton(`下移 ${item.name}`, IconChevronDownOutline14, () => mutate({ action: "quick.move", commandId: item.id, direction: 1 }, true), saving || all.at(-1)?.id === item.id),
+          iconButton(`编辑 ${item.name}`, IconEditOutline16, () => startEditor(item), saving),
+          iconButton(`删除命令 ${item.name}`, IconCloseOutline16, () => { if (window.confirm(`永久删除快捷命令“${item.name}”？`)) return mutate({ action: "quick.delete", commandId: item.id }); }, saving, { className: "dsh-remote-ops__quickIcon dsh-remote-ops__dangerAction" }))),
+          commands.length ? null : h("p", null, "暂无命令")))) : null;
+      const confirmView = confirmation ? modal("确认下发快捷命令", h(React.Fragment, null, h("strong", null, `${confirmation.name} → ${confirmation.targetName}`), h("small", { className: "dsh-remote-ops__sessionIdentity" }, confirmation.session), h("pre", null, confirmation.command), h("div", { className: "dsh-remote-ops__formActions" }, h("button", { disabled: pending, onClick: () => setConfirmation(null) }, "取消"), h("button", { "aria-label": "确认下发", disabled: pending || !quickDraftValid(confirmation, owner, target?.sessionId, frame?.streamId), onClick: () => send(confirmation, true) }, pending ? "下发中…" : "确认下发")))) : null;
+      if (hidden) return null;
+      return h("section", { ref: dock, className: "dsh-remote-ops__quickDock", "aria-label": "常用命令窗格", style: { height: open ? `${visibleHeight}px` : "42px" } },
+        open ? h("div", { className: "dsh-remote-ops__quickResize", role: "separator", tabIndex: 0, "aria-label": "调整快捷命令区域高度", "aria-orientation": "horizontal", "aria-valuemin": Math.min(92, visibleHeight), "aria-valuemax": Math.max(0, bounds.available - bounds.reserve), "aria-valuenow": Math.round(visibleHeight), title: "拖动调整高度；双击恢复默认", onPointerDown: resize, onPointerMove: event => { if (drag.current?.id === event.pointerId) setHeight(quickPaneHeight(drag.current.height + drag.current.y - event.clientY, bounds.available, bounds.reserve)); }, onPointerUp: () => { drag.current = null; }, onPointerCancel: () => { drag.current = null; }, onLostPointerCapture: () => { drag.current = null; }, onDoubleClick: () => setHeight(190), onKeyDown: event => { const values = { ArrowUp: visibleHeight + 32, ArrowDown: visibleHeight - 32, Home: 92, End: bounds.available - bounds.reserve }; if (event.key in values) { event.preventDefault(); setHeight(quickPaneHeight(values[event.key], bounds.available, bounds.reserve)); } } }) : null,
+        h("div", { className: "dsh-remote-ops__quickHead" }, iconButton(open ? "收起常用命令" : "展开常用命令", open ? IconChevronDownOutline14 : IconChevronUpOutline14, () => setOpen(!open), false, { "aria-expanded": open }), h("div", { className: "dsh-remote-ops__quickIdentity" }, h("strong", null, "常用命令"), h("small", { title: target?.sessionId }, target?.name ?? "未选择终端")), iconButton("新增快捷命令", IconPlusOutline16, () => startEditor()), iconButton("管理快捷命令", IconSettingsOutline16, () => { setManager(true); setFailure(""); })),
+        open ? filters : null,
+        open ? h("div", { className: "dsh-remote-ops__quickButtons" }, items.length ? items.map(item => h("button", { key: item.id, "aria-label": `执行 ${item.name}`, title: `${item.name}\n${item.command}${item.confirm ? "\n执行前确认" : ""}`, disabled: pending || !ready || target?.disconnected, "aria-busy": pending, onClick: event => run(item, event) }, h(IconPlayOutline16, { "aria-hidden": true }), h("span", null, item.name))) : h("div", { className: "dsh-remote-ops__quickEmpty" }, commands.length ? "没有匹配的快捷按钮" : "暂无常用命令")) : null,
+        open && pending ? h("div", { className: "dsh-remote-ops__quickReceipt", role: "status" }, "下发中…") : null,
+        open && receipt ? h("div", { className: "dsh-remote-ops__quickReceipt", role: "status" }, `${receipt.label} · ${receipt.status === "written" ? "已写入终端" : receipt.status === "failed" ? "未下发" : "写入结果未知，请先检查终端"}`, receipt.error ? h("details", null, h("summary", null, "错误详情"), [receipt.error.code, receipt.error.stage, receipt.error.details].filter(Boolean).join("\n")) : null) : null,
+        open && failure && !modalOpen ? h("div", { className: "dsh-remote-ops__quickReceipt dsh-remote-ops__dangerAction", role: "alert" }, failure) : null,
+        editorView, managerView, confirmView);
+    }
     function RemoteOpsPanel({ sessionId }) {
       const knownTabs = useRef({ owner: sessionId, tabs: [] });
       const [reviewStream, setReviewStream] = useState(null);
       const composingRef = useRef(false);
-      const [loadedSnapshot, setSnapshot] = useState(empty); const [terminalFrames, setTerminalFrames] = useState({}); const [drawer, setDrawer] = useState(false); const [module, setModule] = useState("terminal"); const [quickOpen, setQuickOpen] = useState(false); const [environmentForm, setEnvironmentForm] = useState(null); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [actionNotice, setActionNotice] = useState(""); const [update, setUpdate] = useState(empty.update); const [updateBusy, setUpdateBusy] = useState(false); const [refreshBusy, setRefreshBusy] = useState(false); const [selectedEnv, setSelectedEnv] = useState(""); const [activeSessionId, setActiveSessionId] = useState(""); const [terminalInput, setTerminalInput] = useState(""); const [pendingSshInput, setPendingSshInput] = useState(""); const [quickGroup, setQuickGroup] = useState(""); const [quickHeight, setQuickHeight] = useState(190); const [search, setSearch] = useState(""); const outputRef = useRef(null); const terminalInputRef = useRef(null); const stickToBottom = useRef(true); const userScrollIntent = useRef(false); const scrollIntentTimer = useRef(); const quickRef = useRef(null); const rawInputQueue = useRef([]); const rawInputTimer = useRef(); const rawInputSending = useRef(false); const pendingSshInputRef = useRef(""); const refreshRequest = useRef(); const snapshotSignature = useRef(""); const terminalFramesRef = useRef({});
+      const [loadedSnapshot, setSnapshot] = useState(empty); const [terminalFrames, setTerminalFrames] = useState({}); const [drawer, setDrawer] = useState(false); const [module, setModule] = useState("terminal"); const [quickOpen, setQuickOpen] = useState(() => { try { return localStorage.getItem("remote-ops.quick-open") !== "false"; } catch { return true; } }); const [environmentForm, setEnvironmentForm] = useState(null); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [actionNotice, setActionNotice] = useState(""); const [update, setUpdate] = useState(empty.update); const [updateBusy, setUpdateBusy] = useState(false); const [refreshBusy, setRefreshBusy] = useState(false); const [selectedEnv, setSelectedEnv] = useState(""); const [activeSessionId, setActiveSessionId] = useState(""); const [terminalInput, setTerminalInput] = useState(""); const [pendingSshInput, setPendingSshInput] = useState(""); const [quickHeight, setQuickHeight] = useState(190); const [search, setSearch] = useState(""); const outputRef = useRef(null); const terminalInputRef = useRef(null); const stickToBottom = useRef(true); const userScrollIntent = useRef(false); const scrollIntentTimer = useRef(); const rawInputQueue = useRef([]); const rawInputTimer = useRef(); const rawInputSending = useRef(false); const pendingSshInputRef = useRef(""); const refreshRequest = useRef(); const snapshotSignature = useRef(""); const terminalFramesRef = useRef({});
       const viewOwner = useRef(sessionId); viewOwner.current = sessionId;
       const snapshot = loadedSnapshot.viewOwner === (sessionId ?? "") ? loadedSnapshot : empty;
       const [outputConnection, setOutputConnection] = useState("connecting");
@@ -477,8 +626,8 @@ window.__ModuleLoader__.load({
       const [outputSearch, setOutputSearch] = useState("");
       const [searchOpen, setSearchOpen] = useState(false);
       const [matchIndex, setMatchIndex] = useState(0);
-      const [quickEditor, setQuickEditor] = useState(null);
-      const [quickTarget, setQuickTarget] = useState("");
+      const manualDrafts = useRef(new Map());
+      const quickSending = useRef(false);
       const [pasteDraft, setPasteDraft] = useState(null);
       const [connectionChoices, setConnectionChoices] = useState(null);
       const [diagnosticPreview, setDiagnosticPreview] = useState(null);
@@ -486,7 +635,7 @@ window.__ModuleLoader__.load({
       useEffect(() => { setCommandTarget(null); }, [sessionId]);
       useEffect(() => { setQuickHeight(preferences.quickHeight); }, []);
       useEffect(() => { try { localStorage.setItem("remote-ops.preferences", JSON.stringify({ ...preferences, quickHeight })); } catch { /* Storage can be disabled by browser policy. */ } }, [preferences, quickHeight]);
-      useEffect(() => { setPasteDraft(null); setConnectionChoices(null); setQuickTarget(""); setActiveSessionId(""); setReviewStream(null); }, [sessionId]);
+      useEffect(() => { setPasteDraft(null); setConnectionChoices(null); setActiveSessionId(""); setReviewStream(null); }, [sessionId]);
       const refresh = useCallback(() => {
         if (refreshRequest.current && refreshRequest.current.ownerKey === sessionId) return refreshRequest.current;
         const task = (async () => {
@@ -530,8 +679,9 @@ window.__ModuleLoader__.load({
       }, [sessionId, refresh]);
       const checkUpdate = useCallback(async (silent = false) => { setUpdateBusy(true); if (!silent) setActionNotice(""); try { const value = await request("/api/dsh-remote-ops/update"); setUpdate(value); setError(""); if (!silent) setActionNotice(value.updateAvailable ? `发现新版本 v${value.latestVersion}` : `已是最新版本 v${value.currentVersion}`); return value; } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); if (!silent) setActionNotice("检查更新失败"); return undefined; } finally { setUpdateBusy(false); } }, []);
       useEffect(() => { void checkUpdate(true); }, [checkUpdate]);
-      const refreshNow = useCallback(async () => { if (refreshBusy) return; setRefreshBusy(true); setActionNotice(""); const ok = await refresh(); setActionNotice(ok ? "已刷新" : "刷新失败"); setRefreshBusy(false); }, [refresh, refreshBusy]); const startQuickResize = (event) => { event.preventDefault(); event.currentTarget.setPointerCapture?.(event.pointerId); const startY = event.clientY; const startHeight = quickHeight ?? quickRef.current?.getBoundingClientRect().height ?? 190; const minHeight = 92; const maxHeight = Math.min(360, Math.max(180, Math.floor(window.innerHeight * 0.5))); const move = (moveEvent) => setQuickHeight(Math.max(minHeight, Math.min(maxHeight, startHeight + startY - moveEvent.clientY))); const stop = () => { window.removeEventListener("pointermove", move); document.body.style.cursor = ""; document.body.style.userSelect = ""; }; document.body.style.cursor = "ns-resize"; document.body.style.userSelect = "none"; window.addEventListener("pointermove", move); window.addEventListener("pointerup", stop, { once: true }); };       useEffect(() => { if (!selectedEnv && snapshot.environments[0]) setSelectedEnv(snapshot.environments[0].id); if (!quickGroup && snapshot.quickGroups[0]) setQuickGroup(snapshot.quickGroups[0]); if (!activeSessionId && snapshot.sessions.length) setActiveSessionId((snapshot.sessions.find((item) => item.kind !== "local") ?? snapshot.sessions[0]).sessionId); }, [activeSessionId, quickGroup, selectedEnv, snapshot]);
-      useEffect(() => { if (module === "quick") quickRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [module]);
+      const refreshNow = useCallback(async () => { if (refreshBusy) return; setRefreshBusy(true); setActionNotice(""); const ok = await refresh(); setActionNotice(ok ? "已刷新" : "刷新失败"); setRefreshBusy(false); }, [refresh, refreshBusy]);
+      useEffect(() => { if (!selectedEnv && snapshot.environments[0]) setSelectedEnv(snapshot.environments[0].id); if (!activeSessionId && snapshot.sessions.length) setActiveSessionId((snapshot.sessions.find(item => item.kind !== "local") ?? snapshot.sessions[0]).sessionId); }, [activeSessionId, selectedEnv, snapshot]);
+      useEffect(() => { try { localStorage.setItem("remote-ops.quick-open", String(quickOpen)); } catch { /* Browser storage is optional. */ } }, [quickOpen]);
       const action = useCallback(async (body) => { setBusy(true); try { const value = await request("/api/dsh-remote-ops/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, sessionId }) }); setError(""); await refresh(); return value; } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); return undefined; } finally { setBusy(false); } }, [refresh, sessionId]);
       const installUpdate = async () => { if (!update.updateAvailable || updateBusy) return; if (!window.confirm(`安装 Remote Ops v${update.latestVersion}？安装完成后需要重启 DSH。`)) return; setUpdateBusy(true); setActionNotice(""); try { const value = await request("/api/dsh-remote-ops/update", { method: "POST" }); setUpdate(value); setError(""); setActionNotice(`已安装 v${value.currentVersion ?? update.latestVersion}，请重启 DSH`); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setActionNotice("升级失败"); } finally { setUpdateBusy(false); } };
       const tabs = snapshot.tabs ?? snapshot.sessions;
@@ -602,7 +752,7 @@ window.__ModuleLoader__.load({
         return () => { cancelled = true; controller?.abort(); };
       }, [activeFrameKey, activeTerminalId, activeSession?.disconnected, refresh, sessionId]);
       const rememberScroll = useTerminalViewport(outputRef, stickToBottom, activeFrameKey, terminalOutput, module, quickOpen, quickHeight, terminalUsesGrid(terminalScreen));
-      const grouped = snapshot.groups.map((group) => ({ group, items: snapshot.environments.filter((item) => item.group === group && (!search || `${item.name} ${item.host} ${item.group}`.toLowerCase().includes(search.toLowerCase()))) })); const quickItems = snapshot.quickCommands.filter((item) => !quickGroup || item.group === quickGroup);
+      const grouped = snapshot.groups.map((group) => ({ group, items: snapshot.environments.filter((item) => item.group === group && (!search || `${item.name} ${item.host} ${item.group}`.toLowerCase().includes(search.toLowerCase()))) }));
       const connect = async (env, create = false) => {
         if (!sessionId) { setError("REMOTE_SESSION_REQUIRED: 请先在 DSH 选择一个会话"); return; }
         setSelectedEnv(env.id);
@@ -642,8 +792,8 @@ window.__ModuleLoader__.load({
           rawInputSending.current = false;
         }
       }, [activeSessionId, openFromSshCommand, sessionId, snapshot.bound, snapshot.localError, snapshot.sessions]);
-      const queueRawInput = useCallback((text) => { if (!text || !terminalReady) return; queueTerminalInput(rawInputQueue.current, { session: activeTerminalId, sessionId, streamId: activeTerminalFrame?.streamId, text }); if (rawInputTimer.current || rawInputSending.current) return; rawInputTimer.current = window.setTimeout(() => { rawInputTimer.current = undefined; void flushRawInput(); }, 20); }, [activeTerminalId, flushRawInput, sessionId, terminalReady, activeTerminalFrame?.streamId]);
-      useEffect(() => { rawInputQueue.current = []; pendingSshInputRef.current = ""; setPendingSshInput(""); setTerminalInput(""); }, [sessionId]);
+      const queueRawInput = useCallback((text) => { if (!text || !terminalReady) return; if (quickSending.current) { setError("QUICK_DISPATCH_PENDING: 快捷命令正在下发，请稍后输入。"); return; } const draftKey = `${sessionId ?? ""}:${activeTerminalId}:${activeTerminalFrame?.streamId}`; manualDrafts.current.set(draftKey, terminalDraftPending(manualDrafts.current.get(draftKey), text)); queueTerminalInput(rawInputQueue.current, { session: activeTerminalId, sessionId, streamId: activeTerminalFrame?.streamId, text }); if (rawInputTimer.current || rawInputSending.current) return; rawInputTimer.current = window.setTimeout(() => { rawInputTimer.current = undefined; void flushRawInput(); }, 20); }, [activeTerminalId, flushRawInput, sessionId, terminalReady, activeTerminalFrame?.streamId]);
+      useEffect(() => { rawInputQueue.current = []; manualDrafts.current.clear(); pendingSshInputRef.current = ""; setPendingSshInput(""); setTerminalInput(""); }, [sessionId]);
       useEffect(() => () => { if (rawInputTimer.current) window.clearTimeout(rawInputTimer.current); if (scrollIntentTimer.current) window.clearTimeout(scrollIntentTimer.current); rawInputQueue.current = []; }, []);
       const keySequence = (event) => { if (event.ctrlKey && !event.altKey && !event.metaKey) { const key = event.key.toLowerCase(); if (key.length === 1 && key >= "a" && key <= "z") return String.fromCharCode(key.charCodeAt(0) - 96); if (key === "[") return "\u001b"; if (key === "\\") return "\u001c"; if (key === "]") return "\u001d"; if (key === "^") return "\u001e"; if (key === "_") return "\u001f"; if (key === " ") return "\u0000"; } if (event.key === "Tab") return event.shiftKey ? "\u001b[Z" : "\t"; const sequences = { Enter: "\r", Escape: "\u001b", Backspace: "\u007f", Delete: "\u001b[3~", ArrowUp: "\u001b[A", ArrowDown: "\u001b[B", ArrowRight: "\u001b[C", ArrowLeft: "\u001b[D", Home: "\u001b[H", End: "\u001b[F", PageUp: "\u001b[5~", PageDown: "\u001b[6~", Insert: "\u001b[2~" }; return sequences[event.key]; };
       const addGroup = async () => { const name = ask("环境分组名称"); if (name) await action({ action: "group.create", name }); };
@@ -651,9 +801,6 @@ window.__ModuleLoader__.load({
       const openEnvironmentForm = (initial) => setEnvironmentForm({ mode: initial ? "edit" : "create", id: initial?.id ?? "", name: initial?.name ?? "", host: initial?.host ?? "", username: initial?.username ?? "root", group: initial?.group ?? snapshot.groups[0] ?? "default", port: String(initial?.port ?? 22), passwordRef: initial?.passwordRef === "configured" ? "" : initial?.passwordRef ?? "", password: "", privateKeyPath: initial?.privateKeyPath ?? "", credentialConfigured: initial?.passwordRef === "configured" });
       const updateEnvironmentForm = (field, value) => setEnvironmentForm((current) => current ? { ...current, [field]: value } : current);
       const saveEnvironmentForm = async (event) => { event.preventDefault(); if (!environmentForm) return; const required = [["主机地址", environmentForm.host], ["用户名", environmentForm.username]]; const missing = required.find(([, value]) => !String(value ?? "").trim()); if (missing) { setError(`${missing[0]}不能为空`); return; } const port = Number(environmentForm.port); if (!Number.isInteger(port) || port < 1 || port > 65535) { setError("SSH 端口必须是 1-65535 的整数"); return; } const environment = { ...(environmentForm.id ? { id: environmentForm.id.trim() } : {}), name: environmentForm.name.trim() || environmentForm.host.trim(), host: environmentForm.host.trim(), username: environmentForm.username.trim(), group: environmentForm.group.trim() || "default", port }; if (environmentForm.privateKeyPath.trim()) environment.privateKeyPath = environmentForm.privateKeyPath.trim(); const body = { action: "environment.save", environment }; if (environmentForm.password) body.password = environmentForm.password; const value = await action(body); if (value) setEnvironmentForm(null); };
-      const addQuickGroup = async () => { const name = ask("快捷命令分组名称"); if (name) await action({ action: "quick-group.create", name }); };
-      const editQuickGroup = async (group) => { const name = ask("新的快捷命令分组名称", group); if (name && name !== group) await action({ action: "quick-group.rename", group, name }); };
-      const addQuick = initial => setQuickEditor({ id: initial?.id, name: initial?.name ?? "", group: initial?.group ?? quickGroup ?? "default", command: initial?.command ?? "" });
       const previewInput = async (text, target = activeSession) => {
         if (!target) { setError("TERMINAL_TARGET_REQUIRED: 请先选择终端"); return; }
         if (target.disconnected) { setError("REMOTE_SESSION_EXITED: 此连接已断开"); return; }
@@ -666,7 +813,7 @@ window.__ModuleLoader__.load({
         try {
           const input = pasteSubmission(pasteDraft, sessionId);
           const value = await action({ action: "input", ...input });
-          if (value) setPasteDraft(null);
+          if (value) { const key = `${sessionId ?? ""}:${input.session}:${input.streamId}`; manualDrafts.current.set(key, terminalDraftPending(manualDrafts.current.get(key), input.text)); setPasteDraft(null); }
         } catch (cause) { setError(cause.message); }
       };
       const dismissTab = target => {
@@ -740,34 +887,7 @@ window.__ModuleLoader__.load({
           snapshot.groups.length ? null : h("div", { className: "dsh-remote-ops__emptyList" }, "还没有分组。点击“+ 分组”开始管理。"),
         ),
       ) : null;
-      const quickPanel = quickOpen ? h("div", { className: "dsh-remote-ops__quickDock", style: { height: `${quickHeight}px` } }, h("div", { className: "dsh-remote-ops__quickResize", role: "separator", "aria-label": "调整快捷命令区域高度", title: "拖动调整快捷命令区域高度；双击恢复默认高度", onPointerDown: startQuickResize, onDoubleClick: () => setQuickHeight(190) }), h("section", { className: "dsh-remote-ops__quick", ref: quickRef },
-        h("div", { className: "dsh-remote-ops__quickHead" },
-          h("strong", null, "快捷命令"),
-          h("select", { "aria-label": "快捷命令目标", value: quickTarget || activeTerminalId, onChange: event => setQuickTarget(event.target.value) }, snapshot.sessions.map(item => h("option", { key: item.sessionId, value: item.sessionId }, item.name))),
-          h("span", { className: "dsh-remote-ops__muted" }, `${quickItems.length} 条`),
-          h("button", { className: "dsh-remote-ops__tiny", onClick: addQuickGroup }, "+ 分组"),
-          h("button", { className: "dsh-remote-ops__tiny", disabled: !snapshot.quickGroups.length, onClick: () => void addQuick() }, "+ 命令"),
-          h("button", { className: "dsh-remote-ops__tiny", onClick: () => setQuickOpen(false), title: "收起快捷命令栏" }, "收起"),
-        ),
-        h("div", { className: "dsh-remote-ops__quickBody" },
-          h("div", { className: "dsh-remote-ops__quickGroups" },
-            snapshot.quickGroups.map((group) => h("button", { key: group, "data-active": quickGroup === group, onClick: () => setQuickGroup(group), title: group }, group)),
-            quickGroup ? h("div", { className: "dsh-remote-ops__row" },
-              h("button", { className: "dsh-remote-ops__tiny", onClick: () => void editQuickGroup(quickGroup) }, "编辑"),
-              h("button", { className: "dsh-remote-ops__tiny", onClick: () => { if (window.confirm(`删除快捷命令分组“${quickGroup}”？`)) void action({ action: "quick-group.delete", group: quickGroup }); } }, "×"),
-            ) : null,
-          ),
-          h("div", { className: "dsh-remote-ops__quickItems" },
-            quickItems.length ? quickItems.map((item) => h("div", { className: "dsh-remote-ops__quickItem", key: item.id, title: item.command },
-              h("span", null, item.name),
-              h("button", { className: "dsh-remote-ops__tiny", disabled: busy || !snapshot.sessions.some(session => session.sessionId === (quickTarget || activeTerminalId)), title: "填入终端", "aria-label": `填入 ${item.name}`, onClick: () => previewInput(item.command, snapshot.sessions.find(session => session.sessionId === (quickTarget || activeTerminalId))) }, h(IconCopyOutline16)),
-              h("button", { className: "dsh-remote-ops__tiny", disabled: busy || !snapshot.sessions.some(session => session.sessionId === (quickTarget || activeTerminalId)), title: "执行命令", "aria-label": `执行 ${item.name}`, onClick: () => previewInput(`${item.command.replace(/[\r\n]+$/, "")}\n`, snapshot.sessions.find(session => session.sessionId === (quickTarget || activeTerminalId))) }, h(IconPlayOutline16)),
-              h("button", { className: "dsh-remote-ops__tiny", title: "编辑命令", "aria-label": `编辑 ${item.name}`, onClick: () => addQuick(item) }, h(IconEditOutline16)),
-              h("button", { className: "dsh-remote-ops__tiny", onClick: () => { if (window.confirm(`删除快捷命令“${item.name}”？`)) void action({ action: "quick.delete", commandId: item.id }); } }, "×"),
-            )) : h("div", { className: "dsh-remote-ops__muted" }, snapshot.quickGroups.length ? "当前分组没有命令。" : "请先添加快捷命令分组。"),
-          ),
-        ),
-      )) : null;
+      const quickPanel = h(QuickCommands, { commands: snapshot.quickCommands, groups: snapshot.quickGroups, owner: sessionId, target: activeSession, frame: activeTerminalFrame, ready: terminalReady, open: quickOpen, setOpen: setQuickOpen, height: quickHeight, setHeight: setQuickHeight, action, workspaceAction, onSending: value => { quickSending.current = value; }, hidden: module === "sftp", inputPending: () => Boolean(rawInputSending.current || rawInputQueue.current.length || composingRef.current || terminalInputRef.current?.value || manualDrafts.current.get(`${sessionId ?? ""}:${activeTerminalId}:${activeTerminalFrame?.streamId}`)) });
       const markUserScrollIntent = (event) => {
         if (event?.type === "pointerdown" && event.clientX < event.currentTarget.getBoundingClientRect().right - 18) return;
         userScrollIntent.current = true;
@@ -815,12 +935,6 @@ window.__ModuleLoader__.load({
       const sftpWorkspace = module === "sftp" ? h(SftpWorkspace, { key: sessionId, sessionId, environments: snapshot.environments, initialEnvironment: activeEnvironment?.id, onError: setError, onClose: () => setModule("terminal") }) : null;
       const aux = module === "diagnostics" ? h("aside", { className: "dsh-remote-ops__aux" }, h("div", { className: "dsh-remote-ops__drawerHead" }, h("strong", null, "诊断"), h("button", { disabled: busy, onClick: async () => { const report = await workspaceAction({ action: "diagnostics" }); if (report) setDiagnosticPreview(JSON.stringify(report, null, 2)); } }, "预览导出"), h("button", { className: "dsh-remote-ops__drawerClose", title: "关闭诊断", "aria-label": "关闭诊断", onClick: () => setModule("terminal") }, "×")), h("pre", { className: "dsh-remote-ops__auxBody", style: { whiteSpace: "pre-wrap" } }, (snapshot.events ?? []).map((item) => JSON.stringify(item)).join("\n") || "暂无事件")) : null;
       const modal = (title, close, content) => h("div", { className: "dsh-remote-ops__modalBackdrop", onKeyDown: event => { if (event.key === "Escape") { event.stopPropagation(); close(); } } }, h("section", { className: "dsh-remote-ops__modal", role: "dialog", "aria-modal": true, "aria-label": title }, h("div", { className: "dsh-remote-ops__row" }, h("span", null, title), h("button", { className: "dsh-remote-ops__drawerClose", title: `关闭${title}`, "aria-label": `关闭${title}`, onClick: close }, "×")), content));
-      const editorView = quickEditor ? modal("编辑快捷命令", () => setQuickEditor(null), h("form", { onSubmit: async event => { event.preventDefault(); if (!quickEditor.name.trim() || !quickEditor.command.trim()) return; const value = await action({ action: "quick.save", command: { ...quickEditor, id: quickEditor.id || `quick-${Date.now()}`, name: quickEditor.name.trim() } }); if (value) setQuickEditor(null); } },
-        h("label", null, "标题", h("input", { autoFocus: true, required: true, value: quickEditor.name, onChange: event => setQuickEditor(current => ({ ...current, name: event.target.value })) })),
-        h("label", null, "分组", h("select", { value: quickEditor.group, onChange: event => setQuickEditor(current => ({ ...current, group: event.target.value })) }, snapshot.quickGroups.map(group => h("option", { key: group, value: group }, group)))),
-        h("label", null, "命令", h("textarea", { required: true, spellCheck: false, value: quickEditor.command, onChange: event => setQuickEditor(current => ({ ...current, command: event.target.value })) })),
-        h("div", { className: "dsh-remote-ops__formActions" }, h("button", { type: "button", onClick: () => setQuickEditor(null) }, "取消"), h("button", { type: "submit", disabled: busy }, "保存")),
-      )) : null;
       const pasteView = pasteDraft ? modal("确认终端输入", () => setPasteDraft(null), h(React.Fragment, null, h("strong", null, `目标：${pasteDraft.name}`), h("small", null, pasteDraft.session), h("textarea", { autoFocus: true, "aria-label": "待发送内容", spellCheck: false, value: pasteDraft.text, onChange: event => setPasteDraft(current => ({ ...current, text: event.target.value })) }), /[\r\n]/.test(pasteDraft.text) ? h("strong", { className: "dsh-remote-ops__dangerAction" }, "包含换行，将提交命令") : null, h("div", { className: "dsh-remote-ops__formActions" }, h("button", { onClick: () => setPasteDraft(null) }, "取消"), h("button", { disabled: busy || !pasteDraft.text, onClick: () => void submitPaste() }, "发送到此终端")))) : null;
       const choicesView = connectionChoices ? modal("选择连接", () => setConnectionChoices(null), connectionChoices.map(item => h("button", { key: item.sessionId, onClick: () => { setActiveSessionId(item.sessionId); setConnectionChoices(null); setDrawer(false); } }, `${item.name} · ${item.ownerId} · ${item.lastActivity ? new Date(item.lastActivity).toLocaleTimeString() : "暂无活动"}`))) : null;
       const diagnosticsView = diagnosticPreview !== null ? modal("诊断导出预览", () => setDiagnosticPreview(null), h(React.Fragment, null, h("pre", null, diagnosticPreview), h("button", { onClick: () => { const url = URL.createObjectURL(new Blob([diagnosticPreview], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = "remote-ops-diagnostics.json"; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); } }, h(IconDownloadOutline16), " 导出 JSON"))) : null;
@@ -831,9 +945,9 @@ window.__ModuleLoader__.load({
           h("button", { className: "dsh-remote-ops__headAction", disabled: refreshBusy, "aria-busy": refreshBusy, "aria-label": "刷新状态", title: "刷新状态", onClick: () => void refreshNow() }, h(IconRefreshOutline16, { "aria-hidden": true })),
           actionNotice ? h("span", { className: "dsh-remote-ops__headNotice", "data-error": actionNotice.includes("失败") }, actionNotice) : null),
         error ? h("div", { className: "dsh-remote-ops__error", role: "alert" }, h("div", { className: "dsh-remote-ops__errorBody" }, error.split("\n")[0], h("details", null, h("summary", null, "错误详情"), error), /AUTH|credential|password|认证/i.test(error) ? h("button", { onClick: () => { setDrawer(true); if (activeEnvironment) openEnvironmentForm(activeEnvironment); } }, "检查环境凭据") : /CONTROL|ACTIVE/.test(error) ? h("button", { onClick: () => void workspaceAction({ action: "control", session: activeTerminalId, control: "takeover" }) }, "人工接管") : /OWNER|SESSION_REQUIRED/.test(error) ? h("button", { disabled: !sessionId, onClick: () => void workspaceAction({ action: "activate" }) }, "绑定当前会话") : h("button", { onClick: () => void refreshNow() }, "刷新状态")), h("button", { className: "dsh-remote-ops__errorClose", title: "关闭错误", "aria-label": "关闭错误", onClick: () => setError("") }, "×")) : null,
-        editorView, pasteView, choicesView, diagnosticsView,
+        pasteView, choicesView, diagnosticsView,
         commandTarget ? h(CommandDialog, { key: sessionId, sessionId, target: commandTarget, onClose: () => setCommandTarget(null) }) : null,
-        h("div", { className: "dsh-remote-ops__workspace" }, h("nav", { className: "dsh-remote-ops__rail", "aria-label": "Remote Ops 导航" }, [["environments", "环境"], ["quick", "快捷命令"], ["sftp", "SFTP"], ["diagnostics", "诊断"]].map(([id, label]) => h("button", { key: id, "data-active": id === "environments" ? drawer : id === "quick" ? quickOpen : module === id, title: label, "aria-label": label, onClick: () => id === "environments" ? (setDrawer((value) => !value), setModule("terminal")) : id === "quick" ? (setDrawer(false), setModule("terminal"), setQuickOpen((value) => !value)) : (setDrawer(false), setModule((value) => value === id ? "terminal" : id)) }, glyph[id]))), h("main", { className: "dsh-remote-ops__main", "data-module": module }, module === "sftp" ? sftpWorkspace : terminal, module === "sftp" ? null : quickPanel), envDrawer, aux));
+        h("div", { className: "dsh-remote-ops__workspace" }, h("nav", { className: "dsh-remote-ops__rail", "aria-label": "Remote Ops 导航" }, [["environments", "环境"], ["quick", "快捷命令"], ["sftp", "SFTP"], ["diagnostics", "诊断"]].map(([id, label]) => h("button", { key: id, "data-active": id === "environments" ? drawer : id === "quick" ? quickOpen : module === id, title: label, "aria-label": label, onClick: () => id === "environments" ? (setDrawer((value) => !value), setModule("terminal")) : id === "quick" ? (setDrawer(false), setModule("terminal"), setQuickOpen((value) => !value)) : (setDrawer(false), setModule((value) => value === id ? "terminal" : id)) }, glyph[id]))), h("main", { className: "dsh-remote-ops__main", "data-module": module }, module === "sftp" ? sftpWorkspace : terminal, quickPanel), envDrawer, aux));
     }
     function RemoteOpsTitle() { return h("span", null, "Remote Ops"); }
     function RemoteOpsLaunch({ wide, onClick, label }) { return h("button", { type: "button", className: "dsh-remote-ops__launchControl", title: label, "aria-label": label, onClick }, h("span", { className: "dsh-remote-ops__launchControlIcon", "aria-hidden": true }, "⌁"), wide ? h("span", { className: "dsh-remote-ops__launchLabel" }, label) : null); }
