@@ -37,7 +37,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.19.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.20.tgz
 dsh web
 ```
 
@@ -86,7 +86,7 @@ key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.19 exposes environment list/create/update/delete, group management,
+Version 0.2.20 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells
@@ -118,8 +118,9 @@ do not prove command completion or success: `completion` remains `unknown`.
 Observe actual results before dependent commands. Cancellation interrupts the
 foreground process; a wait timeout alone does not kill it.
 
-The terminal status bar reports transport and Agent binding, not an Agent
-read receipt. Enlarged icon controls have tooltips. The quick-command dock
+The terminal status bar distinguishes transport, Agent binding, and the last
+tool response range/time. A tool receipt is not proof that a model understood
+the output. Enlarged icon controls have tooltips. The quick-command dock
 starts collapsed; reading history is preserved across SFTP switches, and new
 output offers a jump to the latest line without taking over the scroll position.
 
@@ -127,3 +128,30 @@ The client dependency on `sidebarRight` and `sidebarRightTabs` is optional at
 activation time. On older or non-Web DSH profiles the plugin no longer blocks
 boot; the Sidebar UI attaches automatically when those services become
 available.
+
+## Independent Commands and Workspace State
+
+Use `remote_command_execute(session, command)` for self-contained commands.
+It returns separate bounded UTF-8 stdout/stderr, a real exit code when supplied
+by the process, duration and truncation flags. It never types into the PTY.
+Local execution starts a new shell in the plugin directory; SSH opens an exec
+channel on an existing connection with the server-default directory. Neither
+inherits the interactive terminal's temporary variables or current directory.
+There is no stdin. Timeout/cancellation does not prove a remote process stopped.
+Limits: 30 seconds by default, 300 seconds maximum, 64 KiB per output stream by
+default, 256 KiB maximum, one active command per target and eight total.
+
+Connections have stable runtime numbers and optional notes. Disconnected tabs
+retain their output until dismissed; reconnection is explicit and never replays
+commands. Browser windows have separate input identities and require explicit
+takeover. Recreated terminal streams require input acknowledgement.
+
+SFTP remembers endpoint, path, sort, scroll and bookmarks per Harness session
+in browser storage. Transfer results include per-item state; retries skip
+completed items. Overwrite previews show both sizes and timestamps. Tasks,
+connection notes and receipts are runtime-only, not cross-restart persistence.
+
+The lightweight terminal supports alternate screens, scroll regions and charset
+selection escapes. Full-screen grids do not soft-wrap. The current Harness
+local PTY has no runtime resize API: this remains a fixed 160x40 terminal, not
+a complete xterm replacement. Actual OS IME behavior requires device testing.

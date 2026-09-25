@@ -17,6 +17,21 @@ import {
   validateEnvironment,
 } from "../lib/index.js";
 
+test("independent command ownership, concurrency and cancellation are isolated", async t => {
+  const { state, ctx } = await terminalFixture(t);
+  const owner = { id: "command-owner" };
+  let finish;
+  ctx.subprocess.spawn = async () => ({ done: new Promise(resolve => { finish = resolve; }), terminate() { finish({ exitCode: null, signal: "SIGTERM" }); } });
+  const pending = state.execute(owner, "local-cmd", { command: "example", requestId: "request-one" });
+  await new Promise(resolve => setImmediate(resolve));
+  await assert.rejects(state.execute(owner, "local-cmd", { command: "other" }), /COMMAND_BUSY/);
+  assert.throws(() => state.cancelCommand({ id: "other" }, "request-one"), /COMMAND_NOT_FOUND/);
+  state.cancelCommand(owner, "request-one");
+  assert.equal((await pending).status, "cancelled");
+  state.sessions.set("private", { sessionId: "private", ownerId: "other", environment: { name: "private" }, session: fakeRemoteSession() });
+  await assert.rejects(state.execute(owner, "private", { command: "example" }), /FOREIGN_SESSION/);
+});
+
 test("environment validation normalizes names and rejects unsafe identifiers", () => {
   assert.equal(normalizeGroupName("生产/华东"), "生产-华东");
   assert.equal(normalizeGroupName("  "), "default");
@@ -400,18 +415,18 @@ test("entering an environment reuses one connection and returns choices without 
 test("manual typing blocks Agent writes until released and takeover does not send Ctrl+C", async (t) => {
   const { state, terminal } = await terminalFixture(t);
   const owner = { id: "agent" };
-  await state.input(owner, "local-cmd", "draft ", "manual");
+  await state.input(owner, "local-cmd", "draft ", "manual", "test-window");
   await assert.rejects(state.send(owner, "local-cmd", { text: "injected" }), { code: "TERMINAL_MANUAL_CONTROL" });
   await assert.rejects(state.input(owner, "local-cmd", "injected"), { code: "TERMINAL_MANUAL_CONTROL" });
-  await state.control(owner, "local-cmd", "release");
+  await state.control(owner, "local-cmd", "release", "test-window");
   const pending = state.send(owner, "local-cmd", { text: "echo hello", quietMs: 1000 });
   await new Promise(resolve => setTimeout(resolve, 5));
-  await assert.rejects(state.input(owner, "local-cmd", "unsafe", "manual"), { code: "TERMINAL_AGENT_ACTIVE" });
-  await state.control(owner, "local-cmd", "takeover");
+  await assert.rejects(state.input(owner, "local-cmd", "unsafe", "manual", "test-window"), { code: "TERMINAL_AGENT_ACTIVE" });
+  await state.control(owner, "local-cmd", "takeover", "test-window");
   assert.equal((await pending).waitReason, "wait_stopped");
   assert.deepEqual(terminal.writes, ["draft ", "echo hello\r"]);
-  await state.input(owner, "local-cmd", "response", "manual");
-  assert.equal((await state.terminalOutput(owner, "local-cmd")).control.holder, "manual");
+  await state.input(owner, "local-cmd", "response", "manual", "test-window");
+  assert.equal((await state.terminalOutput(owner, "local-cmd")).control.holder, "manual", "test-window");
 });
 
 test("takeover can stop the backend wait when Harness wraps its public operation", async t => {
@@ -421,7 +436,7 @@ test("takeover can stop the backend wait when Harness wraps its public operation
   await new Promise(resolve => setTimeout(resolve, 5));
   const operation = state.localSession.pendingSend;
   state.localSession.pendingSend = { done: operation.done };
-  await state.control(owner, "local-cmd", "takeover");
+  await state.control(owner, "local-cmd", "takeover", "test-window");
   assert.equal((await pending).waitReason, "wait_stopped");
 });
 
@@ -430,6 +445,53 @@ test("host activation errors preserve the original error cause", async t => {
   const cause = Object.assign(new Error("original host stack"), { code: "HOST_TEST" });
   state.ctx.sessionController = { resolveAgent: async () => ({ error: cause }) };
   await assert.rejects(state.resolveOwner("cold"), error => error.code === "HOST_TEST" && error.cause === cause);
+});
+
+test("connection labels remain distinct and stable when another connection closes", async t => {
+  const { state } = await terminalFixture(t);
+  const owner = { id: "labels" };
+  const environment = await state.saveEnvironment({ host: "localhost", username: "test", name: "target" });
+  for (const sessionId of ["one", "two", "three"]) state.sessions.set(sessionId, { sessionId, ownerId: owner.id, owner, environment, session: fakeRemoteSession() });
+  const before = state.snapshot(owner).sessions.filter(x => x.kind === "ssh");
+  assert.equal(new Set(before.map(x => x.displayName)).size, 3);
+  await state.renameConnection(owner, "two", "logs");
+  state.sessions.delete("one");
+  const after = state.snapshot(owner).sessions.filter(x => x.kind === "ssh");
+  assert.equal(after.find(x => x.sessionId === "three").displayName, before[2].displayName);
+  assert.match(after.find(x => x.sessionId === "two").displayName, /logs/);
+  await assert.rejects(state.renameConnection({ id: "foreign" }, "two", "bad"), { code: "FOREIGN_SESSION" });
+});
+
+test("two browser windows cannot interleave manual input or release each other's control", async t => {
+  const { state, terminal } = await terminalFixture(t);
+  const owner = { id: "windows" };
+  await state.input(owner, "local-cmd", "first", "manual", "window-a");
+  await assert.rejects(state.input(owner, "local-cmd", "wrong", "manual", "window-b"), { code: "TERMINAL_OTHER_WINDOW" });
+  await assert.rejects(state.control(owner, "local-cmd", "release", "window-b"), { code: "TERMINAL_OTHER_WINDOW" });
+  await state.control(owner, "local-cmd", "takeover", "window-b");
+  await assert.rejects(state.input(owner, "local-cmd", "stale", "manual", "window-a"), { code: "TERMINAL_OTHER_WINDOW" });
+  await state.input(owner, "local-cmd", "second", "manual", "window-b");
+  assert.deepEqual(terminal.writes, ["first", "second"]);
+  assert.equal((await state.terminalOutput(owner, "local-cmd")).control.clientId, "window-b");
+  await assert.rejects(state.input(owner, "local-cmd", "old stream", "manual", "window-b", "stale-stream"), { code: "TERMINAL_STREAM_CHANGED" });
+});
+
+test("tool receipts record actual returned ranges without treating UI reads as model reads", async t => {
+  const { state, terminal } = await terminalFixture(t);
+  const owner = { id: "reader" };
+  terminal.output.emit("data", Buffer.from("abcdef"));
+  assert.equal((await state.terminalOutput(owner, "local-cmd")).toolReceipt, null);
+  await state.readTerminal(owner, "local-cmd", { cursor: 0, maxChars: 3 });
+  const ui = await state.terminalOutput(owner, "local-cmd");
+  assert.equal(ui.toolReceipt.startOffset, 0);
+  assert.equal(ui.toolReceipt.nextOffset, 3);
+  assert.equal(ui.toolReceipt.newOutput, true);
+  assert.equal((await state.terminalOutput({ id: "other" }, "local-cmd")).toolReceipt, null);
+  await state.readTerminal(owner, "local-cmd", { cursor: 3 });
+  assert.equal((await state.terminalOutput(owner, "local-cmd")).toolReceipt.newOutput, false);
+  state.localSession.outputBuffer = new TerminalOutputBuffer();
+  state.localSession.outputBuffer.append("new");
+  assert.equal((await state.terminalOutput(owner, "local-cmd")).toolReceipt, null);
 });
 
 test("SFTP tool paths preserve a drive-root filename and create download parent directories", async t => {

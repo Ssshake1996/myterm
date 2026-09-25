@@ -1,6 +1,6 @@
 {
   "name": "@dsh/remote-ops",
-  "version": "0.2.19",
+  "version": "0.2.20",
   "private": false,
   "type": "module",
   "description": "DeepSeek Harness plugin for SSH environments, persistent terminals, SFTP and multi-target operations",
@@ -33,11 +33,11 @@
   ],
   "scripts": {
     "test": "npm run test:unit && npm run test:client && npm run test:contract && npm run test:smoke",
-    "test:unit": "node --test test/unit.test.mjs test/transfer.test.mjs test/diagnostics.test.mjs test/workspace.test.mjs",
+    "test:unit": "node --test test/unit.test.mjs test/transfer.test.mjs test/diagnostics.test.mjs test/workspace.test.mjs test/commands.test.mjs",
     "test:client": "node --test test/client-behavior.test.mjs",
     "test:contract": "node --test test/contract.test.mjs",
     "test:smoke": "node test/smoke.mjs",
-    "check": "node --check lib/index.js && node --check lib/client.js && node --check lib/transfers.js && node --check lib/workspace-routes.js && node --check lib/diagnostics.js && npm test"
+    "check": "node --check lib/index.js && node --check lib/client.js && node --check lib/transfers.js && node --check lib/workspace-routes.js && node --check lib/diagnostics.js && node --check lib/commands.js && npm test"
   },
   "dependencies": {
     "ssh2": "1.17.0"

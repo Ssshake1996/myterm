@@ -10,6 +10,7 @@ import { PLUGIN_NAME, PLUGIN_VERSION, RELEASE_REPOSITORY } from "./version.js";
 import { HostFiles, SftpFiles, TransferManager } from "./transfers.js";
 import { registerWorkspaceRoutes } from "./workspace-routes.js";
 import { describeFailure } from "./diagnostics.js";
+import { executeCommand } from "./commands.js";
 
 export const name = PLUGIN_NAME;
 export const inject = ["connection", "systemPrompt", "tools", "terminals", "agents", "credentials", "subprocess"];
@@ -598,10 +599,12 @@ export class RemoteOpsState {
     this.quickCommands = [];
     this.quickGroups = new Set();
     this.sessions = new Map();
+    this.connectionNumbers = new Map();
     this.events = new Map();
     this.backendSessions = new Map();
     this.directEnvironments = new Map();
     this.openings = new Map();
+    this.commands = new Map();
     this.localSession = undefined;
     this.localStarting = undefined;
     this.localError = "";
@@ -712,6 +715,39 @@ export class RemoteOpsState {
   activeRemoteSessions(ownerKey, environmentId) {
     return [...this.sessions.values()].filter((record) => record.ownerId === ownerKey && record.environment.id === environmentId && record.session.status().kind !== "exited");
   }
+  connectionSnapshot(record) {
+    if (!record.connectionNumber) {
+      const key = `${record.ownerId}:${record.environment.id}`;
+      record.connectionNumber = (this.connectionNumbers.get(key) ?? 0) + 1;
+      this.connectionNumbers.set(key, record.connectionNumber);
+    }
+    return { sessionId: record.sessionId, environmentId: record.environment.id, name: record.environment.name,
+      displayName: `${record.environment.name} · ${record.connectionNumber}${record.note ? ` · ${record.note}` : ""}`,
+      connectionNumber: record.connectionNumber, note: record.note ?? "", kind: "ssh", status: record.session.status(),
+      ownerId: record.ownerId, lastActivity: record.session.lastActivity ?? null, control: this.controlSnapshot(record.session), direct: Boolean(record.direct) };
+  }
+  async renameConnection(owner, target, note) {
+    const record = this.getSession(owner, target);
+    const value = String(note ?? "").trim();
+    if (value.length > 40 || /[\x00-\x1f\x7f]/.test(value)) throw sessionError("CONNECTION_NOTE_INVALID", "Connection note must be at most 40 characters without control characters");
+    record.note = value;
+    return this.connectionSnapshot(record);
+  }
+  toolReceipt(owner, session) {
+    if (!owner) return null;
+    const receipt = session.toolReceipts?.get(ownerId(owner));
+    if (!receipt || receipt.streamId !== session.outputBuffer.streamId) return null;
+    return { ...receipt, newOutput: receipt.nextOffset === null ? null : receipt.nextOffset < session.outputBuffer.endOffset };
+  }
+  recordToolReceipt(owner, session, result, source) {
+    if (!owner) return;
+    session.toolReceipts ??= new Map();
+    session.toolReceipts.set(ownerId(owner), { at: new Date().toISOString(), source, streamId: result.streamId ?? session.outputBuffer.streamId,
+      startOffset: result.startOffset ?? null, nextOffset: result.nextOffset ?? null,
+      lineBegin: result.lineBegin ?? null, lineEnd: result.lineEnd ?? null, truncated: Boolean(result.truncated) });
+    if (session.toolReceipts.size > 100) session.toolReceipts.delete(session.toolReceipts.keys().next().value);
+    session.outputBuffer.notify();
+  }
   event(owner, kind, data = {}) {
     const id = ownerId(owner);
     const list = this.events.get(id) ?? [];
@@ -723,7 +759,7 @@ export class RemoteOpsState {
     const id = ownerId(owner);
     this.reconcileHostSessions(owner);
     const local = this.localSnapshot();
-    const remoteSessions = [...this.sessions.values()].filter((x) => x.ownerId === id && x.session.status().kind !== "exited").map((x) => ({ sessionId: x.sessionId, environmentId: x.environment.id, name: x.environment.name, kind: "ssh", status: x.session.status(), ownerId: x.ownerId, lastActivity: x.session.lastActivity ?? null, control: this.controlSnapshot(x.session) }));
+    const remoteSessions = [...this.sessions.values()].filter((x) => x.ownerId === id && x.session.status().kind !== "exited").map(x => this.connectionSnapshot(x));
     const sessions = [...(local ? [local] : []), ...remoteSessions];
     const environments = this.allEnvironments().map((x) => {
       const connectionCount = remoteSessions.filter((session) => session.environmentId === x.id).length;
@@ -761,6 +797,7 @@ export class RemoteOpsState {
       status: session.status(),
       activity: session.active ? "waiting" : session.lastWaitReason ?? "unobserved",
       control: this.controlSnapshot(session),
+      toolReceipt: this.toolReceipt(owner, session),
       completion: "unknown",
       format: "terminal-stream",
       ...session.outputBuffer.readFrom(replaced ? undefined : offset, maxChars),
@@ -774,9 +811,13 @@ export class RemoteOpsState {
     if (args.offset !== undefined || args.count !== undefined) {
       const session = target === LOCAL_SESSION_ID ? await this.ensureLocalSession() : this.getSession(owner, target).session;
       const result = target === LOCAL_SESSION_ID ? session.read(args) : await this.ctx.terminals.read(owner, this.getSession(owner, target).sessionId, args);
+      this.recordToolReceipt(owner, session, result, "history");
       return { sessionId: target, ...result, status: session.status(), format: "terminal-stream", completion: "unknown" };
     }
-    return this.terminalOutput(owner, target, args.cursor, Math.max(0, Math.min(25_000, Number(args.waitMs) || 0)), args.signal, args.streamId, Math.max(2, Math.min(UI_SCROLLBACK_CHARS, Number(args.maxChars) || AGENT_OUTPUT_CHARS)));
+    const session = target === LOCAL_SESSION_ID ? await this.ensureLocalSession() : this.getSession(owner, target).session;
+    const result = await this.terminalOutput(owner, target, args.cursor, Math.max(0, Math.min(25_000, Number(args.waitMs) || 0)), args.signal, args.streamId, Math.max(2, Math.min(UI_SCROLLBACK_CHARS, Number(args.maxChars) || AGENT_OUTPUT_CHARS)));
+    this.recordToolReceipt(owner, session, result, "read");
+    return result;
   }
 
   async ensureLocalSession() {
@@ -899,25 +940,31 @@ export class RemoteOpsState {
     const environment = this.findEnvironment(environmentId);
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", `Environment not found: ${environmentId}`);
     const records = this.activeRemoteSessions(ownerId(owner), environment.id);
-    if (records.length > 1) return { choices: records.map(x => ({ sessionId: x.sessionId, name: x.environment.name, ownerId: x.ownerId, lastActivity: x.session.lastActivity ?? null })) };
+    if (records.length > 1) return { choices: records.map(x => this.connectionSnapshot(x)) };
     const record = records[0] ?? await this.open(owner, environment.id);
     return { sessionId: record.sessionId, reused: records.length === 1 };
   }
 
   controlSnapshot(session) {
-    return { holder: session.inputHolder ?? "available", waiting: Boolean(session.pendingSend || session.active) };
+    return { holder: session.inputHolder ?? "available", clientId: session.inputClientId ?? null, waiting: Boolean(session.pendingSend || session.active) };
   }
 
-  claimInput(session, actor) {
+  claimInput(session, actor, clientId, streamId) {
+    if (streamId && streamId !== session.outputBuffer.streamId) throw sessionError("TERMINAL_STREAM_CHANGED", "Terminal was replaced; review the new output before typing");
+    if (actor === "manual" && (typeof clientId !== "string" || !clientId || clientId.length > 100)) throw sessionError("TERMINAL_CLIENT_REQUIRED", "Browser input requires a window identity");
+    if (actor === "manual" && session.inputHolder === "manual" && session.inputClientId !== clientId) throw sessionError("TERMINAL_OTHER_WINDOW", "Another browser window owns input; take over explicitly");
     if (actor !== "manual" && session.inputHolder === "manual") throw sessionError("TERMINAL_MANUAL_CONTROL", "User is editing this terminal; wait for them to release input control");
     if (actor === "manual" && session.inputHolder === "agent" && (session.pendingSend || session.active)) throw sessionError("TERMINAL_AGENT_ACTIVE", "Agent is sending; take over explicitly before typing");
     session.inputHolder = actor === "manual" ? "manual" : "agent";
+    session.inputClientId = actor === "manual" ? clientId : null;
     session.outputBuffer.notify();
   }
 
-  async control(owner, target, action) {
+  async control(owner, target, action, clientId) {
     const session = target === LOCAL_SESSION_ID ? await this.ensureLocalSession() : this.getSession(owner, target).session;
     if (!["takeover", "release", "stop-wait"].includes(action)) throw sessionError("TERMINAL_CONTROL_INVALID", `Unknown input control action: ${action}`);
+    if (typeof clientId !== "string" || !clientId || clientId.length > 100) throw sessionError("TERMINAL_CLIENT_REQUIRED", "Browser control requires a window identity");
+    if (action !== "takeover" && session.inputHolder === "manual" && session.inputClientId !== clientId) throw sessionError("TERMINAL_OTHER_WINDOW", "Only the input owner can release control or stop waiting");
     const pending = session.pendingSend;
     const operation = session.active ?? pending;
     if (action !== "release" && operation) {
@@ -926,8 +973,8 @@ export class RemoteOpsState {
       await operation.done;
       if (session.pendingSend === pending) session.pendingSend = undefined;
     }
-    if (action === "takeover") session.inputHolder = "manual";
-    if (action === "release") session.inputHolder = "available";
+    if (action === "takeover") { session.inputHolder = "manual"; session.inputClientId = clientId; }
+    if (action === "release") { session.inputHolder = "available"; session.inputClientId = null; }
     session.outputBuffer.notify();
     return this.controlSnapshot(session);
   }
@@ -1014,6 +1061,33 @@ export class RemoteOpsState {
     return { deleted: true, environment: target.name };
   }
 
+  async execute(owner, target, args) {
+    await this.ready;
+    if (!owner?.id || this.disposed) throw sessionError("COMMAND_OWNER_REQUIRED", "An active Harness session is required");
+    const record = target === LOCAL_SESSION_ID ? null : this.getSession(owner, target);
+    if (record && (record.session.status().kind === "exited" || !record.session.client?.exec)) throw sessionError("COMMAND_CHANNEL_UNAVAILABLE", "This connection cannot open an independent SSH exec channel");
+    const targetId = record?.sessionId ?? LOCAL_SESSION_ID, requestId = args.requestId ?? randomUUID();
+    if (typeof requestId !== "string" || !requestId || requestId.length > 100) throw sessionError("COMMAND_ID_INVALID", "Invalid command request id");
+    if (this.commands.has(requestId) || this.commands.size >= 8 || [...this.commands.values()].some(job => job.target === targetId)) throw sessionError("COMMAND_BUSY", "An independent command is already running for this target or the limit was reached");
+    const controller = new AbortController(), abort = () => controller.abort();
+    args.signal?.addEventListener("abort", abort, { once: true });
+    if (args.signal?.aborted) abort();
+    const job = { owner: owner.id, target: targetId, controller };
+    this.commands.set(requestId, job);
+    try {
+      job.done = executeCommand({ subprocess: this.ctx.subprocess, client: record?.session.client, command: args.command, cwd: this.base, signal: controller.signal, timeoutMs: (args.timeoutSeconds ?? 30) * 1000, maxBytes: args.maxBytes ?? 65536 });
+      const value = await job.done;
+      this.event(owner, "command.execute", { sessionId: targetId, status: value.status, exitCode: value.exitCode, durationMs: value.durationMs });
+      return { ...value, requestId, sessionId: targetId, targetName: record ? this.connectionSnapshot(record).displayName : LOCAL_SESSION_NAME };
+    } finally { args.signal?.removeEventListener("abort", abort); this.commands.delete(requestId); }
+  }
+  cancelCommand(owner, requestId) {
+    const job = this.commands.get(requestId);
+    if (!job || job.owner !== owner?.id) throw sessionError("COMMAND_NOT_FOUND", "No running command for this Harness session");
+    job.controller.abort();
+    return { requestId, cancellationRequested: true };
+  }
+
   async send(owner, target, args) {
     await this.ready;
     if (!target && !args.environment) throw sessionError("REMOTE_SESSION_REQUIRED", "Pass session (SSH session id or local-cmd), or environment when opening on demand");
@@ -1027,7 +1101,7 @@ export class RemoteOpsState {
       : target ? this.getSession(owner, target) : await this.open(owner, args.environment);
     const session = record.session;
     if (session instanceof AdoptedTerminalSession) await session.refresh();
-    this.claimInput(session, args.actor);
+    this.claimInput(session, args.actor, args.clientId, args.streamId);
     const startOffset = session.outputBuffer.endOffset;
     const streamId = session.outputBuffer.streamId;
     const submittedText = String(args.text ?? args.command ?? "");
@@ -1046,19 +1120,20 @@ export class RemoteOpsState {
       ...(replaced ? { reset: true, truncated: true } : {}),
     };
     if (owner) this.event(owner, target === LOCAL_SESSION_ID ? "local.send" : "ssh.send", { sessionId: record.sessionId, environment: delta.name, inputChars: submittedText.length, waitReason: result.waitReason });
+    if (args.actor !== "manual") this.recordToolReceipt(owner, session, delta, "send");
     const { text, ...metadata } = delta;
     return { ...metadata, environment: delta.name, submittedText, submit, output: text, waitReason: result.waitReason, sessionStatus: result.sessionStatus, ...(args.includeViewport ? { viewport: session.outputBuffer.tail(AGENT_OUTPUT_CHARS) } : {}) };
   }
 
-  async input(owner, target, text, actor = "agent") {
+  async input(owner, target, text, actor = "agent", clientId, streamId) {
     if (target === LOCAL_SESSION_ID) {
       const session = await this.ensureLocalSession();
-      this.claimInput(session, actor);
+      this.claimInput(session, actor, clientId, streamId);
       const result = await session.writeInput(text);
       return { sessionId: LOCAL_SESSION_ID, environment: session.environment.name, ...result };
     }
     const record = this.getSession(owner, target);
-    this.claimInput(record.session, actor);
+    this.claimInput(record.session, actor, clientId, streamId);
     const result = await record.session.writeInput(text);
     this.event(owner, "ssh.input", { sessionId: record.sessionId, environment: record.environment.name, inputBytes: result.bytes });
     return { sessionId: record.sessionId, environment: record.environment.name, ...result };
@@ -1182,6 +1257,8 @@ export function apply(ctx) {
   const state = new RemoteOpsState(ctx);
   ctx.effect(() => async () => {
     state.disposed = true;
+    for (const job of state.commands.values()) job.controller.abort();
+    await Promise.allSettled([...state.commands.values()].map(job => job.done));
     await state.transfers.close();
     await state.localSession?.close("dsh-remote-ops disposed").catch(() => {});
     for (const record of state.sessions.values()) await ctx.terminals.kill(record.owner, record.sessionId, "dsh-remote-ops disposed").catch(() => {});
@@ -1193,10 +1270,11 @@ export function apply(ctx) {
   ctx.systemPrompt.section({
     name: "dsh-remote-ops",
     order: 410,
-    text: "Remote operations are provided by dsh-remote-ops. Use remote_environment_list to identify the exact terminal; reuse its sessionId. session=local-cmd is the shared local terminal visible in Remote Ops, NOT the Harness bash/pwsh terminal. For SSH open only when no suitable session exists. Send one complete command preserving spaces; raw input is for interactive keys/passwords. Send returns bounded new output, streamId and nextOffset. Continue with remote_terminal_read(session, cursor=nextOffset, streamId, waitMs=20000); drain hasMore before waiting. No new text, inferred_idle, timeout, and a running shell never prove a command completed or succeeded: completion=unknown. Observe actual results before dependent commands; never resend solely because of echo or silence. reset/truncated means history was replaced or dropped; do not assume missing output. Output is a raw terminal stream, not a rendered screen. For multiple SSH targets name them explicitly and operate sequentially. MCP provides knowledge, not execution evidence. Never invent credentials or connection success.",
+    text: "Remote operations are provided by dsh-remote-ops. For self-contained noninteractive commands prefer remote_command_execute on an explicit existing connection or local-cmd for real exit status; it does not inherit interactive cwd or temporary variables. Use remote_environment_list to identify the exact terminal; reuse its sessionId. session=local-cmd is the shared local terminal visible in Remote Ops, NOT the Harness bash/pwsh terminal. For SSH open only when no suitable session exists. Send one complete command preserving spaces; raw input is for interactive keys/passwords. Send returns bounded new output, streamId and nextOffset. Continue with remote_terminal_read(session, cursor=nextOffset, streamId, waitMs=20000); drain hasMore before waiting. No new text, inferred_idle, timeout, and a running shell never prove a command completed or succeeded: completion=unknown. Observe actual results before dependent commands; never resend solely because of echo or silence. reset/truncated means history was replaced or dropped; do not assume missing output. Output is a raw terminal stream, not a rendered screen. For multiple SSH targets name them explicitly and operate sequentially. MCP provides knowledge, not execution evidence. Never invent credentials or connection success.",
   });
 
   const owner = (exec) => exec.agent;
+  registerTool(ctx, { name: "remote_command_execute", description: "Execute a noninteractive command separately from the visible terminal, returning real exitCode, stdout, stderr and duration. Does NOT inherit the terminal cwd or temporary variables. Local uses a new shell in the plugin working directory; SSH uses a new exec channel on an explicit existing connection with server-default cwd. No stdin; timeout/cancellation does not prove a remote process stopped. Use remote_terminal_send/read for interactive programs.", parameters: { session: stringParam("Exact existing SSH session id or local-cmd", true), command: stringParam("Complete shell command preserving spaces", true), timeoutSeconds: numberParam("1-300 seconds; default 30"), maxBytes: numberParam("Per-stream output limit, 1024-262144 bytes; default 65536") }, execute: async (args, exec) => state.execute(owner(exec), args.session, { ...args, signal: exec.signal }) });
   registerTool(ctx, { name: "remote_environment_list", description: "List saved SSH environments and active owner-scoped sessions.", parameters: {}, execute: async (_args, exec) => { await state.ready; return state.snapshot(owner(exec)); } });
   registerTool(ctx, { name: "remote_environment_create", description: "Create one saved SSH environment. The plugin generates the internal id; omit the display name to use the SSH host. Use passwordRef instead of plaintext passwords.", parameters: { name: stringParam("Display name; defaults to the SSH host"), host: stringParam("SSH host", true), username: stringParam("SSH username", true), group: stringParam("Environment group"), port: numberParam("SSH port"), privateKeyPath: stringParam("Local private key path"), passwordRef: stringParam("Harness credential reference") }, execute: async (args, exec) => { await state.ready; const value = state.normalizeEnvironment({ ...args, group: normalizeGroupName(args.group) }); const validation = validateEnvironment(value); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); const saved = await state.saveEnvironment(value); state.event(owner(exec), "environment.create", { environment: value.name }); return { saved: true, environment: saved }; } });
   registerTool(ctx, { name: "remote_environment_group_create", description: "Create an empty saved SSH environment group.", parameters: { group: stringParam("Environment group", true) }, execute: async (args) => state.createGroup(args.group) });
@@ -1229,6 +1307,6 @@ export function apply(ctx) {
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/state", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const sessionId = new URL(request.url).searchParams.get("sessionId"); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; await state.ready; return Response.json(agent ? { ...state.snapshot(agent), bound: true } : state.catalog(), { headers: { "Cache-Control": "no-store" } }); } }), "dsh-remote-ops state route");
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/terminal", methods: ["GET"], requestBody: "buffered", fetch: async (request) => { const url = new URL(request.url); const target = url.searchParams.get("session"); const sessionId = url.searchParams.get("sessionId"); const rawOffset = url.searchParams.get("offset"); const waitMs = Math.max(0, Math.min(25_000, Number(url.searchParams.get("waitMs") ?? 0) || 0)); if (!target) return Response.json({ error: "REMOTE_SESSION_REQUIRED" }, { status: 400 }); const offset = rawOffset === null ? undefined : Number(rawOffset); if (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0)) return Response.json({ error: "REMOTE_OFFSET_INVALID" }, { status: 400 }); const agent = sessionId ? ctx.agents.get(sessionId) : undefined; if (target !== LOCAL_SESSION_ID && !agent) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { await state.ready; return Response.json(await state.terminalOutput(agent, target, offset, waitMs, request.signal, url.searchParams.get("streamId")), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); } } }), "dsh-remote-ops terminal route");
   ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/update", methods: ["GET", "POST"], requestBody: "buffered", fetch: async (request) => { try { await state.ready; if (request.method === "POST") return Response.json(await state.upgrade(), { headers: { "Cache-Control": "no-store" } }); return Response.json(await state.checkForUpdate(), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); } } }), "dsh-remote-ops update route");
-  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const localTerminalAction = body.session === LOCAL_SESSION_ID && ["send", "input", "signal"].includes(body.action); const localSftpAction = body.action === "sftp" && body.operation === "local-list"; let agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action) && !localTerminalAction && !localSftpAction) { try { agent = await state.resolveOwner(body.sessionId); } catch (error) { return Response.json({ error: summarizeError(error), ...describeFailure(error, "session-activation") }, { status: 400 }); } } if (!agent && !localActions.has(body.action) && !localTerminalAction && !localSftpAction) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = state.normalizeEnvironment({ ...body.environment, group: normalizeGroupName(body.environment?.group) }); const password = typeof body.password === "string" ? body.password : ""; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); if (password) { const previous = state.findEnvironment(environment.id); const reference = String(environment.passwordRef ?? "").trim() || previous?.passwordRef || defaultPasswordRef(environment.id); environment.passwordRef = await state.storePassword(reference, password); } value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") { const opened = await state.open(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024) }; } else if (body.action === "open-command") { const opened = await state.openDirect(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024), direct: true }; } else if (body.action === "send") value = await state.send(agent, body.session, { ...body, actor: "manual" }); else if (body.action === "input") value = await state.input(agent, body.session, body.text, "manual"); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = body.operation === "local-list" ? await state.listLocalFiles(body.path) : await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), ...describeFailure(error, body.action) }, { status: 400 }); } } }), "dsh-remote-ops action route");
+  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/action", methods: ["POST"], requestBody: "buffered", fetch: async (request) => { const body = await request.json(); await state.ready; const localActions = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]); const localTerminalAction = body.session === LOCAL_SESSION_ID && ["send", "input", "signal"].includes(body.action); const localSftpAction = body.action === "sftp" && body.operation === "local-list"; let agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined; if (!agent && !localActions.has(body.action) && !localTerminalAction && !localSftpAction) { try { agent = await state.resolveOwner(body.sessionId); } catch (error) { return Response.json({ error: summarizeError(error), ...describeFailure(error, "session-activation") }, { status: 400 }); } } if (!agent && !localActions.has(body.action) && !localTerminalAction && !localSftpAction) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 }); try { let value; if (body.action === "group.create") value = await state.createGroup(body.name); else if (body.action === "group.rename") value = await state.renameGroup(body.group, body.name); else if (body.action === "group.delete") value = await state.deleteGroup(body.group); else if (body.action === "environment.save") { const environment = state.normalizeEnvironment({ ...body.environment, group: normalizeGroupName(body.environment?.group) }); const password = typeof body.password === "string" ? body.password : ""; const validation = validateEnvironment(environment); if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", ")); if (password) { const previous = state.findEnvironment(environment.id); const reference = String(environment.passwordRef ?? "").trim() || previous?.passwordRef || defaultPasswordRef(environment.id); environment.passwordRef = await state.storePassword(reference, password); } value = { saved: true, environment: await state.saveEnvironment(environment) }; } else if (body.action === "environment.delete") value = await state.deleteEnvironment(agent, body.environment); else if (body.action === "quick-group.create") value = await state.createQuickGroup(body.name); else if (body.action === "quick-group.rename") value = await state.renameQuickGroup(body.group, body.name); else if (body.action === "quick-group.delete") value = await state.deleteQuickGroup(body.group); else if (body.action === "quick.save") value = await state.saveQuickCommand({ ...body.command, group: normalizeGroupName(body.command?.group) }); else if (body.action === "quick.delete") value = await state.deleteQuickCommand(body.commandId); else if (body.action === "open") { const opened = await state.open(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024) }; } else if (body.action === "open-command") { const opened = await state.openDirect(agent, body.environment); value = { sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024), direct: true }; } else if (body.action === "send") value = await state.send(agent, body.session, { ...body, actor: "manual" }); else if (body.action === "input") value = await state.input(agent, body.session, body.text, "manual", body.clientId, body.streamId); else if (body.action === "signal") value = await state.signal(agent, body.session, body.signal); else if (body.action === "close") value = await state.close(agent, body.session); else if (body.action === "sftp") value = body.operation === "local-list" ? await state.listLocalFiles(body.path) : await state.sftp(agent, body.environment, body.operation, body); else throw new Error(`Unknown action: ${body.action}`); return Response.json(value ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), ...describeFailure(error, body.action) }, { status: 400 }); } } }), "dsh-remote-ops action route");
 
 }

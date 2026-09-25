@@ -18,7 +18,7 @@ function loadClientFunction(name, endMarker, includeFrom = name, globals = {}) {
 
 const terminalScreenModel = loadClientFunction("terminalScreenModel", "    const terminalVisibleText");
 const terminalVisibleText = loadClientFunction("terminalVisibleText", "    const ask =", "terminalScreenModel");
-const parseSshCommand = loadClientFunction("parseSshCommand", "\n\n    const terminalInputEnabled");
+const parseSshCommand = loadClientFunction("parseSshCommand", "\n    const terminalUsesGrid");
 const terminalInputEnabled = loadClientFunction("terminalInputEnabled", "\n    function RemoteOpsPanel");
 const terminalInputCompositionValue = loadClientFunction("terminalInputCompositionValue", "\n    function RemoteOpsPanel");
 
@@ -61,14 +61,44 @@ test("VT screen model preserves cursor overwrites and scrollback", () => {
 });
 
 test("VT screen model exposes the real cursor position", () => {
-  assert.deepEqual(JSON.parse(JSON.stringify(terminalScreenModel("abc"))), { text: "abc", cursor: { row: 0, column: 3 } });
-  assert.deepEqual(JSON.parse(JSON.stringify(terminalScreenModel("\u001b[2J\u001b[Hprompt>"))), { text: "prompt>", cursor: { row: 0, column: 7 } });
+  assert.deepEqual(JSON.parse(JSON.stringify(terminalScreenModel("abc"))), { text: "abc", alternateScreen: false, cursorVisible: true, cursor: { row: 0, column: 3 } });
+  assert.deepEqual(JSON.parse(JSON.stringify(terminalScreenModel("\u001b[2J\u001b[Hprompt>"))), { text: "prompt>", alternateScreen: false, cursorVisible: true, cursor: { row: 0, column: 7 } });
 });
 
 test("terminal wide characters preserve cursor placement after absolute positioning", () => {
   assert.equal(terminalScreenModel("中文\u001b[5G!").text, "中文!");
   assert.equal(terminalScreenModel("中文\u001b[5G!").cursor.column, 3);
   assert.equal(terminalScreenModel("e\u0301x\u001b[2G!").text, "e\u0301!");
+});
+
+test("disconnected tabs retain identity and never silently select a different terminal", () => {
+  const merge = loadClientFunction("mergeSessionTabs", "\n    const retryDelay");
+  const tabs = merge([{ sessionId: "ssh-one", name: "target", status: { kind: "running" } }], [{ sessionId: "local-cmd", kind: "local" }]);
+  assert.equal(tabs.find(x => x.sessionId === "ssh-one").disconnected, true);
+  assert.equal(tabs.find(x => x.sessionId === "ssh-one").name, "target");
+  assert.equal(merge(tabs, [{sessionId:"ssh-one", status:{kind:"running"}}]).find(x=>x.sessionId==="ssh-one").disconnected, false);
+  const delay = loadClientFunction("retryDelay", "\n    const fileWorkspacePreferences");
+  assert.ok(delay(5) > delay(1));
+  assert.ok(delay(100) <= 30000);
+});
+
+test("file workspace preferences retain positions but never stale rows or selections", () => {
+  const prefs = loadClientFunction("fileWorkspacePreferences", "\n    const sortedFileEntries");
+  const value = prefs({panes:[{kind:"ssh",environment:"env",path:"/work",sort:"size",scrollTop:121,entries:["secret"],selected:["bad"]}],bookmarks:[{kind:"ssh",environment:"env",path:"/work"}]});
+  assert.equal(value.panes[0].path, "/work");
+  assert.equal(value.panes[0].sort, "size");
+  assert.equal(value.panes[0].scrollTop, 121);
+  assert.equal(value.panes[0].entries, undefined);
+  assert.equal(value.panes[0].selected, undefined);
+  assert.equal(value.bookmarks[0].path, "/work");
+});
+
+test("alternate-screen applications restore the shell and respect scroll regions", () => {
+  const screen = terminalScreenModel("shell>\u001b[?1049h\u001b[Heditor\u001b[?1049l");
+  assert.equal(screen.text, "shell>");
+  assert.equal(screen.cursor.column, 6);
+  const region = terminalScreenModel("header\u001b[2;4r\u001b[4;1Hbottom\nnext", 5, 20);
+  assert.ok(region.text.startsWith("header"));
 });
 
 test("terminal preferences clamp invalid values and paste previews stay pinned to the original target", () => {
@@ -95,6 +125,72 @@ test("browser failures retain HTTP status, phase, code and original stack", () =
 test("copy reports restricted browser clipboard access without an unhandled TypeError", async () => {
   const write = loadClientFunction("writeClipboard", "\n    const terminalPreferences", "writeClipboard", {navigator:{}});
   await assert.rejects(write("selected output"), /CLIPBOARD_UNAVAILABLE/);
+});
+
+test("file completion refreshes only the visible matching endpoint and directory", () => {
+  const same = loadClientFunction("sameFileLocation", "\n    const sortedFileEntries");
+  assert.equal(same({ kind: "ssh", environment: "a", path: "/tmp/out/" }, { kind: "ssh", environment: "a", path: "/tmp/out" }), true);
+  assert.equal(same({ kind: "ssh", environment: "b", path: "/tmp/out" }, { kind: "ssh", environment: "a", path: "/tmp/out" }), false);
+  assert.equal(same({ kind: "host", path: "F:\\files" }, { kind: "host", path: "F:/files/" }), true);
+  assert.equal(same({ kind: "host", path: "F:/elsewhere" }, { kind: "host", path: "F:/files" }), false);
+});
+
+test("file path edits wait for an in-flight endpoint change", () => {
+  let hook = 0;
+  const render = loadClientFunction("SftpWorkspace", "\n    function CommandDialog", "fileEndpoint", {
+    h: (tag, props, ...children) => ({ tag, props, children }),
+    useState: initial => { let value = typeof initial === "function" ? initial() : initial; if (++hook === 2) value = value.map(pane => ({ ...pane, loading: true })); return [value, () => {}]; },
+    useRef: current => ({ current }), useEffect() {}, useCallback: value => value,
+    localStorage: { getItem: () => null },
+    IconRefreshOutline16: "refresh", IconDownloadOutline16: "download", IconFolderClose16: "folder",
+  });
+  const tree = render({ sessionId: "owner", environments: [], onError() {}, onClose() {} });
+  const nodes = [];
+  const visit = node => { if (Array.isArray(node)) node.forEach(visit); else if (node && typeof node === "object") { nodes.push(node); visit(node.children); } };
+  visit(tree);
+  for (const name of ["路径 A", "路径 B"]) assert.equal(nodes.find(node => node.props?.["aria-label"] === name).props.disabled, true);
+});
+
+test("revealing a transferred file preserves the target pane sort preference", async () => {
+  let hook = 0, panes;
+  const task = { names: ["done.txt"], status: "completed", bytes: 4, target: { kind: "host", path: "/out" }, counts: { completed: 1 }, items: [{ name: "done.txt", status: "completed" }] };
+  const render = loadClientFunction("SftpWorkspace", "\n    function CommandDialog", "fileEndpoint", {
+    h: (tag, props, ...children) => ({ tag, props, children }),
+    useState: initial => {
+      let value = typeof initial === "function" ? initial() : initial;
+      const index = ++hook;
+      if (index === 2) panes = value = value.map((pane, side) => ({ ...pane, path: side ? "/out" : "/in", sort: "size" }));
+      if (index === 7) value = [task];
+      return [value, update => { value = typeof update === "function" ? update(value) : update; if (index === 2) panes = value; }];
+    },
+    useRef: current => ({ current }), useEffect() {}, useCallback: value => value,
+    request: async () => ({ path: "/out", entries: [{ name: "done.txt", type: "-", size: 4 }] }),
+    window: { requestAnimationFrame: callback => callback() }, localStorage: { getItem: () => null },
+    IconRefreshOutline16: "refresh", IconDownloadOutline16: "download", IconFolderClose16: "folder",
+  });
+  const tree = render({ sessionId: "owner", environments: [], onError: message => assert.fail(message), onClose() {} });
+  const nodes = [];
+  const visit = node => { if (Array.isArray(node)) node.forEach(visit); else if (node && typeof node === "object") { nodes.push(node); visit(node.children); } };
+  visit(tree);
+  nodes.find(node => node.tag === "button" && node.children.includes("定位")).props.onClick();
+  await new Promise(setImmediate);
+  assert.equal(panes[1].sort, "size");
+  assert.equal(panes[1].path, "/out");
+  assert.deepEqual(Array.from(panes[1].selected), ["done.txt"]);
+});
+
+test("full-screen terminal preserves its grid and does not print charset selectors", () => {
+  const grid = loadClientFunction("terminalUsesGrid", "\n    const terminalInputEnabled");
+  assert.equal(grid(terminalScreenModel("\x1b[?25l\x1b[Htop header")), true, "top hides its cursor without using the alternate screen");
+  assert.equal(grid(terminalScreenModel("shell>")), false);
+  const screen = terminalScreenModel("\x1b[?1049h\x1b(B\x1b[3;1Htop header\x1b[?25l", 5, 20);
+  assert.equal(screen.text.split("\n")[2], "top header");
+  assert.equal(screen.alternateScreen, true);
+  assert.equal(screen.cursorVisible, false);
+  assert.equal(screen.text.includes("B"), false);
+  const restored = terminalScreenModel("shell>\x1b[?1049h\x1b[?25l\x1b[?1049l\x1b[?25h", 5, 20);
+  assert.equal(restored.text, "shell>");
+  assert.equal(restored.cursorVisible, true);
 });
 
 test("SSH command parser preserves user-supplied host, port and key", () => {
@@ -164,8 +260,8 @@ test("returning from SFTP restores history position or follows latest output acc
   const output = { current: { scrollTop: 0, scrollHeight: 5000 } };
   const follow = { current: true };
   let rememberScroll;
-  const render = (module, height = 190) => {
-    rememberScroll = viewport(output, follow, "owner:cmd", "same output", module, true, height);
+  const render = (module, height = 190, fullScreen = false) => {
+    rememberScroll = viewport(output, follow, "owner:cmd", "same output", module, true, height, fullScreen);
     if (pendingEffect) { cleanup = pendingEffect(); pendingEffect = undefined; }
   };
   render("terminal");
@@ -190,4 +286,6 @@ test("returning from SFTP restores history position or follows latest output acc
   output.current.scrollHeight = 6000;
   onResize?.();
   assert.equal(output.current.scrollTop, 6000);
+  render("terminal", 280, true);
+  assert.equal(output.current.scrollTop, 0, "full-screen apps must start at their header rather than the last rows");
 });

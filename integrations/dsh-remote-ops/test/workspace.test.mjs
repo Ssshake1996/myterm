@@ -34,6 +34,7 @@ test("workspace activates a host owner and browser routes stream upload/download
   assert.deepEqual(await readFile(join(root, "browser.bin")), bytes);
   const downloaded = await route.fetch(new Request(url));
   assert.equal(downloaded.headers.get("Content-Length"), String(bytes.length));
+  assert.match(downloaded.headers.get("Cache-Control"), /(?:^|,)\s*no-transform(?:,|$)/, "binary downloads preserve the original representation through HTTP middleware");
   assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), bytes);
   assert.ok(calls.every(id => id === "cold"));
 });

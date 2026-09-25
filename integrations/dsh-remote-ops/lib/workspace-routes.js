@@ -18,9 +18,14 @@ export function registerWorkspaceRoutes(ctx, state) {
         const owner = (localControl || localList || body.action === "diagnostics") ? ctx.agents.get(body.sessionId) : await state.resolveOwner(body.sessionId);
         if (body.action === "activate") return json({ bound: true });
         if (body.action === "enter") return json(await state.enter(owner, body.environment));
-        if (body.action === "control") return json(await state.control(owner, body.session, body.control));
+        if (body.action === "control") return json(await state.control(owner, body.session, body.control, body.clientId));
+        if (body.action === "connection-rename") return json(await state.renameConnection(owner, body.session, body.note));
+        if (body.action === "command-execute") return json(await state.execute(owner, body.session, { ...body, signal: request.signal }));
+        if (body.action === "command-cancel") return json(state.cancelCommand(owner, body.requestId));
         if (body.action === "files") return json(await state.listFiles(body.endpoint, request.signal));
         if (body.action === "transfer") return json(state.transfers.start(owner.id, body));
+        if (body.action === "transfer-preview") return json(await state.transfers.preview(owner.id, body, request.signal));
+        if (body.action === "transfer-retry") return json(state.transfers.retry(owner.id, body.id));
         if (body.action === "transfers") return json({ tasks: state.transfers.list(owner.id) });
         if (body.action === "transfer-cancel") return json(state.transfers.cancel(owner.id, body.id));
         if (body.action === "diagnostics") return json(diagnosticReport({ ...(owner ? state.snapshot(owner) : state.catalog()), harnessVersion: state.harnessVersion }));
@@ -55,7 +60,7 @@ export function registerWorkspaceRoutes(ctx, state) {
         request.signal.addEventListener("abort", abort, { once: true });
         stream.once("close", close);
         files = undefined;
-        return new Response(Readable.toWeb(stream), { headers: { ...headers, "Content-Type": "application/octet-stream", "Content-Length": String(details.size), "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name)}` } });
+        return new Response(Readable.toWeb(stream), { headers: { ...headers, "Cache-Control": "no-store, no-transform", "Content-Type": "application/octet-stream", "Content-Length": String(details.size), "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name)}` } });
       } catch (error) { files?.close(); return errorResponse(error, "browser-file"); }
     };
   // The host streaming bridge attaches a request body, which is invalid for GET.

@@ -25,6 +25,7 @@ test("all remote operation tools remain registered", () => {
     "remote_environment_group_create", "remote_environment_group_rename", "remote_environment_group_delete",
     "remote_terminal_open", "remote_terminal_send", "remote_terminal_input", "remote_terminal_read",
     "remote_terminal_signal", "remote_terminal_close", "remote_terminal_batch",
+    "remote_command_execute",
     "remote_quick_command_list", "remote_quick_command_save", "remote_quick_command_delete",
     "remote_quick_command_group_create", "remote_quick_command_group_delete", "remote_quick_command_run",
     "remote_sftp_list", "remote_sftp_read", "remote_sftp_write", "remote_sftp_mkdir",

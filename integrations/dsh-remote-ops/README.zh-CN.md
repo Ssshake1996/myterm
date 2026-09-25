@@ -31,7 +31,7 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.19.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.20.tgz
 dsh web
 ```
 
@@ -63,6 +63,13 @@ DSH Web 启动后，点击 Sidebar 底部的 `Remote Ops` 即可主动展开右�
 - 错误保留阶段、代码、原始消息与 cause 堆栈。诊断导出先预览，采用元数据白名单，不导出凭据、命令正文、主机地址或终端内容。
 
 ## Agent 与终端同步
+
+- v0.2.20 连接显示固定编号与可编辑备注；断线保留最后输出，明确重连，不重放命令。重建的输出流需确认后才能继续输入。编号、备注和回执仅在本次宿主进程中存在。
+- 浏览器窗口分别持有输入权，跨窗口必须显式接管。工具回执仅表示返回了哪个范围、何时返回及之后是否有新输出，不代表模型理解了输出。
+- SFTP 按 Harness 会话记忆两侧位置、路径、排序、滚动及最多 30 个书签。传输逐项展示完成/失败/待处理；重试跳过已完成项，覆盖前预览双方大小和修改时间，不跨重启续传。
+- `remote_command_execute` 和“独立命令”入口不向 PTY 打字，返回实际退出码、stdout、stderr、耗时与截断标记。不继承交互终端目录/临时变量，不提供 stdin；本地工作目录为插件目录，SSH 为服务默认目录。
+- 独立执行默认 30 秒、最长 300 秒；每路输出默认 64 KiB、最大 256 KiB；每目标最多一个、总计最多八个活动命令。取消/超时不等于远程进程已经终止。
+- 终端新增备用屏、滚动区域和字符集转义处理，全屏表格不软换行。当前宿主本地 PTY 无运行时 resize API，仍为固定 160x40，不承诺完整 xterm 兼容；真实 OS 输入法仍需对应设备验收。
 
 - `remote_terminal_send/read/signal` 都支持 `session: "local-cmd"`，指向插件内共享的本地 CMD，不是 Harness 内置 bash/pwsh。SSH 应优先复用环境列表中的明确 sessionId；按环境发送时复用唯一连接，多连接时要求明确指定。
 - 发送等待新输出，默认只返回最多 16,384 个 UTF-16 码元的增量（不拆分代理对），不再重复附带旧 viewport；需要最近历史时显式传 `includeViewport: true`。

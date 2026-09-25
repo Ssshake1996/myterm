@@ -107,3 +107,32 @@ test("queued cancellation is immediate and never opens another connection", asyn
     assert.equal(connections, 2);
   } finally { release(); await manager.close(); }
 });
+
+test("failed transfer retries only unfinished files and keeps per-item results", async t => {
+  const { source, target, manager, request } = await fixture(t);
+  for (const name of ["a", "b", "c"]) await writeFile(join(source, name), `source-${name}`);
+  await writeFile(join(target, "b"), "existing-b");
+  const task = manager.start("one", { ...request, names: ["a", "b", "c"] });
+  const result = await manager.wait("one", task.id);
+  assert.deepEqual(result.items.map(x => x.status), ["completed", "failed", "pending"]);
+  await writeFile(join(target, "a"), "changed-after-copy");
+  await rm(join(target, "b"));
+  const retry = manager.retry("one", task.id);
+  assert.throws(() => manager.retry("other", task.id), /TRANSFER_NOT_FOUND/);
+  assert.equal((await manager.wait("one", retry.id)).status, "completed");
+  assert.equal(await readFile(join(target, "a"), "utf8"), "changed-after-copy");
+  assert.equal(await readFile(join(target, "c"), "utf8"), "source-c");
+});
+
+test("transfer preview describes both conflict files without writing anything", async t => {
+  const { source, target, manager, request } = await fixture(t);
+  await writeFile(join(source, "large.bin"), "source");
+  await writeFile(join(target, "large.bin"), "old");
+  const preview = await manager.preview("one", request);
+  assert.equal(preview.conflicts.length, 1);
+  assert.equal(preview.conflicts[0].source.size, 6);
+  assert.equal(preview.conflicts[0].target.size, 3);
+  assert.equal(typeof preview.conflicts[0].source.modifiedAt, "number");
+  assert.equal(await readFile(join(target, "large.bin"), "utf8"), "old");
+  assert.deepEqual(manager.list("one"), []);
+});
