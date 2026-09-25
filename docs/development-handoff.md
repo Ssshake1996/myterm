@@ -1,7 +1,7 @@
 # dsh-remote-ops 开发交接说明
 
-> 基线日期：2026-09-24
-> 基线版本：`dsh-remote-ops v0.2.17`
+> 基线日期：2026-09-25
+> 基线版本：`dsh-remote-ops v0.2.19`
 > 基线提交：以 `git log -1` 为准  
 > 项目根目录：`F:\myterm`  
 > GitHub：`Ssshake1996/myterm`
@@ -30,7 +30,7 @@ Remote Ops 插件负责：
 
 ## 2. 当前版本状态
 
-v0.2.17 统一 Agent 与界面的终端输出流：本地 CMD 发送等待新输出，工具支持游标续读和长轮询，重启用 streamId 重置缓存，输入队列锁定目标；终端增加紧凑图标工具栏、状态栏和新输出入口，修复 SFTP 切换及缩放时的滚动位置。连接上限、无损 JSON、内部环境 ID 隐藏和名称默认使用主机地址等既有修复继续保留。旧版本数据不做迁移：
+v0.2.19 增加连接复用/选择、已有宿主会话无模型恢复、人工/Agent 输入接管、双位置流式文件工作区、快捷命令编辑和粘贴预览、终端搜索与偏好、诊断白名单导出。保留 v0.2.18 可选共享插件导航，以及之前的终端同流、游标续读、滚动、三连接上限、无损 JSON 和环境名称简化。旧版本数据不做迁移：
 
 - 四层自动化测试已经接入 `npm test`。
 - `npm run check` 是唯一发布门禁。
@@ -40,7 +40,9 @@ v0.2.17 统一 Agent 与界面的终端输出流：本地 CMD 发送等待新输
 
 本机 DSH Web 的 3080 端口只是开发验收环境，不是生产数据或用户环境的事实来源。真实 SSH、SFTP、网络、凭据和 DSH 版本差异必须在对应环境单独验证。
 
-本次交付：运行时提交 `46fa8b7`，Tag `dsh-remote-ops-v0.2.17`。`npm run check` 通过（22 项单元、9 项客户端、7 项契约及烟测）。候选包完成真实模型发送/续读、SSH 回显、SFTP 列目录和终端交互验收；发布后本机 web profile 安装正式包并重启，版本、中文与连续空格回显、容器高度及末行复核通过。SFTP 上传下载、跨机和真实操作系统输入法候选提交未验证。
+本次版本与验收细节见 [v0.2.19](releases/dsh-remote-ops-v0.2.19.md)，运行时提交通过 `git rev-list -n 1 dsh-remote-ops-v0.2.19` 查询。`npm run check` 通过（38 项单元/传输/路由、15 项客户端、7 项契约及烟测）。3080 完成真实模型输入互斥/交还后发送续读、SSH 回显/连接上限和逐个释放、SFTP 3 MiB 以上往返逐字节校验、快捷命令/搜索/窄屏验收。跨客户端真实 IME、两台不同 SSH 服务互传未验证。
+
+正式运行时提交为 `8cb4bfb`，Tag 为 `dsh-remote-ops-v0.2.19`。已将正式 Release 包安装到本机 web profile 并重启 3080，复核 CMD 回显、复制输出、SFTP 面板切换、390px 布局和真实 SSH 连接生命周期；GitHub 包 SHA256 与本地包一致。启动 stderr 仅有宿主 SQLite ExperimentalWarning，无插件启动错误。
 
 ## 3. 目录和职责
 
@@ -49,6 +51,9 @@ F:\myterm
 ├─ integrations/dsh-remote-ops/
 │  ├─ lib/index.js          # Harness Host、状态、SSH、SFTP、工具、路由
 │  ├─ lib/client.js         # DSH Web Sidebar 客户端和终端显示
+│  ├─ lib/transfers.js      # 流式文件适配器、队列、冲突和取消
+│  ├─ lib/workspace-routes.js # 连接/控制/文件 HTTP 契约
+│  ├─ lib/diagnostics.js    # 原始错误链与白名单导出
 │  ├─ lib/version.js        # 插件名称、版本和仓库
 │  ├─ cordis.patch.yml      # DSH bundle patch
 │  ├─ package.json          # npm scripts 和运行依赖
