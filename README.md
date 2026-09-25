@@ -16,8 +16,9 @@
 - 快捷命令区域支持拖拽调整高度，检查更新和刷新均提供明确的进行中、成功或失败反馈。
 - 多行命令一次性下发，不拆成大量短请求。
 - SFTP 目录读取、文件读写、创建目录、删除和重命名。
-- 环境连接复用/选择、人工与 Agent 输入接管；快捷命令多行编辑、目标确认，终端搜索和显示偏好。
-- SFTP 双位置文件工作区、浏览器文件上传/下载、流式多选/目录传输、进度取消和冲突策略；脱敏诊断预览导出。
+- 环境连接复用/选择、稳定编号与备注、断开后保留输出和显式重连；人工与 Agent、浏览器窗口之间的输入接管。
+- 独立命令返回真实退出码、stdout/stderr 和耗时，不污染交互终端；工具回执仅表示实际返回过的输出范围。
+- SFTP 双位置文件工作区、浏览器文件上传/下载、流式多选/目录传输、逐项结果与重试、覆盖预览、定位和路径偏好；脱敏诊断预览导出。
 - Multi-SSH 顺序协同工具、Agent 可读诊断和 Harness 凭据引用。
 - Sidebar 显示插件版本，支持检查 GitHub Release 并一键安装升级；升级后重启 DSH 即可生效。
 
@@ -26,7 +27,7 @@
 从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.19.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.20.tgz
 dsh web
 ```
 
@@ -62,7 +63,7 @@ SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.19
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.20
 ```
 
 发布脚本会执行一次完整回归门禁（包含语法检查、单元、客户端行为、契约和烟测），通过后再打包、提交、创建 Tag、推送主分支和发布 GitHub Release。测试矩阵和 3080 页面验收要求见 `docs/testing/dsh-remote-ops-test-plan.md`。

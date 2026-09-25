@@ -1,7 +1,7 @@
 # dsh-remote-ops 开发交接说明
 
 > 基线日期：2026-09-25
-> 基线版本：`dsh-remote-ops v0.2.19`
+> 基线版本：`dsh-remote-ops v0.2.20`
 > 基线提交：以 `git log -1` 为准  
 > 项目根目录：`F:\myterm`  
 > GitHub：`Ssshake1996/myterm`
@@ -30,7 +30,7 @@ Remote Ops 插件负责：
 
 ## 2. 当前版本状态
 
-v0.2.19 增加连接复用/选择、已有宿主会话无模型恢复、人工/Agent 输入接管、双位置流式文件工作区、快捷命令编辑和粘贴预览、终端搜索与偏好、诊断白名单导出。保留 v0.2.18 可选共享插件导航，以及之前的终端同流、游标续读、滚动、三连接上限、无损 JSON 和环境名称简化。旧版本数据不做迁移：
+v0.2.20 增加稳定连接编号/备注、断开保留/显式重连、窗口级输入权、实际工具输出回执、SFTP 逐项重试/覆盖预览/定位和路径偏好，以及独立非交互命令执行。修复 top/vim 网格、字符集序列和备用屏恢复。保留 v0.2.19 的连接复用、双位置流式文件工作区、快捷命令编辑/粘贴预览和诊断导出，以及 v0.2.18 可选共享导航。旧版本数据不做迁移：
 
 - 四层自动化测试已经接入 `npm test`。
 - `npm run check` 是唯一发布门禁。
@@ -40,9 +40,11 @@ v0.2.19 增加连接复用/选择、已有宿主会话无模型恢复、人工/A
 
 本机 DSH Web 的 3080 端口只是开发验收环境，不是生产数据或用户环境的事实来源。真实 SSH、SFTP、网络、凭据和 DSH 版本差异必须在对应环境单独验证。
 
-本次版本与验收细节见 [v0.2.19](releases/dsh-remote-ops-v0.2.19.md)，运行时提交通过 `git rev-list -n 1 dsh-remote-ops-v0.2.19` 查询。`npm run check` 通过（38 项单元/传输/路由、15 项客户端、7 项契约及烟测）。3080 完成真实模型输入互斥/交还后发送续读、SSH 回显/连接上限和逐个释放、SFTP 3 MiB 以上往返逐字节校验、快捷命令/搜索/窄屏验收。跨客户端真实 IME、两台不同 SSH 服务互传未验证。
+本次版本与验收细节见 [v0.2.20](releases/dsh-remote-ops-v0.2.20.md)，运行时提交通过 `git rev-list -n 1 dsh-remote-ops-v0.2.20` 查询。`npm run check` 通过（50 项后端/传输/路由/独立命令、22 项客户端、7 项契约及烟测）。3080 完成真实模型独立命令原始结果核对、双窗口接管、SSH 连接生命周期/top/vim、SFTP 3 MiB 以上字节校验及仅重试剩余项、快捷命令/滚动/桌面和 390px 窄屏验收。
 
-正式运行时提交为 `8cb4bfb`，Tag 为 `dsh-remote-ops-v0.2.19`。已将正式 Release 包安装到本机 web profile 并重启 3080，复核 CMD 回显、复制输出、SFTP 面板切换、390px 布局和真实 SSH 连接生命周期；GitHub 包 SHA256 与本地包一致。启动 stderr 仅有宿主 SQLite ExperimentalWarning，无插件启动错误。
+未验证两台物理客户端、OS 输入法候选提交和两台不同 SSH 服务互传。当前宿主没有运行时 PTY resize API，保留 160×40 网格，不声称完整终端仿真兼容。开发验收下载阶段发现宿主压缩桥 Gzip drain 监听警告；二进制响应增加 no-transform 后，两次大文件下载字节一致且未复现警告。宿主 SQLite ExperimentalWarning 单独记录，不视为插件启动错误。
+
+正式运行时提交为 `50343b9`，Tag 为 `dsh-remote-ops-v0.2.20`。已从 GitHub Release 安装正式包到本机 web profile 并重启 3080；CMD 回显、复制、SFTP 面板往返、桌面/390px 无溢出、真实 SSH 独立命令与释放、本地超时终止均复核通过。SHA256 `ccf3390d7fae6ec7ba88d203996fc1d4f1fb6dc790c99dbeb2bd80cf5ca01211` 与 GitHub asset digest 一致，启动 stderr 仅有宿主 SQLite ExperimentalWarning。
 
 ## 3. 目录和职责
 
@@ -52,6 +54,7 @@ F:\myterm
 │  ├─ lib/index.js          # Harness Host、状态、SSH、SFTP、工具、路由
 │  ├─ lib/client.js         # DSH Web Sidebar 客户端和终端显示
 │  ├─ lib/transfers.js      # 流式文件适配器、队列、冲突和取消
+│  ├─ lib/commands.js       # 宿主 subprocess/SSH exec 非交互命令
 │  ├─ lib/workspace-routes.js # 连接/控制/文件 HTTP 契约
 │  ├─ lib/diagnostics.js    # 原始错误链与白名单导出
 │  ├─ lib/version.js        # 插件名称、版本和仓库
@@ -121,13 +124,14 @@ remote-ops/
 
 - 环境：`remote_environment_list/create/delete`，以及环境分组的 create/rename/delete。
 - 终端：`remote_terminal_open/send/input/read/signal/close/batch`。
+- 独立命令：`remote_command_execute`，不继承交互终端工作目录/环境变量。
 - 快捷命令：`remote_quick_command_list/save/delete/group_create/group_delete/run`。
 - SFTP：`remote_sftp_list/read/write/mkdir/delete/rename/upload/download`。
 - 诊断：`remote_diagnostics`。
 
 工具原则：
 
-1. 已知命令优先一次性发送完整文本，保留参数之间的空格和换行。
+1. 无交互依赖的独立命令优先 `remote_command_execute`，显式写出所需目录/变量；需要当前 shell 状态的命令一次性发送完整文本，保留空格和换行。
 2. Tab/方向键/密码/交互程序使用原始输入；观察执行进展使用游标增量读取，不通过重发命令轮询。
 3. 多 SSH 目标必须显式命名，按目标顺序执行并观察结果后再继续。
 4. MCP 返回的产品知识只能用于生成或校验命令，不能代替真正的 SSH 执行结果。
@@ -135,6 +139,8 @@ remote-ops/
 6. `session: "local-cmd"` 是插件共享的本地 CMD，不是 Harness 内置 bash/pwsh；SSH 复用明确 sessionId，环境多连接时拒绝猜测目标。
 7. 发送默认返回 16 Ki 码元的新输出；续读传 `cursor=nextOffset`、`streamId`、`waitMs`，先读完 `hasMore`。流替换或游标过期必须处理 `reset/truncated`。
 8. `completion: "unknown"` 是刻意的契约：静默、超时和存活 PTY 都不证明命令完成。工具输出是原始流，不是渲染后的屏幕，也不提供任意交互程序的可靠退出码。
+9. 独立命令只有实际观察到正常退出才返回 `completion: "exited"`；取消/超时/没有退出消息保持 unknown。远端通道关闭不证明进程已结束，不能伪造 terminationConfirmed。
+10. 工具回执是 owner/stream 上实际返回的数据范围，不代表模型理解；UI 读流不能产生工具回执。浏览器 clientId 仅用于人工输入协作，不代替 Harness 权限。
 
 ## 6. 测试和发布门禁
 
@@ -202,7 +208,9 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 
 - 没有把完整浏览器运行时放进插件包；页面测试依赖 DSH Web 宿主。
 - SSH/SFTP 的真实可用性受网络、远端权限、凭据和目标系统影响，自动化测试使用 fake terminal，不伪装成真实远程成功。每个 owner 在单个环境最多保留 3 个连接，具体连接通过 sessionId 释放。
-- 输出缓冲保留有界历史，过期游标会返回受控最近内容，不承诺无限终端回放。
+- 输出缓冲保留有界历史，过期游标会返回受控最近内容，不承诺无限终端回放。断开标签最多保留 12 个；编号/备注不跨进程恢复。
+- SFTP 任务与未完成项重试不跨 DSH 重启；浏览器只保存会话级路径/排序/滚动/书签，不保存旧列表或勾选。覆盖预览只读，不能替代传输时的再次检查。
+- 独立命令每目标最多一个、总计最多 8 个；默认 30 秒、最长 300 秒，stdout/stderr 各默认 64 KiB、上限 256 KiB，超限继续排空并明确截断。
 - 本地 CMD 是插件共享终端；SSH 仍按 Agent owner 隔离。Agent 绑定状态不是输出已读回执，工具/界面视图也不代表 shell 命令完成。
 - 不新增第二套 Agent 循环、权限门禁、MCP 调度或长期记忆。
 - 后续若引入新 Transport、终端渲染器或持久数据格式，必须先更新交接文档、测试矩阵和迁移说明。
