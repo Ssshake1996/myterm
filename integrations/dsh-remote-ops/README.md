@@ -37,7 +37,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.22.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.23.tgz
 dsh web
 ```
 
@@ -56,6 +56,10 @@ contains the myterm desktop application. It works in DSH hosts that provide the
 documented Agent, terminal, tools, system-prompt, credentials, and connection
 services. SSH PTYs are process-local by design; saved environment definitions
 survive restarts and reconnect on demand.
+
+The client supports the `Regular` icon exports in DSH 0.2.0-rc.2 and falls back
+to the size-based exports used by older hosts. Version 0.2.23 fixes the blank
+Remote Ops panel caused by the icon export change.
 
 After DSH Web starts, click `Remote Ops` in the sidebar footer to open the
 right Sidebar while keeping the current conversation visible. The button never
@@ -88,7 +92,7 @@ key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.22 exposes environment list/create/update/delete, group management,
+Version 0.2.23 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells

@@ -47,6 +47,76 @@ test("shared navigation suppresses the fallback and restores it after unload", (
   assert.equal(launcher({wide:true}).type, "button");
 });
 
+// Export names from DSH ui-primitives 0.2.0-rc.2 and the older Web host.
+const iconExports = [
+  ["IconStopFill16", "IconStopFillRegular"],
+  ["IconRefreshOutline16", "IconRefreshOutlineRegular"],
+  ["IconDownloadOutline16", "IconDownloadOutlineRegular"],
+  ["IconPanelLeftOutline16", "IconPanelLeftOutlineRegular"],
+  ["IconCopyOutline16", "IconCopyOutlineRegular"],
+  ["IconEditOutline16", "IconEditOutlineRegular"],
+  ["IconFolderClose16", "IconFolderCloseRegular"],
+  ["IconPlayOutline16", "IconPlayOutlineRegular"],
+  ["IconSearchOutline16", "IconSearchOutlineRegular"],
+  ["IconPlusOutline16", "IconPlusOutlineRegular"],
+  ["IconSettingsOutline16", "IconSettingsOutlineRegular"],
+  ["IconCloseOutline16", "IconCloseOutlineRegular"],
+  ["IconChevronDownOutline14", "IconChevronDownOutlineRegular"],
+  ["IconChevronUpOutline14", "IconChevronUpOutlineRegular"],
+];
+
+function iconClientFixture(exportIndex) {
+  const h = (type, props, ...children) => {
+    assert.ok(typeof type === "string" || typeof type === "function", `invalid React element type: ${String(type)}`);
+    if (typeof type === "function") return type({ ...props, children });
+    return { type, props: props ?? {}, children: children.flat(Infinity) };
+  };
+  const React = {
+    createElement: h, Fragment: "fragment",
+    useState: initial => [typeof initial === "function" ? initial() : initial, () => {}],
+    useRef: current => ({ current }), useEffect() {},
+    useCallback: callback => callback, useMemo: callback => callback(),
+    useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
+  };
+  const primitives = Object.fromEntries(iconExports.map(names => [names[exportIndex], props => h("svg", { ...props, "data-icon": names[exportIndex] })]));
+  let plugin;
+  const exposedSource = source.replace("return { inject, apply };", `return { inject, apply, icons: { ${iconExports.map(([name]) => name).join(", ")} } };`);
+  vm.runInNewContext(exposedSource, {
+    window: { __ModuleLoader__: { load: definition => { plugin = definition.factory(name => name === "react" ? React : primitives); } } },
+    document: { getElementById: () => ({ textContent: "" }) },
+    localStorage: { getItem: () => null, setItem: () => assert.fail("render must not write preferences") },
+    fetch: () => assert.fail("render must not request remote operations"),
+  }, { filename: "client.js" });
+  const slots = new Map();
+  const ctx = {
+    effect: fn => fn(),
+    inject: (names, callback) => { if (names.includes("sidebarRight")) callback(ctx); },
+    locale: { bind: () => () => "Remote Ops", register() {} },
+    sidebarRight: {}, sidebarRightTabs: { register() {} },
+    slots: { inject: (_name, fn) => fn(), register: (definition, component) => { slots.set(definition.name, component); } },
+  };
+  plugin.apply(ctx);
+  return { plugin, primitives, slots, h };
+}
+
+for (const [label, exportIndex] of [["legacy size-specific", 0], ["DSH 0.2.0-rc.2 Regular", 1]]) {
+  test(`all fourteen client icons resolve with ${label} exports`, () => {
+    const { plugin, primitives } = iconClientFixture(exportIndex);
+    for (const names of iconExports)
+      assert.equal(plugin.icons[names[0]], primitives[names[exportIndex]], `${names[0]} must resolve to ${names[exportIndex]}`);
+  });
+  test(`RemoteOpsPanel renders without undefined components with ${label} exports`, () => {
+    const { slots, h } = iconClientFixture(exportIndex);
+    const tree = h(slots.get("sidebar.right.pane.tab"), { sessionId: "test-owner" });
+    assert.equal(tree.props.className, "dsh-remote-ops");
+    const rendered = JSON.stringify(tree);
+    assert.match(rendered, /Remote Ops/);
+    assert.match(rendered, /检查更新/);
+    assert.match(rendered, /终端输入/);
+    assert.match(rendered, /data-icon/);
+  });
+}
+
 test("VT screen model removes ConPTY initialization blank rows", () => {
   const initial = "\u001b[?25l\u001b[2J\u001b[m\u001b[H\r\n" + "\r\n".repeat(38) + "\u001b[2;34HC:\\Users\\tester\\.dsh\\remote-ops>";
   const visible = terminalVisibleText(initial);

@@ -67,6 +67,14 @@ test("terminal controls expose usable focus and clear panel toggles", () => {
   assert.doesNotMatch(client, /position:absolute;left:12px;bottom:10px/);
 });
 
+test("launcher failures stay inside the DSH host overlay lifecycle", () => {
+  assert.match(client, /name: "shell\.overlay"/);
+  assert.match(client, /dsh-remote-ops\.launch-error/);
+  assert.match(client, /dsh-remote-ops__launcherError/);
+  assert.doesNotMatch(client, /document\.body\.appendChild/);
+  assert.doesNotMatch(client, /position:fixed/);
+});
+
 test("terminal transport exposes exact submitted text and existing-session reconciliation", () => {
   assert.match(server, /submittedText/);
   assert.match(server, /reconcileHostSessions/);

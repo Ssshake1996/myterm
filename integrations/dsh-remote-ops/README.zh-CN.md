@@ -4,6 +4,8 @@
 
 独立的 DeepSeek Harness 远程运维插件，不依赖 myterm 桌面程序。
 
+客户端兼容 DSH 0.2.0-rc.2 的 `Regular` 图标导出，并回退支持旧版按尺寸命名的图标。v0.2.23 修复图标导出变化导致的 Remote Ops 面板空白；启动失败提示改由 DSH `shell.overlay` 宿主插槽承载，不再向页面 body 创建全局浮层。
+
 ## 能力
 
 - 按分组保存环境，文件位于 `remote-ops/environments/<分组>/environments.<分组>.json`。
@@ -31,7 +33,7 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.22.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.23.tgz
 dsh web
 ```
 
