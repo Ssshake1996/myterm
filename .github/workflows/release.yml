@@ -1,0 +1,56 @@
+name: DSH Remote Ops Release
+
+on:
+  push:
+    tags:
+      - "dsh-remote-ops-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: integrations/dsh-remote-ops/package-lock.json
+      - name: Verify tag, package version and release notes agree
+        id: meta
+        run: |
+          version="${TAG#dsh-remote-ops-v}"
+          package_version="$(node -p "require('./integrations/dsh-remote-ops/package.json').version")"
+          if [ "$version" != "$package_version" ]; then
+            echo "Tag version $version does not match package version $package_version" >&2
+            exit 1
+          fi
+          notes="docs/releases/dsh-remote-ops-v${version}.md"
+          test -f "$notes" || { echo "Release notes not found: $notes" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
+      - run: npm ci --prefix integrations/dsh-remote-ops
+      - run: npm run check --prefix integrations/dsh-remote-ops
+      - name: Package and checksum
+        run: |
+          mkdir -p dist-release
+          packed="$(cd integrations/dsh-remote-ops && npm pack --silent --pack-destination ../../dist-release)"
+          artifact="dsh-remote-ops-v${{ steps.meta.outputs.version }}.tgz"
+          [ "$packed" = "$artifact" ] || mv "dist-release/$packed" "dist-release/$artifact"
+          (cd dist-release && sha256sum "$artifact" > "SHA256SUMS-dsh-remote-ops-v${{ steps.meta.outputs.version }}.txt")
+          cat dist-release/SHA256SUMS-*.txt
+      - name: Create or update the GitHub Release
+        run: |
+          title="dsh-remote-ops v${{ steps.meta.outputs.version }}"
+          notes="${{ steps.meta.outputs.notes }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$title" --notes-file "$notes"
+          else
+            gh release create "$TAG" --verify-tag --title "$title" --notes-file "$notes"
+          fi
+          gh release upload "$TAG" dist-release/*.tgz dist-release/SHA256SUMS-*.txt --clobber

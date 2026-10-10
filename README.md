@@ -27,7 +27,7 @@
 从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.22.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.26.tgz
 dsh web
 ```
 
@@ -43,7 +43,13 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ```text
 integrations/dsh-remote-ops/
-├─ lib/index.js       # Harness Host、SSH、SFTP、工具和持久化
+├─ lib/index.js       # 插件入口：apply 与对外导出
+├─ lib/state/         # RemoteOpsState：按领域分层（环境、快捷命令、连接、终端读写、文件、更新…），入口 state/index.js
+├─ lib/terminal-send.js     # 发送流程：预设、自动应答、输出渲染
+├─ lib/terminal-script.js   # remote_terminal_script 多步骤执行
+├─ lib/terminal-sessions.js # SSH/本地/宿主接管终端会话与 SendOperation
+├─ lib/tools.js, routes.js  # Agent 工具注册与 HTTP 路由
+├─ lib/cli-profile.js, cli-assist.js, output-render.js, ansi.js # 设备 CLI 辅助与输出渲染
 ├─ lib/client.js      # DSH Web Sidebar UI
 ├─ cordis.patch.yml   # 官方 DSH bundle patch
 └─ test/               # 单元、客户端行为、契约和烟测回归集
@@ -63,10 +69,19 @@ SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.22
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.26
 ```
 
-发布脚本会执行一次完整回归门禁（包含语法检查、单元、客户端行为、契约和烟测），通过后再打包、提交、创建 Tag、推送主分支和发布 GitHub Release。测试矩阵和 3080 页面验收要求见 `docs/testing/dsh-remote-ops-test-plan.md`。
+发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
+
+```sh
+node scripts/release-dsh-remote-ops.mjs 0.2.26            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.2.26 --dry-run  # 只校验、跑门禁并打包，不动 git
+```
+
+选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后轮询 Release，比较 GitHub 报告的安装包摘要与本地摘要。
+
+发布脚本在改动 git 之前先校验所有版本载体（`package.json`、锁文件、`version.js`、`client.js` 默认值、发布说明标题）一致，再执行一次完整回归门禁（包含语法检查、单元、客户端行为、契约和烟测），通过后才打包、提交、创建 Tag 并推送。测试矩阵和 3080 页面验收要求见 `docs/testing/dsh-remote-ops-test-plan.md`。
 
 ## 边界
 

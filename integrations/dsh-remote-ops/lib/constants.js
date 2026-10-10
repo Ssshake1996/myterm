@@ -1,0 +1,13 @@
+export const ROOT = "remote-ops";
+export const LOCAL_SESSION_ID = "local-cmd";
+export const LOCAL_SESSION_NAME = "本地 CMD";
+export const MAX_SCROLLBACK_BYTES = 4 * 1024 * 1024;
+export const RETAINED_SCROLLBACK_BYTES = 3 * 1024 * 1024;
+export const UI_SCROLLBACK_CHARS = 256 * 1024;
+export const AGENT_OUTPUT_CHARS = 16 * 1024;
+export const MAX_SFTP_BYTES = 2 * 1024 * 1024;
+export const MAX_SESSIONS_PER_ENVIRONMENT = 3;
+export const SESSION_NAME_PREFIX = "dsh-remote-ops-";
+export const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
+export const TERMINAL_ENCODINGS = new Set(["utf-8", "gb18030", "big5", "windows-1252", "iso-8859-1"]);
+export const CREDENTIAL_REF_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;

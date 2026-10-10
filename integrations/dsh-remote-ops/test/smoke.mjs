@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { readServerSource } from "./server-source.mjs";
 import { validateEnvironment, normalizeGroupName, summarizeError, defaultPasswordRef, TerminalOutputBuffer } from "../lib/index.js";
 import { PLUGIN_VERSION } from "../lib/version.js";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
 const client = await readFile(join(packageRoot, "lib/client.js"), "utf8");
-const server = await readFile(join(packageRoot, "lib/index.js"), "utf8");
+const server = await readServerSource();
 assert.equal(manifest.version, PLUGIN_VERSION);
 assert.equal(manifest.dsh?.bundle?.patch, "./cordis.patch.yml");
 assert.deepEqual(manifest.dsh?.client?.inject, [

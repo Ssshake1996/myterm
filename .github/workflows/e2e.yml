@@ -1,0 +1,39 @@
+name: Remote Ops browser
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            integrations/dsh-remote-ops/package-lock.json
+            e2e/package-lock.json
+      - uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      - run: npm ci --prefix integrations/dsh-remote-ops
+      - run: npm ci --prefix e2e
+      - run: npm test --prefix e2e
+      - run: npm run e2e --prefix e2e
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remote-ops-e2e-report
+          path: output/e2e
+          if-no-files-found: ignore
+      - if: always()
+        run: |
+          report="$(find output/e2e -name report.md -print -quit)"
+          if [ -n "$report" ]; then
+            echo "## Browser report" >> "$GITHUB_STEP_SUMMARY"
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          fi
