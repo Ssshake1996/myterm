@@ -1,0 +1,9 @@
+{
+  "name": "@dsh/remote-ops-e2e-host",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pinned DeepSeek Harness runtime for the Remote Ops host-layer browser tests. The test runner lives in the parent e2e package.",
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.2.0-rc.2"
+  }
+}

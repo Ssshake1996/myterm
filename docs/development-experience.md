@@ -1156,3 +1156,12 @@ DSH Web 另一台主机使用最新插件调用 `remote_environment_list` 时，
 - 报告在每个步骤结束后截图，失败时再截一张。HTML 把图片内嵌成 data URL，Markdown 只留文件路径。`/favicon.ico` 的 404 不算失败，其它 HTTP 4xx/5xx 和控制台错误算失败。
 - 本地 6 个场景约 5 秒全部通过。断开横幅、版本号、设备欢迎语和“重新连接”都出现在截图里。
 
+## 49. 完整 DSH 宿主浏览器验收
+
+- 仿宿主层盖不住登录令牌、预览说明、工作区、右侧栏和 `dsh plugin add`。这一层钉死公网 `@deepseek-ai/dsh@0.2.0-rc.2`，每次用全新 `DSH_HOME`，不读用户的 `~/.dsh`。
+- `dsh web` 在 Node 22 上会静默退出。宿主进程用 Node 24；测试进程可以是 22，只要 `DSH_NODE` 指向 24。`ssh2` 的原生模块必须由这个 Node 24 编译。pnpm 10 默认不跑依赖的构建脚本，要在 profile 的 `pnpm-workspace.yaml` 里允许 `ssh2` 和 `cpu-features`，再用同一个 Node 执行 `pnpm rebuild`。
+- 无头环境没有可用的 Documents 目录，页面会停在“选择工作区”。在 profile 的 `cordis.patch.yml` 里给 `workspace-controller` 写绝对路径 `documentsDirectory`，宿主会自己创建 `deepseek-harness/default-workspace`。
+- 预览说明的“继续”会晚于首屏出现。Playwright 的按钮名默认是子串匹配，“继续”会点到禁用的“保存并继续”。用精确名称先关预览说明，再点“稍后配置”。真宿主有插件导航时，页脚的 Remote Ops 按钮不渲染，打开方式仍是这个按钮的 `openTab`；按钮不在时再走右侧栏的“远程运维”。
+- 多个场景共用一个宿主进程时，后一个场景会看到上一个场景留下的 SSH 标签。测本地 Shell 前要点“本地 Shell”标签，否则命令会打进设备 CLI。
+- 启动日志里的 `token=` 在写入报告前替换掉。本地 6 个场景约 21 秒全部通过：版本 v0.2.26、本地回显、`(y/n)` 停住、200×50、断开后重连且不重放、交还人工输入、200 行滚动、390px 面板不横向溢出。不调用模型。
+

@@ -54,7 +54,8 @@ npm run check
 | SSH 尺寸与掉线 | fake ssh2 客户端/通道 | PTY 尺寸进入 shell 请求，`setWindow` 参数与范围校验；关闭原因、只通知一次、迟到错误不抛出；主动释放不记录；发送结果与后续发送带重连提示 |
 | 工具 schema 与参数 | 路由/工具测试 | 所有工具参数符合宿主 DSL（对象必须声明 additionalProperties）；未声明的 `actor` 不能绕过人工输入保护；宿主拒绝可选工具 schema 时插件仍可加载 |
 | 更新和发布 | 契约测试 + 发布脚本测试 | Release 前必须执行 `npm run check`；发布脚本在临时 git 仓库和裸远端上验证提交/Tag/推送/幂等/拒绝场景，并用脚本化 GitHub API 验证摘要核对；本仓库自身版本载体必须一致 |
-| 浏览器验收 | `e2e/`（真实 Chrome + 生产 client.js + 生产插件 + 假设备） | 打开面板、本地回显、`(y/n)` 不被自动回答、SSH 尺寸与掉线重连不重放、Agent 与界面同流、人工输入拒绝、长输出滚动、390px 无横向溢出；每步截图并生成 HTML/Markdown 报告。不替代真实设备和真实 DSH 宿主验收 |
+| 浏览器验收 | `e2e/`（真实 Chrome + 生产 client.js + 生产插件 + 假设备） | 打开面板、本地回显、`(y/n)` 不被自动回答、SSH 尺寸与掉线重连不重放、Agent 与界面同流、人工输入拒绝、长输出滚动、390px 无横向溢出；每步截图并生成 HTML/Markdown 报告。不替代真实设备验收 |
+| 完整 DSH 宿主 | `npm run e2e:host`（Node 24 + `@deepseek-ai/dsh@0.2.0-rc.2` + 同一套 Chrome/假设备） | 临时 `DSH_HOME`，`documentsDirectory` 指向空目录，安装当前插件包后打开真实 `dsh web`。覆盖预览说明、工作区、右侧栏、版本号、本地 Shell 回显、设备确认不被自动回答、PTY 尺寸、掉线重连不重放、交还人工输入、长输出滚动、窄屏面板。不调用模型，不连接真实设备。截图只进 CI 产物 |
 
 ## 3080 页面验收
 

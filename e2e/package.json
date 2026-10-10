@@ -9,6 +9,7 @@
   },
   "scripts": {
     "e2e": "node runner/index.mjs",
+    "e2e:host": "node host/runner.mjs",
     "e2e:list": "node runner/index.mjs --list",
     "e2e:serve": "node harness/serve.mjs",
     "test": "node --test test/*.test.mjs"
