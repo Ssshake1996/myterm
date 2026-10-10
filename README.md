@@ -66,6 +66,8 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.24
 ```
 
+没有 PowerShell 的环境可以直接推送 Tag `dsh-remote-ops-vX.Y.Z`，`.github/workflows/release.yml` 会校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁后打包并创建（或更新）GitHub Release，上传安装包与 SHA256 文件。
+
 发布脚本会执行一次完整回归门禁（包含语法检查、单元、客户端行为、契约和烟测），通过后再打包、提交、创建 Tag、推送主分支和发布 GitHub Release。测试矩阵和 3080 页面验收要求见 `docs/testing/dsh-remote-ops-test-plan.md`。
 
 ## 边界
