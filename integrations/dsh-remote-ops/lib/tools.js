@@ -71,6 +71,14 @@ function registerOptionalTool(ctx, state, definition) {
   try { registerTool(ctx, definition); } catch (error) { state.toolWarnings.push({ tool: definition.name, error: summarizeError(error) }); }
 }
 
+function registerWithFallback(ctx, state, build) {
+  try { registerTool(ctx, build(true)); } catch (error) {
+    const definition = build(false);
+    state.toolWarnings.push({ tool: definition.name, error: summarizeError(error), fallback: "registered without the nested cliProfile/terminal parameters" });
+    registerTool(ctx, definition);
+  }
+}
+
 function registerTool(ctx, definition) {
   ctx.tools.register({ ...definition, execute: async (...args) => toLosslessJson(await definition.execute(...args)), output });
 }
@@ -103,7 +111,9 @@ export function registerTools(ctx, state) {
       return state.snapshot(owner(exec));
     },
   });
-  registerTool(ctx, {
+  // The nested profile/size parameters are the only object-typed parameters on a core tool. If a host rejects them,
+  // keep the tool available without them instead of failing the whole plugin.
+  registerWithFallback(ctx, state, (withNested) => ({
     name: "remote_environment_create",
     description: "Create one saved SSH environment. The plugin generates the internal id; omit the display name to use the SSH host. Use passwordRef instead of plaintext passwords.",
     parameters: {
@@ -114,8 +124,7 @@ export function registerTools(ctx, state) {
       port: numberParam("SSH port"),
       privateKeyPath: stringParam("Local private key path"),
       passwordRef: stringParam("Harness credential reference"),
-      cliProfile: CLI_PROFILE_SCHEMA,
-      terminal: TERMINAL_SIZE_SCHEMA,
+      ...(withNested ? { cliProfile: CLI_PROFILE_SCHEMA, terminal: TERMINAL_SIZE_SCHEMA } : {}),
     },
     execute: async (args, exec) => {
       await state.ready;
@@ -126,7 +135,7 @@ export function registerTools(ctx, state) {
       state.event(owner(exec), "environment.create", { environment: value.name });
       return { saved: true, environment: saved };
     },
-  });
+  }));
   registerTool(ctx, {
     name: "remote_environment_group_create",
     description: "Create an empty saved SSH environment group.",

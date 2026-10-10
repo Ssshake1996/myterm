@@ -173,3 +173,32 @@ test("the script tool is registered with a nested schema and a rejected schema n
   assert.deepEqual(diagnostics.toolWarnings.map((warning) => warning.tool), ["remote_terminal_script"]);
   assert.match(diagnostics.toolWarnings[0].error, /host rejected the schema/);
 });
+
+test("a host that rejects the nested environment parameters still gets the core environment tool", async (t) => {
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const root = await mkdtemp(join(tmpdir(), "dsh-env-fallback-"));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = root;
+  let plugin;
+  t.after(async () => {
+    for (const cleanup of plugin?.cleanups ?? []) await cleanup();
+    if (previousHome === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = previousHome;
+    await rm(root, { recursive: true, force: true });
+  });
+  plugin = pluginWith((definition, tools) => {
+    if (definition.name === "remote_environment_create" && definition.parameters.cliProfile) throw new Error("nested object parameters are not supported here");
+    tools.set(definition.name, definition);
+  });
+  const create = plugin.tools.get("remote_environment_create");
+  assert.ok(create, "the core tool must stay registered");
+  assert.equal(Object.hasOwn(create.parameters, "cliProfile"), false);
+  assert.equal(Object.hasOwn(create.parameters, "terminal"), false);
+  assert.equal(create.parameters.host.required, true);
+  const diagnostics = await plugin.tools.get("remote_diagnostics").execute({}, { agent: { id: "diag" } });
+  assert.equal(diagnostics.toolWarnings[0].tool, "remote_environment_create");
+  assert.match(diagnostics.toolWarnings[0].fallback, /without the nested/);
+  const created = await create.execute({ name: "dev", host: "10.2.2.2", username: "admin" }, { agent: { id: "diag" } });
+  assert.equal(created.saved, true);
+});

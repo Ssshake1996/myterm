@@ -110,7 +110,7 @@ window.__ModuleLoader__.load({
     `;
     const failureMessage = (value, status) => [value.title, `HTTP ${status}`, value.code, value.stage, value.error, value.details ?? value.stack, value.cleanupError].filter(Boolean).join("\n");
     async function request(path, init) { const response = await fetch(path, init); const text = await response.text(); let value = {}; try { value = text ? JSON.parse(text) : {}; } catch { throw new Error(`HTTP ${response.status}: ${text}`); } if (!response.ok) { const error = Object.assign(new Error(value.error ?? `HTTP ${response.status}`), value); error.message = failureMessage(value, response.status); throw error; } return value; }
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.2.24", update: { currentVersion: "0.2.24", latestVersion: "0.2.24", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.2.25", update: { currentVersion: "0.2.25", latestVersion: "0.2.25", updateAvailable: false } };
     const glyph = { environments: "▦", quick: "⌘", sftp: "⇄", diagnostics: "⌁" };
     const terminalScreenModel = (value, rows = 40, columns = 160) => {
       const source = String(value ?? "");
@@ -302,6 +302,25 @@ window.__ModuleLoader__.load({
       return [...(known ? [] : [current]), ...TERMINAL_SIZE_PRESETS].map(([rows, cols]) => ({ value: `${rows}x${cols}`, label: `${cols}×${rows}`, rows, cols }));
     };
     const terminalSizeFromValue = (value) => { const match = /^(\d+)x(\d+)$/.exec(String(value)); return match ? { rows: Number(match[1]), cols: Number(match[2]) } : undefined; };
+    const environmentAdvancedFields = (form, update) =>
+    h("details", { className: "dsh-remote-ops__formAdvanced", open: Boolean(form.autoConfirm || form.autoQuitMore || form.stripAnsi || form.autoSigint === false || form.headTailChars || form.confirmPattern || form.rows || form.cols) },
+      h("summary", null, "设备命令行（CLI）辅助与终端大小"),
+      h("div", { className: "dsh-remote-ops__formAdvancedBody" },
+        h("label", { className: "dsh-remote-ops__quickCheck" }, h("input", { type: "checkbox", checked: form.autoConfirm, onChange: (event) => update("autoConfirm", event.target.checked) }), "自动确认 (y/n)"),
+        h("div", { className: "dsh-remote-ops__formNote dsh-remote-ops__formWarn" }, "开启后，Agent 在该环境发送命令时会对所有匹配的 (y/n) 提示自动回答 y，包括删除、变更等高风险操作。仅在可以接受时开启；调用参数可覆盖此默认值。"),
+        h("label", null, "确认提示正则（可选）", h("input", { "aria-label": "确认提示正则", value: form.confirmPattern, onChange: (event) => update("confirmPattern", event.target.value), placeholder: "默认 \\(y\\/n\\)\\s*$" })),
+        h("label", { className: "dsh-remote-ops__quickCheck" }, h("input", { type: "checkbox", checked: form.autoQuitMore, onChange: (event) => update("autoQuitMore", event.target.checked) }), "自动退出 --More-- 分页"),
+        h("label", { className: "dsh-remote-ops__quickCheck" }, h("input", { type: "checkbox", checked: form.autoSigint, onChange: (event) => update("autoSigint", event.target.checked) }), "参数错误提示后自动 Ctrl+C 清行（默认开启）"),
+        h("label", { className: "dsh-remote-ops__quickCheck" }, h("input", { type: "checkbox", checked: form.stripAnsi, onChange: (event) => update("stripAnsi", event.target.checked) }), "返回给 Agent 的输出去除 ANSI 控制序列"),
+        h("label", null, "长输出头尾摘要字符数（200-100000，留空关闭）", h("input", { "aria-label": "长输出头尾摘要字符数", value: form.headTailChars, onChange: (event) => update("headTailChars", event.target.value), inputMode: "numeric" })),
+        h("div", { className: "dsh-remote-ops__row" },
+          h("label", { style: { flex: 1 } }, "终端行数（默认 40）", h("input", { "aria-label": "终端行数", value: form.rows, onChange: (event) => update("rows", event.target.value), inputMode: "numeric" })),
+          h("label", { style: { flex: 1 } }, "终端列数（默认 160）", h("input", { "aria-label": "终端列数", value: form.cols, onChange: (event) => update("cols", event.target.value), inputMode: "numeric" })),
+        ),
+        h("div", { className: "dsh-remote-ops__formNote" }, "终端大小对新建的 SSH 连接生效；已连接的终端请在终端工具栏调整。"),
+      ),
+    );
+    const terminalSizeSelect = (size, disabled, onResize) => h("label", null, "大小", h("select", { "aria-label": "终端大小", title: "调整远端 PTY 大小；已输出的内容不会重排", value: `${size?.rows || 40}x${size?.cols || 160}`, disabled, onChange: (event) => { const next = terminalSizeFromValue(event.target.value); if (next) onResize(next); } }, terminalSizeOptions(size).map((option) => h("option", { key: option.value, value: option.value }, option.label))));
     // end environment form helpers
 
     const terminalUsesGrid = screen => screen.alternateScreen || screen.cursorVisible === false;
@@ -923,23 +942,7 @@ window.__ModuleLoader__.load({
         h("label", null, "环境分组", h("input", { value: environmentForm.group, onChange: (event) => updateEnvironmentForm("group", event.target.value), placeholder: "default" })),
         h("label", null, "SSH 密码", h("input", { type: "password", autoComplete: "new-password", value: environmentForm.password, onChange: (event) => updateEnvironmentForm("password", event.target.value), placeholder: environmentForm.credentialConfigured ? "留空保持原密码" : "输入 SSH 登录密码" })),
         h("label", null, "私钥路径", h("input", { value: environmentForm.privateKeyPath, onChange: (event) => updateEnvironmentForm("privateKeyPath", event.target.value), placeholder: "可选，本机路径" })),
-        h("details", { className: "dsh-remote-ops__formAdvanced", open: Boolean(environmentForm.autoConfirm || environmentForm.autoQuitMore || environmentForm.stripAnsi || environmentForm.autoSigint === false || environmentForm.headTailChars || environmentForm.confirmPattern || environmentForm.rows || environmentForm.cols) },
-          h("summary", null, "设备命令行（CLI）辅助与终端大小"),
-          h("div", { className: "dsh-remote-ops__formAdvancedBody" },
-            h("label", { className: "dsh-remote-ops__quickCheck" }, h("input", { type: "checkbox", checked: environmentForm.autoConfirm, onChange: (event) => updateEnvironmentForm("autoConfirm", event.target.checked) }), "自动确认 (y/n)"),
-            h("div", { className: "dsh-remote-ops__formNote dsh-remote-ops__formWarn" }, "开启后，Agent 在该环境发送命令时会对所有匹配的 (y/n) 提示自动回答 y，包括删除、变更等高风险操作。仅在可以接受时开启；调用参数可覆盖此默认值。"),
-            h("label", null, "确认提示正则（可选）", h("input", { "aria-label": "确认提示正则", value: environmentForm.confirmPattern, onChange: (event) => updateEnvironmentForm("confirmPattern", event.target.value), placeholder: "默认 \\(y\\/n\\)\\s*$" })),
-            h("label", { className: "dsh-remote-ops__quickCheck" }, h("input", { type: "checkbox", checked: environmentForm.autoQuitMore, onChange: (event) => updateEnvironmentForm("autoQuitMore", event.target.checked) }), "自动退出 --More-- 分页"),
-            h("label", { className: "dsh-remote-ops__quickCheck" }, h("input", { type: "checkbox", checked: environmentForm.autoSigint, onChange: (event) => updateEnvironmentForm("autoSigint", event.target.checked) }), "参数错误提示后自动 Ctrl+C 清行（默认开启）"),
-            h("label", { className: "dsh-remote-ops__quickCheck" }, h("input", { type: "checkbox", checked: environmentForm.stripAnsi, onChange: (event) => updateEnvironmentForm("stripAnsi", event.target.checked) }), "返回给 Agent 的输出去除 ANSI 控制序列"),
-            h("label", null, "长输出头尾摘要字符数（200-100000，留空关闭）", h("input", { "aria-label": "长输出头尾摘要字符数", value: environmentForm.headTailChars, onChange: (event) => updateEnvironmentForm("headTailChars", event.target.value), inputMode: "numeric" })),
-            h("div", { className: "dsh-remote-ops__row" },
-              h("label", { style: { flex: 1 } }, "终端行数（默认 40）", h("input", { "aria-label": "终端行数", value: environmentForm.rows, onChange: (event) => updateEnvironmentForm("rows", event.target.value), inputMode: "numeric" })),
-              h("label", { style: { flex: 1 } }, "终端列数（默认 160）", h("input", { "aria-label": "终端列数", value: environmentForm.cols, onChange: (event) => updateEnvironmentForm("cols", event.target.value), inputMode: "numeric" })),
-            ),
-            h("div", { className: "dsh-remote-ops__formNote" }, "终端大小对新建的 SSH 连接生效；已连接的终端请在终端工具栏调整。"),
-          ),
-        ),
+        environmentAdvancedFields(environmentForm, updateEnvironmentForm),
         h("div", { className: "dsh-remote-ops__formNote" }, `${environmentForm.credentialConfigured ? "凭据已配置；密码留空保持原密码，输入新密码会更新凭据。" : "输入 SSH 密码后由系统自动保存到 Harness credentials；凭据引用由系统管理。"} 名称留空时使用主机地址。`),
         h("div", { className: "dsh-remote-ops__formActions" },
           h("button", { type: "button", className: "dsh-remote-ops__tiny", onClick: () => setEnvironmentForm(null) }, "取消"),
@@ -983,7 +986,7 @@ window.__ModuleLoader__.load({
           h("button", { title: "独立执行命令", disabled: !sessionId || !activeSession || activeSession.disconnected, onClick: () => setCommandTarget({ ...activeSession }) }, h(IconPlayOutline16), " 独立命令"),
           h("button", { title: "复制选区或当前输出", "aria-label": "复制输出", onClick: () => { const selection = window.getSelection(); const text = outputRef.current?.contains(selection?.anchorNode) ? selection.toString() : ""; void writeClipboard(text || terminalOutput).catch(cause => setError(`CLIPBOARD_WRITE: ${cause.message}`)); } }, h(IconCopyOutline16)),
           h("label", null, "字号", h("input", { type: "number", min: 11, max: 22, "aria-label": "终端字号", value: preferences.fontSize, onChange: event => setPreferences(current => terminalPreferences({ ...current, fontSize: event.target.value })) })),
-          !localActive && activeSession && !activeSession.disconnected ? h("label", null, "大小", h("select", { "aria-label": "终端大小", title: "调整远端 PTY 大小；已输出的内容不会重排", value: `${frameRows}x${frameCols}`, disabled: busy, onChange: (event) => { const size = terminalSizeFromValue(event.target.value); if (size) void action({ action: "resize", session: activeTerminalId, ...size }); } }, terminalSizeOptions(activeTerminalFrame?.size).map((option) => h("option", { key: option.value, value: option.value }, option.label)))) : null,
+          !localActive && activeSession && !activeSession.disconnected ? terminalSizeSelect(activeTerminalFrame?.size, busy, (size) => void action({ action: "resize", session: activeTerminalId, ...size })) : null,
           h("label", null, h("input", { type: "checkbox", checked: preferences.wrap, onChange: event => setPreferences(current => ({ ...current, wrap: event.target.checked })) }), "换行"),
           h("span", null, { manual: "人工输入中", agent: "Agent 控制", available: "输入空闲" }[inputControl.holder] ?? "输入空闲"),
           h("button", { disabled: busy || !activeSession || activeSession.disconnected, onClick: () => void workspaceAction({ action: "control", session: activeTerminalId, control: inputControl.holder === "manual" ? "release" : "takeover" }) }, inputControl.holder === "manual" ? "交还 Agent" : "人工接管"),

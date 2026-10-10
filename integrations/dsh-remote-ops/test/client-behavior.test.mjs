@@ -23,6 +23,9 @@ const environmentProfileValues = loadClientFunction("environmentProfileValues", 
 const environmentProfileFromForm = loadClientFunction("environmentProfileFromForm", "\n    // end environment form helpers");
 const terminalSizeOptions = loadClientFunction("terminalSizeOptions", "\n    // end environment form helpers", "TERMINAL_SIZE_PRESETS");
 const terminalSizeFromValue = loadClientFunction("terminalSizeFromValue", "\n    // end environment form helpers");
+const uiNode = (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) });
+const environmentAdvancedFields = loadClientFunction("environmentAdvancedFields", "\n    // end environment form helpers", "environmentAdvancedFields", { h: uiNode });
+const terminalSizeSelect = loadClientFunction("terminalSizeSelect", "\n    // end environment form helpers", "TERMINAL_SIZE_PRESETS", { h: uiNode });
 const terminalInputEnabled = loadClientFunction("terminalInputEnabled", "\n    function RemoteOpsPanel");
 const terminalInputCompositionValue = loadClientFunction("terminalInputCompositionValue", "\n    function RemoteOpsPanel");
 
@@ -492,4 +495,55 @@ test("the terminal screen model wraps at a non-default PTY width", () => {
   assert.ok(lines80.length >= 3 && lines80.every((line) => line.length <= 80), "an 80-column PTY wraps at 80 columns");
   const lines160 = terminalScreenModel("a".repeat(200)).text.split("\n").filter(Boolean);
   assert.ok(lines160.length === 2 && lines160.every((line) => line.length <= 160));
+});
+
+const findNodes = (node, predicate, found = []) => {
+  if (node === null || typeof node !== "object") return found;
+  if (predicate(node)) found.push(node);
+  for (const child of node.children ?? []) findNodes(child, predicate, found);
+  return found;
+};
+const textOf = (node) => typeof node === "string" ? node : (node.children ?? []).map(textOf).join("");
+const defaultForm = () => JSON.parse(JSON.stringify(environmentProfileValues(undefined)));
+
+test("the CLI assist section renders every option, warns about destructive confirmation and reports edits by field", () => {
+  const edits = [];
+  const tree = environmentAdvancedFields(defaultForm(), (field, value) => edits.push([field, value]));
+  assert.equal(tree.type, "details");
+  assert.equal(tree.props.open, false, "an all-default profile stays collapsed");
+  assert.match(textOf(tree), /自动确认 \(y\/n\)/);
+  assert.match(textOf(tree), /包括删除、变更等高风险操作/);
+  const checkboxes = findNodes(tree, (node) => node.type === "input" && node.props.type === "checkbox");
+  assert.equal(checkboxes.length, 4);
+  assert.deepEqual(checkboxes.map((node) => node.props.checked), [false, false, true, false]);
+  checkboxes[0].props.onChange({ target: { checked: true } });
+  checkboxes[1].props.onChange({ target: { checked: true } });
+  checkboxes[2].props.onChange({ target: { checked: false } });
+  checkboxes[3].props.onChange({ target: { checked: true } });
+  const texts = findNodes(tree, (node) => node.type === "input" && node.props.type === undefined);
+  assert.deepEqual(texts.map((node) => node.props["aria-label"]), ["确认提示正则", "长输出头尾摘要字符数", "终端行数", "终端列数"]);
+  texts[0].props.onChange({ target: { value: "ok\\?" } });
+  texts[1].props.onChange({ target: { value: "800" } });
+  texts[2].props.onChange({ target: { value: "50" } });
+  texts[3].props.onChange({ target: { value: "200" } });
+  assert.deepEqual(edits, [["autoConfirm", true], ["autoQuitMore", true], ["autoSigint", false], ["stripAnsi", true], ["confirmPattern", "ok\\?"], ["headTailChars", "800"], ["rows", "50"], ["cols", "200"]]);
+});
+
+test("the CLI assist section opens by itself when a stored option is active", () => {
+  for (const change of [{ autoConfirm: true }, { autoQuitMore: true }, { stripAnsi: true }, { autoSigint: false }, { headTailChars: "800" }, { confirmPattern: "x" }, { rows: "50" }, { cols: "200" }]) {
+    assert.equal(environmentAdvancedFields({ ...defaultForm(), ...change }, () => {}).props.open, true, JSON.stringify(change));
+  }
+});
+
+test("the size selector shows the current size, offers presets and only reports valid choices", () => {
+  const chosen = [];
+  const select = (size, disabled = false) => findNodes(terminalSizeSelect(size, disabled, (value) => chosen.push(value)), (node) => node.type === "select")[0];
+  const initial = select({ rows: 33, cols: 111 });
+  assert.equal(initial.props.value, "33x111");
+  assert.deepEqual(initial.children.map((option) => option.props.value), ["33x111", "24x80", "40x120", "40x160", "50x200"]);
+  assert.equal(select(undefined).props.value, "40x160");
+  assert.equal(select(undefined, true).props.disabled, true);
+  initial.props.onChange({ target: { value: "50x200" } });
+  initial.props.onChange({ target: { value: "garbage" } });
+  assert.deepEqual(JSON.parse(JSON.stringify(chosen)), [{ rows: 50, cols: 200 }]);
 });
