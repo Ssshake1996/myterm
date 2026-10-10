@@ -7,8 +7,6 @@ const stringParam = (description, required = false) => ({ type: "string", descri
 const numberParam = (description) => ({ type: "number", description });
 const boolParam = (description) => ({ type: "boolean", description });
 const CLI_ASSIST_PARAMETERS = {
-  autoConfirm: boolParam("Auto-answer a trailing (y/n) prompt with y, up to 3 times, then keep waiting; default false"),
-  confirmPattern: stringParam("Custom regular expression for the confirmation prompt, matched against the trailing output; default \\(y\\/n\\)\\s*$"),
   autoQuitMore: boolParam("Send q when a --More-- pager appears and read the remaining output; default false"),
   autoSigint: boolParam("Send SIGINT when output shows a parameter-error hint (^ arrow plus [param=?] suggestions) so residual characters do not pollute the next command; default true"),
 };
@@ -19,10 +17,8 @@ const OUTPUT_PARAMETERS = {
 const CLI_PROFILE_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  description: "Per-environment defaults for remote_terminal_send/read/script. Call arguments override them. autoConfirm answers every matching (y/n) prompt with y, including destructive ones: enable only for devices where that is acceptable",
+  description: "Per-environment defaults for remote_terminal_send/read/script. Call arguments override them",
   properties: {
-    autoConfirm: boolParam("Default autoConfirm"),
-    confirmPattern: stringParam("Default confirmPattern regular expression"),
     autoQuitMore: boolParam("Default autoQuitMore"),
     autoSigint: boolParam("Default autoSigint (built-in default true)"),
     stripAnsi: boolParam("Default stripAnsi"),
@@ -63,8 +59,12 @@ const SCRIPT_STEP_SCHEMA = {
 };
 const pick = (args, keys) => Object.fromEntries(keys.filter((key) => args[key] !== undefined).map((key) => [key, args[key]]));
 // Only declared options reach the send flow: undeclared model arguments (for example actor) must never act as internal switches.
-const SEND_OPTION_KEYS = ["autoConfirm", "confirmPattern", "autoQuitMore", "autoSigint", "stripAnsi", "headTailChars", "quietMs", "maxChars", "timeoutSeconds"];
+const SEND_OPTION_KEYS = ["autoQuitMore", "autoSigint", "stripAnsi", "headTailChars", "quietMs", "maxChars", "timeoutSeconds"];
 const pickSendOptions = (args) => pick(args, SEND_OPTION_KEYS);
+// v0.2.24-v0.2.25 had autoConfirm/confirmPattern. They are gone; a caller that still passes them is told instead of silently ignored.
+const REMOVED_OPTIONS = ["autoConfirm", "confirmPattern"];
+const REMOVED_OPTION_NOTICE = "autoConfirm/confirmPattern no longer exist: the plugin never answers (y/n) prompts by itself. Read the prompt in the output and answer it with remote_terminal_send, or script a user-approved sequence with remote_terminal_script answers.";
+const withNotices = (args, result) => REMOVED_OPTIONS.some((key) => args[key] !== undefined) ? { ...result, notices: [REMOVED_OPTION_NOTICE] } : result;
 
 // The host validates schemas at registration. An optional tool whose schema a host rejects is reported, not fatal.
 function registerOptionalTool(ctx, state, definition) {
@@ -87,7 +87,7 @@ export function registerTools(ctx, state) {
   ctx.systemPrompt.section({
     name: "dsh-remote-ops",
     order: 410,
-    text: "Remote operations are provided by dsh-remote-ops. For self-contained noninteractive commands prefer remote_command_execute on an explicit existing connection or local-cmd for real exit status; it does not inherit interactive cwd or temporary variables. Use remote_environment_list to identify the exact terminal; reuse its sessionId. session=local-cmd is the shared local terminal visible in Remote Ops, NOT the Harness bash/pwsh terminal. For SSH open only when no suitable session exists. Send one complete command preserving spaces; raw input is for interactive keys/passwords. Send returns bounded new output, streamId and nextOffset. Continue with remote_terminal_read(session, cursor=nextOffset, streamId, waitMs=20000); drain hasMore before waiting. No new text, inferred_idle, timeout, and a running shell never prove a command completed or succeeded: completion=unknown. Observe actual results before dependent commands; never resend solely because of echo or silence. reset/truncated means history was replaced or dropped; do not assume missing output. Output is a raw terminal stream, not a rendered screen. For device CLIs with repeated (y/n) confirmations or --More-- pagers pass autoConfirm / autoQuitMore on remote_terminal_send instead of answering each prompt yourself; only enable autoConfirm for commands the user has approved, and review autoActions in the result. An environment may carry a cliProfile with such defaults (shown by remote_environment_list); explicit call arguments override it. Use stripAnsi to drop control sequences and headTailChars to bound very long output: offsets always count the raw stream, and an omitted range reported in omitted can be read back with remote_terminal_read. For a known sequence of prompts (a command, then (y/n), then (y/n)) prefer one remote_terminal_script call with answers/expect/failOn; it stops at the first failure and the remaining steps are not run. If an SSH connection drops (a send result carries reconnect, or remote_environment_list shows disconnects) nothing is replayed: open a new connection and re-run only the commands you still need. Use remote_terminal_resize on an SSH session when wide output wraps. A parameter-error hint with a ^ arrow triggers an automatic SIGINT (autoActions has type sigint and the output ends with [auto-sigint: command line cleared]); resend the corrected command. For multiple SSH targets name them explicitly and operate sequentially. MCP provides knowledge, not execution evidence. Never invent credentials or connection success.",
+    text: "Remote operations are provided by dsh-remote-ops. For self-contained noninteractive commands prefer remote_command_execute on an explicit existing connection or local-cmd for real exit status; it does not inherit interactive cwd or temporary variables. Use remote_environment_list to identify the exact terminal; reuse its sessionId. session=local-cmd is the shared local terminal visible in Remote Ops, NOT the Harness bash/pwsh terminal. For SSH open only when no suitable session exists. Send one complete command preserving spaces; raw input is for interactive keys/passwords. Send returns bounded new output, streamId and nextOffset. Continue with remote_terminal_read(session, cursor=nextOffset, streamId, waitMs=20000); drain hasMore before waiting. No new text, inferred_idle, timeout, and a running shell never prove a command completed or succeeded: completion=unknown. Observe actual results before dependent commands; never resend solely because of echo or silence. reset/truncated means history was replaced or dropped; do not assume missing output. Output is a raw terminal stream, not a rendered screen. The plugin never answers (y/n) confirmations by itself: read the prompt in the output and answer it yourself with remote_terminal_send, and only confirm a destructive operation the user has approved. Pass autoQuitMore to have a --More-- pager closed with q, and review autoActions in the result. An environment may carry a cliProfile with defaults for these options (shown by remote_environment_list); explicit call arguments override it. Use stripAnsi to drop control sequences and headTailChars to bound very long output: offsets always count the raw stream, and an omitted range reported in omitted can be read back with remote_terminal_read. For a known sequence of prompts that the user has approved, one remote_terminal_script call with answers/expect/failOn saves round trips; it stops at the first failure and the remaining steps are not run. If an SSH connection drops (a send result carries reconnect, or remote_environment_list shows disconnects) nothing is replayed: open a new connection and re-run only the commands you still need. Use remote_terminal_resize on an SSH session when wide output wraps. A parameter-error hint with a ^ arrow triggers an automatic SIGINT (autoActions has type sigint and the output ends with [auto-sigint: command line cleared]); resend the corrected command. For multiple SSH targets name them explicitly and operate sequentially. MCP provides knowledge, not execution evidence. Never invent credentials or connection success.",
   });
 
   const owner = (exec) => exec.agent;
@@ -174,7 +174,7 @@ export function registerTools(ctx, state) {
   });
   registerTool(ctx, {
     name: "remote_terminal_send",
-    description: "Send exact text to a visible SSH session or local-cmd and wait for new output. Returns bounded delta and a resumable cursor, not old history. Silence/timeout is NOT proof of completion. Continue reading, never resend to poll. For custom device CLIs: autoConfirm answers trailing (y/n) prompts with y (max 3), autoQuitMore sends q at --More-- pagers, and a parameter-error hint with a ^ arrow triggers an automatic SIGINT that clears the polluted command line (disable with autoSigint=false); applied steps are listed in autoActions.",
+    description: "Send exact text to a visible SSH session or local-cmd and wait for new output. Returns bounded delta and a resumable cursor, not old history. Silence/timeout is NOT proof of completion. Continue reading, never resend to poll. For custom device CLIs: autoQuitMore sends q at --More-- pagers, and a parameter-error hint with a ^ arrow triggers an automatic SIGINT that clears the polluted command line (disable with autoSigint=false); applied steps are listed in autoActions. (y/n) confirmation prompts are never answered automatically: read the prompt and answer it yourself.",
     parameters: {
       session: stringParam("Existing SSH session id or local-cmd"),
       environment: stringParam("Environment id or name only when opening a new connection"),
@@ -187,7 +187,7 @@ export function registerTools(ctx, state) {
       ...CLI_ASSIST_PARAMETERS,
       ...OUTPUT_PARAMETERS,
     },
-    execute: async (args, exec) => state.send(owner(exec), args.session, { ...pick(args, ["environment", "text", "submit", "includeViewport"]), ...pickSendOptions(args), signal: exec.signal }),
+    execute: async (args, exec) => withNotices(args, await state.send(owner(exec), args.session, { ...pick(args, ["environment", "text", "submit", "includeViewport"]), ...pickSendOptions(args), signal: exec.signal })),
   });
   registerTool(ctx, {
     name: "remote_terminal_input",
@@ -256,12 +256,12 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => {
       const results = [];
-      for (const target of args.targets) { const opened = await state.open(owner(exec), target); const targetResults = []; for (const command of args.commands) targetResults.push(await state.send(owner(exec), opened.sessionId, { ...pickSendOptions(args), text: command, submit: true, signal: exec.signal })); results.push({ target, sessionId: opened.sessionId, results: targetResults }); } return { results };
+      for (const target of args.targets) { const opened = await state.open(owner(exec), target); const targetResults = []; for (const command of args.commands) targetResults.push(await state.send(owner(exec), opened.sessionId, { ...pickSendOptions(args), text: command, submit: true, signal: exec.signal })); results.push({ target, sessionId: opened.sessionId, results: targetResults }); } return withNotices(args, { results });
     },
   });
   registerOptionalTool(ctx, state, {
     name: "remote_terminal_script",
-    description: `Run up to ${MAX_SCRIPT_STEPS} ordered terminal steps on one exact SSH session or local-cmd in a single call, for sequences whose prompts are known in advance (a command, then (y/n), then (y/n)). Each step types text, waits for the output to go quiet, may answer prompts (answers: regex pattern -> text), may require the output to end with expect and abort on failOn. The script stops at the first step that errors, times out, fails a check or ends the session, and returns every executed step; remaining steps are NOT run. A matched expect or an absent failOn only describes the text seen: completion stays unknown. Answers type text for every match, including destructive prompts, so script only commands the user approved. Use stripAnsi/headTailChars for chatty commands.`,
+    description: `Run up to ${MAX_SCRIPT_STEPS} ordered terminal steps on one exact SSH session or local-cmd in a single call, for sequences whose prompts are known in advance and approved by the user (a command, then a confirmation, then a second confirmation). Each step types text, waits for the output to go quiet, may answer prompts (answers: regex pattern -> text), may require the output to end with expect and abort on failOn. The script stops at the first step that errors, times out, fails a check or ends the session, and returns every executed step; remaining steps are NOT run. A matched expect or an absent failOn only describes the text seen: completion stays unknown. Answers type the declared text whenever their pattern matches, including at confirmation prompts, so script only operations the user has approved. Use stripAnsi/headTailChars for chatty commands.`,
     parameters: {
       session: stringParam("Exact existing SSH session id or local-cmd", true),
       steps: { type: "array", required: true, description: "Steps in execution order", items: SCRIPT_STEP_SCHEMA },
@@ -272,7 +272,7 @@ export function registerTools(ctx, state) {
       ...CLI_ASSIST_PARAMETERS,
       ...OUTPUT_PARAMETERS,
     },
-    execute: async (args, exec) => runScript(state, owner(exec), { session: args.session, steps: args.steps, totalTimeoutSeconds: args.totalTimeoutSeconds, sendOptions: pickSendOptions(args), signal: exec.signal }),
+    execute: async (args, exec) => withNotices(args, await runScript(state, owner(exec), { session: args.session, steps: args.steps, totalTimeoutSeconds: args.totalTimeoutSeconds, sendOptions: pickSendOptions(args), signal: exec.signal })),
   });
   registerTool(ctx, {
     name: "remote_quick_command_list",
@@ -325,7 +325,7 @@ export function registerTools(ctx, state) {
       await state.ready;
       const command = state.quickCommands.find((x) => x.id === args.commandId);
       if (!command) throw sessionError("REMOTE_QUICK_COMMAND_NOT_FOUND", args.commandId);
-      return state.send(owner(exec), undefined, { ...pickSendOptions(args), environment: args.environment, text: command.command, submit: true });
+      return withNotices(args, await state.send(owner(exec), undefined, { ...pickSendOptions(args), environment: args.environment, text: command.command, submit: true }));
     },
   });
   registerTool(ctx, {

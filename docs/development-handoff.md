@@ -30,7 +30,7 @@ Remote Ops 插件负责：
 
 ## 2. 当前版本状态
 
-v0.2.25 在 v0.2.24（设备 CLI 的 `autoConfirm`/`autoQuitMore`/`autoSigint`）之上交付：环境 CLI 预设（`cliProfile`）、返回输出去 ANSI（`stripAnsi`）和长输出头尾摘要（`headTailChars`，被省略的原始偏移区间可用 `remote_terminal_read` 读回）、`remote_terminal_script` 多步骤应答、SSH 终端尺寸调整与掉线原因/重连提示、`lib/index.js` 按职责拆分、跨平台 Node 发布脚本，以及“工具只转发已声明参数”的加固（未声明的 `actor: "manual"` 曾可绕过人工输入保护）。详见 [v0.2.25 发布说明](releases/dsh-remote-ops-v0.2.25.md) 和开发经验第 46 节。
+v0.2.25 在 v0.2.24（设备 CLI 的 `autoConfirm`/`autoQuitMore`/`autoSigint`）之上交付（`autoConfirm`/`confirmPattern` 之后已移除，见下）：环境 CLI 预设（`cliProfile`）、返回输出去 ANSI（`stripAnsi`）和长输出头尾摘要（`headTailChars`，被省略的原始偏移区间可用 `remote_terminal_read` 读回）、`remote_terminal_script` 多步骤应答、SSH 终端尺寸调整与掉线原因/重连提示、`lib/index.js` 按职责拆分、跨平台 Node 发布脚本，以及“工具只转发已声明参数”的加固（未声明的 `actor: "manual"` 曾可绕过人工输入保护）。详见 [v0.2.25 发布说明](releases/dsh-remote-ops-v0.2.25.md) 和开发经验第 46 节。
 
 自动化测试全部使用脚本化 fake PTY/fake SSH 通道，没有连接真实设备 CLI，也没有做 3080 宿主页面验收；嵌套的工具参数 schema 只按宿主 DSL 规则校验，没有在真实 DSH 宿主上加载验证（注册失败只会在 `remote_diagnostics.toolWarnings` 中报告，不会让插件无法启动）。
 
@@ -170,7 +170,7 @@ remote-ops/
 8. `completion: "unknown"` 是刻意的契约：静默、超时和存活 PTY 都不证明命令完成。工具输出是原始流，不是渲染后的屏幕，也不提供任意交互程序的可靠退出码。
 9. 独立命令只有实际观察到正常退出才返回 `completion: "exited"`；取消/超时/没有退出消息保持 unknown。远端通道关闭不证明进程已结束，不能伪造 terminationConfirmed。
 10. 工具回执是 owner/stream 上实际返回的数据范围，不代表模型理解；UI 读流不能产生工具回执。人工输入不再使用浏览器 clientId；Agent 写入仍受人工状态保护，SSH 连接仍按 owner 隔离。
-11. 设备 CLI 辅助（0.2.24）：`remote_terminal_send/batch/quick_command_run/script` 支持 `autoConfirm`、`confirmPattern`、`autoQuitMore`、`autoSigint`，逻辑在 `lib/terminal-send.js` 与 `lib/cli-assist.js`，只作用于 Agent 发送；每步写入返回值 `autoActions` 与诊断事件。确认和分页退出各最多 3 次，`autoConfirm` 会对所有匹配提示回答 `y`，仅用于用户已批准的命令。
+11. 设备 CLI 辅助：`remote_terminal_send/batch/quick_command_run/script` 支持 `autoQuitMore`、`autoSigint`，逻辑在 `lib/terminal-send.js` 与 `lib/cli-assist.js`，只作用于 Agent 发送；每步写入返回值 `autoActions` 与诊断事件，分页退出最多 3 次。**插件不会自动回答 `(y/n)`**：v0.2.24/v0.2.25 的 `autoConfirm`/`confirmPattern` 已移除（自动输入 `y` 可能批准破坏性操作）。仍传这两个参数的调用得到 `notices`；`cliProfile.autoConfirm/confirmPattern` 在保存时被拒绝（`REMOTE_ENV_INVALID`），旧环境文件里的残留值读盘时丢弃。不要重新引入内置的 `y`/`yes` 规则；契约测试会检查。
 12. 环境预设（0.2.25）：`cliProfile` 提供上述选项及 `stripAnsi`/`headTailChars` 的默认值，调用参数优先；落盘前规范化（去掉默认值），保存空值清除、省略字段保留，读盘时容错（坏字段丢弃但不隐藏环境）。预设可以让某环境默认自动确认，所以表单必须保留“也会回答高风险提示”的警示。
 13. 输出渲染（0.2.25）：`stripAnsi`/`headTailChars` 只改变返回给模型的文本；偏移和游标始终是原始流。去 ANSI 的分页会向前延伸到转义序列结束（不在序列中间截断）；流末尾残缺的序列直接丢弃。摘要返回 `omitted` 原始区间，摘要后的发送在回执中记为 truncated。
 14. `remote_terminal_script`：全部步骤先编译校验再输入；`answers` 只在输出末尾匹配时回答，每项有 `times` 上限；`expect` 看输出末尾，`failOn` 看完整原始输出（`collectRaw`），不会被摘要隐藏；超时、取消、会话退出和检查失败都会停止并保留已执行步骤。答案会回答所有匹配提示，只脚本化用户已批准的命令。
@@ -250,7 +250,7 @@ Windows 也可用 `scripts/release-dsh-remote-ops.ps1 -Version X.Y.Z`（只委�
 - 独立命令每目标最多一个、总计最多 8 个；默认 30 秒、最长 300 秒，stdout/stderr 各默认 64 KiB、上限 256 KiB，超限继续排空并明确截断。
 - 本地 CMD 是插件共享终端；SSH 仍按 Agent owner 隔离。Agent 绑定状态不是输出已读回执，工具/界面视图也不代表 shell 命令完成。
 - 本地 CMD 固定 40×160（宿主没有运行时 resize API）；SSH 连接可调整，但已输出内容不重排；插件重载后由宿主持有（adopted）的连接不可调整。
-- `autoConfirm`（含环境预设和脚本 answers）会回答所有匹配的提示，包括高风险操作；目前没有按命令内容的白名单或拒绝名单，也不识别密码类提示。这是下一步安全护栏的候选项。
+- 脚本 `answers` 会在其 pattern 匹配时输入调用里声明的文本（包括确认提示处的 `y`）；目前没有按命令内容的白名单或拒绝名单，也不识别密码类提示，所以只脚本化用户已批准的操作。这是下一步安全护栏的候选项。
 - 设备 CLI 辅助、脚本和输出渲染只用脚本化 fake 终端验证；真实设备的提示文本、回车语义、清行效果和真实 DSH 宿主上的嵌套工具 schema 仍需在目标环境验收。
 - 掉线记录是进程内的最近 10 条，不跨宿主重启；插件不会自动重连或重放命令。
 - 不新增第二套 Agent 循环、权限门禁、MCP 调度或长期记忆。

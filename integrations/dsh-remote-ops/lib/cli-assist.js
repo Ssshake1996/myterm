@@ -1,14 +1,12 @@
 import { stripAnsi } from "./ansi.js";
-import { compileConfirmPattern, compileUserPattern, resolveRenderOptions } from "./cli-profile.js";
+import { compileUserPattern, resolveRenderOptions } from "./cli-profile.js";
 import { sessionError } from "./errors.js";
 
 export { stripAnsi } from "./ansi.js";
-export { DEFAULT_CONFIRM_PATTERN, compileConfirmPattern } from "./cli-profile.js";
 
 export const MORE_PATTERN = /--More--[^\r\n]*$/;
 export const CONTAMINATION_PATTERN = /\n\s+\^\s*\n\s*\[.*\=.*\]/m;
 export const AUTO_SIGINT_MARKER = "[auto-sigint: command line cleared]";
-export const MAX_AUTO_CONFIRMS = 3;
 export const MAX_AUTO_QUITS = 3;
 export const MAX_ANSWERS = 10;
 export const MAX_ANSWER_TIMES = 5;
@@ -38,11 +36,8 @@ const trustedAnswers = (answers) => Array.isArray(answers) ? answers.filter((ent
 export function resolveAssistOptions(args = {}, profile) {
   const manual = args.actor === "manual";
   const pick = (key) => args[key] !== undefined && args[key] !== null ? args[key] : profile?.[key];
-  const autoConfirm = !manual && pick("autoConfirm") === true;
   const render = manual ? { stripAnsi: false, headTailChars: 0 } : resolveRenderOptions(args, profile);
   return {
-    autoConfirm,
-    confirmPattern: autoConfirm ? compileConfirmPattern(args.confirmPattern ?? profile?.confirmPattern) : undefined,
     autoQuitMore: !manual && pick("autoQuitMore") === true,
     autoSigint: !manual && pick("autoSigint") !== false,
     ...render,
@@ -50,11 +45,10 @@ export function resolveAssistOptions(args = {}, profile) {
   };
 }
 
-// Ordered by priority: pager first, then the (y/n) confirmation, then caller supplied answers.
+// The pager rule comes first, then caller supplied answers. There is deliberately no built-in rule that types y/yes.
 export function buildPromptRules(options) {
   const rules = [];
   if (options.autoQuitMore) rules.push({ key: "quit-more", kind: "quit-more", match: (tail) => MORE_PATTERN.test(tail), text: "q", submit: false, quietMs: AUTO_QUIT_QUIET_MS, limit: MAX_AUTO_QUITS });
-  if (options.autoConfirm) rules.push({ key: "confirm", kind: "confirm", match: (tail) => options.confirmPattern.test(tail), text: "y", submit: true, limit: MAX_AUTO_CONFIRMS });
   options.answers.forEach((answer, index) => rules.push({ key: `answer:${index}`, kind: "answer", index, match: (tail) => answer.pattern.test(tail), text: answer.text, submit: answer.submit, limit: answer.times }));
   return rules;
 }
@@ -63,10 +57,6 @@ export function buildPromptRules(options) {
 export function matchPromptRule(text, rules) {
   const tail = stripAnsi(text).replace(/\s+$/, "");
   return tail ? rules.find((rule) => rule.match(tail)) : undefined;
-}
-
-export function detectPrompt(text, options) {
-  return matchPromptRule(text, buildPromptRules({ ...options, answers: options.answers ?? [] }))?.kind;
 }
 
 export function detectContamination(text) {

@@ -88,8 +88,8 @@ test("an error before the first step is thrown, a later error is reported with t
   const result = await run(state, [
     { text: "show version" },
     { text: "show status" },
-  ], { sendOptions: { quietMs: 30, timeoutSeconds: 5, autoConfirm: true, confirmPattern: "(" } }).catch((error) => error);
-  assert.equal(result.code, "AUTO_CONFIRM_PATTERN_INVALID", "script-level option errors surface before any step is typed");
+  ], { sendOptions: { quietMs: 30, timeoutSeconds: 5, headTailChars: 50 } }).catch((error) => error);
+  assert.equal(result.code, "TERMINAL_OPTION_INVALID", "script-level option errors surface before any step is typed");
 });
 
 test("a step that ends the session stops the script and says so", async (t) => {
@@ -163,7 +163,8 @@ test("the script tool is registered with a nested schema and a rejected schema n
   assert.equal(step.additionalProperties, false);
   assert.equal(step.properties.text.required, true);
   assert.equal(step.properties.answers.items.properties.pattern.required, true);
-  assert.equal(script.parameters.autoConfirm.type, "boolean");
+  assert.equal(script.parameters.autoQuitMore.type, "boolean");
+  assert.equal(Object.hasOwn(script.parameters, "autoConfirm"), false, "there is no automatic confirmation parameter");
   assert.equal(script.parameters.stripAnsi.type, "boolean");
   const rejecting = pluginWith((definition, tools) => { if (definition.name === "remote_terminal_script") throw new Error("host rejected the schema"); tools.set(definition.name, definition); });
   all.push(rejecting);

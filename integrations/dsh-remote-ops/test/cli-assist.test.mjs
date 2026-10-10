@@ -4,7 +4,7 @@ import { RemoteOpsState, validateEnvironment } from "../lib/index.js";
 import { OWNER, ScriptedTerminal, fixture } from "./helpers.mjs";
 import { LocalCmdTerminalSession } from "../lib/terminal-sessions.js";
 import {
-  AUTO_SIGINT_MARKER, buildPromptRules, compileAnswers, compileConfirmPattern, detectContamination, detectPrompt, matchPromptRule, resolveAssistOptions, stripAnsi,
+  AUTO_SIGINT_MARKER, buildPromptRules, compileAnswers, detectContamination, matchPromptRule, resolveAssistOptions, stripAnsi,
 } from "../lib/cli-assist.js";
 import { normalizeCliProfile, normalizeTerminalSize, validateCliProfile, validateTerminalSize } from "../lib/cli-profile.js";
 
@@ -13,65 +13,63 @@ const PARAM_ERROR = "admin:/>show host_group general host_id=3\r\n              
 
 const send = (state, args) => state.send(OWNER, "local-cmd", { quietMs: 30, timeoutSeconds: 5, ...args });
 
-test("prompt and contamination detectors follow the documented patterns", () => {
-  const options = { autoConfirm: true, confirmPattern: compileConfirmPattern(), autoQuitMore: true };
-  assert.equal(detectPrompt("Are you sure you really want to perform the operation?(y/n) ", options), "confirm");
-  assert.equal(detectPrompt("\u001b[1mcontinue?(Y/N)\u001b[0m", options), "confirm");
-  assert.equal(detectPrompt("(y/n) done\r\nadmin:/>", options), undefined);
-  assert.equal(detectPrompt(`rows\r\n${MORE}`, options), "quit-more");
-  assert.equal(detectPrompt(`rows\r\n${MORE}`, { ...options, autoQuitMore: false }), undefined);
+
+test("pager and contamination detection follow the documented patterns", () => {
+  const pager = buildPromptRules({ autoQuitMore: true, answers: [] });
+  assert.equal(matchPromptRule(`rows\r\n${MORE}`, pager)?.kind, "quit-more");
+  assert.equal(matchPromptRule(`\u001b[1m${MORE}\u001b[0m`, pager)?.kind, "quit-more");
+  assert.equal(matchPromptRule(`rows\r\n${MORE}\r\nadmin:/>`, pager), undefined, "a pager line that is no longer last is not matched");
+  assert.equal(matchPromptRule(`rows\r\n${MORE}`, buildPromptRules({ autoQuitMore: false, answers: [] })), undefined);
+  assert.equal(matchPromptRule("Are you sure you really want to perform the operation?(y/n) ", pager), undefined, "no built-in rule answers a (y/n) prompt");
   assert.equal(detectContamination(PARAM_ERROR), true);
   assert.equal(detectContamination("admin:/>show host\r\nname=a\r\nadmin:/>"), false);
   assert.equal(stripAnsi("\u001b[31mred\u001b[0m\u001b]0;title\u0007"), "red");
-  assert.deepEqual(resolveAssistOptions({ actor: "manual", autoConfirm: true, autoQuitMore: true }), { autoConfirm: false, confirmPattern: undefined, autoQuitMore: false, autoSigint: false, stripAnsi: false, headTailChars: 0, answers: [] });
+  assert.deepEqual(resolveAssistOptions({ actor: "manual", autoQuitMore: true }), { autoQuitMore: false, autoSigint: false, stripAnsi: false, headTailChars: 0, answers: [] });
   assert.equal(resolveAssistOptions({}).autoSigint, true);
   assert.equal(resolveAssistOptions({ autoSigint: false }).autoSigint, false);
-  assert.throws(() => compileConfirmPattern("("), { code: "AUTO_CONFIRM_PATTERN_INVALID" });
+  assert.deepEqual(Object.keys(resolveAssistOptions({})).sort(), ["answers", "autoQuitMore", "autoSigint", "headTailChars", "stripAnsi"], "there is no automatic confirmation option");
 });
 
-test("autoConfirm answers both confirmation layers and records the steps", async (t) => {
-  const { state, terminal } = await fixture(t, (text, writes) => {
-    if (text === "delete x\r") return "WARNING: You are about to delete x\r\nHave you read warning message carefully?(y/n)";
-    if (text === "y\r" && writes.filter((item) => item === "y\r").length === 1) return "\r\nAre you sure you really want to perform the operation?(y/n)";
-    if (text === "y\r") return "\r\nSuccess\r\nadmin:/>";
-  });
-  const result = await send(state, { text: "delete x", autoConfirm: true });
-  assert.deepEqual(terminal.writes, ["delete x\r", "y\r", "y\r"]);
-  assert.match(result.output, /Success/);
-  assert.match(result.output, /Have you read warning message carefully/);
-  assert.deepEqual(result.autoActions, [{ type: "confirm", count: 1 }, { type: "confirm", count: 2 }]);
-  assert.equal(result.waitReason, "inferred_idle");
-  assert.equal(result.completion, "unknown");
-  assert.deepEqual((state.events.get("agent") ?? []).filter((item) => item.kind === "terminal.auto.confirm").map((item) => item.count), [1, 2]);
-});
-
-test("autoConfirm is opt-in and never answers for manual sends", async (t) => {
-  const { state, terminal } = await fixture(t, (text) => text === "delete x\r" ? "Sure?(y/n)" : "");
+test("a (y/n) confirmation is never answered automatically, whatever options are passed", async (t) => {
+  const { state, terminal } = await fixture(t, (text) => text === "delete x\r" ? "WARNING: you are about to delete x\r\nHave you read warning message carefully?(y/n)" : "");
   const plain = await send(state, { text: "delete x" });
-  assert.deepEqual(terminal.writes, ["delete x\r"]);
+  assert.match(plain.output, /\(y\/n\)$/, "the prompt is returned to the caller");
   assert.equal(Object.hasOwn(plain, "autoActions"), false);
-  await send(state, { text: "delete x", autoConfirm: true, actor: "manual" });
-  assert.deepEqual(terminal.writes, ["delete x\r", "delete x\r"]);
+  const legacyOptions = [{ autoConfirm: true }, { autoConfirm: true, confirmPattern: "\\(y/n\\)\\s*$" }, { autoConfirm: true, autoQuitMore: true, autoSigint: true, stripAnsi: true }];
+  for (const options of legacyOptions) {
+    const result = await send(state, { text: "delete x", ...options });
+    assert.equal(Object.hasOwn(result, "autoActions"), false, JSON.stringify(options));
+  }
+  assert.deepEqual(terminal.writes, ["delete x\r", "delete x\r", "delete x\r", "delete x\r"], "only the commands themselves were typed, never y or yes");
 });
 
-test("autoConfirm stops after three answers and leaves the prompt to the caller", async (t) => {
-  const { state, terminal } = await fixture(t, () => "again?(y/n)");
-  const result = await send(state, { text: "loop", autoConfirm: true });
-  assert.deepEqual(terminal.writes, ["loop\r", "y\r", "y\r", "y\r"]);
+test("automatic behaviour never applies to manual sends", async (t) => {
+  const { state, terminal } = await fixture(t, (text) => text === "show\r" ? `rows\r\n${MORE}` : "");
+  await send(state, { text: "show", autoQuitMore: true, actor: "manual" });
+  assert.deepEqual(terminal.writes, ["show\r"]);
+  await state.control(OWNER, "local-cmd", "release");
+  const automatic = await send(state, { text: "show", autoQuitMore: true });
+  assert.deepEqual(automatic.autoActions, [{ type: "quit-more", count: 1 }]);
+});
+
+test("autoQuitMore stops after three attempts and leaves the pager to the caller", async (t) => {
+  const { state, terminal } = await fixture(t, () => MORE);
+  const result = await send(state, { text: "show", autoQuitMore: true });
+  assert.deepEqual(terminal.writes, ["show\r", "q", "q", "q"]);
   assert.equal(result.autoActions.length, 3);
-  assert.match(result.output, /again\?\(y\/n\)$/);
+  assert.ok(result.output.endsWith("(To End : G)"));
 });
 
-test("confirmPattern customises the prompt and invalid patterns fail before any write", async (t) => {
-  const { state, terminal } = await fixture(t, (text) => text === "format\r" ? "Proceed [yes/no]: " : text === "y\r" ? "ok" : "");
-  assert.deepEqual((await send(state, { text: "format", autoConfirm: true })).autoActions ?? [], []);
-  const custom = await send(state, { text: "format", autoConfirm: true, confirmPattern: "\\[yes/no\\]:\\s*$" });
-  assert.deepEqual(custom.autoActions, [{ type: "confirm", count: 1 }]);
+test("scripted answers are the only way to type a reply, and invalid answer patterns fail before any write", async (t) => {
+  const { state, terminal } = await fixture(t, (text) => text === "format\r" ? "Proceed [yes/no]: " : text === "yes\r" ? "ok" : "");
+  const answers = compileAnswers([{ pattern: "\\[yes/no\\]:\\s*$", text: "yes" }]);
+  assert.deepEqual((await send(state, { text: "format" })).autoActions ?? [], [], "nothing answers without an explicit answer rule");
+  const answered = await send(state, { text: "format", answers });
+  assert.deepEqual(answered.autoActions, [{ type: "answer", count: 1, answer: 0 }]);
   const writes = terminal.writes.length;
-  await assert.rejects(send(state, { text: "format", autoConfirm: true, confirmPattern: "(" }), { code: "AUTO_CONFIRM_PATTERN_INVALID" });
+  assert.throws(() => compileAnswers([{ pattern: "(", text: "yes" }]), { code: "ANSWER_PATTERN_INVALID" });
   assert.equal(terminal.writes.length, writes);
 });
-
 test("autoQuitMore sends q without Enter and returns the remaining output", async (t) => {
   const { state, terminal } = await fixture(t, (text) => text === "show lun\r" ? `lun1\r\nlun2\r\n${MORE}` : text === "q" ? "\r\nadmin:/>" : "");
   const result = await send(state, { text: "show lun", autoQuitMore: true });
@@ -112,34 +110,33 @@ function addRemote(state, ctx, script, environment) {
 const device = (cliProfile) => ({ id: "dev-1", name: "device-1", host: "10.0.0.9", username: "admin", port: 22, ...(cliProfile ? { cliProfile } : {}) });
 const sendRemote = (state, args) => state.send(OWNER, "ssh-profile", { quietMs: 30, timeoutSeconds: 5, ...args });
 
+
 test("environment profile supplies defaults and call arguments override it", async (t) => {
   const { state, ctx } = await fixture(t, () => "");
-  const { terminal } = addRemote(state, ctx, (text) => text === "delete\r" ? "Sure?(y/n)" : text === "y\r" ? "done" : "", device({ autoConfirm: true }));
-  const profiled = await sendRemote(state, { text: "delete" });
-  assert.deepEqual(terminal.writes, ["delete\r", "y\r"]);
-  assert.deepEqual(profiled.autoActions, [{ type: "confirm", count: 1 }]);
-  const overridden = await sendRemote(state, { text: "delete", autoConfirm: false });
-  assert.deepEqual(terminal.writes.slice(2), ["delete\r"]);
+  const { terminal } = addRemote(state, ctx, (text) => text === "show\r" ? `rows\r\n${MORE}` : text === "q" ? "\r\nadmin:/>" : "", device({ autoQuitMore: true }));
+  const profiled = await sendRemote(state, { text: "show" });
+  assert.deepEqual(terminal.writes, ["show\r", "q"]);
+  assert.deepEqual(profiled.autoActions, [{ type: "quit-more", count: 1 }]);
+  const overridden = await sendRemote(state, { text: "show", autoQuitMore: false });
+  assert.deepEqual(terminal.writes.slice(2), ["show\r"]);
   assert.equal(Object.hasOwn(overridden, "autoActions"), false);
 });
 
-test("environment profile controls SIGINT, ANSI stripping and the confirm pattern", async (t) => {
+test("environment profile controls SIGINT and ANSI stripping", async (t) => {
   const { state, ctx } = await fixture(t, () => "");
-  const colored = (text) => text === "show\r" ? "\u001b[31mred\u001b[0m table\r\n" : text === "wipe\r" ? "Proceed [yes/no]: " : text === "y\r" ? "ok" : text.startsWith("bad") ? PARAM_ERROR : "";
-  const { terminal } = addRemote(state, ctx, colored, device({ autoSigint: false, stripAnsi: true, autoConfirm: true, confirmPattern: "\\[yes/no\\]:\\s*$" }));
+  const colored = (text) => text === "show\r" ? "\u001b[31mred\u001b[0m table\r\n" : text.startsWith("bad") ? PARAM_ERROR : "";
+  const { terminal } = addRemote(state, ctx, colored, device({ autoSigint: false, stripAnsi: true }));
   const shown = await sendRemote(state, { text: "show" });
   assert.equal(shown.output.includes("\u001b"), false);
   assert.match(shown.output, /red table/);
   assert.equal(shown.ansiStripped, true);
   const raw = await sendRemote(state, { text: "show", stripAnsi: false });
   assert.match(raw.output, /\u001b\[31mred/);
-  assert.equal((await sendRemote(state, { text: "wipe" })).autoActions[0].type, "confirm");
   await sendRemote(state, { text: "bad" });
   assert.deepEqual(terminal.signals, [], "profile disabled the automatic SIGINT");
   await sendRemote(state, { text: "bad", autoSigint: true });
   assert.deepEqual(terminal.signals, ["SIGINT"]);
 });
-
 test("reads honour stripAnsi and head/tail summaries, and the omitted range can be read back", async (t) => {
   const { state, ctx } = await fixture(t, () => "");
   const lines = Array.from({ length: 150 }, (_, index) => `\u001b[32mrow ${String(index).padStart(3, "0")}\u001b[0m ${"#".repeat(30)}\r\n`).join("");
@@ -200,10 +197,11 @@ test("answers are honoured only when compiled, answer in order up to times, then
   assert.equal(terminal.writes.length, before + 1, "JSON answers without a compiled RegExp are ignored");
 });
 
+
 test("prompt rules are prioritized and an exhausted rule stops instead of falling through", () => {
-  const rules = buildPromptRules({ autoQuitMore: true, autoConfirm: true, confirmPattern: compileConfirmPattern(), answers: compileAnswers([{ pattern: "continue\\?\\s*$", text: "go", times: 2 }]) });
-  assert.deepEqual(rules.map((rule) => rule.key), ["quit-more", "confirm", "answer:0"]);
-  assert.equal(matchPromptRule("Really? (y/n)", rules).kind, "confirm");
+  const rules = buildPromptRules({ autoQuitMore: true, answers: compileAnswers([{ pattern: "continue\\?\\s*$", text: "go", times: 2 }]) });
+  assert.deepEqual(rules.map((rule) => rule.key), ["quit-more", "answer:0"]);
+  assert.equal(matchPromptRule("Really? (y/n)", rules), undefined, "a (y/n) prompt matches no rule unless the caller declared one");
   assert.equal(matchPromptRule("continue? ", rules).kind, "answer");
   assert.equal(matchPromptRule("nothing here", rules), undefined);
   assert.equal(matchPromptRule("   \r\n", rules), undefined);
@@ -215,15 +213,16 @@ test("prompt rules are prioritized and an exhausted rule stops instead of fallin
 
 test("cliProfile and terminal size validate strictly and normalize away defaults", () => {
   assert.deepEqual(validateCliProfile(undefined), []);
-  assert.deepEqual(validateCliProfile({ autoConfirm: true, confirmPattern: "\\(y/n\\)", headTailChars: 2000 }), []);
+  assert.deepEqual(validateCliProfile({ autoQuitMore: true, stripAnsi: true, headTailChars: 2000 }), []);
   assert.match(validateCliProfile({ bogus: 1 }).join(), /cliProfile\.bogus is not supported/);
-  assert.match(validateCliProfile({ autoConfirm: "yes" }).join(), /autoConfirm must be a boolean/);
-  assert.match(validateCliProfile({ confirmPattern: "(" }).join(), /confirmPattern/);
+  assert.match(validateCliProfile({ autoConfirm: true }).join(), /cliProfile\.autoConfirm was removed: the plugin no longer answers \(y\/n\) prompts automatically/);
+  assert.match(validateCliProfile({ confirmPattern: "\\(y/n\\)" }).join(), /cliProfile\.confirmPattern was removed/);
+  assert.match(validateCliProfile({ autoQuitMore: "yes" }).join(), /autoQuitMore must be a boolean/);
   assert.match(validateCliProfile({ headTailChars: 12 }).join(), /headTailChars/);
   assert.deepEqual(validateCliProfile([]), ["cliProfile must be an object"]);
-  assert.deepEqual(normalizeCliProfile({ autoConfirm: false, autoSigint: true, stripAnsi: false, headTailChars: 0, confirmPattern: "" }), undefined);
-  assert.deepEqual(normalizeCliProfile({ autoConfirm: true, autoSigint: false, headTailChars: 800, confirmPattern: "ok\\?", extra: 1 }), { autoConfirm: true, autoSigint: false, confirmPattern: "ok\\?", headTailChars: 800 });
-  assert.deepEqual(normalizeCliProfile({ autoConfirm: "yes", confirmPattern: "(", headTailChars: 3 }), undefined);
+  assert.deepEqual(normalizeCliProfile({ autoQuitMore: false, autoSigint: true, stripAnsi: false, headTailChars: 0 }), undefined);
+  assert.deepEqual(normalizeCliProfile({ autoQuitMore: true, autoSigint: false, headTailChars: 800, autoConfirm: true, confirmPattern: "ok\\?", extra: 1 }), { autoQuitMore: true, autoSigint: false, headTailChars: 800 });
+  assert.deepEqual(normalizeCliProfile({ autoQuitMore: "yes", headTailChars: 3 }), undefined);
   assert.deepEqual(validateTerminalSize({ rows: 50, cols: 200 }), []);
   assert.equal(validateTerminalSize({ rows: 5 }).length, 1);
   assert.equal(validateTerminalSize({ cols: 9000 }).length, 1);
@@ -231,27 +230,28 @@ test("cliProfile and terminal size validate strictly and normalize away defaults
   assert.deepEqual(normalizeTerminalSize({ rows: 40, cols: 160 }), undefined);
   assert.deepEqual(normalizeTerminalSize({ rows: 50, cols: 160 }), { rows: 50 });
   const base = { id: "e1", name: "e1", host: "h", username: "u" };
-  assert.equal(validateEnvironment({ ...base, cliProfile: { autoConfirm: true }, terminal: { rows: 30, cols: 120 } }).ok, true);
-  assert.equal(validateEnvironment({ ...base, cliProfile: { autoConfirm: 1 } }).ok, false);
+  assert.equal(validateEnvironment({ ...base, cliProfile: { autoQuitMore: true }, terminal: { rows: 30, cols: 120 } }).ok, true);
+  assert.equal(validateEnvironment({ ...base, cliProfile: { autoQuitMore: 1 } }).ok, false);
+  assert.equal(validateEnvironment({ ...base, cliProfile: { autoConfirm: true } }).ok, false, "the removed option is rejected, not silently accepted");
   assert.equal(validateEnvironment({ ...base, terminal: { rows: 1 } }).ok, false);
 });
-
 test("saving an environment stores a normalized profile, keeps it when omitted, clears it when emptied and survives reload", async (t) => {
   const { state, ctx } = await fixture(t, () => "");
-  const saved = await state.saveEnvironment({ id: "dev-1", name: "device-1", host: "10.0.0.9", username: "admin", cliProfile: { autoConfirm: true, autoSigint: true, stripAnsi: false, bogus: 1 }, terminal: { rows: 40, cols: 200 } });
-  assert.deepEqual(saved.cliProfile, { autoConfirm: true });
+  const saved = await state.saveEnvironment({ id: "dev-1", name: "device-1", host: "10.0.0.9", username: "admin", cliProfile: { autoQuitMore: true, autoSigint: true, stripAnsi: false, bogus: 1 }, terminal: { rows: 40, cols: 200 } });
+  assert.deepEqual(saved.cliProfile, { autoQuitMore: true });
   assert.deepEqual(saved.terminal, { cols: 200 });
   const renamed = await state.saveEnvironment({ id: "dev-1", name: "device-1", host: "10.0.0.10", username: "admin" });
-  assert.deepEqual(renamed.cliProfile, { autoConfirm: true }, "omitting the field keeps the stored profile");
+  assert.deepEqual(renamed.cliProfile, { autoQuitMore: true }, "omitting the field keeps the stored profile");
   const reloaded = new RemoteOpsState(ctx);
   await reloaded.ready;
   t.after(async () => { reloaded.disposed = true; await reloaded.localSession?.close().catch(() => {}); });
-  assert.deepEqual(reloaded.findEnvironment("dev-1").cliProfile, { autoConfirm: true });
+  assert.deepEqual(reloaded.findEnvironment("dev-1").cliProfile, { autoQuitMore: true });
   assert.deepEqual(reloaded.findEnvironment("dev-1").terminal, { cols: 200 });
-  const cleared = await state.saveEnvironment({ id: "dev-1", name: "device-1", host: "10.0.0.10", username: "admin", cliProfile: { autoConfirm: false, autoSigint: true }, terminal: {} });
+  const cleared = await state.saveEnvironment({ id: "dev-1", name: "device-1", host: "10.0.0.10", username: "admin", cliProfile: { autoQuitMore: false, autoSigint: true }, terminal: {} });
   assert.equal(Object.hasOwn(cleared, "cliProfile"), false);
   assert.equal(Object.hasOwn(cleared, "terminal"), false);
 });
+
 
 test("a stored environment with an unusable profile is kept and the bad parts are dropped", async (t) => {
   const { state, ctx } = await fixture(t, () => "");
@@ -259,7 +259,7 @@ test("a stored environment with an unusable profile is kept and the bad parts ar
   await state.saveEnvironment({ id: "dev-2", name: "device-2", host: "10.0.0.11", username: "admin", group });
   const file = state.envFile(group);
   const stored = JSON.parse(await (await import("node:fs/promises")).readFile(file, "utf8"));
-  stored[0].cliProfile = { autoConfirm: "maybe", confirmPattern: "(", headTailChars: 3, stripAnsi: true };
+  stored[0].cliProfile = { autoQuitMore: "maybe", headTailChars: 3, stripAnsi: true };
   stored[0].terminal = { rows: 3, cols: "wide" };
   await (await import("node:fs/promises")).writeFile(file, JSON.stringify(stored));
   const reloaded = new RemoteOpsState(ctx);
@@ -269,4 +269,23 @@ test("a stored environment with an unusable profile is kept and the bad parts ar
   assert.ok(environment, "an invalid optional field must not hide the environment");
   assert.deepEqual(environment.cliProfile, { stripAnsi: true });
   assert.equal(Object.hasOwn(environment, "terminal"), false);
+});
+
+test("an environment saved by v0.2.24/v0.2.25 with autoConfirm loads without it and never answers a confirmation", async (t) => {
+  const { state, ctx } = await fixture(t, () => "");
+  const group = state.groupList()[0] ?? "default";
+  await state.saveEnvironment({ id: "dev-3", name: "device-3", host: "10.0.0.12", username: "admin", group });
+  const file = state.envFile(group);
+  const stored = JSON.parse(await (await import("node:fs/promises")).readFile(file, "utf8"));
+  stored[0].cliProfile = { autoConfirm: true, confirmPattern: "\\(y/n\\)\\s*$", stripAnsi: true };
+  await (await import("node:fs/promises")).writeFile(file, JSON.stringify(stored));
+  const reloaded = new RemoteOpsState(ctx);
+  await reloaded.ready;
+  t.after(async () => { reloaded.disposed = true; await reloaded.localSession?.close().catch(() => {}); });
+  const environment = reloaded.findEnvironment("dev-3");
+  assert.deepEqual(environment.cliProfile, { stripAnsi: true }, "the removed options are dropped on load");
+  const { terminal } = addRemote(reloaded, ctx, (text) => text === "wipe\r" ? "Erase everything?(y/n)" : "", environment);
+  const result = await reloaded.send(OWNER, "ssh-profile", { text: "wipe", quietMs: 30, timeoutSeconds: 5 });
+  assert.deepEqual(terminal.writes, ["wipe\r"], "the stored autoConfirm no longer types y");
+  assert.match(result.output, /\(y\/n\)$/);
 });

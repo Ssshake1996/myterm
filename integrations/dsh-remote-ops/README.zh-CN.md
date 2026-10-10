@@ -83,13 +83,12 @@ DSH Web 启动后，点击 Sidebar 底部的 `Remote Ops` 即可主动展开右�
 - 省略游标读取最近历史；显式 `offset/count` 按行向前翻阅。`reset/truncated` 表示流已替换或历史已过期，不能假定遗漏部分不存在。
 - 工具返回原始终端流，包括控制序列；界面在同一流之上进行 VT 渲染，不承诺返回的文本就是渲染后的屏幕。
 - `inferred_idle`、等待超时、PTY 的 running 状态都不能证明命令完成或成功，因此返回 `completion: "unknown"`；依赖前一条结果的命令必须先观察实际输出。取消会中断前台进程，等待超时本身不会杀进程。
-- v0.2.24 为远端设备 CLI（自定义 REPL）新增插件层自动处理，作用于 `remote_terminal_send`、`remote_terminal_batch` 和 `remote_quick_command_run`，只对 Agent 发送生效，不影响界面手动输入；每一步都写入返回值 `autoActions` 和诊断事件：
-  - `autoConfirm`（默认 false）：输出末尾匹配 `(y/n)`（忽略大小写、已去 ANSI）时自动发送 `y` 加回车并继续等待，单次调用最多 3 次，之后把提示交还调用方。只应对用户已批准的命令开启，它会对所有匹配的提示回答 `y`，包括高风险操作。
-  - `confirmPattern`：自定义确认提示正则，匹配输出末尾（已去除尾部空白），默认 `\(y\/n\)\s*$`；非法正则在写入前返回 `AUTO_CONFIRM_PATTERN_INVALID`。仅在 `autoConfirm` 开启时使用。
+- v0.2.24 起为远端设备 CLI（自定义 REPL）提供插件层自动处理，作用于 `remote_terminal_send`、`remote_terminal_batch` 和 `remote_quick_command_run`，只对 Agent 发送生效，不影响界面手动输入；每一步都写入返回值 `autoActions` 和诊断事件：
+  - 插件不会自动回答 `(y/n)` 确认。v0.2.24/v0.2.25 曾提供 `autoConfirm`/`confirmPattern`，因为自动输入 `y` 可能批准破坏性操作而被移除：仍传这两个参数的调用会得到 `notices` 提示；保存环境时 `cliProfile.autoConfirm`/`confirmPattern` 会被拒绝（旧环境文件里残留的值读盘时丢弃）。请读取输出中的提示后用 `remote_terminal_send` 自己回答；用户已批准的固定流程可用 `remote_terminal_script` 的 `answers`，它只输入调用里明确声明的文本。
   - `autoQuitMore`（默认 false）：输出末尾为 `--More--` 分页提示时发送 `q`（不加回车），等待 300ms 后返回剩余输出，单次调用最多 3 次。
   - `autoSigint`（默认 true）：本次发送输出的最后 2KB 含参数错误提示（`^` 箭头行加 `[param=?]` 建议，`/\n\s+\^\s*\n\s*\[.*\=.*\]/m`）时自动发送 SIGINT 清行，等待 500ms，并在返回的 `output` 末尾追加 `[auto-sigint: command line cleared]`。标记只在返回值中，不写入终端流；传 `false` 可关闭。
 - v0.2.25 新增（均只作用于 Agent 工具，界面手动输入不受影响）：
-  - 环境 CLI 预设：环境可带 `cliProfile`（`autoConfirm`、`confirmPattern`、`autoQuitMore`、`autoSigint`、`stripAnsi`、`headTailChars`）和默认 PTY 大小 `terminal: { rows, cols }`，在环境表单中编辑（表单明确提示自动确认也会回答删除/变更等高风险提示），或传给 `remote_environment_create`。调用参数始终优先于预设；与默认值相同的项不落盘，保存空值即清除，省略字段则保留；`remote_environment_list` 会把预设展示给模型。
+  - 环境 CLI 预设：环境可带 `cliProfile`（`autoQuitMore`、`autoSigint`、`stripAnsi`、`headTailChars`）和默认 PTY 大小 `terminal: { rows, cols }`，在环境表单中编辑，或传给 `remote_environment_create`。调用参数始终优先于预设；与默认值相同的项不落盘，保存空值即清除，省略字段则保留；`remote_environment_list` 会把预设展示给模型。
   - `stripAnsi`：send/read/batch/快捷命令/script 返回文本去除 ANSI/VT 控制序列；游标和偏移仍按原始流计数，分页不会在转义序列中间截断。
   - `headTailChars`（200-100000，0 关闭）：长输出只返回首尾各 N 个字符并附标记，结果带 `summarized: true` 和 `omitted`（字符数、行数、原始 `startOffset`/`endOffset`），可用 `remote_terminal_read` 的 `cursor=omitted.startOffset` 读回被省略区间；摘要后的发送在工具回执中记为截断。
   - `remote_terminal_script`：一次调用在同一明确会话上顺序执行最多 20 步。每步可设 `text`、`submit`、`quietMs`、`timeoutSeconds`、`answers`（`[{ pattern, text, submit?, times? }]`，按顺序尝试，每项最多 `times` 次）、`expect`（必须匹配该步输出末尾）和 `failOn`（在整段输出中搜索，摘要隐藏的部分也会检查）。所有内容先校验再输入；遇到第一个错误、超时、检查失败或会话退出即停止，返回已执行的 `steps` 和 `stopped`，其余步骤不执行；`completion` 仍为 `unknown`。

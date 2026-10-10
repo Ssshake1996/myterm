@@ -457,21 +457,21 @@ test("returning from SFTP restores history position or follows latest output acc
 });
 
 test("environment form values reflect the stored profile and terminal size, with safe defaults", () => {
-  assert.deepEqual(JSON.parse(JSON.stringify(environmentProfileValues(undefined))), { autoConfirm: false, confirmPattern: "", autoQuitMore: false, autoSigint: true, stripAnsi: false, headTailChars: "", rows: "", cols: "" });
-  const stored = environmentProfileValues({ cliProfile: { autoConfirm: true, confirmPattern: "ok\\?", autoSigint: false, stripAnsi: true, headTailChars: 800 }, terminal: { rows: 50, cols: 200 } });
-  assert.deepEqual(JSON.parse(JSON.stringify(stored)), { autoConfirm: true, confirmPattern: "ok\\?", autoQuitMore: false, autoSigint: false, stripAnsi: true, headTailChars: "800", rows: "50", cols: "200" });
+  assert.deepEqual(JSON.parse(JSON.stringify(environmentProfileValues(undefined))), { autoQuitMore: false, autoSigint: true, stripAnsi: false, headTailChars: "", rows: "", cols: "" });
+  const stored = environmentProfileValues({ cliProfile: { autoConfirm: true, confirmPattern: "ok\\?", autoQuitMore: true, autoSigint: false, stripAnsi: true, headTailChars: 800 }, terminal: { rows: 50, cols: 200 } });
+  assert.deepEqual(JSON.parse(JSON.stringify(stored)), { autoQuitMore: true, autoSigint: false, stripAnsi: true, headTailChars: "800", rows: "50", cols: "200" });
+  assert.equal(Object.hasOwn(JSON.parse(JSON.stringify(stored)), "autoConfirm"), false, "a stored autoConfirm from an older version is not shown");
 });
 
 test("environment form submits only non-default profile values and always sends both objects so clearing works", () => {
   const plain = JSON.parse(JSON.stringify(environmentProfileFromForm(environmentProfileValues(undefined))));
   assert.deepEqual(plain, { cliProfile: {}, terminal: {} });
-  const full = JSON.parse(JSON.stringify(environmentProfileFromForm({ autoConfirm: true, confirmPattern: " ok\\? ", autoQuitMore: true, autoSigint: false, stripAnsi: true, headTailChars: " 800 ", rows: "50", cols: "200" })));
-  assert.deepEqual(full, { cliProfile: { autoConfirm: true, autoQuitMore: true, autoSigint: false, stripAnsi: true, confirmPattern: "ok\\?", headTailChars: 800 }, terminal: { rows: 50, cols: 200 } });
+  const full = JSON.parse(JSON.stringify(environmentProfileFromForm({ autoConfirm: true, confirmPattern: "ok", autoQuitMore: true, autoSigint: false, stripAnsi: true, headTailChars: " 800 ", rows: "50", cols: "200" })));
+  assert.deepEqual(full, { cliProfile: { autoQuitMore: true, autoSigint: false, stripAnsi: true, headTailChars: 800 }, terminal: { rows: 50, cols: 200 } }, "legacy autoConfirm/confirmPattern in the form state are never submitted");
 });
 
 test("environment form rejects invalid profile and size input with a readable message", () => {
   const base = environmentProfileValues(undefined);
-  assert.match(environmentProfileFromForm({ ...base, confirmPattern: "(" }).error, /确认提示正则无效/);
   assert.match(environmentProfileFromForm({ ...base, headTailChars: "50" }).error, /200-100000/);
   assert.match(environmentProfileFromForm({ ...base, headTailChars: "1.5" }).error, /200-100000/);
   assert.match(environmentProfileFromForm({ ...base, rows: "3" }).error, /终端行数.*10-200/);
@@ -506,31 +506,28 @@ const findNodes = (node, predicate, found = []) => {
 const textOf = (node) => typeof node === "string" ? node : (node.children ?? []).map(textOf).join("");
 const defaultForm = () => JSON.parse(JSON.stringify(environmentProfileValues(undefined)));
 
-test("the CLI assist section renders every option, warns about destructive confirmation and reports edits by field", () => {
+test("the CLI assist section renders every option, offers no automatic confirmation and reports edits by field", () => {
   const edits = [];
   const tree = environmentAdvancedFields(defaultForm(), (field, value) => edits.push([field, value]));
   assert.equal(tree.type, "details");
   assert.equal(tree.props.open, false, "an all-default profile stays collapsed");
-  assert.match(textOf(tree), /自动确认 \(y\/n\)/);
-  assert.match(textOf(tree), /包括删除、变更等高风险操作/);
+  assert.doesNotMatch(textOf(tree), /自动确认|\(y\/n\)|autoConfirm/, "no control for answering confirmations automatically");
   const checkboxes = findNodes(tree, (node) => node.type === "input" && node.props.type === "checkbox");
-  assert.equal(checkboxes.length, 4);
-  assert.deepEqual(checkboxes.map((node) => node.props.checked), [false, false, true, false]);
+  assert.equal(checkboxes.length, 3);
+  assert.deepEqual(checkboxes.map((node) => node.props.checked), [false, true, false]);
   checkboxes[0].props.onChange({ target: { checked: true } });
-  checkboxes[1].props.onChange({ target: { checked: true } });
-  checkboxes[2].props.onChange({ target: { checked: false } });
-  checkboxes[3].props.onChange({ target: { checked: true } });
+  checkboxes[1].props.onChange({ target: { checked: false } });
+  checkboxes[2].props.onChange({ target: { checked: true } });
   const texts = findNodes(tree, (node) => node.type === "input" && node.props.type === undefined);
-  assert.deepEqual(texts.map((node) => node.props["aria-label"]), ["确认提示正则", "长输出头尾摘要字符数", "终端行数", "终端列数"]);
-  texts[0].props.onChange({ target: { value: "ok\\?" } });
-  texts[1].props.onChange({ target: { value: "800" } });
-  texts[2].props.onChange({ target: { value: "50" } });
-  texts[3].props.onChange({ target: { value: "200" } });
-  assert.deepEqual(edits, [["autoConfirm", true], ["autoQuitMore", true], ["autoSigint", false], ["stripAnsi", true], ["confirmPattern", "ok\\?"], ["headTailChars", "800"], ["rows", "50"], ["cols", "200"]]);
+  assert.deepEqual(texts.map((node) => node.props["aria-label"]), ["长输出头尾摘要字符数", "终端行数", "终端列数"]);
+  texts[0].props.onChange({ target: { value: "800" } });
+  texts[1].props.onChange({ target: { value: "50" } });
+  texts[2].props.onChange({ target: { value: "200" } });
+  assert.deepEqual(edits, [["autoQuitMore", true], ["autoSigint", false], ["stripAnsi", true], ["headTailChars", "800"], ["rows", "50"], ["cols", "200"]]);
 });
 
 test("the CLI assist section opens by itself when a stored option is active", () => {
-  for (const change of [{ autoConfirm: true }, { autoQuitMore: true }, { stripAnsi: true }, { autoSigint: false }, { headTailChars: "800" }, { confirmPattern: "x" }, { rows: "50" }, { cols: "200" }]) {
+  for (const change of [{ autoQuitMore: true }, { stripAnsi: true }, { autoSigint: false }, { headTailChars: "800" }, { rows: "50" }, { cols: "200" }]) {
     assert.equal(environmentAdvancedFields({ ...defaultForm(), ...change }, () => {}).props.open, true, JSON.stringify(change));
   }
 });

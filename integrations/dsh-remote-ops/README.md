@@ -124,30 +124,34 @@ do not prove command completion or success: `completion` remains `unknown`.
 Observe actual results before dependent commands. Cancellation interrupts the
 foreground process; a wait timeout alone does not kill it.
 
-### CLI assist for device REPLs (v0.2.24)
+### CLI assist for device REPLs
 
 `remote_terminal_send` (and `remote_terminal_batch` / `remote_quick_command_run`)
 accept options that remove model round trips on vendor CLIs. They apply only to
 Agent sends, never to manual UI input, and every applied step is returned in
 `autoActions` and written to the diagnostics events.
 
+The plugin never answers a `(y/n)` confirmation by itself. v0.2.24 and v0.2.25
+shipped `autoConfirm`/`confirmPattern` for that; they were removed because
+silently typing `y` can approve destructive operations. A caller that still
+passes them gets a `notices` entry, and `cliProfile.autoConfirm` /
+`cliProfile.confirmPattern` are rejected when saving an environment (values left
+in older environment files are dropped on load). Read the prompt in the output
+and answer it with `remote_terminal_send`; for a known sequence the user has
+approved, `remote_terminal_script` `answers` type exactly the text the call
+declares, nothing more.
+
 | Option | Default | Behavior |
 | --- | --- | --- |
-| `autoConfirm` | `false` | When the output ends with `(y/n)` (case-insensitive, ANSI stripped), send `y` + Enter and keep waiting; at most 3 answers per call, then the prompt is returned to the caller. |
-| `confirmPattern` | `\(y\/n\)\s*$` | Custom regular expression matched against the trailing output (trailing whitespace trimmed). Invalid patterns fail with `AUTO_CONFIRM_PATTERN_INVALID` before anything is written. Only used with `autoConfirm`. |
 | `autoQuitMore` | `false` | When the output ends with a `--More--` pager line, send `q` (no Enter), wait 300 ms and return the remaining output; at most 3 times per call. |
 | `autoSigint` | `true` | When the last 2 KB of this send's output contains a parameter-error hint (`^` arrow line followed by `[param=?]` suggestions, `/\n\s+\^\s*\n\s*\[.*\=.*\]/m`), send SIGINT, wait 500 ms and append `[auto-sigint: command line cleared]` to the returned `output`. The marker is not written to the terminal stream. Set `false` to disable. |
-
-Only enable `autoConfirm` for commands the user has approved; it answers every
-matching prompt with `y`, including destructive ones.
 
 ### Environment profiles, output options, scripts and terminal size (v0.2.25)
 
 - **Environment profile.** An environment may carry `cliProfile`
-  (`autoConfirm`, `confirmPattern`, `autoQuitMore`, `autoSigint`, `stripAnsi`,
-  `headTailChars`) and a default PTY `terminal: { rows, cols }`. They are edited
-  in the environment form (with an explicit warning that automatic confirmation
-  also answers destructive prompts) or passed to `remote_environment_create`.
+  (`autoQuitMore`, `autoSigint`, `stripAnsi`, `headTailChars`) and a default PTY
+  `terminal: { rows, cols }`. They are edited in the environment form or passed
+  to `remote_environment_create`.
   Call arguments always override the profile; values equal to the defaults are
   not stored, saving an empty value clears the profile, and omitting the field
   keeps it. `remote_environment_list` shows the profile to the model.

@@ -35,9 +35,10 @@ test("all remote operation tools remain registered", () => {
   for (const name of requiredTools) assert.match(server, new RegExp(`name: "${name}"`), `${name} is missing`);
 });
 
-test("terminal send exposes opt-in CLI assist parameters and auto action reporting", async () => {
+test("terminal send exposes the pager and SIGINT options and reports automatic actions", async () => {
   const cliAssist = server.match(/const CLI_ASSIST_PARAMETERS = \{[\s\S]*?\n\};/)?.[0] ?? "";
-  for (const name of ["autoConfirm", "confirmPattern", "autoQuitMore", "autoSigint"]) assert.match(cliAssist, new RegExp(`${name}:`), `${name} parameter is missing`);
+  for (const name of ["autoQuitMore", "autoSigint"]) assert.match(cliAssist, new RegExp(`${name}:`), `${name} parameter is missing`);
+  assert.doesNotMatch(cliAssist, /autoConfirm|confirmPattern/, "the plugin must not offer to answer (y/n) prompts by itself");
   for (const tool of ["remote_terminal_send", "remote_terminal_batch", "remote_quick_command_run"]) {
     assert.match(await readToolSource(tool), /\.\.\.CLI_ASSIST_PARAMETERS/, `${tool} must expose CLI assist parameters`);
   }
@@ -45,9 +46,9 @@ test("terminal send exposes opt-in CLI assist parameters and auto action reporti
   assert.match(server, /AUTO_SIGINT_MARKER/);
 });
 
-test("environment form warns that automatic confirmation also answers destructive prompts", () => {
-  assert.match(client, /自动确认 \(y\/n\)/);
-  assert.match(client, /包括删除、变更等高风险操作/);
+test("no code path types y/yes by itself and the form submits the CLI profile", () => {
+  assert.doesNotMatch(client, /autoConfirm|confirmPattern|自动确认/, "the environment form must not offer automatic confirmation");
+  assert.doesNotMatch(server.replace(/\/\/ v0\.2\.24-v0\.2\.25 had[^\n]*\n/, ""), /text: "y"|text: "yes"|AUTO_CONFIRM|MAX_AUTO_CONFIRMS/, "no built-in rule types y");
   assert.match(client, /environment\.cliProfile = advanced\.cliProfile/);
 });
 

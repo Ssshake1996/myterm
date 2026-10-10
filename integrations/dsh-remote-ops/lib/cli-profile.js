@@ -1,25 +1,21 @@
 import { sessionError } from "./errors.js";
 
-export const DEFAULT_CONFIRM_PATTERN = /\(y\/n\)\s*$/i;
 export const MIN_HEAD_TAIL_CHARS = 200;
 export const MAX_HEAD_TAIL_CHARS = 100_000;
-export const PROFILE_KEYS = ["autoConfirm", "confirmPattern", "autoQuitMore", "autoSigint", "stripAnsi", "headTailChars"];
+export const PROFILE_KEYS = ["autoQuitMore", "autoSigint", "stripAnsi", "headTailChars"];
+// Options that existed in v0.2.24-v0.2.25. The plugin no longer answers (y/n) prompts by itself, so they are rejected, not ignored.
+export const REMOVED_PROFILE_KEYS = ["autoConfirm", "confirmPattern"];
 export const DEFAULT_TERMINAL_ROWS = 40;
 export const DEFAULT_TERMINAL_COLS = 160;
 export const TERMINAL_ROWS_RANGE = [10, 200];
 export const TERMINAL_COLS_RANGE = [40, 500];
 
 // A profile value equal to its default carries no information and is not stored.
-const BOOLEAN_DEFAULTS = { autoConfirm: false, autoQuitMore: false, autoSigint: true, stripAnsi: false };
+const BOOLEAN_DEFAULTS = { autoQuitMore: false, autoSigint: true, stripAnsi: false };
 
 export function compileUserPattern(value, label, code = "PATTERN_INVALID") {
   if (typeof value !== "string" || !value || value.length > 512) throw sessionError(code, `${label} must be a non-empty regular expression string of at most 512 characters`);
   try { return new RegExp(value); } catch (error) { throw sessionError(code, `${label} is not a valid regular expression: ${error.message}`); }
-}
-
-export function compileConfirmPattern(value) {
-  if (value === undefined || value === null || value === "") return DEFAULT_CONFIRM_PATTERN;
-  return compileUserPattern(value, "confirmPattern", "AUTO_CONFIRM_PATTERN_INVALID");
 }
 
 export function resolveHeadTail(value) {
@@ -39,11 +35,11 @@ export function validateCliProfile(value) {
   if (value === undefined) return [];
   if (!value || typeof value !== "object" || Array.isArray(value)) return ["cliProfile must be an object"];
   const errors = [];
-  for (const key of Object.keys(value)) if (!PROFILE_KEYS.includes(key)) errors.push(`cliProfile.${key} is not supported`);
-  for (const key of Object.keys(BOOLEAN_DEFAULTS)) if (value[key] !== undefined && typeof value[key] !== "boolean") errors.push(`cliProfile.${key} must be a boolean`);
-  if (value.confirmPattern !== undefined && value.confirmPattern !== "") {
-    try { compileConfirmPattern(value.confirmPattern); } catch (error) { errors.push(`cliProfile.confirmPattern: ${error.message}`); }
+  for (const key of Object.keys(value)) {
+    if (REMOVED_PROFILE_KEYS.includes(key)) errors.push(`cliProfile.${key} was removed: the plugin no longer answers (y/n) prompts automatically`);
+    else if (!PROFILE_KEYS.includes(key)) errors.push(`cliProfile.${key} is not supported`);
   }
+  for (const key of Object.keys(BOOLEAN_DEFAULTS)) if (value[key] !== undefined && typeof value[key] !== "boolean") errors.push(`cliProfile.${key} must be a boolean`);
   if (value.headTailChars !== undefined) {
     try { resolveHeadTail(value.headTailChars); } catch (error) { errors.push(`cliProfile.headTailChars: ${error.message}`); }
   }
@@ -55,9 +51,6 @@ export function normalizeCliProfile(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const profile = {};
   for (const [key, fallback] of Object.entries(BOOLEAN_DEFAULTS)) if (typeof value[key] === "boolean" && value[key] !== fallback) profile[key] = value[key];
-  if (typeof value.confirmPattern === "string" && value.confirmPattern) {
-    try { compileConfirmPattern(value.confirmPattern); profile.confirmPattern = value.confirmPattern; } catch { /* unusable pattern is dropped */ }
-  }
   try { const chars = resolveHeadTail(value.headTailChars); if (chars) profile.headTailChars = chars; } catch { /* out-of-range value is dropped */ }
   return Object.keys(profile).length ? profile : undefined;
 }
