@@ -1148,3 +1148,11 @@ DSH Web 另一台主机使用最新插件调用 `remote_environment_list` 时，
 - 新增 `test/state-layers.test.mjs` 保护结构：方法清单、每个方法只有一个归属（层之间不能静默覆盖）、每个层文件都被组合入口引用、单文件不超过 300 行。语法检查和契约测试的源码读取改为递归遍历 `lib/`，否则新增子目录会被漏检。
 - 取舍：mixin 工厂产生的类名是 `EnvironmentsLayer` 等，诊断堆栈里会看到这些名字而不是 `RemoteOpsState`；拆分后“一个方法在哪个文件”要靠层说明和清单测试查找，而不是在一个类里顺序阅读。
 
+## 48. 仿宿主浏览器验收
+
+- 用户确认的方案是：先做仿宿主层（真实 Chrome、生产 client.js、生产插件、进程内假设备），截图只进 CI 产物，报告中文、JSON 字段英文，依赖放在独立的 `e2e/`。真宿主层和 Agent 探索模式留到后面。
+- 先用这台机器验证了三件事实：系统 Chrome 可以被 `playwright-core` 直接驱动；`@deepseek-ai/dsh@0.2.0-rc.2` 能装上，但启动器使用 Node 24 才有的 `import.meta.main`，Node 22 上会静默退出；带令牌的 `dsh web` 能打开页面。仿宿主层因此不启动完整宿主，避免把 Node 24 和登录弹窗带进每个 PR。
+- 假设备用 ssh2 的 Server，经普通 TCP 再 `injectSocket`，这样插件自己的 ssh2 Client 可以连上来。设备会回 `(y/n)`、记录窗口变化、并在 `disconnect` 时拆掉连接。场景断言重连后命令列表不变，证明没有重放。
+- 报告在每个步骤结束后截图，失败时再截一张。HTML 把图片内嵌成 data URL，Markdown 只留文件路径。`/favicon.ico` 的 404 不算失败，其它 HTTP 4xx/5xx 和控制台错误算失败。
+- 本地 6 个场景约 5 秒全部通过。断开横幅、版本号、设备欢迎语和“重新连接”都出现在截图里。
+

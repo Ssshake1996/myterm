@@ -101,6 +101,7 @@ F:\myterm
 ├─ docs/testing/            # 测试矩阵和 3080 页面验收
 ├─ docs/releases/           # 每个插件版本的发布说明
 ├─ docs/development-experience.md # 按版本积累的开发经验
+├─ e2e/                    # 浏览器验收：真实 Chrome、生产 client.js、假设备、自动截图和执行报告
 ├─ scripts/release-dsh-remote-ops.mjs # 唯一的发布实现（跨平台 Node）
 ├─ scripts/release-dsh-remote-ops.ps1 # 委托上面脚本的薄封装
 └─ .github/workflows/ci.yml, release.yml # CI 门禁；推送 dsh-remote-ops-v* Tag 后发布 GitHub Release
