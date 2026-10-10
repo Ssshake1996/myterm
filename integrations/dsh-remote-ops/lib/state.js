@@ -42,6 +42,7 @@ export class RemoteOpsState {
     this.openings = new Map();
     this.commands = new Map();
     this.localSession = undefined;
+    this.toolWarnings = [];
     this.localStarting = undefined;
     this.localError = "";
     this.disposed = false;

@@ -1,57 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { RemoteOpsState, validateEnvironment } from "../lib/index.js";
+import { OWNER, ScriptedTerminal, fixture } from "./helpers.mjs";
 import { LocalCmdTerminalSession } from "../lib/terminal-sessions.js";
 import {
   AUTO_SIGINT_MARKER, buildPromptRules, compileAnswers, compileConfirmPattern, detectContamination, detectPrompt, matchPromptRule, resolveAssistOptions, stripAnsi,
 } from "../lib/cli-assist.js";
 import { normalizeCliProfile, normalizeTerminalSize, validateCliProfile, validateTerminalSize } from "../lib/cli-profile.js";
 
-const OWNER = { id: "agent" };
 const MORE = "--More--(Quit : q|Q)(Next Record : Enter)(Next Page : Space)(To End : G)";
 const PARAM_ERROR = "admin:/>show host_group general host_id=3\r\n                                     ^\r\n[host_group_id=?]           [host_group_name=?]\r\nadmin:/>";
-
-class ScriptedTerminal {
-  constructor(script) {
-    this.script = script;
-    this.output = new EventEmitter();
-    this.done = new Promise((resolve) => { this.resolveDone = resolve; });
-    this.writes = [];
-    this.signals = [];
-  }
-  async write(text) {
-    this.writes.push(String(text));
-    const reply = this.script(String(text), this.writes);
-    if (reply) setTimeout(() => this.output.emit("data", Buffer.from(reply)), 5);
-  }
-  async signalForeground(signal) { this.signals.push(signal); return 1; }
-  async terminate() { this.output.emit("end"); this.resolveDone({ exitCode: 0, signal: null }); }
-}
-
-async function fixture(t, script) {
-  const root = await mkdtemp(join(tmpdir(), "dsh-cli-assist-"));
-  const previousHome = process.env.DSH_HOME;
-  process.env.DSH_HOME = root;
-  const terminal = new ScriptedTerminal(script);
-  const ctx = {
-    subprocess: { resolveExecutable: async (value) => value, spawnTerminal: async () => terminal },
-    credentials: { async set() {}, async resolve() { return {}; } },
-  };
-  const state = new RemoteOpsState(ctx);
-  await state.ready;
-  t.after(async () => {
-    state.disposed = true;
-    await state.localSession?.close().catch(() => {});
-    if (previousHome === undefined) delete process.env.DSH_HOME;
-    else process.env.DSH_HOME = previousHome;
-    await rm(root, { recursive: true, force: true });
-  });
-  return { state, terminal, ctx };
-}
 
 const send = (state, args) => state.send(OWNER, "local-cmd", { quietMs: 30, timeoutSeconds: 5, ...args });
 
