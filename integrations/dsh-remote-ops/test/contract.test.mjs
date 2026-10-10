@@ -34,6 +34,17 @@ test("all remote operation tools remain registered", () => {
   for (const name of requiredTools) assert.match(server, new RegExp(`name: "${name}"`), `${name} is missing`);
 });
 
+test("terminal send exposes opt-in CLI assist parameters and auto action reporting", () => {
+  const cliAssist = server.match(/const CLI_ASSIST_PARAMETERS = \{[\s\S]*?\n\};/)?.[0] ?? "";
+  for (const name of ["autoConfirm", "confirmPattern", "autoQuitMore", "autoSigint"]) assert.match(cliAssist, new RegExp(`${name}:`), `${name} parameter is missing`);
+  for (const tool of ["remote_terminal_send", "remote_terminal_batch", "remote_quick_command_run"]) {
+    const line = server.split("\n").find((item) => item.includes(`name: "${tool}"`)) ?? "";
+    assert.match(line, /\.\.\.CLI_ASSIST_PARAMETERS/, `${tool} must expose CLI assist parameters`);
+  }
+  assert.match(server, /autoActions/);
+  assert.match(server, /AUTO_SIGINT_MARKER/);
+});
+
 test("terminal rendering and transport invariants remain present", () => {
   assert.match(client, /box-sizing:border-box/);
   assert.match(client, /overflow-y:scroll/);

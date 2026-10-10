@@ -146,6 +146,7 @@ remote-ops/
 8. `completion: "unknown"` 是刻意的契约：静默、超时和存活 PTY 都不证明命令完成。工具输出是原始流，不是渲染后的屏幕，也不提供任意交互程序的可靠退出码。
 9. 独立命令只有实际观察到正常退出才返回 `completion: "exited"`；取消/超时/没有退出消息保持 unknown。远端通道关闭不证明进程已结束，不能伪造 terminationConfirmed。
 10. 工具回执是 owner/stream 上实际返回的数据范围，不代表模型理解；UI 读流不能产生工具回执。人工输入不再使用浏览器 clientId；Agent 写入仍受人工状态保护，SSH 连接仍按 owner 隔离。
+11. 设备 CLI 辅助（0.2.24）：`remote_terminal_send/batch/quick_command_run` 支持 `autoConfirm`、`confirmPattern`、`autoQuitMore`、`autoSigint`，逻辑在 `RemoteOpsState.send()` 与 `lib/cli-assist.js`，只作用于 Agent 发送；每步写入返回值 `autoActions` 与诊断事件。确认和分页退出各最多 3 次，`autoConfirm` 会对所有匹配提示回答 `y`，仅用于用户已批准的命令。
 
 ## 6. 测试和发布门禁
 

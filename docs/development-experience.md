@@ -1112,3 +1112,13 @@ DSH Web 另一台主机使用最新插件调用 `remote_environment_list` 时，
 - 240 行历史输出调整窗格和 SFTP 往返保持 scrollTop=8581.6。真实 SSH `笔记本` 的 `pty-2` 回显 `QUICK022-SSH  中文`，本地游标未变；同请求重复返回原 receipt，旧流请求 HTTP 400 / `TERMINAL_STREAM_CHANGED` / `quick.dispatch`。原始堆栈仍由 describeFailure 返回。SFTP /tmp 列出 34 项，测试连接释放。
 - 正式运行时提交 `9d02e2d` / Tag `dsh-remote-ops-v0.2.22`，SHA256 `222222091e1b06fb03c64bdf029330ac85ef8d314a0f40e5140b14950dc75698` 与 GitHub digest 一致。从正式包安装、重启后，版本、CMD/复制、双击单发、492.4px 高度恢复、SFTP 往返、分组版本冲突及 390px 编辑弹窗再次通过。主流程未捕获页面异常为零，预期 HTTP 400 不当作客户端崩溃。启动 stderr 仅 SQLite ExperimentalWarning；检查更新 HTTP 200，current/latest 均 0.2.22，没有注入开发凭据。测试命令/分组清理，环境保留，窗格复位 190px，本地输入交还。
 - 本轮未重跑真实模型、物理双客户端、OS 输入法候选、文件传输字节校验或 top/vim；模拟保护测试与真实 SSH/SFTP 证据分开陈述。验收截图脚本在忽略的 output/playwright，交接文档另提交，不追加 Release。
+
+## 45. 设备 CLI 自动确认、分页退出与命令行清理（0.2.24）
+
+- 基线为 `7c16f69` / v0.2.23。问题来自非 shell 的设备 REPL：高风险命令有双层 `(y/n)`、长输出有 `--More--`、参数错误会留下残留字符拼到下一条命令前；每一项原先都要完整的模型推理往返（10-20 秒，一次任务 40 多次）。
+- 自动处理放在 `RemoteOpsState.send()` 而不是 `SendOperation`：宿主 `ctx.terminals.startSend` 对请求对象是否透传未知字段没有契约，只用公开的 `startSend` 反复发送，本地 CMD、SSH 与宿主接管会话行为一致。纯函数（正则、去 ANSI、检测）独立在 `lib/cli-assist.js`，便于单测。
+- 只检查本轮新增输出的尾部并去除 ANSI：每次自动应答后把扫描起点推进到当前末尾，旧的 `(y/n)` 不会被重复匹配；污染检测只看本次发送输出的最后 2KB，不会被更早命令的残留重复触发。
+- 自动动作有硬上限（确认和退出分页各 3 次）并共用原调用的总超时预算，避免提示反复出现时死循环或延长等待上限。默认关闭 `autoConfirm`/`autoQuitMore`，`autoSigint` 默认开启但可关；界面手动输入不受影响。
+- `[auto-sigint: command line cleared]` 只追加在返回值里，不写入终端缓冲区，避免污染界面、游标和后续读取。`completion` 仍为 `unknown`，不借自动步骤宣称命令完成。
+- 每个自动步骤写入 `autoActions` 和诊断事件；非法 `confirmPattern` 在任何写入前报 `AUTO_CONFIRM_PATTERN_INVALID`。
+- 测试使用脚本化 fake PTY，不冒充真实设备；真实设备的提示文本、回车语义和清行效果需要在目标设备上验收。

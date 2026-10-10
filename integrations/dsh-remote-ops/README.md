@@ -37,7 +37,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.23.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.24.tgz
 dsh web
 ```
 
@@ -92,7 +92,7 @@ key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.23 exposes environment list/create/update/delete, group management,
+Version 0.2.24 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells
@@ -123,6 +123,23 @@ through its VT model. A running shell, silence (`inferred_idle`), and timeout
 do not prove command completion or success: `completion` remains `unknown`.
 Observe actual results before dependent commands. Cancellation interrupts the
 foreground process; a wait timeout alone does not kill it.
+
+### CLI assist for device REPLs (v0.2.24)
+
+`remote_terminal_send` (and `remote_terminal_batch` / `remote_quick_command_run`)
+accept options that remove model round trips on vendor CLIs. They apply only to
+Agent sends, never to manual UI input, and every applied step is returned in
+`autoActions` and written to the diagnostics events.
+
+| Option | Default | Behavior |
+| --- | --- | --- |
+| `autoConfirm` | `false` | When the output ends with `(y/n)` (case-insensitive, ANSI stripped), send `y` + Enter and keep waiting; at most 3 answers per call, then the prompt is returned to the caller. |
+| `confirmPattern` | `\(y\/n\)\s*$` | Custom regular expression matched against the trailing output (trailing whitespace trimmed). Invalid patterns fail with `AUTO_CONFIRM_PATTERN_INVALID` before anything is written. Only used with `autoConfirm`. |
+| `autoQuitMore` | `false` | When the output ends with a `--More--` pager line, send `q` (no Enter), wait 300 ms and return the remaining output; at most 3 times per call. |
+| `autoSigint` | `true` | When the last 2 KB of this send's output contains a parameter-error hint (`^` arrow line followed by `[param=?]` suggestions, `/\n\s+\^\s*\n\s*\[.*\=.*\]/m`), send SIGINT, wait 500 ms and append `[auto-sigint: command line cleared]` to the returned `output`. The marker is not written to the terminal stream. Set `false` to disable. |
+
+Only enable `autoConfirm` for commands the user has approved; it answers every
+matching prompt with `y`, including destructive ones.
 
 The terminal status bar distinguishes transport, Agent binding, and the last
 tool response range/time. A tool receipt is not proof that a model understood
