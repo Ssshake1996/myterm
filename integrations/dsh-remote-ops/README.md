@@ -6,7 +6,7 @@ depend on or start the myterm desktop application.
 ## Capabilities
 
 - Environment groups persisted as `remote-ops/environments/<group>/environments.<group>.json`.
-- The right Sidebar uses a narrow navigation rail, a hideable environment drawer, a persistent SSH terminal, and a quick-command dock below the terminal.
+- The workspace uses a narrow navigation rail, a hideable environment drawer, a persistent SSH terminal, and a quick-command dock below the terminal.
 - Environments and quick commands support manual create, edit, delete, and group management; non-empty groups cannot be deleted.
 - Owner-scoped SSH sessions backed by the Harness `ctx.terminals` service.
 - A local CMD terminal starts with the plugin at `$DSH_HOME/remote-ops`, before an Agent is initialized. It accepts ordinary local commands and interactive `ssh`; saved-environment SSH sessions fall back to this terminal after disconnecting.
@@ -18,8 +18,11 @@ depend on or start the myterm desktop application.
 - SFTP list, read, write, mkdir, delete, and rename operations.
 - Quick command storage and execution.
 - Agent-visible diagnostics and a native DSH right-sidebar tab.
-- A visible `Remote Ops` launch button in the DSH Web sidebar footer; it opens
-  the right Sidebar without waiting for an Agent tool call.
+- A native `Remote Ops` entry in the DSH Web left navigation opens the full main
+  workspace. DSH owns the row, selection, collapsed tooltip, and keyboard behavior.
+  Older hosts without both main and sidebar panel slots retain the right-sidebar
+  launcher. The legacy tab identity is preserved; its guide entry is hidden when
+  native navigation is available to prevent duplicate links in grouped navigation.
 - The Sidebar header shows the installed plugin version, checks the latest
   GitHub Release, and can install an update with one click; refresh and update
   actions expose loading/success/failure feedback. Restart DSH after the package

@@ -1,6 +1,6 @@
 {
   "name": "@dsh/remote-ops",
-  "version": "0.2.23",
+  "version": "0.2.24",
   "private": false,
   "type": "module",
   "description": "DeepSeek Harness plugin for SSH environments, persistent terminals, SFTP and multi-target operations",
@@ -8,6 +8,8 @@
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -17,6 +19,8 @@
     },
     "client": {
       "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
         "@deepseek-ai/dsh-client-ui-sidebar-right",
         "@deepseek-ai/dsh-client-ui-session",
         "@deepseek-ai/dsh-client-ui-workspace"
@@ -29,12 +33,14 @@
     "README.md",
     "README.zh-CN.md",
     "cordis.patch.yml",
+    "locale/en.json",
+    "locale/zh.json",
     "package.json"
   ],
   "scripts": {
     "test": "npm run test:unit && npm run test:client && npm run test:contract && npm run test:smoke",
     "test:unit": "node --test test/unit.test.mjs test/transfer.test.mjs test/diagnostics.test.mjs test/workspace.test.mjs test/commands.test.mjs",
-    "test:client": "node --test test/client-behavior.test.mjs",
+    "test:client": "node --test test/client-behavior.test.mjs test/navigation.test.mjs test/interaction-regressions.test.mjs",
     "test:contract": "node --test test/contract.test.mjs",
     "test:smoke": "node test/smoke.mjs",
     "check": "node --check lib/index.js && node --check lib/client.js && node --check lib/transfers.js && node --check lib/workspace-routes.js && node --check lib/diagnostics.js && node --check lib/commands.js && npm test"

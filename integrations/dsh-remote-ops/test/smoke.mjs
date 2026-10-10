@@ -12,6 +12,8 @@ const server = await readFile(join(packageRoot, "lib/index.js"), "utf8");
 assert.equal(manifest.version, PLUGIN_VERSION);
 assert.equal(manifest.dsh?.bundle?.patch, "./cordis.patch.yml");
 assert.deepEqual(manifest.dsh?.client?.inject, [
+  "@deepseek-ai/dsh-client-ui-layout",
+  "@deepseek-ai/dsh-client-ui-sidebar",
   "@deepseek-ai/dsh-client-ui-sidebar-right",
   "@deepseek-ai/dsh-client-ui-session",
   "@deepseek-ai/dsh-client-ui-workspace",

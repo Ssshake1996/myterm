@@ -20,6 +20,7 @@ window.__ModuleLoader__.load({
     const IconChevronUpOutline14 = icons.IconChevronUpOutlineRegular ?? icons.IconChevronUpOutline14;
     const { createElement: h, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } = React;
     const NS = "dshRemoteOps";
+    const PANEL_ID = "dsh-remote-ops";
     const TAB_ID = "@dsh/remote-ops";
     const TAB_KIND = "dsh-remote-ops";
     const styleId = "dsh-remote-ops-style";
@@ -632,7 +633,8 @@ window.__ModuleLoader__.load({
       const [reviewStream, setReviewStream] = useState(null);
       const composingRef = useRef(false);
       const [loadedSnapshot, setSnapshot] = useState(empty); const [terminalFrames, setTerminalFrames] = useState({}); const [drawer, setDrawer] = useState(false); const [module, setModule] = useState("terminal"); const [quickOpen, setQuickOpen] = useState(() => { try { return localStorage.getItem("remote-ops.quick-open") !== "false"; } catch { return true; } }); const [environmentForm, setEnvironmentForm] = useState(null); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [actionNotice, setActionNotice] = useState(""); const [update, setUpdate] = useState(empty.update); const [updateBusy, setUpdateBusy] = useState(false); const [refreshBusy, setRefreshBusy] = useState(false); const [selectedEnv, setSelectedEnv] = useState(""); const [activeSessionId, setActiveSessionId] = useState(""); const [terminalInput, setTerminalInput] = useState(""); const [pendingSshInput, setPendingSshInput] = useState(""); const [quickHeight, setQuickHeight] = useState(190); const [search, setSearch] = useState(""); const outputRef = useRef(null); const terminalInputRef = useRef(null); const stickToBottom = useRef(true); const userScrollIntent = useRef(false); const scrollIntentTimer = useRef(); const rawInputQueue = useRef([]); const rawInputTimer = useRef(); const rawInputSending = useRef(false); const pendingSshInputRef = useRef(""); const refreshRequest = useRef(); const snapshotSignature = useRef(""); const terminalFramesRef = useRef({});
-      const viewOwner = useRef(sessionId); viewOwner.current = sessionId;
+      const viewOwner = useRef(sessionId), viewRevision = useRef(0);
+      if (viewOwner.current !== sessionId) { viewOwner.current = sessionId; viewRevision.current += 1; }
       const snapshot = loadedSnapshot.viewOwner === (sessionId ?? "") ? loadedSnapshot : empty;
       const [outputConnection, setOutputConnection] = useState("connecting");
       const [unreadOutput, setUnreadOutput] = useState(false);
@@ -650,7 +652,7 @@ window.__ModuleLoader__.load({
       useEffect(() => { setCommandTarget(null); }, [sessionId]);
       useEffect(() => { setQuickHeight(preferences.quickHeight); }, []);
       useEffect(() => { try { localStorage.setItem("remote-ops.preferences", JSON.stringify({ ...preferences, quickHeight })); } catch { /* Storage can be disabled by browser policy. */ } }, [preferences, quickHeight]);
-      useEffect(() => { setPasteDraft(null); setConnectionChoices(null); setActiveSessionId(""); setReviewStream(null); }, [sessionId]);
+      useEffect(() => { setPasteDraft(null); setConnectionChoices(null); setActiveSessionId(""); setReviewStream(null); setBusy(false); }, [sessionId]);
       const refresh = useCallback(() => {
         if (refreshRequest.current && refreshRequest.current.ownerKey === sessionId) return refreshRequest.current;
         const task = (async () => {
@@ -683,21 +685,35 @@ window.__ModuleLoader__.load({
         void poll(); return () => { stopped = true; clearTimeout(timer); };
       }, [refresh]);
       const workspaceAction = useCallback(async body => {
-        const owner = sessionId;
+        const owner = sessionId, revision = viewRevision.current;
+        const isCurrent = () => viewOwner.current === owner && viewRevision.current === revision;
         setBusy(true);
         try {
           const value = await request("/api/dsh-remote-ops/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, sessionId: owner }) });
-          if (viewOwner.current !== owner) return undefined;
-          setError(""); await refresh(); return value;
-        } catch (cause) { if (viewOwner.current === owner) setError(cause.message); return undefined; }
-        finally { setBusy(false); }
+          if (!isCurrent()) return undefined;
+          setError(""); await refresh(); return isCurrent() ? value : undefined;
+        } catch (cause) { if (isCurrent()) setError(cause.message); return undefined; }
+        finally { if (isCurrent()) setBusy(false); }
       }, [sessionId, refresh]);
       const checkUpdate = useCallback(async (silent = false) => { setUpdateBusy(true); if (!silent) setActionNotice(""); try { const value = await request("/api/dsh-remote-ops/update"); setUpdate(value); setError(""); if (!silent) setActionNotice(value.updateAvailable ? `发现新版本 v${value.latestVersion}` : `已是最新版本 v${value.currentVersion}`); return value; } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); if (!silent) setActionNotice("检查更新失败"); return undefined; } finally { setUpdateBusy(false); } }, []);
       useEffect(() => { void checkUpdate(true); }, [checkUpdate]);
       const refreshNow = useCallback(async () => { if (refreshBusy) return; setRefreshBusy(true); setActionNotice(""); const ok = await refresh(); setActionNotice(ok ? "已刷新" : "刷新失败"); setRefreshBusy(false); }, [refresh, refreshBusy]);
       useEffect(() => { if (!selectedEnv && snapshot.environments[0]) setSelectedEnv(snapshot.environments[0].id); if (!activeSessionId && snapshot.sessions.length) setActiveSessionId((snapshot.sessions.find(item => item.kind !== "local") ?? snapshot.sessions[0]).sessionId); }, [activeSessionId, selectedEnv, snapshot]);
       useEffect(() => { try { localStorage.setItem("remote-ops.quick-open", String(quickOpen)); } catch { /* Browser storage is optional. */ } }, [quickOpen]);
-      const action = useCallback(async (body) => { setBusy(true); try { const value = await request("/api/dsh-remote-ops/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, sessionId }) }); setError(""); await refresh(); return value; } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); return undefined; } finally { setBusy(false); } }, [refresh, sessionId]);
+      const action = useCallback(async (body) => {
+        const owner = sessionId, revision = viewRevision.current;
+        const isCurrent = () => viewOwner.current === owner && viewRevision.current === revision;
+        setBusy(true);
+        try {
+          const value = await request("/api/dsh-remote-ops/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, sessionId: owner }) });
+          if (!isCurrent()) return undefined;
+          setError(""); await refresh();
+          return isCurrent() ? value : undefined;
+        } catch (cause) {
+          if (isCurrent()) setError(cause instanceof Error ? cause.message : String(cause));
+          return undefined;
+        } finally { if (isCurrent()) setBusy(false); }
+      }, [refresh, sessionId]);
       const installUpdate = async () => { if (!update.updateAvailable || updateBusy) return; if (!window.confirm(`安装 Remote Ops v${update.latestVersion}？安装完成后需要重启 DSH。`)) return; setUpdateBusy(true); setActionNotice(""); try { const value = await request("/api/dsh-remote-ops/update", { method: "POST" }); setUpdate(value); setError(""); setActionNotice(`已安装 v${value.currentVersion ?? update.latestVersion}，请重启 DSH`); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setActionNotice("升级失败"); } finally { setUpdateBusy(false); } };
       const tabs = snapshot.tabs ?? snapshot.sessions;
       const activeSession = activeSessionId ? tabs.find(item => item.sessionId === activeSessionId) : tabs[0]; const activeEnvironment = snapshot.environments.find((item) => item.id === (activeSession?.environmentId ?? selectedEnv)); const localActive = activeSession?.kind === "local";
@@ -810,7 +826,7 @@ window.__ModuleLoader__.load({
       const queueRawInput = useCallback((text) => { if (!text || !terminalReady) return; if (quickSending.current) { setError("QUICK_DISPATCH_PENDING: 快捷命令正在下发，请稍后输入。"); return; } const draftKey = `${sessionId ?? ""}:${activeTerminalId}:${activeTerminalFrame?.streamId}`; manualDrafts.current.set(draftKey, terminalDraftPending(manualDrafts.current.get(draftKey), text)); queueTerminalInput(rawInputQueue.current, { session: activeTerminalId, sessionId, streamId: activeTerminalFrame?.streamId, text }); if (rawInputTimer.current || rawInputSending.current) return; rawInputTimer.current = window.setTimeout(() => { rawInputTimer.current = undefined; void flushRawInput(); }, 20); }, [activeTerminalId, flushRawInput, sessionId, terminalReady, activeTerminalFrame?.streamId]);
       useEffect(() => { rawInputQueue.current = []; manualDrafts.current.clear(); pendingSshInputRef.current = ""; setPendingSshInput(""); setTerminalInput(""); }, [sessionId]);
       useEffect(() => () => { if (rawInputTimer.current) window.clearTimeout(rawInputTimer.current); if (scrollIntentTimer.current) window.clearTimeout(scrollIntentTimer.current); rawInputQueue.current = []; }, []);
-      const keySequence = (event) => { if (event.ctrlKey && !event.altKey && !event.metaKey) { const key = event.key.toLowerCase(); if (key.length === 1 && key >= "a" && key <= "z") return String.fromCharCode(key.charCodeAt(0) - 96); if (key === "[") return "\u001b"; if (key === "\\") return "\u001c"; if (key === "]") return "\u001d"; if (key === "^") return "\u001e"; if (key === "_") return "\u001f"; if (key === " ") return "\u0000"; } if (event.key === "Tab") return event.shiftKey ? "\u001b[Z" : "\t"; const sequences = { Enter: "\r", Escape: "\u001b", Backspace: "\u007f", Delete: "\u001b[3~", ArrowUp: "\u001b[A", ArrowDown: "\u001b[B", ArrowRight: "\u001b[C", ArrowLeft: "\u001b[D", Home: "\u001b[H", End: "\u001b[F", PageUp: "\u001b[5~", PageDown: "\u001b[6~", Insert: "\u001b[2~" }; return sequences[event.key]; };
+      const keySequence = (event) => { if (event.ctrlKey && !event.altKey && !event.metaKey) { const key = event.key.toLowerCase(); if (key === "v") return undefined; if (key.length === 1 && key >= "a" && key <= "z") return String.fromCharCode(key.charCodeAt(0) - 96); if (key === "[") return "\u001b"; if (key === "\\") return "\u001c"; if (key === "]") return "\u001d"; if (key === "^") return "\u001e"; if (key === "_") return "\u001f"; if (key === " ") return "\u0000"; } if (event.key === "Tab") return event.shiftKey ? "\u001b[Z" : "\t"; const sequences = { Enter: "\r", Escape: "\u001b", Backspace: "\u007f", Delete: "\u001b[3~", ArrowUp: "\u001b[A", ArrowDown: "\u001b[B", ArrowRight: "\u001b[C", ArrowLeft: "\u001b[D", Home: "\u001b[H", End: "\u001b[F", PageUp: "\u001b[5~", PageDown: "\u001b[6~", Insert: "\u001b[2~" }; return sequences[event.key]; };
       const addGroup = async () => { const name = ask("环境分组名称"); if (name) await action({ action: "group.create", name }); };
       const editGroup = async (group) => { const name = ask("新的环境分组名称", group); if (name && name !== group) await action({ action: "group.rename", group, name }); };
       const openEnvironmentForm = (initial) => setEnvironmentForm({ mode: initial ? "edit" : "create", id: initial?.id ?? "", name: initial?.name ?? "", host: initial?.host ?? "", username: initial?.username ?? "root", group: initial?.group ?? snapshot.groups[0] ?? "default", port: String(initial?.port ?? 22), passwordRef: initial?.passwordRef === "configured" ? "" : initial?.passwordRef ?? "", password: "", privateKeyPath: initial?.privateKeyPath ?? "", credentialConfigured: initial?.passwordRef === "configured" });
@@ -965,6 +981,17 @@ window.__ModuleLoader__.load({
         h("div", { className: "dsh-remote-ops__workspace" }, h("nav", { className: "dsh-remote-ops__rail", "aria-label": "Remote Ops 导航" }, [["environments", "环境"], ["quick", "快捷命令"], ["sftp", "SFTP"], ["diagnostics", "诊断"]].map(([id, label]) => h("button", { key: id, "data-active": id === "environments" ? drawer : id === "quick" ? quickOpen : module === id, title: label, "aria-label": label, onClick: () => id === "environments" ? (setDrawer((value) => !value), setModule("terminal")) : id === "quick" ? (setDrawer(false), setModule("terminal"), setQuickOpen((value) => !value)) : (setDrawer(false), setModule((value) => value === id ? "terminal" : id)) }, glyph[id]))), h("main", { className: "dsh-remote-ops__main", "data-module": module }, module === "sftp" ? sftpWorkspace : terminal, quickPanel), envDrawer, aux));
     }
     function RemoteOpsTitle() { return h("span", null, "Remote Ops"); }
+    function RemoteOpsIcon({ size = 18, active = false }) {
+      return h("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: active ? 1.8 : 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, h("rect", { x: 3, y: 4, width: 18, height: 16, rx: 3 }), h("path", { d: "m7 9 3 3-3 3m6 0h4" }));
+    }
+    function RemoteOpsMain({ useSessions }) {
+      const sessionId = useSessions(state => Object.values(state.byId).find(row => (row.retainedBy?.mainView ?? 0) > 0)?.id);
+      return h(RemoteOpsPanel, { key: sessionId ?? "local", sessionId });
+    }
+    function RemoteOpsRightPanel({ sessionId, usePanelInfo }) {
+      const activePanelId = usePanelInfo?.(state => state.activePanelId);
+      return activePanelId === PANEL_ID ? null : h(RemoteOpsPanel, { sessionId });
+    }
     function RemoteOpsLaunch({ wide, onClick, label }) { return h("button", { type: "button", className: "dsh-remote-ops__launchControl", title: label, "aria-label": label, onClick }, h("span", { className: "dsh-remote-ops__launchControlIcon", "aria-hidden": true }, h(IconPanelLeftOutline16, { "aria-hidden": true })), wide ? h("span", { className: "dsh-remote-ops__launchLabel" }, label) : null); }
     const inject = ["slots", "locale"];
     const launcherErrorState = { message: "", listeners: new Set() };
@@ -976,29 +1003,34 @@ window.__ModuleLoader__.load({
       return h("div", { className: "dsh-remote-ops__launcherError", role: "alert" }, h("div", { className: "dsh-remote-ops__launcherErrorBody" }, h("strong", null, "无法打开 Remote Ops"), h("div", null, message)), h("button", { type: "button", className: "dsh-remote-ops__launcherErrorClose", title: "关闭错误", "aria-label": "关闭错误", onClick: () => setLauncherError("") }, "×"));
     }
     function apply(ctx) {
-      let grouped = false;
+      let nativeNavigation = false;
       const listeners = new Set();
       const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
-      ctx.inject(["pluginNavigation"], (ready) => {
-        ready.effect(() => {
-          grouped = true;
-          listeners.forEach(fn => fn());
-          return () => { grouped = false; listeners.forEach(fn => fn()); };
-        }, "dsh-remote-ops: shared navigation availability");
-      });
+      const setNativeNavigation = (value) => { nativeNavigation = value; listeners.forEach(fn => fn()); };
       function OptionalLaunch(props) {
-        const managed = useSyncExternalStore(subscribe, () => grouped);
+        const managed = useSyncExternalStore(subscribe, () => nativeNavigation);
         return managed ? null : h(RemoteOpsLaunch, props);
       }
-      const t = ctx.locale.bind(NS);
       ctx.effect(() => ctx.locale.register(NS, { zh: { title: "Remote Ops", guideTitle: "远程运维", guideDescription: "管理 SSH 环境、终端和 SFTP" }, en: { title: "Remote Ops", guideTitle: "Remote operations", guideDescription: "Manage SSH environments, terminals and SFTP" } }), "dsh-remote-ops: dictionaries");
+      const t = ctx.locale.bind(NS);
+      ctx.inject(["layout"], (ready) => {
+        ready.effect(() => ready.slots.inject("main", () => ready.slots.inject("sidebar.panellist", () => {
+          const disposeMain = ready.slots.register({ name: "main", key: PANEL_ID, locale: NS }, RemoteOpsMain);
+          const disposeEntry = ready.slots.register({ name: "sidebar.panellist", id: PANEL_ID, order: 40, locale: NS, label: () => t("title") }, RemoteOpsIcon);
+          setNativeNavigation(true);
+          return () => { setNativeNavigation(false); disposeEntry(); disposeMain(); };
+        })), "dsh-remote-ops: native navigation");
+      });
       ctx.effect(() => { setLauncherError(""); return () => setLauncherError(""); }, "dsh-remote-ops: launcher error state");
       ctx.effect(() => ctx.slots.inject("shell.overlay", () => ctx.slots.register({ name: "shell.overlay", id: "dsh-remote-ops.launch-error", locale: NS }, LauncherErrorOverlay)), "dsh-remote-ops: launcher error overlay");
       const getService = (context, service) => typeof context.get === "function" ? context.get(service) : context[service];
       const showLauncherError = (message) => { console.warn(`[dsh-remote-ops] ${message}`); setLauncherError(message); };
       let launcherTimer;
+      ctx.effect(() => () => { if (launcherTimer) window.clearInterval(launcherTimer); launcherTimer = undefined; }, "dsh-remote-ops: launcher timer");
       const openRemoteOps = () => {
         if (launcherTimer) window.clearInterval(launcherTimer);
+        launcherTimer = undefined;
+        setLauncherError("");
         let attempts = 0;
         let lastError = "sidebarRight 服务尚未提供";
         const tryOpen = () => {
@@ -1009,10 +1041,11 @@ window.__ModuleLoader__.load({
         if (tryOpen()) return;
         launcherTimer = window.setInterval(() => {
           attempts += 1;
-          if (tryOpen() || attempts >= 40) {
+          const opened = tryOpen();
+          if (opened || attempts >= 40) {
             window.clearInterval(launcherTimer);
             launcherTimer = undefined;
-            if (attempts >= 40) showLauncherError("无法打开 Remote Ops：" + lastError + "。请确认当前运行的是 DSH Web profile，并重启 DSH 让插件重新加载。");
+            if (!opened) showLauncherError("无法打开 Remote Ops：" + lastError + "。请确认当前运行的是 DSH Web profile，并重启 DSH 让插件重新加载。");
           }
         }, 250);
       };
@@ -1021,8 +1054,17 @@ window.__ModuleLoader__.load({
         const sidebarRight = getService(ready, "sidebarRight");
         const sidebarRightTabs = getService(ready, "sidebarRightTabs");
         if (!sidebarRight || !sidebarRightTabs) return;
-        ready.effect(() => sidebarRightTabs.register({ id: TAB_ID, kind: TAB_KIND, priority: "extension", title: () => t("title"), guide: [{ order: 40, title: () => t("guideTitle"), description: () => t("guideDescription"), icon: IconPanelLeftOutline16 }] }), "dsh-remote-ops: tab type");
-        ready.effect(() => ready.slots.inject("sidebar.right.pane.tab", () => ready.slots.register({ name: "sidebar.right.pane.tab", key: TAB_ID }, RemoteOpsPanel)), "dsh-remote-ops: tab body");
+        ready.effect(() => {
+          let disposeTab;
+          const syncTab = () => {
+            disposeTab?.();
+            disposeTab = sidebarRightTabs.register({ id: TAB_ID, kind: TAB_KIND, priority: "extension", title: () => t("title"), guide: nativeNavigation ? [] : [{ order: 40, title: () => t("guideTitle"), description: () => t("guideDescription"), icon: RemoteOpsIcon }] });
+          };
+          syncTab();
+          const unsubscribe = subscribe(syncTab);
+          return () => { unsubscribe(); disposeTab?.(); };
+        }, "dsh-remote-ops: tab type");
+        ready.effect(() => ready.slots.inject("sidebar.right.pane.tab", () => ready.slots.register({ name: "sidebar.right.pane.tab", key: TAB_ID }, RemoteOpsRightPanel)), "dsh-remote-ops: tab body");
         ready.effect(() => ready.slots.inject("sidebar.right.pane.tab.title", () => ready.slots.register({ name: "sidebar.right.pane.tab.title", key: TAB_ID }, RemoteOpsTitle)), "dsh-remote-ops: tab title");
       });
     }

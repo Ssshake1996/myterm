@@ -22,31 +22,6 @@ const parseSshCommand = loadClientFunction("parseSshCommand", "\n    const termi
 const terminalInputEnabled = loadClientFunction("terminalInputEnabled", "\n    function RemoteOpsPanel");
 const terminalInputCompositionValue = loadClientFunction("terminalInputCompositionValue", "\n    function RemoteOpsPanel");
 
-test("shared navigation suppresses the fallback and restores it after unload", () => {
-  let plugin;
-  const disposers = [];
-  const dependencies = new Map();
-  let launcher;
-  const h = (type, props) => typeof type === "function" ? type(props) : ({ type, props });
-  const context = {
-    window: { __ModuleLoader__: { load: (definition) => { plugin = definition.factory((name) => name === "react" ? { createElement: h, useSyncExternalStore: (_subscribe, snapshot) => snapshot() } : {}); } } },
-    document: { getElementById: () => ({ textContent: "" }) },
-  };
-  vm.runInNewContext(source, context);
-  const ctx = {
-    inject: (names, callback) => dependencies.set(names.join(","), callback),
-    effect: (fn) => { const dispose = fn(); if (typeof dispose === "function") disposers.push(dispose); },
-    locale: { bind: () => () => "Remote Ops", register: () => () => {} },
-    slots: { inject: (_name, fn) => fn(), register: (_definition, render) => { launcher = render; } },
-  };
-  plugin.apply(ctx);
-  assert.equal(launcher({wide:true}).type, "button");
-  dependencies.get("pluginNavigation")(ctx);
-  assert.equal(launcher({wide:true}), null);
-  disposers.pop()();
-  assert.equal(launcher({wide:true}).type, "button");
-});
-
 // Export names from DSH ui-primitives 0.2.0-rc.2 and the older Web host.
 const iconExports = [
   ["IconStopFill16", "IconStopFillRegular"],
