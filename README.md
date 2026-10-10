@@ -44,7 +44,7 @@ npm --prefix integrations/dsh-remote-ops run check
 ```text
 integrations/dsh-remote-ops/
 ├─ lib/index.js       # 插件入口：apply 与对外导出
-├─ lib/state.js       # RemoteOpsState：环境、会话、输入协调、SFTP、更新
+├─ lib/state/         # RemoteOpsState：按领域分层（环境、快捷命令、连接、终端读写、文件、更新…），入口 state/index.js
 ├─ lib/terminal-send.js     # 发送流程：预设、自动应答、输出渲染
 ├─ lib/terminal-script.js   # remote_terminal_script 多步骤执行
 ├─ lib/terminal-sessions.js # SSH/本地/宿主接管终端会话与 SendOperation

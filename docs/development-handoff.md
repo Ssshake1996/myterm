@@ -63,7 +63,15 @@ v0.2.21 已撤回的跨浏览器输入权锁、连接编号/备注保持撤回�
 F:\myterm
 ├─ integrations/dsh-remote-ops/
 │  ├─ lib/index.js          # 插件入口：apply 装配与对外导出（约 30 行）
-│  ├─ lib/state.js          # RemoteOpsState：环境、快捷命令、会话、输入协调、SFTP、更新
+│  ├─ lib/state/            # RemoteOpsState，按领域拆成可组合的层（每层 < 300 行）
+│  │  ├─ index.js           #   组合入口：StateBase + 各层 mixin，导出 RemoteOpsState
+│  │  ├─ base.js            #   构造函数、load、readJson（所有层共享的字段在此创建）
+│  │  ├─ environments.js    #   环境/分组的持久化、规范化、查找、删除
+│  │  ├─ quick-commands.js  #   快捷命令/分组、排序、按钮直接下发
+│  │  ├─ connections.js     #   SSH 连接：spawn/open/reconcile、凭据、resize、掉线记录
+│  │  ├─ terminal-io.js     #   输出帧、读取、输入协调、send/input/signal
+│  │  ├─ snapshots.js       #   快照、目录、诊断事件、工具回执
+│  │  ├─ local-terminal.js, commands.js, files.js, updates.js  # 本地 CMD、独立命令、文件/SFTP、更新检查
 │  ├─ lib/terminal-send.js  # 发送流程：环境预设、提示规则/自动应答、输出渲染
 │  ├─ lib/terminal-script.js # remote_terminal_script：校验后逐步执行并按检查停止
 │  ├─ lib/terminal-sessions.js # SendOperation、SSH/本地/宿主接管终端会话
@@ -112,7 +120,7 @@ connection / systemPrompt / tools / terminals / agents / credentials / subproces
 
 核心对象：
 
-- `RemoteOpsState`（`lib/state.js`）：环境、快捷命令、会话、事件、掉线记录和 Release 状态；发送流程委托 `performSend`（`lib/terminal-send.js`）。
+- `RemoteOpsState`（`lib/state/`）：环境、快捷命令、会话、事件、掉线记录和 Release 状态。它是由 `StateBase` 加九个领域层（mixin 工厂 `(Base) => class extends Base`）组合出的一个对象，方法原样分布在各层；没有任何层覆盖另一层的方法（`test/state-layers.test.mjs` 检查方法清单、唯一归属和每个文件不超过 300 行）。新增方法放进最相关的层，层太大就再拆，不要回到一个大文件。发送流程委托 `performSend`（`lib/terminal-send.js`）。
 - `TerminalOutputBuffer`：有界 UTF-8 输出、绝对游标、增量读取和长轮询等待。
 - `LocalCmdTerminalSession`：无 SSH 时默认启动的本地终端。
 - `SshTerminalSession`：owner-scoped SSH PTY 会话。

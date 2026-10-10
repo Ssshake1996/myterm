@@ -1,5 +1,5 @@
 import { PLUGIN_NAME } from "./version.js";
-import { RemoteOpsState } from "./state.js";
+import { RemoteOpsState } from "./state/index.js";
 import { registerWorkspaceRoutes } from "./workspace-routes.js";
 import { registerTools } from "./tools.js";
 import { registerRoutes } from "./routes.js";
@@ -11,7 +11,7 @@ export { MAX_SESSIONS_PER_ENVIRONMENT } from "./constants.js";
 export { TerminalOutputBuffer } from "./output-buffer.js";
 export { buildSshShellOptions } from "./terminal-sessions.js";
 export { defaultPasswordRef, normalizeGroupName, summarizeError, toLosslessJson, validateEnvironment } from "./common.js";
-export { RemoteOpsState } from "./state.js";
+export { RemoteOpsState } from "./state/index.js";
 
 export function apply(ctx) {
   const state = new RemoteOpsState(ctx);

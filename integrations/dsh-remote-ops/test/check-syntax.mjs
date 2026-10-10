@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const libDirectory = fileURLToPath(new URL("../lib/", import.meta.url));
-const files = readdirSync(libDirectory).filter((file) => file.endsWith(".js")).sort();
+const walk = (directory) => readdirSync(directory, { withFileTypes: true }).flatMap((entry) => entry.isDirectory() ? walk(join(directory, entry.name)) : entry.name.endsWith(".js") ? [join(directory, entry.name)] : []);
+const files = walk(libDirectory).map((path) => relative(libDirectory, path)).sort();
 let failed = 0;
 for (const file of files) {
   const result = spawnSync(process.execPath, ["--check", join(libDirectory, file)], { encoding: "utf8" });

@@ -33,7 +33,7 @@
   ],
   "scripts": {
     "test": "npm run test:unit && npm run test:client && npm run test:contract && npm run test:smoke",
-    "test:unit": "node --test test/unit.test.mjs test/routes.test.mjs test/cli-assist.test.mjs test/release-script.test.mjs test/ssh-session.test.mjs test/script.test.mjs test/output-render.test.mjs test/transfer.test.mjs test/diagnostics.test.mjs test/workspace.test.mjs test/commands.test.mjs",
+    "test:unit": "node --test test/unit.test.mjs test/routes.test.mjs test/cli-assist.test.mjs test/state-layers.test.mjs test/release-script.test.mjs test/ssh-session.test.mjs test/script.test.mjs test/output-render.test.mjs test/transfer.test.mjs test/diagnostics.test.mjs test/workspace.test.mjs test/commands.test.mjs",
     "test:client": "node --test test/client-behavior.test.mjs",
     "test:contract": "node --test test/contract.test.mjs",
     "test:smoke": "node test/smoke.mjs",
