@@ -45,6 +45,12 @@ test("terminal send exposes opt-in CLI assist parameters and auto action reporti
   assert.match(server, /AUTO_SIGINT_MARKER/);
 });
 
+test("environment form warns that automatic confirmation also answers destructive prompts", () => {
+  assert.match(client, /自动确认 \(y\/n\)/);
+  assert.match(client, /包括删除、变更等高风险操作/);
+  assert.match(client, /environment\.cliProfile = advanced\.cliProfile/);
+});
+
 test("terminal rendering and transport invariants remain present", () => {
   assert.match(client, /box-sizing:border-box/);
   assert.match(client, /overflow-y:scroll/);

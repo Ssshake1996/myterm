@@ -6,10 +6,9 @@ import { PLUGIN_NAME, PLUGIN_VERSION } from "./version.js";
 import { TransferManager, HostFiles, SftpFiles } from "./transfers.js";
 import { describeFailure } from "./diagnostics.js";
 import { executeCommand } from "./commands.js";
-import {
-  AUTO_QUIT_QUIET_MS, AUTO_SIGINT_MARKER, AUTO_SIGINT_SETTLE_MS, CONTAMINATION_TAIL_CHARS, MAX_AUTO_CONFIRMS, MAX_AUTO_QUITS,
-  PROMPT_TAIL_CHARS, detectContamination, detectPrompt, resolveAssistOptions,
-} from "./cli-assist.js";
+import { normalizeCliProfile, normalizeTerminalSize, resolveRenderOptions } from "./cli-profile.js";
+import { readPage, renderOutput } from "./output-render.js";
+import { performSend } from "./terminal-send.js";
 import {
   AGENT_OUTPUT_CHARS, CREDENTIAL_REF_RE, LOCAL_SESSION_ID, LOCAL_SESSION_NAME, MAX_SESSIONS_PER_ENVIRONMENT, MAX_SFTP_BYTES, ROOT,
   SESSION_NAME_PREFIX, UI_SCROLLBACK_CHARS,
@@ -17,6 +16,13 @@ import {
 import { newEnvironmentId, newSessionName, normalizeGroupName, ownerId, resolveRemoteHome, sessionError, summarizeError, validateEnvironment } from "./common.js";
 import { UPDATE_CACHE_MS, fetchLatestRelease, findProfileRoot, runPnpm } from "./release.js";
 import { AdoptedTerminalSession, LocalCmdTerminalSession, SshTerminalSession, buildSshShellOptions } from "./terminal-sessions.js";
+
+function sanitizeStoredEnvironment(item) {
+  if (!item || typeof item !== "object") return item;
+  const { cliProfile, terminal, ...rest } = item;
+  const profile = normalizeCliProfile(cliProfile), size = normalizeTerminalSize(terminal);
+  return { ...rest, ...(profile ? { cliProfile: profile } : {}), ...(size ? { terminal: size } : {}) };
+}
 
 export class RemoteOpsState {
   constructor(ctx) {
@@ -59,7 +65,7 @@ export class RemoteOpsState {
     for (const entry of environmentDirs.filter((item) => item.isDirectory())) {
       const group = normalizeGroupName(entry.name);
       const data = await this.readJson(this.envFile(group), []);
-      this.environments.set(group, Array.isArray(data) ? data.filter((item) => validateEnvironment(item).ok) : []);
+      this.environments.set(group, Array.isArray(data) ? data.map(sanitizeStoredEnvironment).filter((item) => validateEnvironment(item).ok) : []);
     }
     const quickDirs = await readdir(this.quickRoot, { withFileTypes: true }).catch(() => []);
     for (const entry of quickDirs.filter((item) => item.isDirectory())) {
@@ -102,7 +108,29 @@ export class RemoteOpsState {
   async createGroup(name) { const group = normalizeGroupName(name); if (this.environments.has(group)) throw sessionError("REMOTE_GROUP_EXISTS", `Environment group already exists: ${group}`); this.environments.set(group, []); await this.saveGroup(group); return { group }; }
   async renameGroup(from, to) { const source = normalizeGroupName(from); const target = normalizeGroupName(to); if (!this.environments.has(source)) throw sessionError("REMOTE_GROUP_NOT_FOUND", source); if (source === target) return { group: target }; if (this.environments.has(target)) throw sessionError("REMOTE_GROUP_EXISTS", target); this.environments.set(target, (this.environments.get(source) ?? []).map((item) => ({ ...item, group: target }))); this.environments.delete(source); await this.saveGroup(target); await rm(this.groupDir(source), { recursive: true, force: true }); return { group: target }; }
   async deleteGroup(name) { const group = normalizeGroupName(name); const values = this.environments.get(group); if (!values) throw sessionError("REMOTE_GROUP_NOT_FOUND", group); if (values.length) throw sessionError("REMOTE_GROUP_NOT_EMPTY", `Environment group is not empty: ${group}`); this.environments.delete(group); await rm(this.groupDir(group), { recursive: true, force: true }); return { deleted: true, group }; }
-  async saveEnvironment(value) { const normalized = this.normalizeEnvironment(value); const group = normalized.group; const previous = this.findEnvironment(normalized.id); const duplicate = this.allEnvironments().find((item) => item.id !== normalized.id && item.name === normalized.name); if (duplicate) throw sessionError("REMOTE_ENV_NAME_EXISTS", `Environment name already exists: ${normalized.name}`); const previousGroups = []; for (const [name, list] of this.environments) { const next = list.filter((item) => item.id !== normalized.id); if (next.length !== list.length) { this.environments.set(name, next); previousGroups.push(name); } } if (!this.environments.has(group)) this.environments.set(group, []); const saved = { ...previous, ...normalized, group }; this.environments.set(group, [...this.environments.get(group), saved]); for (const name of new Set([...previousGroups, group])) await this.saveGroup(name); return this.findEnvironment(normalized.id); }
+  async saveEnvironment(value) {
+    const normalized = this.normalizeEnvironment(value);
+    const group = normalized.group;
+    const previous = this.findEnvironment(normalized.id);
+    const duplicate = this.allEnvironments().find((item) => item.id !== normalized.id && item.name === normalized.name);
+    if (duplicate) throw sessionError("REMOTE_ENV_NAME_EXISTS", `Environment name already exists: ${normalized.name}`);
+    const previousGroups = [];
+    for (const [name, list] of this.environments) {
+      const next = list.filter((item) => item.id !== normalized.id);
+      if (next.length !== list.length) { this.environments.set(name, next); previousGroups.push(name); }
+    }
+    if (!this.environments.has(group)) this.environments.set(group, []);
+    const saved = { ...previous, ...normalized, group };
+    // A supplied profile/size replaces the stored one; an empty (all-default) value clears it; an absent field keeps it.
+    for (const [key, normalize] of [["cliProfile", normalizeCliProfile], ["terminal", normalizeTerminalSize]]) {
+      if (!Object.hasOwn(normalized, key)) continue;
+      const clean = normalize(normalized[key]);
+      if (clean) saved[key] = clean; else delete saved[key];
+    }
+    this.environments.set(group, [...this.environments.get(group), saved]);
+    for (const name of new Set([...previousGroups, group])) await this.saveGroup(name);
+    return this.findEnvironment(normalized.id);
+  }
   async createQuickGroup(name) { const group = normalizeGroupName(name); if (this.quickGroups.has(group)) throw sessionError("REMOTE_QUICK_GROUP_EXISTS", `Quick command group already exists: ${group}`); this.quickGroups.add(group); await this.saveQuickGroup(group); return { group }; }
   async renameQuickGroup(from, to) { const source = normalizeGroupName(from); const target = normalizeGroupName(to); if (!this.quickGroups.has(source)) throw sessionError("REMOTE_QUICK_GROUP_NOT_FOUND", source); if (this.quickGroups.has(target)) throw sessionError("REMOTE_QUICK_GROUP_EXISTS", target); this.quickGroups.delete(source); this.quickGroups.add(target); this.quickCommands = this.quickCommands.map((item) => normalizeGroupName(item.group) === source ? { ...item, group: target, revision: randomUUID() } : item); await this.saveQuickGroup(target); await rm(this.quickGroupDir(source), { recursive: true, force: true }); return { group: target }; }
   async deleteQuickGroup(name) { const group = normalizeGroupName(name); if (!this.quickGroups.has(group)) throw sessionError("REMOTE_QUICK_GROUP_NOT_FOUND", group); if (this.quickCommands.some((item) => normalizeGroupName(item.group) === group)) throw sessionError("REMOTE_QUICK_GROUP_NOT_EMPTY", `Quick command group is not empty: ${group}`); this.quickGroups.delete(group); await rm(this.quickGroupDir(group), { recursive: true, force: true }); return { deleted: true, group }; }
@@ -220,7 +248,7 @@ export class RemoteOpsState {
     return { groups: this.groupList(), environments, quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, events: this.events.get(id) ?? [], localError: this.localError || undefined, pluginName: PLUGIN_NAME, pluginVersion: PLUGIN_VERSION, update: this.release };
   }
 
-  async terminalOutput(owner, target, offset, waitMs = 0, signal, streamId, maxChars = UI_SCROLLBACK_CHARS) {
+  async terminalOutput(owner, target, offset, waitMs = 0, signal, streamId, maxChars = UI_SCROLLBACK_CHARS, pageOptions = {}) {
     let session;
     let environmentId;
     let name;
@@ -252,7 +280,7 @@ export class RemoteOpsState {
       toolReceipt: this.toolReceipt(owner, session),
       completion: "unknown",
       format: "terminal-stream",
-      ...session.outputBuffer.readFrom(replaced ? undefined : offset, maxChars),
+      ...readPage(session.outputBuffer, replaced ? undefined : offset, maxChars, pageOptions),
       ...(replaced ? { reset: true, truncated: true } : {}),
     };
   }
@@ -260,15 +288,22 @@ export class RemoteOpsState {
   async readTerminal(owner, target, args = {}) {
     await this.ready;
     if (args.cursor !== undefined && (!Number.isSafeInteger(args.cursor) || args.cursor < 0)) throw sessionError("REMOTE_OFFSET_INVALID", "cursor must be a non-negative integer");
+    const record = target === LOCAL_SESSION_ID ? undefined : this.getSession(owner, target);
+    const session = record ? record.session : await this.ensureLocalSession();
+    const render = resolveRenderOptions(args, record?.environment?.cliProfile);
+    const rendering = render.stripAnsi || render.headTailChars;
     if (args.offset !== undefined || args.count !== undefined) {
-      const session = target === LOCAL_SESSION_ID ? await this.ensureLocalSession() : this.getSession(owner, target).session;
-      const result = target === LOCAL_SESSION_ID ? session.read(args) : await this.ctx.terminals.read(owner, this.getSession(owner, target).sessionId, args);
+      const result = record ? await this.ctx.terminals.read(owner, record.sessionId, args) : session.read(args);
       this.recordToolReceipt(owner, session, result, "history");
-      return { sessionId: target, ...result, status: session.status(), format: "terminal-stream", completion: "unknown" };
+      const shown = rendering ? renderOutput({ text: result.text }, render) : undefined;
+      return { sessionId: target, ...result, ...(shown ? { text: shown.text, ...(shown.ansiStripped ? { ansiStripped: true } : {}), ...(shown.summarized ? { summarized: true, omitted: shown.omitted } : {}) } : {}), status: session.status(), format: "terminal-stream", completion: "unknown" };
     }
-    const session = target === LOCAL_SESSION_ID ? await this.ensureLocalSession() : this.getSession(owner, target).session;
-    const result = await this.terminalOutput(owner, target, args.cursor, Math.max(0, Math.min(25_000, Number(args.waitMs) || 0)), args.signal, args.streamId, Math.max(2, Math.min(UI_SCROLLBACK_CHARS, Number(args.maxChars) || AGENT_OUTPUT_CHARS)));
-    this.recordToolReceipt(owner, session, result, "read");
+    const waitMs = Math.max(0, Math.min(25_000, Number(args.waitMs) || 0));
+    const maxChars = Math.max(2, Math.min(UI_SCROLLBACK_CHARS, Number(args.maxChars) || AGENT_OUTPUT_CHARS));
+    const raw = await this.terminalOutput(owner, target, args.cursor, waitMs, args.signal, args.streamId, maxChars, render);
+    const shown = rendering ? renderOutput(raw, render) : undefined;
+    const result = shown ? { ...raw, text: shown.text, nextOffset: shown.nextOffset, hasMore: shown.hasMore, ...(shown.ansiStripped ? { ansiStripped: true } : {}), ...(shown.summarized ? { summarized: true, omitted: shown.omitted } : {}) } : raw;
+    this.recordToolReceipt(owner, session, shown?.summarized ? { ...result, truncated: true } : result, "read");
     return result;
   }
 
@@ -573,87 +608,7 @@ export class RemoteOpsState {
     return { requestId, cancellationRequested: true };
   }
 
-  async send(owner, target, args) {
-    await this.ready;
-    const assist = resolveAssistOptions(args);
-    if (!target && !args.environment) throw sessionError("REMOTE_SESSION_REQUIRED", "Pass session (SSH session id or local-cmd), or environment when opening on demand");
-    if (!target && args.environment) {
-      this.reconcileHostSessions(owner);
-      const environment = this.findEnvironment(args.environment);
-      if (environment && this.activeRemoteSessions(ownerId(owner), environment.id).length) target = this.getSession(owner, environment.id).sessionId;
-    }
-    const record = target === LOCAL_SESSION_ID
-      ? { sessionId: LOCAL_SESSION_ID, session: await this.ensureLocalSession() }
-      : target ? this.getSession(owner, target) : await this.open(owner, args.environment);
-    const session = record.session;
-    if (session instanceof AdoptedTerminalSession) await session.refresh();
-    this.claimInput(session, args.actor, args.streamId);
-    const startOffset = session.outputBuffer.endOffset;
-    const streamId = session.outputBuffer.streamId;
-    const submittedText = String(args.text ?? args.command ?? "");
-    const submit = args.submit ?? args.newline ?? true;
-    const quietMs = Math.max(0, Math.min(10_000, Number(args.quietMs ?? 700) || 0));
-    const timeoutMs = Math.max(1, Math.min(300_000, (Number(args.timeoutSeconds ?? 30) || 30) * 1000));
-    const deadline = Date.now() + timeoutMs;
-    const runSend = async (request) => {
-      const operation = target === LOCAL_SESSION_ID ? session.startSend(request) : this.ctx.terminals.startSend(owner, record.sessionId, request);
-      session.pendingSend = operation;
-      try { return await operation.done; } finally { if (session.pendingSend === operation) session.pendingSend = undefined; session.outputBuffer.notify(); }
-    };
-    let result = await runSend({ text: submittedText, submit, quietMs, timeoutMs, signal: args.signal });
-    const autoActions = [];
-    let sigintCleared = false;
-    const noteAuto = (type, extra = {}) => {
-      autoActions.push({ type, ...extra });
-      if (owner) this.event(owner, `terminal.auto.${type}`, { sessionId: record.sessionId, environment: record.environment?.name ?? session.environment.name, ...extra });
-    };
-    if (assist.autoConfirm || assist.autoQuitMore) {
-      let confirms = 0, quits = 0, scanFrom = startOffset;
-      while (result.waitReason === "inferred_idle" && !args.signal?.aborted && session.status().kind !== "exited") {
-        const remainingMs = deadline - Date.now();
-        if (remainingMs <= 0) break;
-        if (session instanceof AdoptedTerminalSession) await session.refresh();
-        const buffer = session.outputBuffer;
-        const tail = buffer.streamId === streamId && scanFrom >= buffer.startOffset && scanFrom <= buffer.endOffset
-          ? buffer.slice(Math.max(scanFrom, buffer.endOffset - PROMPT_TAIL_CHARS) - buffer.startOffset)
-          : buffer.tail(PROMPT_TAIL_CHARS);
-        const prompt = detectPrompt(tail, assist);
-        let next;
-        if (prompt === "quit-more" && quits < MAX_AUTO_QUITS) { quits += 1; next = { text: "q", submit: false, quietMs: AUTO_QUIT_QUIET_MS }; noteAuto("quit-more", { count: quits }); }
-        else if (prompt === "confirm" && confirms < MAX_AUTO_CONFIRMS) { confirms += 1; next = { text: "y", submit: true, quietMs }; noteAuto("confirm", { count: confirms }); }
-        else break;
-        scanFrom = buffer.endOffset;
-        result = await runSend({ ...next, timeoutMs: remainingMs, signal: args.signal });
-      }
-    }
-    if (assist.autoSigint && result.waitReason !== "cancelled" && session.status().kind !== "exited" && session.outputBuffer.streamId === streamId) {
-      const buffer = session.outputBuffer;
-      const sentText = buffer.slice(Math.max(startOffset, buffer.startOffset, buffer.endOffset - CONTAMINATION_TAIL_CHARS) - buffer.startOffset);
-      if (detectContamination(sentText)) {
-        try {
-          await this.signal(owner, record.sessionId, "SIGINT");
-          await new Promise((resolveDelay) => setTimeout(resolveDelay, AUTO_SIGINT_SETTLE_MS));
-          noteAuto("sigint");
-          sigintCleared = true;
-        } catch (error) {
-          noteAuto("sigint", { error: summarizeError(error) });
-        }
-      }
-    }
-    if (session instanceof AdoptedTerminalSession) await session.refresh();
-    const replaced = streamId !== session.outputBuffer.streamId;
-    const delta = {
-      sessionId: record.sessionId, name: record.environment?.name ?? session.environment.name,
-      kind: target === LOCAL_SESSION_ID ? "local" : "ssh", status: session.status(), completion: "unknown", format: "terminal-stream",
-      ...session.outputBuffer.readFrom(replaced ? undefined : startOffset, Math.max(2, Math.min(UI_SCROLLBACK_CHARS, Number(args.maxChars) || AGENT_OUTPUT_CHARS))),
-      ...(replaced ? { reset: true, truncated: true } : {}),
-    };
-    if (owner) this.event(owner, target === LOCAL_SESSION_ID ? "local.send" : "ssh.send", { sessionId: record.sessionId, environment: delta.name, inputChars: submittedText.length, waitReason: result.waitReason });
-    if (args.actor !== "manual") this.recordToolReceipt(owner, session, delta, "send");
-    const { text, ...metadata } = delta;
-    const output = sigintCleared ? `${text}${text && !/\n$/.test(text) ? "\n" : ""}${AUTO_SIGINT_MARKER}` : text;
-    return { ...metadata, environment: delta.name, submittedText, submit, output, waitReason: result.waitReason, sessionStatus: result.sessionStatus, ...(autoActions.length ? { autoActions } : {}), ...(args.includeViewport ? { viewport: session.outputBuffer.tail(AGENT_OUTPUT_CHARS) } : {}) };
-  }
+  send(owner, target, args) { return performSend(this, owner, target, args); }
 
   async input(owner, target, text, actor = "agent", streamId) {
     if (target === LOCAL_SESSION_ID) {

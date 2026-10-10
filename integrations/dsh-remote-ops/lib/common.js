@@ -1,6 +1,9 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CREDENTIAL_REF_RE, ID_RE, SESSION_NAME_PREFIX, TERMINAL_ENCODINGS } from "./constants.js";
+import { validateCliProfile, validateTerminalSize } from "./cli-profile.js";
+
+export { sessionError, summarizeError } from "./errors.js";
 
 let sessionNameSequence = 0;
 let environmentIdSequence = 0;
@@ -23,13 +26,6 @@ export function normalizeGroupName(value) {
     .replace(/-+/g, "-")
     .slice(0, 64);
   return normalized || "default";
-}
-
-export function summarizeError(error) {
-  if (error === null || error === undefined) return "Unknown error";
-  if (typeof error === "string") return error;
-  const code = error.code ? ` [${error.code}]` : "";
-  return `${error.message ?? String(error)}${code}`;
 }
 
 export function toLosslessJson(value) {
@@ -64,6 +60,7 @@ export function validateEnvironment(value) {
   if (value.passwordRef !== undefined && typeof value.passwordRef !== "string") errors.push("passwordRef must be a string");
   if (typeof value.passwordRef === "string" && value.passwordRef !== "" && !CREDENTIAL_REF_RE.test(value.passwordRef)) errors.push("passwordRef must be a valid Harness credential reference");
   if (value.encoding !== undefined && !TERMINAL_ENCODINGS.has(String(value.encoding).trim().toLowerCase())) errors.push("encoding must be one of utf-8, gb18030, big5, windows-1252 or iso-8859-1");
+  errors.push(...validateCliProfile(value.cliProfile), ...validateTerminalSize(value.terminal));
   return { ok: errors.length === 0, errors };
 }
 
@@ -71,12 +68,6 @@ export function ownerId(owner) {
   const id = owner?.id;
   if (typeof id !== "string" || !id) throw new Error("REMOTE_AGENT_REQUIRED: an active Harness agent is required");
   return id;
-}
-
-export function sessionError(code, message, cause) {
-  const error = new Error(`${code}: ${message}${cause ? `; ${summarizeError(cause)}` : ""}`, cause ? { cause } : undefined);
-  error.code = code;
-  return error;
 }
 
 export function newSessionName(environmentId) {

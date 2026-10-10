@@ -87,3 +87,45 @@ test("action route reports a failure shape that includes the failing stage", asy
   assert.equal(failed.body.stage, "close");
   assert.equal(failed.body.code, "REMOTE_SESSION_NOT_FOUND");
 });
+
+// The host's schema DSL requires every explicit object node to declare additionalProperties and only allows required: true.
+function assertSchemaNode(node, path) {
+  if (node === null || typeof node !== "object") return;
+  if (node.required !== undefined) assert.equal(node.required, true, `${path}.required must be true when present`);
+  if (node.type === "object") {
+    assert.equal(typeof node.additionalProperties, "boolean", `${path} must declare additionalProperties`);
+    for (const [key, child] of Object.entries(node.properties ?? {})) assertSchemaNode(child, `${path}.${key}`);
+  }
+  if (node.type === "array" && node.items) assertSchemaNode(node.items, `${path}[]`);
+}
+
+test("every registered tool parameter follows the host schema DSL", async (t) => {
+  const { tools } = await pluginFixture(t);
+  assert.ok(tools.size >= 29);
+  for (const [name, definition] of tools) for (const [key, node] of Object.entries(definition.parameters ?? {})) assertSchemaNode(node, `${name}.${key}`);
+});
+
+test("terminal tools expose output options and the environment profile, and ignore undeclared arguments", async (t) => {
+  const { tools, post } = await pluginFixture(t);
+  for (const name of ["remote_terminal_send", "remote_terminal_read", "remote_terminal_batch", "remote_quick_command_run"]) {
+    assert.equal(tools.get(name).parameters.stripAnsi.type, "boolean", `${name} stripAnsi`);
+    assert.equal(tools.get(name).parameters.headTailChars.type, "number", `${name} headTailChars`);
+  }
+  const create = tools.get("remote_environment_create");
+  assert.equal(create.parameters.cliProfile.type, "object");
+  assert.equal(create.parameters.terminal.properties.rows.type, "number");
+  const exec = { agent: { id: "tool-agent" } };
+  const created = await create.execute({ name: "dev", host: "10.1.1.1", username: "admin", cliProfile: { autoConfirm: true, autoSigint: true }, terminal: { rows: 50 } }, exec);
+  assert.deepEqual(created.environment.cliProfile, { autoConfirm: true });
+  assert.deepEqual(created.environment.terminal, { rows: 50 });
+  await assert.rejects(create.execute({ name: "bad", host: "10.1.1.2", username: "admin", cliProfile: { autoConfirm: "yes" } }, exec), { code: "REMOTE_ENV_INVALID" });
+});
+
+test("an undeclared actor argument cannot let a model bypass the manual input guard", async (t) => {
+  const { tools, post } = await pluginFixture(t);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal((await post({ action: "input", session: "local-cmd", text: "draft " })).status, 200);
+  const exec = { agent: { id: "tool-agent" } };
+  await assert.rejects(tools.get("remote_terminal_send").execute({ session: "local-cmd", text: "echo injected", actor: "manual", quietMs: 20, timeoutSeconds: 1 }, exec), { code: "TERMINAL_MANUAL_CONTROL" });
+  await assert.rejects(tools.get("remote_terminal_send").execute({ session: "local-cmd", text: "echo injected", quietMs: 20, timeoutSeconds: 1 }, exec), { code: "TERMINAL_MANUAL_CONTROL" });
+});

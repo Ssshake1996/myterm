@@ -19,6 +19,8 @@ function loadClientFunction(name, endMarker, includeFrom = name, globals = {}) {
 const terminalScreenModel = loadClientFunction("terminalScreenModel", "    const terminalVisibleText");
 const terminalVisibleText = loadClientFunction("terminalVisibleText", "    const ask =", "terminalScreenModel");
 const parseSshCommand = loadClientFunction("parseSshCommand", "\n    const terminalUsesGrid");
+const environmentProfileValues = loadClientFunction("environmentProfileValues", "\n    // end environment form helpers");
+const environmentProfileFromForm = loadClientFunction("environmentProfileFromForm", "\n    // end environment form helpers");
 const terminalInputEnabled = loadClientFunction("terminalInputEnabled", "\n    function RemoteOpsPanel");
 const terminalInputCompositionValue = loadClientFunction("terminalInputCompositionValue", "\n    function RemoteOpsPanel");
 
@@ -447,4 +449,26 @@ test("returning from SFTP restores history position or follows latest output acc
   assert.equal(output.current.scrollTop, 6000);
   render("terminal", 280, true);
   assert.equal(output.current.scrollTop, 0, "full-screen apps must start at their header rather than the last rows");
+});
+
+test("environment form values reflect the stored profile and terminal size, with safe defaults", () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(environmentProfileValues(undefined))), { autoConfirm: false, confirmPattern: "", autoQuitMore: false, autoSigint: true, stripAnsi: false, headTailChars: "", rows: "", cols: "" });
+  const stored = environmentProfileValues({ cliProfile: { autoConfirm: true, confirmPattern: "ok\\?", autoSigint: false, stripAnsi: true, headTailChars: 800 }, terminal: { rows: 50, cols: 200 } });
+  assert.deepEqual(JSON.parse(JSON.stringify(stored)), { autoConfirm: true, confirmPattern: "ok\\?", autoQuitMore: false, autoSigint: false, stripAnsi: true, headTailChars: "800", rows: "50", cols: "200" });
+});
+
+test("environment form submits only non-default profile values and always sends both objects so clearing works", () => {
+  const plain = JSON.parse(JSON.stringify(environmentProfileFromForm(environmentProfileValues(undefined))));
+  assert.deepEqual(plain, { cliProfile: {}, terminal: {} });
+  const full = JSON.parse(JSON.stringify(environmentProfileFromForm({ autoConfirm: true, confirmPattern: " ok\\? ", autoQuitMore: true, autoSigint: false, stripAnsi: true, headTailChars: " 800 ", rows: "50", cols: "200" })));
+  assert.deepEqual(full, { cliProfile: { autoConfirm: true, autoQuitMore: true, autoSigint: false, stripAnsi: true, confirmPattern: "ok\\?", headTailChars: 800 }, terminal: { rows: 50, cols: 200 } });
+});
+
+test("environment form rejects invalid profile and size input with a readable message", () => {
+  const base = environmentProfileValues(undefined);
+  assert.match(environmentProfileFromForm({ ...base, confirmPattern: "(" }).error, /确认提示正则无效/);
+  assert.match(environmentProfileFromForm({ ...base, headTailChars: "50" }).error, /200-100000/);
+  assert.match(environmentProfileFromForm({ ...base, headTailChars: "1.5" }).error, /200-100000/);
+  assert.match(environmentProfileFromForm({ ...base, rows: "3" }).error, /终端行数.*10-200/);
+  assert.match(environmentProfileFromForm({ ...base, cols: "wide" }).error, /终端列数.*40-500/);
 });

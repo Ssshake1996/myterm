@@ -11,7 +11,33 @@ const CLI_ASSIST_PARAMETERS = {
   autoQuitMore: boolParam("Send q when a --More-- pager appears and read the remaining output; default false"),
   autoSigint: boolParam("Send SIGINT when output shows a parameter-error hint (^ arrow plus [param=?] suggestions) so residual characters do not pollute the next command; default true"),
 };
-const pickCliAssist = (args) => ({ autoConfirm: args.autoConfirm, confirmPattern: args.confirmPattern, autoQuitMore: args.autoQuitMore, autoSigint: args.autoSigint, quietMs: args.quietMs });
+const OUTPUT_PARAMETERS = {
+  stripAnsi: boolParam("Remove ANSI/VT control sequences from the returned text. Offsets and cursors still count the raw stream. Default false, or the environment cliProfile"),
+  headTailChars: numberParam("When the returned text is much longer than twice this value (200-100000), return only the first and last N characters with a marker and the omitted raw offset range, which remote_terminal_read can fetch. 0 disables. Default off, or the environment cliProfile"),
+};
+const CLI_PROFILE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  description: "Per-environment defaults for remote_terminal_send/read/script. Call arguments override them. autoConfirm answers every matching (y/n) prompt with y, including destructive ones: enable only for devices where that is acceptable",
+  properties: {
+    autoConfirm: boolParam("Default autoConfirm"),
+    confirmPattern: stringParam("Default confirmPattern regular expression"),
+    autoQuitMore: boolParam("Default autoQuitMore"),
+    autoSigint: boolParam("Default autoSigint (built-in default true)"),
+    stripAnsi: boolParam("Default stripAnsi"),
+    headTailChars: numberParam("Default headTailChars, 200-100000"),
+  },
+};
+const TERMINAL_SIZE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  description: "PTY size used when a new SSH connection opens",
+  properties: { rows: numberParam("10-200; default 40"), cols: numberParam("40-500; default 160") },
+};
+const pick = (args, keys) => Object.fromEntries(keys.filter((key) => args[key] !== undefined).map((key) => [key, args[key]]));
+// Only declared options reach the send flow: undeclared model arguments (for example actor) must never act as internal switches.
+const SEND_OPTION_KEYS = ["autoConfirm", "confirmPattern", "autoQuitMore", "autoSigint", "stripAnsi", "headTailChars", "quietMs", "maxChars", "timeoutSeconds"];
+const pickSendOptions = (args) => pick(args, SEND_OPTION_KEYS);
 
 function registerTool(ctx, definition) {
   ctx.tools.register({ ...definition, execute: async (...args) => toLosslessJson(await definition.execute(...args)), output });
@@ -21,7 +47,7 @@ export function registerTools(ctx, state) {
   ctx.systemPrompt.section({
     name: "dsh-remote-ops",
     order: 410,
-    text: "Remote operations are provided by dsh-remote-ops. For self-contained noninteractive commands prefer remote_command_execute on an explicit existing connection or local-cmd for real exit status; it does not inherit interactive cwd or temporary variables. Use remote_environment_list to identify the exact terminal; reuse its sessionId. session=local-cmd is the shared local terminal visible in Remote Ops, NOT the Harness bash/pwsh terminal. For SSH open only when no suitable session exists. Send one complete command preserving spaces; raw input is for interactive keys/passwords. Send returns bounded new output, streamId and nextOffset. Continue with remote_terminal_read(session, cursor=nextOffset, streamId, waitMs=20000); drain hasMore before waiting. No new text, inferred_idle, timeout, and a running shell never prove a command completed or succeeded: completion=unknown. Observe actual results before dependent commands; never resend solely because of echo or silence. reset/truncated means history was replaced or dropped; do not assume missing output. Output is a raw terminal stream, not a rendered screen. For device CLIs with repeated (y/n) confirmations or --More-- pagers pass autoConfirm / autoQuitMore on remote_terminal_send instead of answering each prompt yourself; only enable autoConfirm for commands the user has approved, and review autoActions in the result. A parameter-error hint with a ^ arrow triggers an automatic SIGINT (autoActions has type sigint and the output ends with [auto-sigint: command line cleared]); resend the corrected command. For multiple SSH targets name them explicitly and operate sequentially. MCP provides knowledge, not execution evidence. Never invent credentials or connection success.",
+    text: "Remote operations are provided by dsh-remote-ops. For self-contained noninteractive commands prefer remote_command_execute on an explicit existing connection or local-cmd for real exit status; it does not inherit interactive cwd or temporary variables. Use remote_environment_list to identify the exact terminal; reuse its sessionId. session=local-cmd is the shared local terminal visible in Remote Ops, NOT the Harness bash/pwsh terminal. For SSH open only when no suitable session exists. Send one complete command preserving spaces; raw input is for interactive keys/passwords. Send returns bounded new output, streamId and nextOffset. Continue with remote_terminal_read(session, cursor=nextOffset, streamId, waitMs=20000); drain hasMore before waiting. No new text, inferred_idle, timeout, and a running shell never prove a command completed or succeeded: completion=unknown. Observe actual results before dependent commands; never resend solely because of echo or silence. reset/truncated means history was replaced or dropped; do not assume missing output. Output is a raw terminal stream, not a rendered screen. For device CLIs with repeated (y/n) confirmations or --More-- pagers pass autoConfirm / autoQuitMore on remote_terminal_send instead of answering each prompt yourself; only enable autoConfirm for commands the user has approved, and review autoActions in the result. An environment may carry a cliProfile with such defaults (shown by remote_environment_list); explicit call arguments override it. Use stripAnsi to drop control sequences and headTailChars to bound very long output: offsets always count the raw stream, and an omitted range reported in omitted can be read back with remote_terminal_read. A parameter-error hint with a ^ arrow triggers an automatic SIGINT (autoActions has type sigint and the output ends with [auto-sigint: command line cleared]); resend the corrected command. For multiple SSH targets name them explicitly and operate sequentially. MCP provides knowledge, not execution evidence. Never invent credentials or connection success.",
   });
 
   const owner = (exec) => exec.agent;
@@ -56,6 +82,8 @@ export function registerTools(ctx, state) {
       port: numberParam("SSH port"),
       privateKeyPath: stringParam("Local private key path"),
       passwordRef: stringParam("Harness credential reference"),
+      cliProfile: CLI_PROFILE_SCHEMA,
+      terminal: TERMINAL_SIZE_SCHEMA,
     },
     execute: async (args, exec) => {
       await state.ready;
@@ -116,8 +144,9 @@ export function registerTools(ctx, state) {
       maxChars: numberParam("Output page size; default 16384, maximum 262144"),
       includeViewport: boolParam("Include recent history in addition to delta; default false"),
       ...CLI_ASSIST_PARAMETERS,
+      ...OUTPUT_PARAMETERS,
     },
-    execute: async (args, exec) => state.send(owner(exec), args.session, { ...args, signal: exec.signal }),
+    execute: async (args, exec) => state.send(owner(exec), args.session, { ...pick(args, ["environment", "text", "submit", "includeViewport"]), ...pickSendOptions(args), signal: exec.signal }),
   });
   registerTool(ctx, {
     name: "remote_terminal_input",
@@ -139,8 +168,9 @@ export function registerTools(ctx, state) {
       maxChars: numberParam("Output page size; default 16384"),
       offset: numberParam("Newest-relative line offset for explicit history browsing"),
       count: numberParam("History line count"),
+      ...OUTPUT_PARAMETERS,
     },
-    execute: async (args, exec) => state.readTerminal(owner(exec), args.session, { ...args, signal: exec.signal }),
+    execute: async (args, exec) => state.readTerminal(owner(exec), args.session, { ...pick(args, ["cursor", "streamId", "waitMs", "maxChars", "offset", "count", "stripAnsi", "headTailChars"]), signal: exec.signal }),
   });
   registerTool(ctx, {
     name: "remote_terminal_signal",
@@ -171,10 +201,11 @@ export function registerTools(ctx, state) {
       timeoutSeconds: numberParam("Per-command timeout"),
       quietMs: numberParam("Silence before yielding per command; default 700 ms"),
       ...CLI_ASSIST_PARAMETERS,
+      ...OUTPUT_PARAMETERS,
     },
     execute: async (args, exec) => {
       const results = [];
-      for (const target of args.targets) { const opened = await state.open(owner(exec), target); const targetResults = []; for (const command of args.commands) targetResults.push(await state.send(owner(exec), opened.sessionId, { ...pickCliAssist(args), text: command, submit: true, timeoutSeconds: args.timeoutSeconds, signal: exec.signal })); results.push({ target, sessionId: opened.sessionId, results: targetResults }); } return { results };
+      for (const target of args.targets) { const opened = await state.open(owner(exec), target); const targetResults = []; for (const command of args.commands) targetResults.push(await state.send(owner(exec), opened.sessionId, { ...pickSendOptions(args), text: command, submit: true, signal: exec.signal })); results.push({ target, sessionId: opened.sessionId, results: targetResults }); } return { results };
     },
   });
   registerTool(ctx, {
@@ -222,12 +253,13 @@ export function registerTools(ctx, state) {
       commandId: stringParam("Quick command id", true),
       environment: stringParam("Environment id or name", true),
       ...CLI_ASSIST_PARAMETERS,
+      ...OUTPUT_PARAMETERS,
     },
     execute: async (args, exec) => {
       await state.ready;
       const command = state.quickCommands.find((x) => x.id === args.commandId);
       if (!command) throw sessionError("REMOTE_QUICK_COMMAND_NOT_FOUND", args.commandId);
-      return state.send(owner(exec), undefined, { ...pickCliAssist(args), environment: args.environment, text: command.command, submit: true });
+      return state.send(owner(exec), undefined, { ...pickSendOptions(args), environment: args.environment, text: command.command, submit: true });
     },
   });
   registerTool(ctx, {
