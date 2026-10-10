@@ -1,19 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { readServerSource, readToolSource } from "./server-source.mjs";
 
 const root = new URL("..", import.meta.url);
 const read = async (path) => readFile(new URL(path, root), "utf8");
 const manifest = JSON.parse(await read("package.json"));
 const client = await read("lib/client.js");
-const server = await read("lib/index.js");
+const server = await readServerSource();
 const releaseScript = await read("../../scripts/release-dsh-remote-ops.ps1");
 const testPlan = await read("../../docs/testing/dsh-remote-ops-test-plan.md");
 
 test("package exposes one reproducible regression gate", () => {
   assert.equal(manifest.private, false);
   assert.equal(manifest.scripts.test, "npm run test:unit && npm run test:client && npm run test:contract && npm run test:smoke");
-  assert.match(manifest.scripts.check, /node --check lib\/index\.js/);
+  assert.match(manifest.scripts.check, /node test\/check-syntax\.mjs/);
   assert.match(manifest.scripts.check, /npm test/);
   assert.match(releaseScript, /npm run check/);
   assert.match(testPlan, /发布门禁/);
@@ -34,12 +35,11 @@ test("all remote operation tools remain registered", () => {
   for (const name of requiredTools) assert.match(server, new RegExp(`name: "${name}"`), `${name} is missing`);
 });
 
-test("terminal send exposes opt-in CLI assist parameters and auto action reporting", () => {
+test("terminal send exposes opt-in CLI assist parameters and auto action reporting", async () => {
   const cliAssist = server.match(/const CLI_ASSIST_PARAMETERS = \{[\s\S]*?\n\};/)?.[0] ?? "";
   for (const name of ["autoConfirm", "confirmPattern", "autoQuitMore", "autoSigint"]) assert.match(cliAssist, new RegExp(`${name}:`), `${name} parameter is missing`);
   for (const tool of ["remote_terminal_send", "remote_terminal_batch", "remote_quick_command_run"]) {
-    const line = server.split("\n").find((item) => item.includes(`name: "${tool}"`)) ?? "";
-    assert.match(line, /\.\.\.CLI_ASSIST_PARAMETERS/, `${tool} must expose CLI assist parameters`);
+    assert.match(await readToolSource(tool), /\.\.\.CLI_ASSIST_PARAMETERS/, `${tool} must expose CLI assist parameters`);
   }
   assert.match(server, /autoActions/);
   assert.match(server, /AUTO_SIGINT_MARKER/);
