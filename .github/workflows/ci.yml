@@ -16,4 +16,5 @@ jobs:
           cache-dependency-path: integrations/dsh-remote-ops/package-lock.json
       - run: npm ci --prefix integrations/dsh-remote-ops
       - run: npm run check --prefix integrations/dsh-remote-ops
-      - run: npm pack --prefix integrations/dsh-remote-ops --dry-run
+      - run: npm pack --dry-run
+        working-directory: integrations/dsh-remote-ops

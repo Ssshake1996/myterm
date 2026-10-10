@@ -37,7 +37,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.23.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.26.tgz
 dsh web
 ```
 
@@ -92,7 +92,7 @@ key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.23 exposes environment list/create/update/delete, group management,
+Version 0.2.26 exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells
@@ -123,6 +123,68 @@ through its VT model. A running shell, silence (`inferred_idle`), and timeout
 do not prove command completion or success: `completion` remains `unknown`.
 Observe actual results before dependent commands. Cancellation interrupts the
 foreground process; a wait timeout alone does not kill it.
+
+### CLI assist for device REPLs
+
+`remote_terminal_send` (and `remote_terminal_batch` / `remote_quick_command_run`)
+accept options that remove model round trips on vendor CLIs. They apply only to
+Agent sends, never to manual UI input, and every applied step is returned in
+`autoActions` and written to the diagnostics events.
+
+The plugin never answers a `(y/n)` confirmation by itself. v0.2.24 and v0.2.25
+shipped `autoConfirm`/`confirmPattern` for that; they were removed because
+silently typing `y` can approve destructive operations. A caller that still
+passes them gets a `notices` entry, and `cliProfile.autoConfirm` /
+`cliProfile.confirmPattern` are rejected when saving an environment (values left
+in older environment files are dropped on load). Read the prompt in the output
+and answer it with `remote_terminal_send`; for a known sequence the user has
+approved, `remote_terminal_script` `answers` type exactly the text the call
+declares, nothing more.
+
+| Option | Default | Behavior |
+| --- | --- | --- |
+| `autoQuitMore` | `false` | When the output ends with a `--More--` pager line, send `q` (no Enter), wait 300 ms and return the remaining output; at most 3 times per call. |
+| `autoSigint` | `true` | When the last 2 KB of this send's output contains a parameter-error hint (`^` arrow line followed by `[param=?]` suggestions, `/\n\s+\^\s*\n\s*\[.*\=.*\]/m`), send SIGINT, wait 500 ms and append `[auto-sigint: command line cleared]` to the returned `output`. The marker is not written to the terminal stream. Set `false` to disable. |
+
+### Environment profiles, output options, scripts and terminal size (v0.2.25)
+
+- **Environment profile.** An environment may carry `cliProfile`
+  (`autoQuitMore`, `autoSigint`, `stripAnsi`, `headTailChars`) and a default PTY
+  `terminal: { rows, cols }`. They are edited in the environment form or passed
+  to `remote_environment_create`.
+  Call arguments always override the profile; values equal to the defaults are
+  not stored, saving an empty value clears the profile, and omitting the field
+  keeps it. `remote_environment_list` shows the profile to the model.
+- **`stripAnsi`** (send/read/batch/quick-run/script) removes ANSI/VT control
+  sequences from the returned text. Offsets and cursors keep counting the raw
+  stream; a page never ends inside an escape sequence.
+- **`headTailChars`** (200-100000, `0` = off) returns only the first and last N
+  characters of a long page with a marker. The result carries `summarized: true`
+  and `omitted` (`chars`, `lines`, raw `startOffset`/`endOffset`); read the
+  omitted range with `remote_terminal_read` using `cursor=omitted.startOffset`.
+  A summarized send is recorded as a truncated tool receipt.
+- **`remote_terminal_script`** runs up to 20 ordered steps on one exact session
+  in one call. A step has `text`, optional `submit`, `quietMs`, `timeoutSeconds`,
+  `answers` (`[{ pattern, text, submit?, times? }]`, tried in order, at most
+  `times` each), `expect` (regex that must match the end of the step's output)
+  and `failOn` (regex searched in the whole output, even where a summary hides
+  it). Everything is validated before the first character is typed. The script
+  stops at the first error, timeout, failed check or session exit and returns
+  every executed step in `steps` plus `stopped`; remaining steps are not run.
+  `completion` stays `unknown`.
+- **`remote_terminal_resize`** changes the PTY of an SSH connection
+  (`rows` 10-200, `cols` 40-500); the UI has a size selector for SSH tabs and
+  frames report the PTY size so the VT model wraps at the real width. The shared
+  local terminal is fixed at 40x160 (the host has no resize API) and connections
+  held by the host after a plugin reload cannot be resized.
+- **Dropped connections.** A connection remembers why it closed (transport
+  error, remote exit code). Unexpected drops are listed in
+  `remote_environment_list` as `disconnects` and in diagnostics; sending to a
+  dead connection explains that nothing was replayed and how to reopen it, and a
+  send that ended because the connection dropped carries `reconnect`.
+- **Hardening.** `remote_terminal_send` and `remote_terminal_read` only forward
+  their declared arguments, so an undeclared `actor` can no longer bypass the
+  manual-input guard.
 
 The terminal status bar distinguishes transport, Agent binding, and the last
 tool response range/time. A tool receipt is not proof that a model understood

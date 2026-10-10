@@ -1,0 +1,42 @@
+name: Remote Ops DSH host
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            integrations/dsh-remote-ops/package-lock.json
+            e2e/package-lock.json
+            e2e/host/package-lock.json
+      - uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      - run: corepack enable && corepack prepare pnpm@10.33.4 --activate
+      - run: npm ci --prefix integrations/dsh-remote-ops
+      - run: npm ci --prefix e2e
+      - run: npm ci --prefix e2e/host
+      - run: npm test --prefix e2e
+      - run: npm run e2e:host --prefix e2e
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remote-ops-dsh-host-report
+          path: output/e2e-host
+          if-no-files-found: ignore
+      - if: always()
+        run: |
+          report="$(find output/e2e-host -name report.md -print -quit)"
+          if [ -n "$report" ]; then
+            echo "## DSH host report" >> "$GITHUB_STEP_SUMMARY"
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          fi

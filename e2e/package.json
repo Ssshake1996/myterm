@@ -1,0 +1,24 @@
+{
+  "name": "@dsh/remote-ops-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser acceptance tests for the Remote Ops UI: the real client.js in a real browser against the real plugin backend and a fake SSH device, with automatic screenshots and an execution report",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "e2e": "node runner/index.mjs",
+    "e2e:host": "node host/runner.mjs",
+    "e2e:list": "node runner/index.mjs --list",
+    "e2e:serve": "node harness/serve.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "playwright-core": "1.64.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "ssh2": "1.17.0"
+  }
+}

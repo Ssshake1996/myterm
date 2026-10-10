@@ -33,7 +33,7 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.23.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.26.tgz
 dsh web
 ```
 
@@ -83,4 +83,16 @@ DSH Web 启动后，点击 Sidebar 底部的 `Remote Ops` 即可主动展开右�
 - 省略游标读取最近历史；显式 `offset/count` 按行向前翻阅。`reset/truncated` 表示流已替换或历史已过期，不能假定遗漏部分不存在。
 - 工具返回原始终端流，包括控制序列；界面在同一流之上进行 VT 渲染，不承诺返回的文本就是渲染后的屏幕。
 - `inferred_idle`、等待超时、PTY 的 running 状态都不能证明命令完成或成功，因此返回 `completion: "unknown"`；依赖前一条结果的命令必须先观察实际输出。取消会中断前台进程，等待超时本身不会杀进程。
+- v0.2.24 起为远端设备 CLI（自定义 REPL）提供插件层自动处理，作用于 `remote_terminal_send`、`remote_terminal_batch` 和 `remote_quick_command_run`，只对 Agent 发送生效，不影响界面手动输入；每一步都写入返回值 `autoActions` 和诊断事件：
+  - 插件不会自动回答 `(y/n)` 确认。v0.2.24/v0.2.25 曾提供 `autoConfirm`/`confirmPattern`，因为自动输入 `y` 可能批准破坏性操作而被移除：仍传这两个参数的调用会得到 `notices` 提示；保存环境时 `cliProfile.autoConfirm`/`confirmPattern` 会被拒绝（旧环境文件里残留的值读盘时丢弃）。请读取输出中的提示后用 `remote_terminal_send` 自己回答；用户已批准的固定流程可用 `remote_terminal_script` 的 `answers`，它只输入调用里明确声明的文本。
+  - `autoQuitMore`（默认 false）：输出末尾为 `--More--` 分页提示时发送 `q`（不加回车），等待 300ms 后返回剩余输出，单次调用最多 3 次。
+  - `autoSigint`（默认 true）：本次发送输出的最后 2KB 含参数错误提示（`^` 箭头行加 `[param=?]` 建议，`/\n\s+\^\s*\n\s*\[.*\=.*\]/m`）时自动发送 SIGINT 清行，等待 500ms，并在返回的 `output` 末尾追加 `[auto-sigint: command line cleared]`。标记只在返回值中，不写入终端流；传 `false` 可关闭。
+- v0.2.25 新增（均只作用于 Agent 工具，界面手动输入不受影响）：
+  - 环境 CLI 预设：环境可带 `cliProfile`（`autoQuitMore`、`autoSigint`、`stripAnsi`、`headTailChars`）和默认 PTY 大小 `terminal: { rows, cols }`，在环境表单中编辑，或传给 `remote_environment_create`。调用参数始终优先于预设；与默认值相同的项不落盘，保存空值即清除，省略字段则保留；`remote_environment_list` 会把预设展示给模型。
+  - `stripAnsi`：send/read/batch/快捷命令/script 返回文本去除 ANSI/VT 控制序列；游标和偏移仍按原始流计数，分页不会在转义序列中间截断。
+  - `headTailChars`（200-100000，0 关闭）：长输出只返回首尾各 N 个字符并附标记，结果带 `summarized: true` 和 `omitted`（字符数、行数、原始 `startOffset`/`endOffset`），可用 `remote_terminal_read` 的 `cursor=omitted.startOffset` 读回被省略区间；摘要后的发送在工具回执中记为截断。
+  - `remote_terminal_script`：一次调用在同一明确会话上顺序执行最多 20 步。每步可设 `text`、`submit`、`quietMs`、`timeoutSeconds`、`answers`（`[{ pattern, text, submit?, times? }]`，按顺序尝试，每项最多 `times` 次）、`expect`（必须匹配该步输出末尾）和 `failOn`（在整段输出中搜索，摘要隐藏的部分也会检查）。所有内容先校验再输入；遇到第一个错误、超时、检查失败或会话退出即停止，返回已执行的 `steps` 和 `stopped`，其余步骤不执行；`completion` 仍为 `unknown`。
+  - `remote_terminal_resize` 与界面“大小”选择：调整 SSH 连接的 PTY（行 10-200、列 40-500）；终端帧回报 PTY 大小，VT 模型按真实宽度换行。共享本地终端固定 40×160（宿主没有 resize API），插件重载后由宿主持有的连接不能调整。
+  - 掉线提示：连接记录关闭原因（传输错误、远端退出码）；意外掉线出现在 `remote_environment_list` 的 `disconnects` 和诊断事件中，向已断开连接发送会说明“未重放任何命令”及重连方法，因掉线结束的发送带 `reconnect`；界面显示断开原因。
+  - 安全加固：`remote_terminal_send/read` 只转发已声明的参数，未声明的 `actor` 不能再绕过人工输入保护。
 - 状态栏区分输出连接、Agent 绑定和等待状态；“Agent 已绑定”不代表模型已经读取当前输出。上移阅读时新输出不抢位置，可通过“新输出”按钮回到底部。

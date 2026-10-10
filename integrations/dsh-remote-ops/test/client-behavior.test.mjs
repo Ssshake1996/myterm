@@ -19,6 +19,13 @@ function loadClientFunction(name, endMarker, includeFrom = name, globals = {}) {
 const terminalScreenModel = loadClientFunction("terminalScreenModel", "    const terminalVisibleText");
 const terminalVisibleText = loadClientFunction("terminalVisibleText", "    const ask =", "terminalScreenModel");
 const parseSshCommand = loadClientFunction("parseSshCommand", "\n    const terminalUsesGrid");
+const environmentProfileValues = loadClientFunction("environmentProfileValues", "\n    // end environment form helpers");
+const environmentProfileFromForm = loadClientFunction("environmentProfileFromForm", "\n    // end environment form helpers");
+const terminalSizeOptions = loadClientFunction("terminalSizeOptions", "\n    // end environment form helpers", "TERMINAL_SIZE_PRESETS");
+const terminalSizeFromValue = loadClientFunction("terminalSizeFromValue", "\n    // end environment form helpers");
+const uiNode = (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) });
+const environmentAdvancedFields = loadClientFunction("environmentAdvancedFields", "\n    // end environment form helpers", "environmentAdvancedFields", { h: uiNode });
+const terminalSizeSelect = loadClientFunction("terminalSizeSelect", "\n    // end environment form helpers", "TERMINAL_SIZE_PRESETS", { h: uiNode });
 const terminalInputEnabled = loadClientFunction("terminalInputEnabled", "\n    function RemoteOpsPanel");
 const terminalInputCompositionValue = loadClientFunction("terminalInputCompositionValue", "\n    function RemoteOpsPanel");
 
@@ -447,4 +454,93 @@ test("returning from SFTP restores history position or follows latest output acc
   assert.equal(output.current.scrollTop, 6000);
   render("terminal", 280, true);
   assert.equal(output.current.scrollTop, 0, "full-screen apps must start at their header rather than the last rows");
+});
+
+test("environment form values reflect the stored profile and terminal size, with safe defaults", () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(environmentProfileValues(undefined))), { autoQuitMore: false, autoSigint: true, stripAnsi: false, headTailChars: "", rows: "", cols: "" });
+  const stored = environmentProfileValues({ cliProfile: { autoConfirm: true, confirmPattern: "ok\\?", autoQuitMore: true, autoSigint: false, stripAnsi: true, headTailChars: 800 }, terminal: { rows: 50, cols: 200 } });
+  assert.deepEqual(JSON.parse(JSON.stringify(stored)), { autoQuitMore: true, autoSigint: false, stripAnsi: true, headTailChars: "800", rows: "50", cols: "200" });
+  assert.equal(Object.hasOwn(JSON.parse(JSON.stringify(stored)), "autoConfirm"), false, "a stored autoConfirm from an older version is not shown");
+});
+
+test("environment form submits only non-default profile values and always sends both objects so clearing works", () => {
+  const plain = JSON.parse(JSON.stringify(environmentProfileFromForm(environmentProfileValues(undefined))));
+  assert.deepEqual(plain, { cliProfile: {}, terminal: {} });
+  const full = JSON.parse(JSON.stringify(environmentProfileFromForm({ autoConfirm: true, confirmPattern: "ok", autoQuitMore: true, autoSigint: false, stripAnsi: true, headTailChars: " 800 ", rows: "50", cols: "200" })));
+  assert.deepEqual(full, { cliProfile: { autoQuitMore: true, autoSigint: false, stripAnsi: true, headTailChars: 800 }, terminal: { rows: 50, cols: 200 } }, "legacy autoConfirm/confirmPattern in the form state are never submitted");
+});
+
+test("environment form rejects invalid profile and size input with a readable message", () => {
+  const base = environmentProfileValues(undefined);
+  assert.match(environmentProfileFromForm({ ...base, headTailChars: "50" }).error, /200-100000/);
+  assert.match(environmentProfileFromForm({ ...base, headTailChars: "1.5" }).error, /200-100000/);
+  assert.match(environmentProfileFromForm({ ...base, rows: "3" }).error, /终端行数.*10-200/);
+  assert.match(environmentProfileFromForm({ ...base, cols: "wide" }).error, /终端列数.*40-500/);
+});
+
+test("terminal size choices include the current custom size and parse back to rows and columns", () => {
+  const plain = JSON.parse(JSON.stringify(terminalSizeOptions(undefined)));
+  assert.deepEqual(plain.map((option) => option.value), ["24x80", "40x120", "40x160", "50x200"]);
+  assert.equal(plain[2].label, "160×40");
+  const custom = JSON.parse(JSON.stringify(terminalSizeOptions({ rows: 33, cols: 111 })));
+  assert.deepEqual(custom.map((option) => option.value), ["33x111", "24x80", "40x120", "40x160", "50x200"], "an unlisted current size stays selectable");
+  assert.equal(JSON.parse(JSON.stringify(terminalSizeOptions({ rows: 50, cols: 200 }))).length, 4, "a preset is not listed twice");
+  assert.deepEqual(JSON.parse(JSON.stringify(terminalSizeFromValue("50x200"))), { rows: 50, cols: 200 });
+  assert.equal(terminalSizeFromValue("wide"), undefined);
+  assert.equal(terminalSizeFromValue("50×200"), undefined);
+});
+
+test("the terminal screen model wraps at a non-default PTY width", () => {
+  const lines80 = terminalScreenModel("a".repeat(200), 24, 80).text.split("\n").filter(Boolean);
+  assert.ok(lines80.length >= 3 && lines80.every((line) => line.length <= 80), "an 80-column PTY wraps at 80 columns");
+  const lines160 = terminalScreenModel("a".repeat(200)).text.split("\n").filter(Boolean);
+  assert.ok(lines160.length === 2 && lines160.every((line) => line.length <= 160));
+});
+
+const findNodes = (node, predicate, found = []) => {
+  if (node === null || typeof node !== "object") return found;
+  if (predicate(node)) found.push(node);
+  for (const child of node.children ?? []) findNodes(child, predicate, found);
+  return found;
+};
+const textOf = (node) => typeof node === "string" ? node : (node.children ?? []).map(textOf).join("");
+const defaultForm = () => JSON.parse(JSON.stringify(environmentProfileValues(undefined)));
+
+test("the CLI assist section renders every option, offers no automatic confirmation and reports edits by field", () => {
+  const edits = [];
+  const tree = environmentAdvancedFields(defaultForm(), (field, value) => edits.push([field, value]));
+  assert.equal(tree.type, "details");
+  assert.equal(tree.props.open, false, "an all-default profile stays collapsed");
+  assert.doesNotMatch(textOf(tree), /自动确认|\(y\/n\)|autoConfirm/, "no control for answering confirmations automatically");
+  const checkboxes = findNodes(tree, (node) => node.type === "input" && node.props.type === "checkbox");
+  assert.equal(checkboxes.length, 3);
+  assert.deepEqual(checkboxes.map((node) => node.props.checked), [false, true, false]);
+  checkboxes[0].props.onChange({ target: { checked: true } });
+  checkboxes[1].props.onChange({ target: { checked: false } });
+  checkboxes[2].props.onChange({ target: { checked: true } });
+  const texts = findNodes(tree, (node) => node.type === "input" && node.props.type === undefined);
+  assert.deepEqual(texts.map((node) => node.props["aria-label"]), ["长输出头尾摘要字符数", "终端行数", "终端列数"]);
+  texts[0].props.onChange({ target: { value: "800" } });
+  texts[1].props.onChange({ target: { value: "50" } });
+  texts[2].props.onChange({ target: { value: "200" } });
+  assert.deepEqual(edits, [["autoQuitMore", true], ["autoSigint", false], ["stripAnsi", true], ["headTailChars", "800"], ["rows", "50"], ["cols", "200"]]);
+});
+
+test("the CLI assist section opens by itself when a stored option is active", () => {
+  for (const change of [{ autoQuitMore: true }, { stripAnsi: true }, { autoSigint: false }, { headTailChars: "800" }, { rows: "50" }, { cols: "200" }]) {
+    assert.equal(environmentAdvancedFields({ ...defaultForm(), ...change }, () => {}).props.open, true, JSON.stringify(change));
+  }
+});
+
+test("the size selector shows the current size, offers presets and only reports valid choices", () => {
+  const chosen = [];
+  const select = (size, disabled = false) => findNodes(terminalSizeSelect(size, disabled, (value) => chosen.push(value)), (node) => node.type === "select")[0];
+  const initial = select({ rows: 33, cols: 111 });
+  assert.equal(initial.props.value, "33x111");
+  assert.deepEqual(initial.children.map((option) => option.props.value), ["33x111", "24x80", "40x120", "40x160", "50x200"]);
+  assert.equal(select(undefined).props.value, "40x160");
+  assert.equal(select(undefined, true).props.disabled, true);
+  initial.props.onChange({ target: { value: "50x200" } });
+  initial.props.onChange({ target: { value: "garbage" } });
+  assert.deepEqual(JSON.parse(JSON.stringify(chosen)), [{ rows: 50, cols: 200 }]);
 });
