@@ -33,7 +33,7 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.24.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.25.tgz
 dsh web
 ```
 
@@ -88,4 +88,12 @@ DSH Web 启动后，点击 Sidebar 底部的 `Remote Ops` 即可主动展开右�
   - `confirmPattern`：自定义确认提示正则，匹配输出末尾（已去除尾部空白），默认 `\(y\/n\)\s*$`；非法正则在写入前返回 `AUTO_CONFIRM_PATTERN_INVALID`。仅在 `autoConfirm` 开启时使用。
   - `autoQuitMore`（默认 false）：输出末尾为 `--More--` 分页提示时发送 `q`（不加回车），等待 300ms 后返回剩余输出，单次调用最多 3 次。
   - `autoSigint`（默认 true）：本次发送输出的最后 2KB 含参数错误提示（`^` 箭头行加 `[param=?]` 建议，`/\n\s+\^\s*\n\s*\[.*\=.*\]/m`）时自动发送 SIGINT 清行，等待 500ms，并在返回的 `output` 末尾追加 `[auto-sigint: command line cleared]`。标记只在返回值中，不写入终端流；传 `false` 可关闭。
+- v0.2.25 新增（均只作用于 Agent 工具，界面手动输入不受影响）：
+  - 环境 CLI 预设：环境可带 `cliProfile`（`autoConfirm`、`confirmPattern`、`autoQuitMore`、`autoSigint`、`stripAnsi`、`headTailChars`）和默认 PTY 大小 `terminal: { rows, cols }`，在环境表单中编辑（表单明确提示自动确认也会回答删除/变更等高风险提示），或传给 `remote_environment_create`。调用参数始终优先于预设；与默认值相同的项不落盘，保存空值即清除，省略字段则保留；`remote_environment_list` 会把预设展示给模型。
+  - `stripAnsi`：send/read/batch/快捷命令/script 返回文本去除 ANSI/VT 控制序列；游标和偏移仍按原始流计数，分页不会在转义序列中间截断。
+  - `headTailChars`（200-100000，0 关闭）：长输出只返回首尾各 N 个字符并附标记，结果带 `summarized: true` 和 `omitted`（字符数、行数、原始 `startOffset`/`endOffset`），可用 `remote_terminal_read` 的 `cursor=omitted.startOffset` 读回被省略区间；摘要后的发送在工具回执中记为截断。
+  - `remote_terminal_script`：一次调用在同一明确会话上顺序执行最多 20 步。每步可设 `text`、`submit`、`quietMs`、`timeoutSeconds`、`answers`（`[{ pattern, text, submit?, times? }]`，按顺序尝试，每项最多 `times` 次）、`expect`（必须匹配该步输出末尾）和 `failOn`（在整段输出中搜索，摘要隐藏的部分也会检查）。所有内容先校验再输入；遇到第一个错误、超时、检查失败或会话退出即停止，返回已执行的 `steps` 和 `stopped`，其余步骤不执行；`completion` 仍为 `unknown`。
+  - `remote_terminal_resize` 与界面“大小”选择：调整 SSH 连接的 PTY（行 10-200、列 40-500）；终端帧回报 PTY 大小，VT 模型按真实宽度换行。共享本地终端固定 40×160（宿主没有 resize API），插件重载后由宿主持有的连接不能调整。
+  - 掉线提示：连接记录关闭原因（传输错误、远端退出码）；意外掉线出现在 `remote_environment_list` 的 `disconnects` 和诊断事件中，向已断开连接发送会说明“未重放任何命令”及重连方法，因掉线结束的发送带 `reconnect`；界面显示断开原因。
+  - 安全加固：`remote_terminal_send/read` 只转发已声明的参数，未声明的 `actor` 不能再绕过人工输入保护。
 - 状态栏区分输出连接、Agent 绑定和等待状态；“Agent 已绑定”不代表模型已经读取当前输出。上移阅读时新输出不抢位置，可通过“新输出”按钮回到底部。
