@@ -21,6 +21,8 @@ const terminalVisibleText = loadClientFunction("terminalVisibleText", "    const
 const parseSshCommand = loadClientFunction("parseSshCommand", "\n    const terminalUsesGrid");
 const environmentProfileValues = loadClientFunction("environmentProfileValues", "\n    // end environment form helpers");
 const environmentProfileFromForm = loadClientFunction("environmentProfileFromForm", "\n    // end environment form helpers");
+const terminalSizeOptions = loadClientFunction("terminalSizeOptions", "\n    // end environment form helpers", "TERMINAL_SIZE_PRESETS");
+const terminalSizeFromValue = loadClientFunction("terminalSizeFromValue", "\n    // end environment form helpers");
 const terminalInputEnabled = loadClientFunction("terminalInputEnabled", "\n    function RemoteOpsPanel");
 const terminalInputCompositionValue = loadClientFunction("terminalInputCompositionValue", "\n    function RemoteOpsPanel");
 
@@ -471,4 +473,23 @@ test("environment form rejects invalid profile and size input with a readable me
   assert.match(environmentProfileFromForm({ ...base, headTailChars: "1.5" }).error, /200-100000/);
   assert.match(environmentProfileFromForm({ ...base, rows: "3" }).error, /终端行数.*10-200/);
   assert.match(environmentProfileFromForm({ ...base, cols: "wide" }).error, /终端列数.*40-500/);
+});
+
+test("terminal size choices include the current custom size and parse back to rows and columns", () => {
+  const plain = JSON.parse(JSON.stringify(terminalSizeOptions(undefined)));
+  assert.deepEqual(plain.map((option) => option.value), ["24x80", "40x120", "40x160", "50x200"]);
+  assert.equal(plain[2].label, "160×40");
+  const custom = JSON.parse(JSON.stringify(terminalSizeOptions({ rows: 33, cols: 111 })));
+  assert.deepEqual(custom.map((option) => option.value), ["33x111", "24x80", "40x120", "40x160", "50x200"], "an unlisted current size stays selectable");
+  assert.equal(JSON.parse(JSON.stringify(terminalSizeOptions({ rows: 50, cols: 200 }))).length, 4, "a preset is not listed twice");
+  assert.deepEqual(JSON.parse(JSON.stringify(terminalSizeFromValue("50x200"))), { rows: 50, cols: 200 });
+  assert.equal(terminalSizeFromValue("wide"), undefined);
+  assert.equal(terminalSizeFromValue("50×200"), undefined);
+});
+
+test("the terminal screen model wraps at a non-default PTY width", () => {
+  const lines80 = terminalScreenModel("a".repeat(200), 24, 80).text.split("\n").filter(Boolean);
+  assert.ok(lines80.length >= 3 && lines80.every((line) => line.length <= 80), "an 80-column PTY wraps at 80 columns");
+  const lines160 = terminalScreenModel("a".repeat(200)).text.split("\n").filter(Boolean);
+  assert.ok(lines160.length === 2 && lines160.every((line) => line.length <= 160));
 });

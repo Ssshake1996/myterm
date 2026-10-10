@@ -1,10 +1,11 @@
 import { Buffer } from "node:buffer";
 import { TerminalOutputBuffer } from "./output-buffer.js";
 import { normalizeTerminalEncoding, sessionError, summarizeError } from "./common.js";
+import { DEFAULT_TERMINAL_COLS, DEFAULT_TERMINAL_ROWS, TERMINAL_COLS_RANGE, TERMINAL_ROWS_RANGE } from "./cli-profile.js";
 
-export function buildSshShellOptions() {
+export function buildSshShellOptions(environment) {
   return {
-    window: { term: "xterm-256color", rows: 40, cols: 160 },
+    window: { term: "xterm-256color", rows: environment?.terminal?.rows ?? DEFAULT_TERMINAL_ROWS, cols: environment?.terminal?.cols ?? DEFAULT_TERMINAL_COLS },
     options: { env: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8", LC_CTYPE: "C.UTF-8" } },
   };
 }
@@ -96,7 +97,7 @@ class SendOperation {
 }
 
 export class SshTerminalSession {
-  constructor(client, channel, environment) {
+  constructor(client, channel, environment, window = {}) {
     this.client = client;
     this.channel = channel;
     this.environment = environment;
@@ -106,14 +107,51 @@ export class SshTerminalSession {
     this.exitCode = undefined;
     this.lastActivity = Date.now();
     this.motd = "";
+    this.rows = window.rows ?? DEFAULT_TERMINAL_ROWS;
+    this.cols = window.cols ?? DEFAULT_TERMINAL_COLS;
+    this.closeReason = undefined;
+    this.closeRequested = false;
+    this.closeNotified = false;
+    this.onClose = undefined;
     channel.on("data", (chunk) => this.append(this.decoder.decode(chunk, { stream: true })));
     channel.stderr?.on("data", (chunk) => this.append(this.decoder.decode(chunk, { stream: true })));
     channel.on("exit", (code, signal) => { this.exitCode = code ?? null; this.exitSignal = signal ?? null; });
-    channel.on("close", () => {
-      this.closed = true;
-      this.outputBuffer.notify();
-      if (this.active) this.active.finish("session_exit");
-    });
+    channel.on("close", () => this.markClosed());
+    // A permanent error listener also keeps a late keepalive/transport error from crashing the host process.
+    client.on?.("error", (error) => { this.closeReason ??= summarizeError(error); });
+    client.on?.("close", () => this.markClosed());
+  }
+
+  get size() { return { rows: this.rows, cols: this.cols }; }
+
+  markClosed() {
+    this.closed = true;
+    this.outputBuffer.notify();
+    this.active?.finish("session_exit");
+    if (this.closeNotified) return;
+    this.closeNotified = true;
+    if (!this.closeReason && this.exitSignal) this.closeReason = `remote shell terminated by signal ${this.exitSignal}`;
+    else if (!this.closeReason && typeof this.exitCode === "number") this.closeReason = `remote shell exited with code ${this.exitCode}`;
+    try { this.onClose?.({ reason: this.closeReason, requested: this.closeRequested, exitCode: this.exitCode ?? null, signal: this.exitSignal ?? null }); } catch { /* an observer must never break session teardown */ }
+  }
+
+  exitedError() {
+    const name = this.environment?.name ?? "SSH";
+    return sessionError("REMOTE_SESSION_EXITED", `SSH connection to ${name} has exited${this.closeReason ? ` (${this.closeReason})` : ""}. Nothing was replayed; open a new connection with remote_terminal_open (environment ${JSON.stringify(name)}) and re-run only the commands you still need`);
+  }
+
+  resize(rows, cols) {
+    if (this.closed) throw this.exitedError();
+    const nextRows = rows === undefined || rows === null ? this.rows : rows;
+    const nextCols = cols === undefined || cols === null ? this.cols : cols;
+    const [minRows, maxRows] = TERMINAL_ROWS_RANGE, [minCols, maxCols] = TERMINAL_COLS_RANGE;
+    if (!Number.isInteger(nextRows) || nextRows < minRows || nextRows > maxRows) throw sessionError("TERMINAL_OPTION_INVALID", `rows must be an integer ${minRows}-${maxRows}`);
+    if (!Number.isInteger(nextCols) || nextCols < minCols || nextCols > maxCols) throw sessionError("TERMINAL_OPTION_INVALID", `cols must be an integer ${minCols}-${maxCols}`);
+    if (typeof this.channel.setWindow !== "function") throw sessionError("TERMINAL_RESIZE_UNSUPPORTED", "This SSH channel cannot change the PTY size");
+    this.channel.setWindow(nextRows, nextCols, 0, 0);
+    this.rows = nextRows;
+    this.cols = nextCols;
+    return this.size;
   }
 
   append(text) {
@@ -125,20 +163,20 @@ export class SshTerminalSession {
   get output() { return this.outputBuffer.value; }
 
   startSend(request) {
-    if (this.closed) throw sessionError("REMOTE_SESSION_EXITED", "SSH session has exited");
+    if (this.closed) throw this.exitedError();
     if (this.active) throw sessionError("SEND_ACTIVE", "SSH session already has an active send");
     return new SendOperation(this, request);
   }
 
   write(text) {
-    if (this.closed) throw sessionError("REMOTE_SESSION_EXITED", "SSH session has exited");
+    if (this.closed) throw this.exitedError();
     const value = String(text ?? "");
     if (!value) return;
     this.channel.write(value, "utf8");
   }
 
   writeInput(text) {
-    if (this.closed) throw sessionError("REMOTE_SESSION_EXITED", "SSH session has exited");
+    if (this.closed) throw this.exitedError();
     const value = String(text ?? "");
     if (!value) return { accepted: true, bytes: 0 };
     this.channel.write(value, "utf8");
@@ -158,11 +196,11 @@ export class SshTerminalSession {
   }
 
   status() {
-    return this.closed ? { kind: "exited", exitCode: this.exitCode ?? null, signal: this.exitSignal ?? null } : { kind: "running" };
+    return this.closed ? { kind: "exited", exitCode: this.exitCode ?? null, signal: this.exitSignal ?? null, ...(this.closeReason ? { reason: this.closeReason } : {}) } : { kind: "running" };
   }
 
   signal(signal) {
-    if (this.closed) throw sessionError("REMOTE_SESSION_EXITED", "SSH session has exited");
+    if (this.closed) throw this.exitedError();
     if (signal === "SIGINT" || signal === "INT") this.channel.write("\u0003");
     else if (typeof this.channel.signal === "function") this.channel.signal(signal);
     return { delivered: true, targetPgid: undefined };
@@ -170,6 +208,7 @@ export class SshTerminalSession {
 
   async close(reason = "closed by agent") {
     if (this.closed) return;
+    this.closeRequested = true;
     this.closed = true;
     this.outputBuffer.notify();
     this.active?.finish("session_exit");
@@ -179,6 +218,8 @@ export class SshTerminalSession {
 }
 
 export class LocalCmdTerminalSession {
+  get size() { return { rows: DEFAULT_TERMINAL_ROWS, cols: DEFAULT_TERMINAL_COLS }; }
+
   constructor(terminal, environment) {
     this.terminal = terminal;
     this.environment = environment;

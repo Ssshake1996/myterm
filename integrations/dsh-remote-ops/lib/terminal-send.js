@@ -28,6 +28,10 @@ function promptTail(session, streamId, scanFrom) {
     : buffer.tail(PROMPT_TAIL_CHARS);
 }
 
+function reconnectHint(environment, status) {
+  return { environment: environment.name, reason: status.reason ?? null, hint: `The SSH connection to ${environment.name} is gone${status.reason ? ` (${status.reason})` : ""}. Nothing is replayed automatically: open a new connection with remote_terminal_open and re-run only the commands you still need.` };
+}
+
 export async function performSend(state, owner, target, args) {
   await state.ready;
   resolveAssistOptions(args);
@@ -113,6 +117,7 @@ export async function performSend(state, owner, target, args) {
     ...(rendered?.ansiStripped ? { ansiStripped: true } : {}),
     ...(rendered?.summarized ? { summarized: true, omitted: rendered.omitted } : {}),
     ...(autoActions.length ? { autoActions } : {}),
+    ...(target !== LOCAL_SESSION_ID && session.status().kind === "exited" ? { reconnect: reconnectHint(environment, session.status()) } : {}),
     ...(viewport !== undefined ? { viewport: options.stripAnsi ? stripAnsi(viewport) : viewport } : {}),
     ...(args.collectRaw === true ? { rawOutput: session.outputBuffer.readFrom(replaced ? undefined : startOffset, UI_SCROLLBACK_CHARS).text } : {}),
   };

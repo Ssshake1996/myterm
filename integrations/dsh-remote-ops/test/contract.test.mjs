@@ -51,6 +51,17 @@ test("environment form warns that automatic confirmation also answers destructiv
   assert.match(client, /environment\.cliProfile = advanced\.cliProfile/);
 });
 
+test("resize, size reporting and disconnect reasons are wired end to end", async () => {
+  assert.match(client, /action: "resize"/);
+  assert.match(client, /aria-label": "终端大小"/);
+  assert.match(client, /activeTerminalFrame\?\.size\?\.rows/);
+  assert.match(client, /snapshot\.disconnects/);
+  assert.match(server, /"resize": \(\{ state, body, agent \}\)/);
+  assert.match(await readToolSource("remote_terminal_resize"), /state\.resize/);
+  assert.match(server, /ssh\.disconnected/);
+  assert.match(server, /Nothing was replayed/);
+});
+
 test("terminal rendering and transport invariants remain present", () => {
   assert.match(client, /box-sizing:border-box/);
   assert.match(client, /overflow-y:scroll/);

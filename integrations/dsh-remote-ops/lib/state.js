@@ -6,7 +6,7 @@ import { PLUGIN_NAME, PLUGIN_VERSION } from "./version.js";
 import { TransferManager, HostFiles, SftpFiles } from "./transfers.js";
 import { describeFailure } from "./diagnostics.js";
 import { executeCommand } from "./commands.js";
-import { normalizeCliProfile, normalizeTerminalSize, resolveRenderOptions } from "./cli-profile.js";
+import { DEFAULT_TERMINAL_COLS, DEFAULT_TERMINAL_ROWS, normalizeCliProfile, normalizeTerminalSize, resolveRenderOptions } from "./cli-profile.js";
 import { readPage, renderOutput } from "./output-render.js";
 import { performSend } from "./terminal-send.js";
 import {
@@ -43,6 +43,7 @@ export class RemoteOpsState {
     this.commands = new Map();
     this.localSession = undefined;
     this.toolWarnings = [];
+    this.disconnects = new Map();
     this.localStarting = undefined;
     this.localError = "";
     this.disposed = false;
@@ -209,6 +210,28 @@ export class RemoteOpsState {
   activeRemoteSessions(ownerKey, environmentId) {
     return [...this.sessions.values()].filter((record) => record.ownerId === ownerKey && record.environment.id === environmentId && record.session.status().kind !== "exited");
   }
+  // Only connections that dropped on their own are remembered; a release requested by the user or agent is not a disconnect.
+  recordDisconnect(record, info = {}) {
+    if (info.requested || this.disposed) return;
+    const entry = { sessionId: record.sessionId, environmentId: record.environment.id, environment: record.environment.name, at: new Date().toISOString(), reason: info.reason ?? null };
+    const list = this.disconnects.get(record.ownerId) ?? [];
+    list.push(entry);
+    while (list.length > 10) list.shift();
+    this.disconnects.set(record.ownerId, list);
+    this.event(record.owner, "ssh.disconnected", { sessionId: record.sessionId, environment: record.environment.name, reason: entry.reason });
+  }
+
+  async resize(owner, target, rows, cols) {
+    if (rows === undefined && cols === undefined) throw sessionError("TERMINAL_OPTION_INVALID", "Pass rows and/or cols");
+    if (target === LOCAL_SESSION_ID) throw sessionError("TERMINAL_RESIZE_UNSUPPORTED", "The shared local terminal has a fixed 40x160 size chosen by the DSH host; resizing applies to SSH connections");
+    const record = this.getSession(owner, target);
+    if (typeof record.session.resize !== "function") throw sessionError("TERMINAL_RESIZE_UNSUPPORTED", "This connection is held by the DSH host (adopted after a plugin reload) and cannot be resized; open a new connection");
+    const size = record.session.resize(rows, cols);
+    record.session.outputBuffer.notify();
+    this.event(owner, "ssh.resize", { sessionId: record.sessionId, environment: record.environment.name, ...size });
+    return { sessionId: record.sessionId, environment: record.environment.name, ...size, note: "Applied to the remote PTY; full-screen programs repaint at the new size, the stream already printed is not reflowed" };
+  }
+
   connectionSnapshot(record) {
     return { sessionId: record.sessionId, environmentId: record.environment.id, name: record.environment.name,
       kind: "ssh", status: record.session.status(),
@@ -246,7 +269,7 @@ export class RemoteOpsState {
       const connectionCount = remoteSessions.filter((session) => session.environmentId === x.id).length;
       return { ...x, passwordRef: x.passwordRef ? "configured" : undefined, active: connectionCount > 0, running: connectionCount > 0, status: connectionCount > 0 ? "running" : "idle", connectionCount, maxConnections: MAX_SESSIONS_PER_ENVIRONMENT };
     });
-    return { groups: this.groupList(), environments, quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, events: this.events.get(id) ?? [], localError: this.localError || undefined, pluginName: PLUGIN_NAME, pluginVersion: PLUGIN_VERSION, update: this.release };
+    return { groups: this.groupList(), environments, quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, events: this.events.get(id) ?? [], ...(this.disconnects.get(id)?.length ? { disconnects: this.disconnects.get(id) } : {}), localError: this.localError || undefined, pluginName: PLUGIN_NAME, pluginVersion: PLUGIN_VERSION, update: this.release };
   }
 
   async terminalOutput(owner, target, offset, waitMs = 0, signal, streamId, maxChars = UI_SCROLLBACK_CHARS, pageOptions = {}) {
@@ -276,6 +299,7 @@ export class RemoteOpsState {
       name,
       kind,
       status: session.status(),
+      size: session.size ?? { rows: DEFAULT_TERMINAL_ROWS, cols: DEFAULT_TERMINAL_COLS },
       activity: session.active ? "waiting" : session.lastWaitReason ?? "unobserved",
       control: this.controlSnapshot(session),
       toolReceipt: this.toolReceipt(owner, session),
@@ -373,13 +397,14 @@ export class RemoteOpsState {
       if (environment.privateKeyPath) config.privateKey = await readFile(environment.privateKeyPath);
       const password = await this.resolvePassword(environment);
       if (password) config.password = password;
+      const shell = buildSshShellOptions(environment);
       const channel = await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(sessionError("SSH_CONNECT_TIMEOUT", `SSH connection timed out: ${environment.host}:${config.port}`)), config.readyTimeout);
-        client.once("ready", () => { const shell = buildSshShellOptions(); client.shell(shell.window, shell.options, (error, stream) => { clearTimeout(timer); if (error) reject(error); else resolve(stream); }); });
+        client.once("ready", () => { client.shell(shell.window, shell.options, (error, stream) => { clearTimeout(timer); if (error) reject(error); else resolve(stream); }); });
         client.once("error", (error) => { clearTimeout(timer); reject(error); });
         client.connect(config);
       });
-      const session = new SshTerminalSession(client, channel, environment);
+      const session = new SshTerminalSession(client, channel, environment, shell.window);
       this.backendSessions.set(spec.sessionId, session);
       return session;
     } catch (error) {
@@ -405,6 +430,7 @@ export class RemoteOpsState {
       if (!session) throw new Error("SSH backend did not return a session");
       const record = { sessionId: spawned.sessionId, ownerId: id, owner, environment, session };
       this.sessions.set(record.sessionId, record);
+      session.onClose = (info) => this.recordDisconnect(record, info);
       this.event(owner, "ssh.open", { sessionId: record.sessionId, environment: environment.name });
       return record;
     })();
@@ -544,6 +570,7 @@ export class RemoteOpsState {
     if (!session) throw new Error("SSH backend did not return a session");
     const record = { sessionId: spawned.sessionId, ownerId: id, owner, environment, session, direct: true };
     this.sessions.set(record.sessionId, record);
+    session.onClose = (info) => this.recordDisconnect(record, info);
     this.event(owner, "ssh.open.direct", { sessionId: record.sessionId, environment: environment.name });
     return record;
   }

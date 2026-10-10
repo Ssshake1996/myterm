@@ -295,6 +295,13 @@ window.__ModuleLoader__.load({
       }
       return { cliProfile: profile, terminal };
     };
+    const TERMINAL_SIZE_PRESETS = [[24, 80], [40, 120], [40, 160], [50, 200]];
+    const terminalSizeOptions = (size) => {
+      const current = size?.rows && size?.cols ? [size.rows, size.cols] : [40, 160];
+      const known = TERMINAL_SIZE_PRESETS.some(([rows, cols]) => rows === current[0] && cols === current[1]);
+      return [...(known ? [] : [current]), ...TERMINAL_SIZE_PRESETS].map(([rows, cols]) => ({ value: `${rows}x${cols}`, label: `${cols}×${rows}`, rows, cols }));
+    };
+    const terminalSizeFromValue = (value) => { const match = /^(\d+)x(\d+)$/.exec(String(value)); return match ? { rows: Number(match[1]), cols: Number(match[2]) } : undefined; };
     // end environment form helpers
 
     const terminalUsesGrid = screen => screen.alternateScreen || screen.cursorVisible === false;
@@ -738,7 +745,8 @@ window.__ModuleLoader__.load({
       const activeFrameKey = `${sessionId ?? ""}:${activeTerminalId}`;
       const activeTerminalFrame = activeTerminalId ? terminalFrames[activeFrameKey] : undefined;
       const terminalReady = terminalInputEnabled(snapshot) && !activeSession?.disconnected && Boolean(activeTerminalFrame?.streamId) && outputConnection === "connected" && reviewStream !== activeFrameKey;
-      const terminalScreen = useMemo(() => terminalScreenModel(activeTerminalFrame?.raw ?? ""), [activeTerminalFrame?.raw]);
+      const frameRows = activeTerminalFrame?.size?.rows || 40, frameCols = activeTerminalFrame?.size?.cols || 160;
+      const terminalScreen = useMemo(() => terminalScreenModel(activeTerminalFrame?.raw ?? "", frameRows, frameCols), [activeTerminalFrame?.raw, frameRows, frameCols]);
       const terminalOutput = terminalScreen.text;
       const matches = useMemo(() => outputMatches(terminalOutput, outputSearch), [terminalOutput, outputSearch]);
       const matchedLines = useMemo(() => new Set(matches), [matches]);
@@ -975,12 +983,13 @@ window.__ModuleLoader__.load({
           h("button", { title: "独立执行命令", disabled: !sessionId || !activeSession || activeSession.disconnected, onClick: () => setCommandTarget({ ...activeSession }) }, h(IconPlayOutline16), " 独立命令"),
           h("button", { title: "复制选区或当前输出", "aria-label": "复制输出", onClick: () => { const selection = window.getSelection(); const text = outputRef.current?.contains(selection?.anchorNode) ? selection.toString() : ""; void writeClipboard(text || terminalOutput).catch(cause => setError(`CLIPBOARD_WRITE: ${cause.message}`)); } }, h(IconCopyOutline16)),
           h("label", null, "字号", h("input", { type: "number", min: 11, max: 22, "aria-label": "终端字号", value: preferences.fontSize, onChange: event => setPreferences(current => terminalPreferences({ ...current, fontSize: event.target.value })) })),
+          !localActive && activeSession && !activeSession.disconnected ? h("label", null, "大小", h("select", { "aria-label": "终端大小", title: "调整远端 PTY 大小；已输出的内容不会重排", value: `${frameRows}x${frameCols}`, disabled: busy, onChange: (event) => { const size = terminalSizeFromValue(event.target.value); if (size) void action({ action: "resize", session: activeTerminalId, ...size }); } }, terminalSizeOptions(activeTerminalFrame?.size).map((option) => h("option", { key: option.value, value: option.value }, option.label)))) : null,
           h("label", null, h("input", { type: "checkbox", checked: preferences.wrap, onChange: event => setPreferences(current => ({ ...current, wrap: event.target.checked })) }), "换行"),
           h("span", null, { manual: "人工输入中", agent: "Agent 控制", available: "输入空闲" }[inputControl.holder] ?? "输入空闲"),
           h("button", { disabled: busy || !activeSession || activeSession.disconnected, onClick: () => void workspaceAction({ action: "control", session: activeTerminalId, control: inputControl.holder === "manual" ? "release" : "takeover" }) }, inputControl.holder === "manual" ? "交还 Agent" : "人工接管"),
           inputControl.waiting ? h("button", { disabled: busy, title: "停止等待输出，不发送 Ctrl+C", onClick: () => void workspaceAction({ action: "control", session: activeTerminalId, control: "stop-wait" }) }, "停止等待") : null,
         ),
-        activeSession?.disconnected ? h("div", { className: "dsh-remote-ops__toolbar", role: "status" }, h("span", null, "连接已断开 · 保留最后输出"), activeEnvironment ? h("button", { disabled: busy, onClick: () => void reconnect() }, "重新连接") : null, h("button", { onClick: () => dismissTab(activeTerminalId) }, "关闭记录")) : null,
+        activeSession?.disconnected ? h("div", { className: "dsh-remote-ops__toolbar", role: "status" }, h("span", { title: "不会自动重放任何命令" }, `连接已断开 · 保留最后输出${snapshot.disconnects?.find((item) => item.sessionId === activeSession.sessionId)?.reason ? ` · ${snapshot.disconnects.find((item) => item.sessionId === activeSession.sessionId).reason}` : ""}`), activeEnvironment ? h("button", { disabled: busy, onClick: () => void reconnect() }, "重新连接") : null, h("button", { onClick: () => dismissTab(activeTerminalId) }, "关闭记录")) : null,
         reviewStream === activeFrameKey ? h("div", { className: "dsh-remote-ops__toolbar", role: "status" }, "终端已重建", h("button", { onClick: () => { setReviewStream(null); terminalInputRef.current?.focus(); } }, "启用新终端输入")) : null,
         searchOpen ? h("div", { className: "dsh-remote-ops__toolbar" }, h("input", { className: "dsh-remote-ops__search", "aria-label": "搜索终端输出", value: outputSearch, onChange: event => { setOutputSearch(event.target.value); setMatchIndex(0); }, onKeyDown: event => { if (event.key === "Enter") moveMatch(event.shiftKey ? -1 : 1); } }), h("span", null, `${matches.length ? matchIndex % matches.length + 1 : 0}/${matches.length}`), h("button", { disabled: !matches.length, title: "上一处", "aria-label": "上一处匹配", onClick: () => moveMatch(-1) }, "↑"), h("button", { disabled: !matches.length, title: "下一处", "aria-label": "下一处匹配", onClick: () => moveMatch(1) }, "↓")) : null,
         activeSession ? h("div", { className: "dsh-remote-ops__screen", "data-focused": inputFocused, onClick: () => { if (!window.getSelection()?.toString()) terminalInputRef.current?.focus(); } },
