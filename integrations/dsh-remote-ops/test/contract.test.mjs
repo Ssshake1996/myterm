@@ -8,7 +8,7 @@ const read = async (path) => readFile(new URL(path, root), "utf8");
 const manifest = JSON.parse(await read("package.json"));
 const client = await read("lib/client.js");
 const server = await readServerSource();
-const releaseScript = await read("../../scripts/release-dsh-remote-ops.ps1");
+const releaseScript = await read("../../scripts/release-dsh-remote-ops.mjs");
 const testPlan = await read("../../docs/testing/dsh-remote-ops-test-plan.md");
 
 test("package exposes one reproducible regression gate", () => {
