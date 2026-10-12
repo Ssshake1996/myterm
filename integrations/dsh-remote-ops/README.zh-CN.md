@@ -22,7 +22,7 @@
 - 支持 SFTP 列目录、读写、创建目录、删除和重命名。
 - 支持快捷命令保存和执行。
 - 提供 Agent 可读取的诊断事件，以及 DSH 右侧 Sidebar。
-- DSH Web 左侧底部 `Remote Ops` 入口打开原生右侧 Sidebar，保留主对话与草稿；重复点击复用已有标签页，收起右栏即可返回对话。
+- DSH Web 左侧底部 `Remote Ops` 入口打开原生右侧 Sidebar，保留主对话与草稿；重复点击复用已有标签页，收起右栏即可返回对话。左侧入口展开时图标与文字左对齐，缩进与宿主原生入口一致；收起时仅显示居中的图标和 Tooltip。
 - Sidebar 顶部显示已安装版本，可检查 GitHub Release，并一键安装新版本；检查更新和刷新都会显示进行中、成功或失败状态，安装完成后需要重启 DSH。
 - 快捷命令区域上边界可拖拽调整高度，双击恢复默认高度；环境表单不展示内部 Harness 凭据引用，密码由系统自动管理。
 - 连接错误会保留在界面中，直到用户手动关闭，避免错误提示快速消失。
@@ -33,11 +33,11 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.29.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.30.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops 标题显示 `v0.2.29`。环境与快捷命令数据保留，已有终端连接需重新打开。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops 标题显示 `v0.2.30`。环境与快捷命令数据保留，已有终端连接需重新打开。
 
 如果使用已经发布到 registry 的包，则包名为：
 

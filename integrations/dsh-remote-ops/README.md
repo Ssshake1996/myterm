@@ -22,7 +22,7 @@ depend on or start the myterm desktop application.
 - Narrow workspaces stack both panes in a vertically scrollable file area. File lists retain usable height even with a long transfer history, and pane B remains reachable.
 - Quick command storage and execution.
 - Agent-visible diagnostics and a native DSH right-sidebar tab.
-- The `Remote Ops` action at the bottom of the DSH Web left sidebar opens the native right Sidebar while preserving the conversation and draft. Repeated clicks reuse the existing tab; collapsing it returns to the conversation.
+- The `Remote Ops` action at the bottom of the DSH Web left sidebar opens the native right Sidebar while preserving the conversation and draft. Repeated clicks reuse the existing tab; collapsing it returns to the conversation. Expanded left-sidebar entries align the icon and label to the left with native host entries; collapsed entries keep a centered icon and Tooltip.
 - The Sidebar header shows the installed plugin version, checks the latest
   GitHub Release, and can install an update with one click; refresh and update
   actions expose loading/success/failure feedback. Restart DSH after the package
@@ -40,14 +40,14 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.29.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.30.tgz
 dsh web
 ```
 
 For an upgrade, install as the same user and with the same `DSH_HOME` used by
 DSH, and use its actual profile rather than assuming `web`. Fully stop the old
 DSH process after installation, restart it, refresh the browser, and confirm
-`v0.2.29` in the Remote Ops header. Saved environments and quick commands
+`v0.2.30` in the Remote Ops header. Saved environments and quick commands
 remain; terminal connections must be reopened.
 
 For a package obtained from a registry, the package name is:

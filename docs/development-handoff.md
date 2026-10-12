@@ -1,12 +1,12 @@
 # dsh-remote-ops 开发交接说明
 
 > 基线日期：2026-10-12
-> 基线版本：`dsh-remote-ops v0.2.29`
+> 基线版本：`dsh-remote-ops v0.2.30`
 > 基线提交：以 `git log -1` 为准  
 > 项目根目录：`F:\myterm`  
 > GitHub：`Ssshake1996/myterm`
 
-v0.2.29 修正左侧入口：通过官方 sidebar.footer.action 调用 sidebarRight.openTab，打开原生右栏并保留主对话与草稿，不再注册主工作区。保留 v0.2.28 的 SFTP 上传和刷新改进，四份 README 同步。真实宿主及正式安装包验收边界见 [v0.2.29](releases/dsh-remote-ops-v0.2.29.md)。
+v0.2.30 修正左侧入口展开时的左对齐，与宿主原生入口的图标和文字缩进一致；收起时图标居中。点击继续通过官方 sidebar.footer.action / sidebarRight.openTab 打开原生右栏，保留主对话与草稿。四份 README 与 dsh-plugin-ui Skill v0.1.3 同步。真实宿主及安装包验收边界见 [v0.2.30](releases/dsh-remote-ops-v0.2.30.md)。
 
 ## 1. 产品边界
 
@@ -32,7 +32,7 @@ Remote Ops 插件负责：
 
 ## 2. 当前版本状态
 
-v0.2.29 发布门禁 232 项测试，E2E 单元 4 项、浏览器 9 场景。真实 DSH 0.2.0-rc.2 独立 profile 验证同一主对话编辑器与草稿保留、唯一右栏标签页、关闭/重开、键盘、Tooltip、390px 宿主布局及终端未提交输入保护。SFTP 上传跨右栏关闭继续、取消停止后续文件、刷新去重与选择/滚动保留。验收记录和未验证边界见 [v0.2.29](releases/dsh-remote-ops-v0.2.29.md)。
+v0.2.30 验收包括真实 DSH 0.2.0-rc.2 展开入口几何对齐、收起图标居中与 Tooltip、同一主对话编辑器与草稿保留、唯一右栏标签页、关闭/重开、键盘及 390px 布局。E2E 单元 4 项、浏览器 9 场景通过，覆盖既有 SFTP 上传和刷新行为。完整门禁由发布脚本执行，验收证据与未重测边界见 [v0.2.30](releases/dsh-remote-ops-v0.2.30.md)。v0.2.29 的真实 SFTP 字节验证属于历史证据，不能当成本轮远端验收。
 
 以下 v0.2.25 及更早内容是历史记录，不能作为本轮验收范围：
 
