@@ -32,6 +32,121 @@ async function createDeviceEnvironment(t, name) {
 
 export const scenarios = [
   {
+    id: "sftp-narrow",
+    title: "窄屏传输历史不挤掉文件列表，两侧目录均可滚动访问",
+    viewport: { width: 390, height: 844 },
+    async run(t) {
+      await openPanel(t);
+      await t.page.addStyleTag({ content: ".e2e-sidebar{min-height:0;width:334px;max-width:100%}.e2e-sidebar-body{height:0}" });
+      await t.page.route("**/api/dsh-remote-ops/workspace", async route => {
+        const body = route.request().postDataJSON();
+        if (body.action === "files") return route.fulfill({ json: { path: "/narrow", entries: Array.from({ length: 40 }, (_, index) => ({ name: `narrow-${index}.txt`, type: "-", size: 1 })) } });
+        if (body.action === "transfers") return route.fulfill({ json: { tasks: Array.from({ length: 20 }, (_, index) => ({ id: "history-" + index, names: ["long-upload-name-" + index + ".txt"], status: "completed", finishedAt: "now", bytes: 100, target: { kind: "host", path: "/narrow" } })) } });
+        return route.continue();
+      });
+      await t.step("目录保留可用高度，目标 B 可滚动进入视口", async () => {
+        await t.page.getByRole("button", { name: "SFTP", exact: true }).click();
+        await t.page.getByLabel("文件来源 A").getByLabel("选择 narrow-0.txt", { exact: true }).waitFor();
+        await t.page.getByLabel("传输任务", { exact: true }).getByText("long-upload-name-19.txt", { exact: false }).waitFor();
+        const sizes = await t.page.locator(".dsh-remote-ops__sftpEntries").evaluateAll(nodes => nodes.map(node => node.clientHeight));
+        if (sizes.some(height => height < 80)) throw new Error(`file lists collapsed to ${sizes.join(",")}px`);
+        await t.page.getByLabel("路径 B", { exact: true }).scrollIntoViewIfNeeded();
+        const inView = await t.page.getByLabel("路径 B", { exact: true }).evaluate(node => { const pane = node.closest(".dsh-remote-ops__sftpSplit").getBoundingClientRect(), rect = node.getBoundingClientRect(); return rect.top >= pane.top && rect.bottom <= pane.bottom; });
+        if (!inView) throw new Error("target B path is clipped");
+        if (await t.page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error("narrow SFTP overflows horizontally");
+      });
+    },
+  },
+  {
+    id: "sftp-upload-navigation",
+    title: "浏览器批量上传跨页面继续，返回后进度与文件内容正确",
+    async run(t) {
+      await openPanel(t);
+      let release;
+      const gate = new Promise(resolve => { release = resolve; });
+      let first = true;
+      await t.page.route("**/api/dsh-remote-ops/browser-upload?*", async route => { if (first) { first = false; await gate; } await route.continue().catch(() => {}); });
+      const payloads = [{ name: "navigation-one.txt", mimeType: "text/plain", buffer: Buffer.from("FIRST-UPLOAD-".repeat(10000)) }, { name: "navigation-two.txt", mimeType: "text/plain", buffer: Buffer.from("SECOND-UPLOAD\n") }];
+      try {
+        await t.step("开始批量上传并切换终端、关闭和重新打开运维面板", async () => {
+          await t.page.getByRole("button", { name: "SFTP", exact: true }).click();
+          const fileRoot = (await t.info()).fileRoot;
+          await t.page.getByLabel("路径 A", { exact: true }).fill(fileRoot);
+          const directoryResponse = t.page.waitForResponse(response => { try { const body = response.request().postDataJSON(); return response.url().includes("/workspace") && body.action === "files" && body.endpoint.path === fileRoot; } catch { return false; } });
+          await t.page.getByLabel("文件来源 A").getByRole("button", { name: "打开路径", exact: true }).click();
+          await directoryResponse;
+          await t.page.getByLabel("浏览器上传 A", { exact: true }).locator("input").waitFor({ state: "visible" });
+          await t.page.waitForFunction(() => !document.querySelector('[aria-label="浏览器上传 A"] input').disabled);
+          const started = t.page.waitForRequest(request => request.url().includes("/browser-upload?"));
+          await t.page.getByLabel("浏览器上传 A", { exact: true }).locator("input").setInputFiles(payloads);
+          await started;
+          await t.page.getByRole("button", { name: "关闭 SFTP", exact: true }).click();
+          await t.page.getByRole("button", { name: "查看上传进度", exact: true }).waitFor();
+          await t.page.getByRole("button", { name: "关闭运维面板", exact: true }).click();
+          await t.page.getByLabel("终端输出").waitFor({ state: "hidden" });
+          await t.page.getByRole("button", { name: "Remote Ops", exact: true }).click();
+          await t.page.getByRole("button", { name: "查看上传进度", exact: true }).click();
+          await t.page.getByRole("button", { name: "取消上传", exact: true }).waitFor();
+        });
+        release();
+        await t.step("两个文件继续上传并核对落盘内容", async () => {
+          await t.page.getByLabel("传输任务", { exact: true }).getByText(/上传完成/).waitFor();
+          const sessionId = (await t.info()).sessionId, path = await t.page.getByLabel("路径 A", { exact: true }).inputValue();
+          for (const payload of payloads) {
+            const response = await t.page.request.get(`/api/dsh-remote-ops/browser-file?${new URLSearchParams({ sessionId, kind: "host", path, name: payload.name })}`);
+            if (!response.ok() || !(await response.body()).equals(payload.buffer)) throw new Error(`uploaded bytes differ: ${payload.name}`);
+          }
+          await t.page.getByLabel("文件来源 A").getByRole("button", { name: "navigation-two.txt", exact: true }).waitFor();
+        });
+      } finally { release(); await t.page.unroute("**/api/dsh-remote-ops/browser-upload?*"); }
+    },
+  },
+  {
+    id: "sftp-refresh",
+    title: "历史传输不重复刷新目录，新完成任务合并刷新并保留选中和滚动",
+    async run(t) {
+      await openPanel(t);
+      let listRequests = 0;
+      t.page.on("request", request => { if (request.url().includes("/workspace") && request.method() === "POST" && request.postDataJSON()?.action === "files") listRequests++; });
+      const tasks = ["old-one", "old-two", "old-three"].map(id => ({ id, names: [id], status: "completed", finishedAt: "now", target: { kind: "host", path: "/fixture" }, bytes: 1 }));
+      let release, hold = false;
+      await t.page.route("**/api/dsh-remote-ops/workspace", async route => {
+        const body = route.request().postDataJSON();
+        if (body.action === "transfers") return route.fulfill({ json: { tasks } });
+        if (body.action === "files") {
+          if (hold) await new Promise(resolve => { release = resolve; });
+          return route.fulfill({ json: { path: body.endpoint.path === "/other" ? "/other" : "/fixture", entries: Array.from({ length: 100 }, (_, index) => ({ name: `file-${String(index).padStart(3, "0")}.txt`, type: "-", size: 10 })) } });
+        }
+        return route.continue();
+      });
+      try {
+        await t.step("首次读取历史任务只加载两个面板", async () => {
+          await t.page.getByRole("button", { name: "SFTP", exact: true }).click();
+          await t.page.getByLabel("文件来源 A").getByLabel("选择 file-000.txt", { exact: true }).check();
+          await pause(t.page, 1700);
+          if (listRequests !== 2) throw new Error(`historical jobs caused ${listRequests} directory requests`);
+        });
+        await t.step("同一轮两个新任务合并刷新，刷新中列表仍可见", async () => {
+          const list = t.page.getByLabel("文件来源 A").locator(".dsh-remote-ops__sftpEntries");
+          await list.evaluate(node => { node.scrollTop = 120; node.dispatchEvent(new Event("scroll", { bubbles: true })); });
+          await t.page.getByLabel("路径 B", { exact: true }).fill("/other");
+          await t.page.getByLabel("文件目标 B").getByRole("button", { name: "打开路径", exact: true }).click();
+          await t.page.getByLabel("文件目标 B").getByLabel("选择 file-000.txt", { exact: true }).waitFor();
+          const before = listRequests;
+          hold = true;
+          tasks.push(...["new-one", "new-two"].map(id => ({ ...tasks[0], id, names: [id] })));
+          await t.page.waitForFunction(() => document.querySelector('[aria-label="文件来源 A"] .dsh-remote-ops__sftpEntries').getAttribute("aria-busy") === "true");
+          if (listRequests !== before + 1) throw new Error(`new jobs caused ${listRequests - before} refresh requests`);
+          if (!await t.page.getByLabel("文件来源 A").getByLabel("选择 file-000.txt", { exact: true }).isChecked()) throw new Error("selection was cleared during refresh");
+          hold = false; release?.();
+          await t.page.waitForFunction(() => document.querySelector('[aria-label="文件来源 A"] .dsh-remote-ops__sftpEntries').getAttribute("aria-busy") === "false");
+          if (!await t.page.getByLabel("文件来源 A").getByLabel("选择 file-000.txt", { exact: true }).isChecked()) throw new Error("selection was cleared after refresh");
+          if (await list.evaluate(node => node.scrollTop) !== 120) throw new Error("scroll position changed during refresh");
+        });
+      } finally { hold = false; release?.(); await t.page.unroute("**/api/dsh-remote-ops/workspace"); }
+    },
+  },
+  {
     id: "panel-local",
     title: "打开面板并在本地终端回显",
     async run(t) {
@@ -72,10 +187,11 @@ export const scenarios = [
       });
       await t.step("把 PTY 调到 200×50", async () => {
         await t.page.getByLabel("终端大小").selectOption("50x200");
-        await t.page.waitForFunction(async () => {
-          const info = await fetch("/e2e/info").then((response) => response.json());
-          return info.device.windows.some((item) => item.rows === 50 && item.cols === 200);
-        });
+        const deadline = Date.now() + 5000;
+        while (!(await t.info()).device.windows.some(item => item.rows === 50 && item.cols === 200)) {
+          if (Date.now() >= deadline) throw new Error("PTY size did not reach 200x50");
+          await pause(t.page, 50);
+        }
       });
       await t.step("设备断开后保留输出并给出重连，不重放命令", async () => {
         await typeInTerminal(t.page, "disconnect");

@@ -57,7 +57,7 @@ export async function startApp({ home = process.env.DSH_HOME, device: deviceOpti
       if (incoming.method === "GET" && url.pathname === "/") return send(response, 200, html, { "content-type": "text/html; charset=utf-8" });
       if (incoming.method === "GET" && url.pathname === "/app.js") return send(response, 200, hostBundle, { "content-type": "text/javascript; charset=utf-8" });
       if (incoming.method === "GET" && url.pathname === "/client.js") return send(response, 200, clientSource, { "content-type": "text/javascript; charset=utf-8" });
-      if (incoming.method === "GET" && url.pathname === "/e2e/info") return send(response, 200, JSON.stringify({ sessionId: SESSION_ID, pluginVersion: PLUGIN_VERSION, device: { host: device.host, port: device.port, username: device.username, name: device.name, commands: device.log.commands, replies: device.log.replies, windows: device.log.windows, interrupts: device.log.interrupts, executed: device.log.executed } }), { "content-type": "application/json" });
+      if (incoming.method === "GET" && url.pathname === "/e2e/info") return send(response, 200, JSON.stringify({ sessionId: SESSION_ID, pluginVersion: PLUGIN_VERSION, fileRoot: home, device: { host: device.host, port: device.port, username: device.username, name: device.name, commands: device.log.commands, replies: device.log.replies, windows: device.log.windows, interrupts: device.log.interrupts, executed: device.log.executed } }), { "content-type": "application/json" });
       if (incoming.method === "POST" && url.pathname === "/e2e/agent") {
         const body = JSON.parse((await readBody(incoming)).toString("utf8") || "{}");
         const tool = host.tools.get(body.tool);

@@ -280,6 +280,7 @@ test("file path edits wait for an in-flight endpoint change", () => {
     h: (tag, props, ...children) => ({ tag, props, children }),
     useState: initial => { let value = typeof initial === "function" ? initial() : initial; if (++hook === 2) value = value.map(pane => ({ ...pane, loading: true })); return [value, () => {}]; },
     useRef: current => ({ current }), useEffect() {}, useCallback: value => value,
+    useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
     localStorage: { getItem: () => null },
     IconRefreshOutline16: "refresh", IconDownloadOutline16: "download", IconFolderClose16: "folder",
   });
@@ -303,6 +304,7 @@ test("revealing a transferred file preserves the target pane sort preference", a
       return [value, update => { value = typeof update === "function" ? update(value) : update; if (index === 2) panes = value; }];
     },
     useRef: current => ({ current }), useEffect() {}, useCallback: value => value,
+    useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
     request: async () => ({ path: "/out", entries: [{ name: "done.txt", type: "-", size: 4 }] }),
     window: { requestAnimationFrame: callback => callback() }, localStorage: { getItem: () => null },
     IconRefreshOutline16: "refresh", IconDownloadOutline16: "download", IconFolderClose16: "folder",

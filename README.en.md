@@ -18,6 +18,9 @@ Agent kernel.
 - Quick-command groups docked below the terminal.
 - Complete multiline command submission without short-request splitting.
 - SFTP directory listing, file read/write, mkdir, delete, and rename.
+- Browser upload batches continue across terminal, SFTP, and plugin panel switches within the same browser page; return to inspect progress or cancel. Closing/reloading the page, unloading the plugin, or stopping DSH may interrupt uploads; byte-level resume is not supported.
+- Directory refreshes skip historical completions, merge new completions, and serialize requests per pane while retaining entries, scroll position, and selections that still exist.
+- Narrow file workspaces scroll vertically to both panes and keep usable file-list height even with a long transfer history.
 - Sequential Multi-SSH tools, Agent diagnostics, and Harness credential references.
 - The Sidebar shows the installed plugin version, checks GitHub Releases, and can install an update with one click; restart DSH after the upgrade.
 
@@ -26,11 +29,11 @@ Agent kernel.
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.27.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.28.tgz
 dsh web
 ```
 
-For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.2.27` in the Remote Ops header. Saved environments and quick commands remain; terminal connections must be reopened.
+For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.2.28` in the Remote Ops header. Saved environments and quick commands remain; terminal connections must be reopened.
 
 Click `Remote Ops` in the left navigation to open the main workspace. The native `sidebar.panellist` / `main` entry has been tested on DSH `0.2.0-rc.2`. Hosts without those paired interfaces retain a compatibility launcher when right-Sidebar services are available. Other host versions have not been tested. If the entry is missing, check the installation profile, DSH version and installed plugin version, and confirm the old DSH process has exited. Do not copy the bundle patch by hand.
 
@@ -70,15 +73,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.27
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.28
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.2.27
-node scripts/release-dsh-remote-ops.mjs 0.2.27 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.2.28
+node scripts/release-dsh-remote-ops.mjs 0.2.28 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

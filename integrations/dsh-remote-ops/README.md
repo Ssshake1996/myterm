@@ -16,6 +16,10 @@ depend on or start the myterm desktop application.
 - Cursor-based output deltas use long polling and serialized batched keyboard writes, so idle terminals no longer transfer complete snapshots or generate frequent empty requests.
 - Sequential multi-target execution for observe-then-continue workflows.
 - SFTP list, read, write, mkdir, delete, and rename operations.
+- Browser upload batches belong to the plugin and continue across terminal, SFTP, and Remote Ops panel switches within the same browser page. The header upload button restores progress and cancellation controls. Each batch keeps its original Harness owner, destination, and conflict policy; changing sessions cannot move or cancel another owner's batch. Overwrite previews are confirmed before the batch starts; leaving during confirmation does not start an upload.
+- Explicit cancellation aborts the current browser request and stops the remaining batch. Cancellation/failure feedback survives panel remounts. Cancellation is not rollback: the server may already have received and completed the current file; completed files remain. Reloading or closing the browser page warns about active uploads; proceeding, unloading the plugin, or stopping DSH may interrupt them. Uploads do not survive page reloads and do not support byte-level resume.
+- The first transfer poll establishes a history baseline. New completions refresh each matching pane once per poll; a busy pane queues only one follow-up request. Refresh keeps current entries, scroll position, and selections that still exist; navigating to a different directory clears old selection.
+- Narrow workspaces stack both panes in a vertically scrollable file area. File lists retain usable height even with a long transfer history, and pane B remains reachable.
 - Quick command storage and execution.
 - Agent-visible diagnostics and a native DSH right-sidebar tab.
 - A native `Remote Ops` entry in the DSH Web left navigation opens the full main
@@ -40,14 +44,14 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.27.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.28.tgz
 dsh web
 ```
 
 For an upgrade, install as the same user and with the same `DSH_HOME` used by
 DSH, and use its actual profile rather than assuming `web`. Fully stop the old
 DSH process after installation, restart it, refresh the browser, and confirm
-`v0.2.27` in the Remote Ops header. Saved environments and quick commands
+`v0.2.28` in the Remote Ops header. Saved environments and quick commands
 remain; terminal connections must be reopened.
 
 For a package obtained from a registry, the package name is:

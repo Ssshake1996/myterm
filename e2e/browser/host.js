@@ -65,7 +65,7 @@ function Host() {
       React.createElement("div", { className: "e2e-footer" }, React.createElement(Slot, { name: "sidebar.footer.action", props: { wide: true } })),
     ),
     open ? React.createElement("aside", { className: "e2e-sidebar", "data-e2e": "sidebar" },
-      React.createElement("div", { className: "e2e-sidebar-title" }, React.createElement(Slot, { name: "sidebar.right.pane.tab.title" })),
+      React.createElement("div", { className: "e2e-sidebar-title" }, React.createElement(Slot, { name: "sidebar.right.pane.tab.title" }), React.createElement("button", { onClick() { uiStore.open = false; notifyUi(); } }, "关闭运维面板")),
       React.createElement("div", { className: "e2e-sidebar-body" }, React.createElement(Slot, { name: "sidebar.right.pane.tab", props: { sessionId: SESSION_ID } })),
     ) : null,
     React.createElement(Slot, { name: "shell.overlay" }),

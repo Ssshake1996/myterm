@@ -87,7 +87,7 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__transfer>details{width:100%}.dsh-remote-ops__transfer pre,.dsh-remote-ops__fileError{white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.5 Consolas,monospace}
       .dsh-remote-ops__tab>button:first-child{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .dsh-remote-ops__sftpPaneHead select{flex-basis:90px}.dsh-remote-ops__sftpPaneHead button[aria-pressed=true]{color:#c78100}
-      @container(max-width:600px){.dsh-remote-ops__sftpSplit{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) minmax(0,1fr)}.dsh-remote-ops__sftpPane+.dsh-remote-ops__sftpPane{border-left:0;border-top:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__quickItems{grid-template-columns:1fr}.dsh-remote-ops__sftpSize{width:50px}}
+      @container(max-width:600px){.dsh-remote-ops__sftpSplit{grid-template-columns:1fr;grid-template-rows:repeat(2,minmax(340px,1fr));overflow-y:auto}.dsh-remote-ops__sftpPane+.dsh-remote-ops__sftpPane{border-left:0;border-top:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__quickItems{grid-template-columns:1fr}.dsh-remote-ops__sftpSize{width:50px}}
     `;
     if (remoteOpsStyle) remoteOpsStyle.textContent += `
       .dsh-remote-ops__quickDock{min-height:0;max-height:none;overflow:hidden;background:var(--dsw-alias-bg-base,#fff)}
@@ -111,7 +111,7 @@ window.__ModuleLoader__.load({
     `;
     const failureMessage = (value, status) => [value.title, `HTTP ${status}`, value.code, value.stage, value.error, value.details ?? value.stack, value.cleanupError].filter(Boolean).join("\n");
     async function request(path, init) { const response = await fetch(path, init); const text = await response.text(); let value = {}; try { value = text ? JSON.parse(text) : {}; } catch { throw new Error(`HTTP ${response.status}: ${text}`); } if (!response.ok) { const error = Object.assign(new Error(value.error ?? `HTTP ${response.status}`), value); error.message = failureMessage(value, response.status); throw error; } return value; }
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.2.27", update: { currentVersion: "0.2.27", latestVersion: "0.2.27", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.2.28", update: { currentVersion: "0.2.28", latestVersion: "0.2.28", updateAvailable: false } };
     const glyph = { environments: "▦", quick: "⌘", sftp: "⇄", diagnostics: "⌁" };
     const terminalScreenModel = (value, rows = 40, columns = 160) => {
       const source = String(value ?? "");
@@ -372,6 +372,50 @@ window.__ModuleLoader__.load({
     const sameFileLocation = (a, b) => a.kind === b.kind && (a.kind !== "ssh" || a.environment === b.environment) && String(a.path).replace(/\\/g, "/").replace(/\/+$/, "") === String(b.path).replace(/\\/g, "/").replace(/\/+$/, "");
     const sortedFileEntries = (entries, sort) => [...entries].sort((a, b) => Number(b.type === "d") - Number(a.type === "d") || (sort === "size" ? b.size - a.size : sort === "modified" ? (b.modifyTime ?? 0) - (a.modifyTime ?? 0) : 0) || a.name.localeCompare(b.name));
 
+    // Browser requests belong to the plugin, not to a mounted file view. Never retain File objects after a batch ends.
+    const createBrowserUploads = () => {
+      const jobs = new Map(), listeners = new Set();
+      const notify = () => listeners.forEach(listener => listener());
+      const update = (job, patch) => { if (jobs.get(job.owner) === job) { job.view = { ...job.view, ...patch }; notify(); } };
+      const active = job => job && ["uploading", "cancelling"].includes(job.view.status);
+      const cancel = owner => { const job = jobs.get(owner); if (!active(job)) return; job.cancelled = true; update(job, { status: "cancelling" }); job.xhr?.abort(); };
+      const run = async job => {
+        try {
+          for (const [index, file] of job.files.entries()) {
+            if (job.cancelled) break;
+            update(job, { name: file.name, bytes: 0, total: file.size, index: index + 1 });
+            const task = await new Promise((resolve, reject) => {
+              const xhr = new XMLHttpRequest(); job.xhr = xhr;
+              xhr.open("POST", `/api/dsh-remote-ops/browser-upload?${new URLSearchParams({ sessionId: job.owner, ...job.target, name: file.name, conflict: job.conflict })}`);
+              xhr.upload.onprogress = event => update(job, { bytes: event.loaded });
+              xhr.onload = () => { let value; try { value = JSON.parse(xhr.responseText); } catch { value = { error: xhr.responseText }; } if (xhr.status >= 200 && xhr.status < 300) resolve(value); else reject(new Error(failureMessage(value, xhr.status))); };
+              xhr.onerror = () => reject(new Error("BROWSER_UPLOAD_NETWORK: 浏览器上传网络中断"));
+              xhr.onabort = () => reject(new Error("BROWSER_UPLOAD_CANCELLED: 已取消上传"));
+              xhr.send(file);
+            });
+            job.xhr = null;
+            update(job, { completedTasks: [...job.view.completedTasks, { id: task.id, status: task.status, finishedAt: task.finishedAt, target: task.target }] });
+          }
+          update(job, { status: job.cancelled ? "cancelled" : "completed" });
+        } catch (error) { update(job, { status: job.cancelled ? "cancelled" : "failed", error: job.cancelled ? "" : error.message }); }
+        finally { job.files = []; job.xhr = null; }
+      };
+      return {
+        get: owner => jobs.get(owner)?.view ?? null,
+        subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
+        hasActive: () => [...jobs.values()].some(active),
+        start({ owner, target, files, conflict }) {
+          if (!owner || !files.length || active(jobs.get(owner))) return false;
+          for (const [id, job] of jobs) if (jobs.size >= 64 && !active(job)) jobs.delete(id);
+          const job = { owner, target: fileEndpoint(target), files: [...files], conflict, cancelled: false, xhr: null, view: { status: "uploading", name: files[0].name, bytes: 0, total: files[0].size, index: 1, count: files.length, completedTasks: [], error: "" } };
+          jobs.set(owner, job); notify(); void run(job); return true;
+        },
+        cancel,
+        dispose() { for (const owner of jobs.keys()) cancel(owner); jobs.clear(); notify(); listeners.clear(); },
+      };
+    };
+    const browserUploads = createBrowserUploads();
+
     function SftpWorkspace({ sessionId, environments, initialEnvironment, onError, onClose }) {
       const initial = (kind, environment = "") => ({ kind, environment, path: ".", draft: ".", sort: "name", scrollTop: 0, entries: [], selected: [], loading: false, loaded: false, error: "" });
       const [saved] = useState(() => { try { return fileWorkspacePreferences(JSON.parse(localStorage.getItem("remote-ops.files." + sessionId) || "{}")); } catch { return fileWorkspacePreferences(); } });
@@ -380,32 +424,36 @@ window.__ModuleLoader__.load({
       const [preview, setPreview] = useState(null), [preparing, setPreparing] = useState(false);
       const [conflict, setConflict] = useState("error");
       const [tasks, setTasks] = useState([]);
-      const [upload, setUpload] = useState(null);
-      const generations = useRef([0, 0]), alive = useRef(true), uploadRequest = useRef(null);
+      const upload = useSyncExternalStore(browserUploads.subscribe, () => browserUploads.get(sessionId));
+      const uploading = upload && ["uploading", "cancelling"].includes(upload.status);
+      const generations = useRef([0, 0]), alive = useRef(true), inFlight = useRef([null, null]), pendingRefresh = useRef([false, false]);
       const panesRef = useRef(panes), bookmarksRef = useRef(bookmarks), lists = useRef([]), scrolls = useRef(panes.map(pane => pane.scrollTop));
-      const saveTimer = useRef(), confirmation = useRef(), seenTasks = useRef(new Map());
+      const saveTimer = useRef(), confirmation = useRef(), seenTasks = useRef(new Set(upload?.completedTasks.map(task => task.id) ?? [])), taskBaseline = useRef(false);
       panesRef.current = panes; bookmarksRef.current = bookmarks;
       const save = () => { try { localStorage.setItem("remote-ops.files." + sessionId, JSON.stringify(fileWorkspacePreferences({ panes: panesRef.current.map((pane, side) => ({ ...pane, scrollTop: scrolls.current[side] })), bookmarks: bookmarksRef.current }))); } catch { /* Browser storage may be disabled. */ } };
       useEffect(() => { save(); }, [panes, bookmarks]);
       const invoke = useCallback(body => request("/api/dsh-remote-ops/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, sessionId }) }), [sessionId]);
       const change = (side, patch) => setPanes(current => current.map((pane, index) => index === side ? { ...pane, ...patch } : pane));
-      const load = async (side, endpoint, selected = []) => {
+      const load = async (side, endpoint, selected) => {
         const generation = ++generations.current[side];
-        const position = sameFileLocation(panesRef.current[side], endpoint) ? scrolls.current[side] : 0;
-        change(side, { ...endpoint, loading: true, loaded: false, error: "", entries: [], selected: [] });
+        const previous = panesRef.current[side], sameLocation = sameFileLocation(previous, endpoint), refreshing = previous.loaded && sameLocation;
+        const position = sameLocation ? scrolls.current[side] : 0;
+        inFlight.current[side] = endpoint; pendingRefresh.current[side] = false;
+        change(side, { ...endpoint, loading: true, loaded: refreshing, error: "", entries: refreshing ? previous.entries : [], selected: selected ?? (refreshing ? previous.selected : []) });
         try {
           const value = await invoke({ action: "files", endpoint: fileEndpoint(endpoint) });
           if (alive.current && generation === generations.current[side]) {
-            change(side, { path: value.path, draft: value.path, entries: value.entries, selected, loaded: true, loading: false });
-            window.requestAnimationFrame(() => { const list = lists.current[side]; if (!list || generation !== generations.current[side]) return; list.scrollTop = position; if (selected.length) list.querySelector("[data-selected=true]")?.scrollIntoView({ block: "nearest" }); scrolls.current[side] = list.scrollTop; save(); });
+            const selection = (selected ?? (refreshing ? panesRef.current[side].selected : [])).filter(name => value.entries.some(item => item.name === name));
+            change(side, { path: value.path, draft: value.path, entries: value.entries, selected: selection, loaded: true, loading: false });
+            window.requestAnimationFrame(() => { const list = lists.current[side]; if (!list || !alive.current || generation !== generations.current[side]) return; list.scrollTop = sameLocation ? scrolls.current[side] : position; if (selected?.length) list.querySelector("[data-selected=true]")?.scrollIntoView({ block: "nearest" }); scrolls.current[side] = list.scrollTop; save(); });
           }
         } catch (error) { if (alive.current && generation === generations.current[side]) { change(side, { error: error.message }); onError(error.message); } }
-        finally { if (alive.current && generation === generations.current[side]) change(side, { loading: false }); }
+        finally { if (alive.current && generation === generations.current[side]) { inFlight.current[side] = null; change(side, { loading: false }); if (pendingRefresh.current[side]) { pendingRefresh.current[side] = false; void load(side, panesRef.current[side]); } } }
       };
       useEffect(() => {
         alive.current = true;
         void load(0, panes[0]); void load(1, panes[1]);
-        return () => { alive.current = false; clearTimeout(saveTimer.current); save(); confirmation.current?.(false); uploadRequest.current?.abort(); };
+        return () => { alive.current = false; clearTimeout(saveTimer.current); save(); confirmation.current?.(false); };
       }, []);
       useEffect(() => {
         let stopped = false, timer, failures = 0;
@@ -413,11 +461,14 @@ window.__ModuleLoader__.load({
           if (sessionId) try {
             const value = await invoke({ action: "transfers" }); failures = 0;
             if (!stopped) {
-              for (const task of value.tasks) {
-                if (task.finishedAt && seenTasks.current.get(task.id) !== task.status) panesRef.current.forEach((pane, side) => { if (sameFileLocation(pane, task.target)) void load(side, pane); });
-                seenTasks.current.set(task.id, task.status);
-              }
-              for (const id of seenTasks.current.keys()) if (!value.tasks.some(task => task.id === id)) seenTasks.current.delete(id);
+              const browserTasks = browserUploads.get(sessionId)?.completedTasks ?? [];
+              const changed = browserTasks.filter(task => !seenTasks.current.has(task.id));
+              for (const task of value.tasks) if (task.finishedAt && !seenTasks.current.has(task.id)) { if (taskBaseline.current) changed.push(task); seenTasks.current.add(task.id); }
+              browserTasks.forEach(task => seenTasks.current.add(task.id));
+              taskBaseline.current = true;
+              const retainedIds = new Set([...value.tasks, ...browserTasks].map(task => task.id));
+              for (const id of seenTasks.current) if (!retainedIds.has(id)) seenTasks.current.delete(id);
+              panesRef.current.forEach((pane, side) => { if (changed.some(task => sameFileLocation(pane, task.target))) { if (inFlight.current[side]) pendingRefresh.current[side] = true; else void load(side, pane); } });
               setTasks(value.tasks);
             }
           } catch (error) { failures++; if (!stopped) onError(error.message); }
@@ -442,26 +493,13 @@ window.__ModuleLoader__.load({
       };
       const fileUrl = (pane, name) => `/api/dsh-remote-ops/browser-file?${new URLSearchParams({ sessionId: sessionId ?? "", kind: pane.kind, environment: pane.environment, path: pane.path, name, conflict })}`;
       const browserUpload = async (side, fileList) => {
-        const target = { ...panes[side] };
+        const target = fileEndpoint(panes[side]), policy = conflict;
         setPreparing(true);
-        for (const file of fileList) {
-          if (!alive.current) break;
-          try {
-            if (!await confirmOverwrite({ source: { kind: "browser" }, target: fileEndpoint(target), names: [file.name], browserFile: { size: file.size, lastModified: file.lastModified }, conflict })) break;
-            await new Promise((resolve, reject) => {
-              const xhr = new XMLHttpRequest(); uploadRequest.current = xhr;
-              setUpload({ name: file.name, bytes: 0, total: file.size });
-              xhr.open("POST", fileUrl(target, file.name).replace("/browser-file?", "/browser-upload?"));
-              xhr.upload.onprogress = event => { if (alive.current) setUpload({ name: file.name, bytes: event.loaded, total: file.size }); };
-              xhr.onload = () => { let value; try { value = JSON.parse(xhr.responseText); } catch { value = { error: xhr.responseText }; } if (xhr.status >= 200 && xhr.status < 300) resolve(value); else reject(new Error(failureMessage(value, xhr.status))); };
-              xhr.onerror = () => reject(new Error("BROWSER_UPLOAD_NETWORK: 浏览器上传网络中断"));
-              xhr.onabort = () => reject(new Error("BROWSER_UPLOAD_CANCELLED: 已取消上传"));
-              xhr.send(file);
-            });
-          } catch (error) { if (alive.current) onError(error.message); break; }
-          finally { uploadRequest.current = null; if (alive.current) setUpload(null); }
-        }
-        if (alive.current) { setPreparing(false); if (sameFileLocation(panesRef.current[side], target)) void load(side, panesRef.current[side]); }
+        try {
+          for (const file of fileList) if (!alive.current || !await confirmOverwrite({ source: { kind: "browser" }, target, names: [file.name], browserFile: { size: file.size, lastModified: file.lastModified }, conflict: policy })) return;
+          if (alive.current) browserUploads.start({ owner: sessionId, target, files: fileList, conflict: policy });
+        } catch (error) { if (alive.current) onError(error.message); }
+        finally { if (alive.current) setPreparing(false); }
       };
       const bookmark = side => {
         const pane = panes[side];
@@ -486,13 +524,13 @@ window.__ModuleLoader__.load({
           h("select", { "aria-label": "排序 " + (side ? "B" : "A"), value: pane.sort, onChange: event => change(side, { sort: event.target.value }) }, h("option", { value: "name" }, "名称"), h("option", { value: "size" }, "大小"), h("option", { value: "modified" }, "修改时间")),
         ),
         h("form", { className: "dsh-remote-ops__sftpPath", onSubmit: event => { event.preventDefault(); void load(side, { ...pane, path: pane.draft }); } }, h("input", { "aria-label": `路径 ${side ? "B" : "A"}`, disabled: pane.loading, value: pane.draft, onChange: event => change(side, { draft: event.target.value }) }), h("button", { title: "打开路径", "aria-label": "打开路径", disabled: pane.loading }, "→")),
-        h("div", { className: "dsh-remote-ops__sftpEntries", ref: node => { lists.current[side] = node; }, onScroll: event => { if (pane.loading) return; scrolls.current[side] = event.currentTarget.scrollTop; clearTimeout(saveTimer.current); saveTimer.current = setTimeout(save, 300); }, "aria-busy": pane.loading }, pane.loading ? "加载中…" : pane.error ? h("pre", { className: "dsh-remote-ops__fileError" }, pane.error) : pane.entries.length ? sortedFileEntries(pane.entries, pane.sort).map(item => h("div", { className: "dsh-remote-ops__sftpEntry", key: item.name, "data-selected": pane.selected.includes(item.name) },
+        h("div", { className: "dsh-remote-ops__sftpEntries", ref: node => { lists.current[side] = node; }, onScroll: event => { if (pane.loading && !pane.loaded) return; scrolls.current[side] = event.currentTarget.scrollTop; clearTimeout(saveTimer.current); saveTimer.current = setTimeout(save, 300); }, "aria-busy": pane.loading }, pane.loading && !pane.loaded ? "加载中…" : pane.error && !pane.loaded ? h("pre", { className: "dsh-remote-ops__fileError" }, pane.error) : pane.entries.length ? sortedFileEntries(pane.entries, pane.sort).map(item => h("div", { className: "dsh-remote-ops__sftpEntry", key: item.name, "data-selected": pane.selected.includes(item.name) },
           h("input", { type: "checkbox", "aria-label": `选择 ${item.name}`, disabled: !["d", "-"].includes(item.type), checked: pane.selected.includes(item.name), onChange: event => change(side, { selected: event.target.checked ? [...pane.selected, item.name] : pane.selected.filter(name => name !== item.name) }) }),
           h("button", { className: "dsh-remote-ops__sftpName", onDoubleClick: () => { if (item.type === "d") void load(side, { ...pane, path: join(pane.path, item.name) }); }, title: item.name }, h("span", { className: "dsh-remote-ops__sftpIcon", "data-type": item.type === "d" ? "directory" : "file", "aria-hidden": true }, item.type === "d" ? h(IconFolderClose16) : "▱"), h("span", { className: "dsh-remote-ops__sftpLabel" }, item.name)),
           h("span", { className: "dsh-remote-ops__sftpSize" }, item.type === "d" ? "" : `${(item.size / 1024).toFixed(1)} K`),
         )) : h("div", { className: "dsh-remote-ops__sftpEmpty" }, "空目录")),
         h("div", { className: "dsh-remote-ops__toolbar" },
-          h("label", { title: "从当前浏览器设备上传文件" }, "浏览器上传", h("input", { type: "file", multiple: true, disabled: !sessionId || !pane.loaded || preparing || Boolean(upload), style: { width: "130px" }, onChange: event => { const files = [...event.target.files]; event.target.value = ""; void browserUpload(side, files); } })),
+          h("label", { title: "从当前浏览器设备上传文件", "aria-label": "浏览器上传 " + (side ? "B" : "A") }, "浏览器上传", h("input", { type: "file", multiple: true, disabled: !sessionId || !pane.loaded || preparing || uploading, style: { width: "130px" }, onChange: event => { const files = [...event.target.files]; event.target.value = ""; void browserUpload(side, files); } })),
           h("button", { disabled: !sessionId || pane.selected.length !== 1 || pane.entries.find(item => item.name === pane.selected[0])?.type !== "-", title: "下载到当前浏览器设备", onClick: () => { const link = document.createElement("a"); link.href = fileUrl(pane, pane.selected[0]); link.download = pane.selected[0]; link.click(); } }, h(IconDownloadOutline16), " 浏览器"),
         ),
       );
@@ -500,7 +538,7 @@ window.__ModuleLoader__.load({
         h("div", { className: "dsh-remote-ops__sftpHead" }, h("strong", null, "文件传输"), h("span", { className: "dsh-remote-ops__muted" }, sessionId ? "" : "请先选择一个 DSH 会话"), h("button", { className: "dsh-remote-ops__drawerClose", "aria-label": "关闭 SFTP", title: "关闭 SFTP", onClick: onClose }, "×")),
         h("div", { className: "dsh-remote-ops__toolbar" }, h("button", { disabled: !sessionId || !panes[0].selected.length || preparing || panes.some(pane => !pane.loaded), onClick: () => void transfer(0) }, "A → B"), h("button", { disabled: !sessionId || !panes[1].selected.length || preparing || panes.some(pane => !pane.loaded), onClick: () => void transfer(1) }, "A ← B"), h("label", null, "同名文件", h("select", { value: conflict, onChange: event => setConflict(event.target.value) }, h("option", { value: "error" }, "停止并报告"), h("option", { value: "skip" }, "跳过"), h("option", { value: "overwrite" }, "覆盖")))),
         h("div", { className: "dsh-remote-ops__sftpSplit" }, panes.map(renderPane)),
-        h("div", { className: "dsh-remote-ops__transfers", "aria-label": "传输任务" }, upload ? h("div", { className: "dsh-remote-ops__transfer" }, h("span", null, `${upload.name} · ${upload.bytes}/${upload.total} B`), h("button", { onClick: () => uploadRequest.current?.abort() }, "取消上传")) : null,
+        h("div", { className: "dsh-remote-ops__transfers", "aria-label": "传输任务" }, upload ? h("div", { className: "dsh-remote-ops__transfer", role: "status" }, h("span", null, `${upload.index}/${upload.count} · ${upload.name} · ${upload.bytes}/${upload.total} B · ${{ uploading: "上传中，可切换页面", cancelling: "正在取消", completed: "上传完成", cancelled: "已取消上传", failed: "上传失败" }[upload.status]}`), uploading ? h("button", { disabled: upload.status === "cancelling", onClick: () => browserUploads.cancel(sessionId) }, "取消上传") : null, upload.error ? h("small", { className: "dsh-remote-ops__dangerAction" }, upload.error) : null) : null,
           tasks.slice().reverse().map(task => h("div", { className: "dsh-remote-ops__transfer", key: task.id },
             h("span", null, task.names.join(", ") + " · " + { queued: "排队", running: "传输中", completed: "完成", cancelled: "已取消", failed: "失败" }[task.status] + " · " + (task.bytes / 1048576).toFixed(2) + " MiB"),
             ["queued", "running"].includes(task.status) ? h("button", { onClick: () => void invoke({ action: "transfer-cancel", id: task.id }).catch(error => onError(error.message)) }, "取消") : null,
@@ -690,6 +728,7 @@ window.__ModuleLoader__.load({
         editorView, managerView, confirmView);
     }
     function RemoteOpsPanel({ sessionId }) {
+      const browserUpload = useSyncExternalStore(browserUploads.subscribe, () => browserUploads.get(sessionId));
       const knownTabs = useRef({ owner: sessionId, tabs: [] });
       const [reviewStream, setReviewStream] = useState(null);
       const composingRef = useRef(false);
@@ -1054,6 +1093,7 @@ window.__ModuleLoader__.load({
       return h("div", { className: "dsh-remote-ops" },
         h("div", { className: "dsh-remote-ops__head" },
           h("strong", null, "Remote Ops"), h("span", { className: "dsh-remote-ops__version" }, `v${snapshot.pluginVersion ?? update.currentVersion ?? "?"}`),
+          browserUpload && ["uploading", "cancelling"].includes(browserUpload.status) ? h("button", { "aria-label": "查看上传进度", title: "上传在后台继续，点击查看进度或取消", onClick: () => setModule("sftp") }, `上传 ${browserUpload.index}/${browserUpload.count}`) : null,
           h("button", { className: `dsh-remote-ops__headAction${update.updateAvailable ? " dsh-remote-ops__update" : ""}`, disabled: updateBusy, "aria-busy": updateBusy, "aria-label": update.updateAvailable ? `升级 v${update.latestVersion}` : "检查更新", title: update.updateAvailable ? `升级 v${update.latestVersion}` : "检查更新", onClick: () => void (update.updateAvailable ? installUpdate() : checkUpdate(false)) }, h(IconDownloadOutline16, { "aria-hidden": true })),
           h("button", { className: "dsh-remote-ops__headAction", disabled: refreshBusy, "aria-busy": refreshBusy, "aria-label": "刷新状态", title: "刷新状态", onClick: () => void refreshNow() }, h(IconRefreshOutline16, { "aria-hidden": true })),
           actionNotice ? h("span", { className: "dsh-remote-ops__headNotice", "data-error": actionNotice.includes("失败") }, actionNotice) : null),
@@ -1085,6 +1125,11 @@ window.__ModuleLoader__.load({
       return h("div", { className: "dsh-remote-ops__launcherError", role: "alert" }, h("div", { className: "dsh-remote-ops__launcherErrorBody" }, h("strong", null, "无法打开 Remote Ops"), h("div", null, message)), h("button", { type: "button", className: "dsh-remote-ops__launcherErrorClose", title: "关闭错误", "aria-label": "关闭错误", onClick: () => setLauncherError("") }, "×"));
     }
     function apply(ctx) {
+      ctx.effect(() => {
+        const beforeUnload = event => { if (browserUploads.hasActive()) { event.preventDefault(); event.returnValue = ""; } };
+        window.addEventListener?.("beforeunload", beforeUnload);
+        return () => { window.removeEventListener?.("beforeunload", beforeUnload); browserUploads.dispose(); };
+      }, "dsh-remote-ops: browser uploads");
       let nativeNavigation = false;
       const listeners = new Set();
       const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
