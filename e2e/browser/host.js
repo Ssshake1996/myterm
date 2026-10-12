@@ -6,7 +6,7 @@ const SESSION_ID = "e2e-session";
 const icon = (name) => function HostIcon(props) {
   return React.createElement("svg", { ...props, "data-icon": name, width: 16, height: 16, viewBox: "0 0 16 16", "aria-hidden": props?.["aria-hidden"] ?? true }, React.createElement("rect", { width: 10, height: 10, x: 3, y: 3, fill: "currentColor" }));
 };
-const icons = new Proxy({}, { get: (_target, name) => icon(String(name)) });
+const icons = new Proxy({}, { get: (_target, name) => name === "Tooltip" ? ({ children }) => children : icon(String(name)) });
 const requireModule = (name) => {
   if (name === "react") return React;
   if (name === "@deepseek-ai/dsh-client-ui-primitives") return icons;

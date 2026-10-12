@@ -7,7 +7,7 @@ Agent kernel.
 
 ## Capabilities
 
-- A native `Remote Ops` entry in the DSH Web left navigation opens the full main workspace; older hosts without the paired panel interfaces retain a right-Sidebar launcher.
+- The `Remote Ops` action at the bottom of the DSH Web left sidebar opens the native right Sidebar, preserving the conversation and its draft. Repeated clicks reuse the existing tab.
 - Narrow navigation rail and a hideable environment drawer.
 - Create, edit, delete, group, and persist SSH environments.
 - Multiple SSH terminal tabs with the terminal as the primary workspace.
@@ -29,13 +29,13 @@ Agent kernel.
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.28.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.29.tgz
 dsh web
 ```
 
-For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.2.28` in the Remote Ops header. Saved environments and quick commands remain; terminal connections must be reopened.
+For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.2.29` in the Remote Ops header. Saved environments and quick commands remain; terminal connections must be reopened.
 
-Click `Remote Ops` in the left navigation to open the main workspace. The native `sidebar.panellist` / `main` entry has been tested on DSH `0.2.0-rc.2`. Hosts without those paired interfaces retain a compatibility launcher when right-Sidebar services are available. Other host versions have not been tested. If the entry is missing, check the installation profile, DSH version and installed plugin version, and confirm the old DSH process has exited. Do not copy the bundle patch by hand.
+Click `Remote Ops` at the bottom of the left sidebar to open the native right Sidebar while preserving the main conversation. It uses the official `sidebar.footer.action` seat and `sidebarRight.openTab`; it no longer registers a `sidebar.panellist` / `main` replacement. Tested on DSH `0.2.0-rc.2`; other host versions remain untested. If the entry is missing, check the installation profile, host/plugin versions and whether the old process exited. On narrow screens DSH may present its right Sidebar full screen; collapsing it returns to the original conversation.
 
 Local checks:
 
@@ -52,7 +52,7 @@ integrations/dsh-remote-ops/
 ├─ lib/index.js       # Plugin entry and exports
 ├─ lib/state/         # Environment, connection, terminal, file and update state
 ├─ lib/tools.js, routes.js # Agent tools and HTTP routes
-├─ lib/client.js      # DSH Web native workspace and compatibility Sidebar
+├─ lib/client.js      # DSH Web left action and native right Sidebar
 ├─ cordis.patch.yml   # Official DSH bundle patch
 └─ test/               # Unit, client behavior, contract, and smoke regression tests
 ```
@@ -73,15 +73,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.28
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.29
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.2.28
-node scripts/release-dsh-remote-ops.mjs 0.2.28 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.2.29
+node scripts/release-dsh-remote-ops.mjs 0.2.29 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

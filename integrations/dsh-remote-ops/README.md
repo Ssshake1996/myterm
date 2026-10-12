@@ -22,11 +22,7 @@ depend on or start the myterm desktop application.
 - Narrow workspaces stack both panes in a vertically scrollable file area. File lists retain usable height even with a long transfer history, and pane B remains reachable.
 - Quick command storage and execution.
 - Agent-visible diagnostics and a native DSH right-sidebar tab.
-- A native `Remote Ops` entry in the DSH Web left navigation opens the full main
-  workspace. DSH owns the row, selection, collapsed tooltip, and keyboard behavior.
-  Older hosts without both main and sidebar panel slots retain the right-sidebar
-  launcher. The legacy tab identity is preserved; its guide entry is hidden when
-  native navigation is available to prevent duplicate links in grouped navigation.
+- The `Remote Ops` action at the bottom of the DSH Web left sidebar opens the native right Sidebar while preserving the conversation and draft. Repeated clicks reuse the existing tab; collapsing it returns to the conversation.
 - The Sidebar header shows the installed plugin version, checks the latest
   GitHub Release, and can install an update with one click; refresh and update
   actions expose loading/success/failure feedback. Restart DSH after the package
@@ -44,14 +40,14 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.28.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.29.tgz
 dsh web
 ```
 
 For an upgrade, install as the same user and with the same `DSH_HOME` used by
 DSH, and use its actual profile rather than assuming `web`. Fully stop the old
 DSH process after installation, restart it, refresh the browser, and confirm
-`v0.2.28` in the Remote Ops header. Saved environments and quick commands
+`v0.2.29` in the Remote Ops header. Saved environments and quick commands
 remain; terminal connections must be reopened.
 
 For a package obtained from a registry, the package name is:
@@ -74,16 +70,15 @@ The client supports the `Regular` icon exports in DSH 0.2.0-rc.2 and falls back
 to the size-based exports used by older hosts. Version 0.2.23 fixes the blank
 Remote Ops panel caused by the icon export change.
 
-After DSH Web starts, click `Remote Ops` in the left navigation to open the
-main workspace. Native `sidebar.panellist` / `main` navigation has been tested
-on DSH `0.2.0-rc.2`; other host versions have not been tested. Hosts without
-the paired native interfaces retain the sidebar-footer launcher when the
-right-Sidebar services are available. It never starts a fallback conversation;
-if those services are not ready, it retries and reports the failure. If no
-entry appears, check the installed plugin version, DSH version and installation
-profile, and confirm the old DSH process has exited. SSH and SFTP actions remain
-owned by the selected Harness session; the main workspace also offers the local
-CMD terminal without a session.
+After DSH Web starts, click `Remote Ops` at the bottom of the left sidebar.
+The official `sidebar.footer.action` seat calls `sidebarRight.openTab`; it no
+longer registers a `sidebar.panellist` / `main` replacement. The published tab
+identity and session ownership remain compatible. The launcher retries within
+a bound and reports unavailable services without creating a fallback conversation.
+Tested on DSH `0.2.0-rc.2`; other versions remain untested. Check the installation
+profile, host/plugin versions and old processes if the entry is missing.
+On narrow screens the host may present the right Sidebar full screen; collapsing
+it returns to the original conversation.
 
 ## Interactive Workspace
 
