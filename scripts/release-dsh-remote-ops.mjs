@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
+const ROOT_READMES = ["README.md", "README.en.md"];
 const USAGE = "Usage: node scripts/release-dsh-remote-ops.mjs <major.minor.patch> [--dry-run] [--no-push] [--no-wait] [--remote <name>] [--branch <name>] [--wait-minutes <n>]";
 
 export const tagName = (version) => `dsh-remote-ops-v${version}`;
@@ -65,6 +66,21 @@ export async function checkVersionFiles(root, version) {
   const notes = read(join(root, "docs", "releases", `dsh-remote-ops-v${version}.md`));
   if (notes === undefined) problems.push(`docs/releases/dsh-remote-ops-v${version}.md is missing`);
   else if (!new RegExp(`^# dsh-remote-ops v${version.replace(/\./g, "\\.")}\\s*$`, "m").test(notes)) problems.push(`release notes must have the heading "# dsh-remote-ops v${version}"`);
+  for (const path of [...ROOT_READMES, "integrations/dsh-remote-ops/README.md", "integrations/dsh-remote-ops/README.zh-CN.md"]) {
+    const text = read(join(root, path));
+    if (text === undefined) { problems.push(`${path} is missing`); continue; }
+    const installs = [...text.matchAll(/\bdsh\s+plugin\b[^\r\n]*?\badd\s+[^\s`"']*dsh-remote-ops-v(\d+\.\d+\.\d+)\.tgz\b/g)];
+    if (!installs.length) problems.push(`${path} versioned install example is missing`);
+    for (const match of installs) if (match[1] !== version) problems.push(`${path} install example uses ${match[1]}, expected ${version}`);
+    if (ROOT_READMES.includes(path)) {
+      const releases = [...text.matchAll(/\brelease-dsh-remote-ops\.ps1\s+-Version\s+(\d+\.\d+\.\d+)\b|\bnode\s+scripts\/release-dsh-remote-ops\.mjs\s+(\d+\.\d+\.\d+)\b/g)];
+      if (!releases.length) problems.push(`${path} versioned release example is missing`);
+      for (const match of releases) {
+        const exampleVersion = match[1] ?? match[2];
+        if (exampleVersion !== version) problems.push(`${path} release example uses ${exampleVersion}, expected ${version}`);
+      }
+    }
+  }
   return problems;
 }
 
@@ -133,7 +149,7 @@ export async function runRelease(options, { root = resolve(dirname(fileURLToPath
   if (!options.dryRun) {
     const foreign = git(["diff", "--cached", "--name-only"], { capture: true }).stdout.split("\n").filter(Boolean);
     const releasePaths = ["integrations/dsh-remote-ops/", "scripts/release-dsh-remote-ops.", `docs/releases/dsh-remote-ops-v${version}.md`];
-    const outside = foreign.filter((file) => !releasePaths.some((prefix) => file.startsWith(prefix)));
+    const outside = foreign.filter((file) => !ROOT_READMES.includes(file) && !releasePaths.some((prefix) => file.startsWith(prefix)));
     if (outside.length) throw new Error(`The index already contains changes outside the release set; commit or reset them first:\n- ${outside.join("\n- ")}`);
   }
 
@@ -157,7 +173,7 @@ export async function runRelease(options, { root = resolve(dirname(fileURLToPath
   }
 
   git(["diff", "--check"]);
-  const releaseSet = ["integrations/dsh-remote-ops", "scripts/release-dsh-remote-ops.ps1", "scripts/release-dsh-remote-ops.mjs", `docs/releases/dsh-remote-ops-v${version}.md`].filter((path) => existsSync(join(root, path)));
+  const releaseSet = [...ROOT_READMES, "integrations/dsh-remote-ops", "scripts/release-dsh-remote-ops.ps1", "scripts/release-dsh-remote-ops.mjs", `docs/releases/dsh-remote-ops-v${version}.md`].filter((path) => existsSync(join(root, path)));
   git(["add", "--", ...releaseSet]);
   git(["diff", "--cached", "--check"]);
   const staged = git(["diff", "--cached", "--quiet"], { allowFailure: true }).status !== 0;

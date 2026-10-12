@@ -33,9 +33,11 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.26.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.27.tgz
 dsh web
 ```
+
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops 标题显示 `v0.2.27`。环境与快捷命令数据保留，已有终端连接需重新打开。
 
 如果使用已经发布到 registry 的包，则包名为：
 
@@ -50,6 +52,8 @@ dsh plugin --profile web add @dsh/remote-ops
 SSH PTY 遵循 Harness 约定，只在进程内存中存在；环境定义会持久化，DSH 重启后按需重新打开连接。
 
 DSH Web 启动后，点击左侧 `Remote Ops` 打开主工作区，使用宿主保留的当前会话作为 SSH owner；没有会话时仍可使用本地 CMD。原生入口可用时不再提供重复的旧导航指引；技术包名、右侧 tab ID、环境数据与工具名称保持兼容。主工作区打开时卸载隐藏的旧右侧面板内容，避免重复轮询。旧宿主的右侧入口有界重试，并在卸载时清理定时器；SSH 和 SFTP 操作仍由 Harness 会话管理。
+
+原生 `sidebar.panellist` / `main` 入口已在 DSH `0.2.0-rc.2` 实测；其他宿主版本尚未实测。旧宿主缺少配套接口时，仅在右侧 Sidebar 服务可用的情况下提供左侧底部的兼容入口。若看不到入口，先核对已安装插件版本、DSH 版本和安装 profile，并确认旧 DSH 进程已完全退出。
 
 环境抽屉默认收起，终端下方常用命令区默认展开，展开状态保存在当前浏览器。双击环境或点击“进入”复用已有连接，多连接时选择具体连接；“+”明确新建，单环境单会话最多 3 个连接。连接条目可查看 owner/最近活动并逐个释放。支持宿主 `sessionController.resolveAgent` 时，可恢复已保存的 Harness 会话而不发送模型消息；没有会话 ID 的新对话草稿不能作为 SSH owner。
 

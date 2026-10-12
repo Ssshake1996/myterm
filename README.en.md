@@ -7,7 +7,7 @@ Agent kernel.
 
 ## Capabilities
 
-- DSH Web right Sidebar plugin that keeps the main conversation visible.
+- A native `Remote Ops` entry in the DSH Web left navigation opens the full main workspace; older hosts without the paired panel interfaces retain a right-Sidebar launcher.
 - Narrow navigation rail and a hideable environment drawer.
 - Create, edit, delete, group, and persist SSH environments.
 - Multiple SSH terminal tabs with the terminal as the primary workspace.
@@ -26,9 +26,13 @@ Agent kernel.
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.17.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.2.27.tgz
 dsh web
 ```
+
+For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.2.27` in the Remote Ops header. Saved environments and quick commands remain; terminal connections must be reopened.
+
+Click `Remote Ops` in the left navigation to open the main workspace. The native `sidebar.panellist` / `main` entry has been tested on DSH `0.2.0-rc.2`. Hosts without those paired interfaces retain a compatibility launcher when right-Sidebar services are available. Other host versions have not been tested. If the entry is missing, check the installation profile, DSH version and installed plugin version, and confirm the old DSH process has exited. Do not copy the bundle patch by hand.
 
 Local checks:
 
@@ -42,8 +46,10 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ```text
 integrations/dsh-remote-ops/
-├─ lib/index.js       # Harness host, SSH, SFTP, tools, persistence
-├─ lib/client.js      # DSH Web Sidebar UI
+├─ lib/index.js       # Plugin entry and exports
+├─ lib/state/         # Environment, connection, terminal, file and update state
+├─ lib/tools.js, routes.js # Agent tools and HTTP routes
+├─ lib/client.js      # DSH Web native workspace and compatibility Sidebar
 ├─ cordis.patch.yml   # Official DSH bundle patch
 └─ test/               # Unit, client behavior, contract, and smoke regression tests
 ```
@@ -64,14 +70,27 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.17
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.27
 ```
 
-The release script runs one complete regression gate (syntax, unit, client
-behavior, contract, and smoke tests), then packs, commits, tags, pushes the
-main branch, and publishes the GitHub Release. See
-`docs/testing/dsh-remote-ops-test-plan.md` for the test matrix and 3080 page
-acceptance requirements.
+The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
+the PowerShell command delegates to it.
+
+```sh
+node scripts/release-dsh-remote-ops.mjs 0.2.27
+node scripts/release-dsh-remote-ops.mjs 0.2.27 --dry-run
+```
+
+Before changing git, the script verifies the package, lockfile, runtime and
+client versions, release-note heading, install examples in all four READMEs,
+and release examples in the root READMEs. It runs the complete regression gate
+(syntax, unit, client behavior, contract, and smoke tests), then packs, commits
+the plugin and both root READMEs, tags, and pushes the selected branch. The tag
+workflow publishes the GitHub Release; the script waits for its assets and
+compares the reported package digest with the local package. Use `--dry-run`
+to validate and pack without changing git, or `--no-push` to leave the commit
+and tag local. See `docs/testing/dsh-remote-ops-test-plan.md` for the test
+matrix and 3080 page acceptance requirements.
 
 For handoff and a ready-to-copy prompt for a new development conversation, see
 `docs/development-handoff.md` and `docs/prompts/new-development-session.md`.

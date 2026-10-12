@@ -31,6 +31,10 @@ function writeTree(root, version, { clientVersion = version, notesVersion = vers
   writeFileSync(join(plugin, "lib", "client.js"), `const empty = { pluginVersion: "${clientVersion}" };\n`);
   writeFileSync(join(root, "docs", "releases", `dsh-remote-ops-v${version}.md`), `# dsh-remote-ops v${notesVersion}\n\n- notes\n`);
   writeFileSync(join(root, "scripts", "release-dsh-remote-ops.ps1"), "# wrapper\n");
+  const install = `dsh plugin --profile web add ./dsh-remote-ops-v${version}.tgz\n`;
+  const release = `powershell -File scripts/release-dsh-remote-ops.ps1 -Version ${version}\nnode scripts/release-dsh-remote-ops.mjs ${version} --dry-run\n`;
+  for (const name of ["README.md", "README.en.md"]) writeFileSync(join(root, name), `${install}${release}`);
+  for (const name of ["README.md", "README.zh-CN.md"]) writeFileSync(join(plugin, name), install);
 }
 
 async function releaseRepo(t, { initial = "1.2.3", ...overrides } = {}) {
@@ -89,6 +93,39 @@ test("every place that carries the version is checked", async (t) => {
   assert.match((await checkVersionFiles(join(base, "empty"), "1.2.3")).join("\n"), /package\.json is missing/);
 });
 
+test("README install and release commands cannot point users at an older version", async (t) => {
+  const base = await mkdtemp(join(tmpdir(), "dsh-release-readme-"));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const paths = ["README.md", "README.en.md", "integrations/dsh-remote-ops/README.md", "integrations/dsh-remote-ops/README.zh-CN.md"];
+  for (const [index, path] of paths.entries()) {
+    const root = join(base, `install-${index}`);
+    writeTree(root, "1.2.3");
+    const filename = join(root, path);
+    // A correct example elsewhere must not conceal one obsolete install command.
+    writeFileSync(filename, `${readFileSync(filename, "utf8")}dsh plugin --profile web add .\\dsh-remote-ops-v1.2.2.tgz\n`);
+    const problems = await checkVersionFiles(root, "1.2.3");
+    assert.ok(problems.some((problem) => problem.includes(path) && /install example.*1\.2\.2/.test(problem)), `${path}: ${problems.join("\n")}`);
+  }
+  for (const [index, command] of ["powershell -File scripts/release-dsh-remote-ops.ps1 -Version 1.2.2", "node scripts/release-dsh-remote-ops.mjs 1.2.2 --dry-run"].entries()) {
+    const root = join(base, `release-${index}`);
+    writeTree(root, "1.2.3");
+    writeFileSync(join(root, "README.en.md"), `${readFileSync(join(root, "README.en.md"), "utf8")}${command}\n`);
+    assert.match((await checkVersionFiles(root, "1.2.3")).join("\n"), /README\.en\.md release example.*1\.2\.2/);
+  }
+  const historical = join(base, "historical");
+  writeTree(historical, "1.2.3");
+  writeFileSync(join(historical, "README.md"), `${readFileSync(join(historical, "README.md"), "utf8")}Version 0.2.23 fixed an earlier compatibility issue.\n`);
+  assert.deepEqual(await checkVersionFiles(historical, "1.2.3"), [], "historical version descriptions remain valid");
+});
+
+test("missing README install examples are reported before a release", async (t) => {
+  const base = await mkdtemp(join(tmpdir(), "dsh-release-readme-missing-"));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  writeTree(base, "1.2.3");
+  writeFileSync(join(base, "integrations", "dsh-remote-ops", "README.zh-CN.md"), "# Plugin\n");
+  assert.match((await checkVersionFiles(base, "1.2.3")).join("\n"), /README\.zh-CN\.md.*install example.*missing/);
+});
+
 test("a release commits, packs, checksums, tags and pushes, and repeating it changes nothing", async (t) => {
   const { repo, remote } = await releaseRepo(t);
   writeFileSync(join(repo, "integrations", "dsh-remote-ops", "lib", "client.js"), 'const empty = { pluginVersion: "1.2.3" };\n// changed for the release\n');
@@ -134,6 +171,15 @@ test("--no-push leaves the commit and tag local", async (t) => {
   assert.equal(git(repo, "tag", "--list"), "dsh-remote-ops-v1.2.3");
   assert.equal(git(remote, "tag", "--list"), "");
   assert.notEqual(git(repo, "rev-parse", "HEAD"), git(remote, "rev-parse", "refs/heads/main"));
+});
+
+test("the release commits both staged and unstaged root README updates", async (t) => {
+  const { repo } = await releaseRepo(t);
+  for (const name of ["README.md", "README.en.md"]) writeFileSync(join(repo, name), `${readFileSync(join(repo, name), "utf8")}\nUpdated navigation and upgrade instructions.\n`);
+  git(repo, "add", "README.en.md");
+  await runRelease(options({ push: false }), { root: repo, ...fast });
+  for (const name of ["README.md", "README.en.md"]) assert.match(git(repo, "show", `HEAD:${name}`), /Updated navigation and upgrade instructions/);
+  assert.equal(git(repo, "status", "--porcelain"), "", "README changes must be included in the tagged release");
 });
 
 test("inconsistent versions, foreign staged changes, detached HEAD and a conflicting tag abort without side effects", async (t) => {

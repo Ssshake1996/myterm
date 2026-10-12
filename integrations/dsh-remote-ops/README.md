@@ -40,9 +40,15 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.26.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.2.27.tgz
 dsh web
 ```
+
+For an upgrade, install as the same user and with the same `DSH_HOME` used by
+DSH, and use its actual profile rather than assuming `web`. Fully stop the old
+DSH process after installation, restart it, refresh the browser, and confirm
+`v0.2.27` in the Remote Ops header. Saved environments and quick commands
+remain; terminal connections must be reopened.
 
 For a package obtained from a registry, the package name is:
 
@@ -64,11 +70,16 @@ The client supports the `Regular` icon exports in DSH 0.2.0-rc.2 and falls back
 to the size-based exports used by older hosts. Version 0.2.23 fixes the blank
 Remote Ops panel caused by the icon export change.
 
-After DSH Web starts, click `Remote Ops` in the sidebar footer to open the
-right Sidebar while keeping the current conversation visible. The button never
-starts a fallback conversation; if the Sidebar service is not ready, the plugin
-retries and reports the exact failure. SSH and SFTP actions remain owned by the
-selected Harness session.
+After DSH Web starts, click `Remote Ops` in the left navigation to open the
+main workspace. Native `sidebar.panellist` / `main` navigation has been tested
+on DSH `0.2.0-rc.2`; other host versions have not been tested. Hosts without
+the paired native interfaces retain the sidebar-footer launcher when the
+right-Sidebar services are available. It never starts a fallback conversation;
+if those services are not ready, it retries and reports the failure. If no
+entry appears, check the installed plugin version, DSH version and installation
+profile, and confirm the old DSH process has exited. SSH and SFTP actions remain
+owned by the selected Harness session; the main workspace also offers the local
+CMD terminal without a session.
 
 ## Interactive Workspace
 
@@ -95,7 +106,7 @@ key may be referenced by local path.
 
 ## Agent tools
 
-Version 0.2.26 exposes environment list/create/update/delete, group management,
+The plugin exposes environment list/create/update/delete, group management,
 terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells
