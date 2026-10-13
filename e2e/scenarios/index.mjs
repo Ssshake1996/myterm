@@ -1,3 +1,4 @@
+import { websiteScenario } from "./browser-workspace.mjs";
 const pause = (page, ms) => page.waitForTimeout(ms);
 
 async function openPanel(t) {
@@ -31,6 +32,7 @@ async function createDeviceEnvironment(t, name) {
 }
 
 export const scenarios = [
+  websiteScenario,
   {
     id: "sftp-narrow",
     title: "窄屏传输历史不挤掉文件列表，两侧目录均可滚动访问",

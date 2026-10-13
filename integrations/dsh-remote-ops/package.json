@@ -1,9 +1,9 @@
 {
   "name": "@dsh/remote-ops",
-  "version": "0.2.30",
+  "version": "0.3.0",
   "private": false,
   "type": "module",
-  "description": "DeepSeek Harness plugin for SSH environments, persistent terminals, SFTP and multi-target operations",
+  "description": "DeepSeek Harness plugin for SSH terminals, SFTP and visible Playwright web operations",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
@@ -32,6 +32,7 @@
     "lib",
     "README.md",
     "README.zh-CN.md",
+    "WEB.md",
     "cordis.patch.yml",
     "locale/en.json",
     "locale/zh.json",
@@ -39,13 +40,14 @@
   ],
   "scripts": {
     "test": "npm run test:unit && npm run test:client && npm run test:contract && npm run test:smoke",
-    "test:unit": "node --test test/unit.test.mjs test/routes.test.mjs test/cli-assist.test.mjs test/state-layers.test.mjs test/release-script.test.mjs test/ssh-session.test.mjs test/script.test.mjs test/output-render.test.mjs test/transfer.test.mjs test/diagnostics.test.mjs test/workspace.test.mjs test/commands.test.mjs",
+    "test:unit": "node --test test/unit.test.mjs test/routes.test.mjs test/cli-assist.test.mjs test/state-layers.test.mjs test/release-script.test.mjs test/ssh-session.test.mjs test/script.test.mjs test/output-render.test.mjs test/transfer.test.mjs test/diagnostics.test.mjs test/workspace.test.mjs test/commands.test.mjs test/browser.test.mjs",
     "test:client": "node --test test/client-behavior.test.mjs test/navigation.test.mjs test/interaction-regressions.test.mjs test/sftp-interactions.test.mjs",
     "test:contract": "node --test test/contract.test.mjs",
     "test:smoke": "node test/smoke.mjs",
     "check": "node test/check-syntax.mjs && npm test"
   },
   "dependencies": {
+    "playwright-core": "1.64.0",
     "ssh2": "1.17.0"
   }
 }

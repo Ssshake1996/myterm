@@ -3,6 +3,10 @@ import { RemoteOpsState } from "./state/index.js";
 import { registerWorkspaceRoutes } from "./workspace-routes.js";
 import { registerTools } from "./tools.js";
 import { registerRoutes } from "./routes.js";
+import { join } from "node:path";
+import { BrowserWorkspace } from "./browser-workspace.js";
+import { registerBrowserRoutes } from "./browser-routes.js";
+import { registerBrowserTools } from "./browser-tools.js";
 
 export const name = PLUGIN_NAME;
 export const inject = ["connection", "systemPrompt", "tools", "terminals", "agents", "credentials", "subprocess"];
@@ -15,8 +19,10 @@ export { RemoteOpsState } from "./state/index.js";
 
 export function apply(ctx) {
   const state = new RemoteOpsState(ctx);
+  state.browser = new BrowserWorkspace({ root: join(state.base, "browser"), credentials: ctx.credentials });
   ctx.effect(() => async () => {
     state.disposed = true;
+    await state.browser.dispose();
     for (const job of state.commands.values()) job.controller.abort();
     await Promise.allSettled([...state.commands.values()].map((job) => job.done));
     await state.transfers.close();
@@ -28,4 +34,6 @@ export function apply(ctx) {
   ctx.effect(() => ctx.terminals.registerBackend({ type: "ssh", spawn: (spec) => state.spawnBackend(spec) }), "dsh-remote-ops SSH backend");
   registerTools(ctx, state);
   registerRoutes(ctx, state);
+  registerBrowserRoutes(ctx, state);
+  registerBrowserTools(ctx, state);
 }

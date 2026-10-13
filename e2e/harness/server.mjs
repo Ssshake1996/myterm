@@ -8,6 +8,7 @@ import { PLUGIN_VERSION } from "../../integrations/dsh-remote-ops/lib/version.js
 import { createFakeHost } from "./fake-host.mjs";
 import { startFakeDevice } from "./fake-device.mjs";
 import { installGithubStub } from "./github-stub.mjs";
+import { startFakeWebsite } from "./fake-website.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const clientPath = join(here, "..", "..", "integrations", "dsh-remote-ops", "lib", "client.js");
@@ -44,6 +45,7 @@ async function send(response, status, body, headers = {}) {
 export async function startApp({ home = process.env.DSH_HOME, device: deviceOptions = {} } = {}) {
   if (home) process.env.DSH_HOME = home;
   const device = await startFakeDevice(deviceOptions);
+  const website = await startFakeWebsite();
   const github = installGithubStub({ latestVersion: PLUGIN_VERSION });
   const host = createFakeHost({ agentIds: [SESSION_ID] });
   apply(host.ctx);
@@ -57,7 +59,7 @@ export async function startApp({ home = process.env.DSH_HOME, device: deviceOpti
       if (incoming.method === "GET" && url.pathname === "/") return send(response, 200, html, { "content-type": "text/html; charset=utf-8" });
       if (incoming.method === "GET" && url.pathname === "/app.js") return send(response, 200, hostBundle, { "content-type": "text/javascript; charset=utf-8" });
       if (incoming.method === "GET" && url.pathname === "/client.js") return send(response, 200, clientSource, { "content-type": "text/javascript; charset=utf-8" });
-      if (incoming.method === "GET" && url.pathname === "/e2e/info") return send(response, 200, JSON.stringify({ sessionId: SESSION_ID, pluginVersion: PLUGIN_VERSION, fileRoot: home, device: { host: device.host, port: device.port, username: device.username, name: device.name, commands: device.log.commands, replies: device.log.replies, windows: device.log.windows, interrupts: device.log.interrupts, executed: device.log.executed } }), { "content-type": "application/json" });
+      if (incoming.method === "GET" && url.pathname === "/e2e/info") return send(response, 200, JSON.stringify({ sessionId: SESSION_ID, pluginVersion: PLUGIN_VERSION, fileRoot: home, website: { url: website.url, log: website.log }, device: { host: device.host, port: device.port, username: device.username, name: device.name, commands: device.log.commands, replies: device.log.replies, windows: device.log.windows, interrupts: device.log.interrupts, executed: device.log.executed } }), { "content-type": "application/json" });
       if (incoming.method === "POST" && url.pathname === "/e2e/agent") {
         const body = JSON.parse((await readBody(incoming)).toString("utf8") || "{}");
         const tool = host.tools.get(body.tool);
@@ -91,6 +93,7 @@ export async function startApp({ home = process.env.DSH_HOME, device: deviceOpti
       await new Promise((resolve) => server.close(resolve));
       await host.dispose();
       await device.close();
+      await website.close();
       github.restore();
     },
   };

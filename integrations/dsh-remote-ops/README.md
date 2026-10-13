@@ -3,6 +3,12 @@
 Standalone DeepSeek Harness plugin for remote Linux operations. It does not
 depend on or start the myterm desktop application.
 
+## Visible web operations (v0.3.0)
+
+The new Web workspace opens a visible Playwright browser for login, XPath/CSS/role/label/text/placeholder actions, frames/popups, reusable parameterized flows, result checks, pause/step/stop and human takeover. Jobs survive workspace changes, Sidebar closure and DSH page reloads; plugin unload or DSH restart ends them. Passwords use local Harness credential references; dedicated profiles are scoped by conversation and site.
+
+Install Chromium from the workspace or choose installed Edge / Chrome. DSH must share your interactive desktop. See [Web usage and boundaries](WEB.md). CAPTCHA/MFA remain manual; pause cannot undo a submitted effect and failed actions are never automatically retried.
+
 ## Capabilities
 
 - Environment groups persisted as `remote-ops/environments/<group>/environments.<group>.json`.
@@ -40,14 +46,14 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.30.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.3.0.tgz
 dsh web
 ```
 
 For an upgrade, install as the same user and with the same `DSH_HOME` used by
 DSH, and use its actual profile rather than assuming `web`. Fully stop the old
 DSH process after installation, restart it, refresh the browser, and confirm
-`v0.2.30` in the Remote Ops header. Saved environments and quick commands
+`v0.3.0` in the Remote Ops header. Saved environments and quick commands
 remain; terminal connections must be reopened.
 
 For a package obtained from a registry, the package name is:

@@ -110,8 +110,26 @@ window.__ModuleLoader__.load({
     `;
     const failureMessage = (value, status) => [value.title, `HTTP ${status}`, value.code, value.stage, value.error, value.details ?? value.stack, value.cleanupError].filter(Boolean).join("\n");
     async function request(path, init) { const response = await fetch(path, init); const text = await response.text(); let value = {}; try { value = text ? JSON.parse(text) : {}; } catch { throw new Error(`HTTP ${response.status}: ${text}`); } if (!response.ok) { const error = Object.assign(new Error(value.error ?? `HTTP ${response.status}`), value); error.message = failureMessage(value, response.status); throw error; } return value; }
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.2.30", update: { currentVersion: "0.2.30", latestVersion: "0.2.30", updateAvailable: false } };
-    const glyph = { environments: "▦", quick: "⌘", sftp: "⇄", diagnostics: "⌁" };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.3.0", update: { currentVersion: "0.3.0", latestVersion: "0.3.0", updateAvailable: false } };
+    if (remoteOpsStyle) remoteOpsStyle.textContent += `
+      .dsh-remote-ops__main[data-module=browser]{display:flex;min-height:0}
+      .dsh-remote-ops__web{flex:1;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;background:var(--dsw-alias-bg-base,#fff);font-size:12px;line-height:1.6;scrollbar-gutter:stable}
+      .dsh-remote-ops__webSection{display:flex;flex-direction:column;gap:9px;padding:14px 12px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);min-width:0;overflow-wrap:anywhere}
+      .dsh-remote-ops__webSection p{margin:0}.dsh-remote-ops__web label{display:flex;flex-direction:column;gap:4px;min-width:0}
+      .dsh-remote-ops__web input,.dsh-remote-ops__web select{width:100%;box-sizing:border-box;min-width:0;min-height:32px}
+      .dsh-remote-ops__webActions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.dsh-remote-ops__webActions strong{margin-right:auto}
+      .dsh-remote-ops__web button{min-height:32px;white-space:normal;overflow-wrap:anywhere}.dsh-remote-ops__webActions select{width:auto;max-width:110px}
+      .dsh-remote-ops__webTarget{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0;padding:7px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:5px;min-width:0}
+      .dsh-remote-ops__webTarget>select{width:100px}.dsh-remote-ops__webTarget>input{flex:1;min-width:100px}.dsh-remote-ops__webTarget>label,.dsh-remote-ops__webTarget>details{flex-basis:100%;min-width:0}
+      .dsh-remote-ops__webStep{display:flex;flex-direction:column;gap:5px;border-left:2px solid var(--dsw-alias-border-l2,#d8dce5);padding:10px;margin:10px 0}
+      .dsh-remote-ops__web summary{cursor:pointer;padding:5px 0;outline-offset:2px}.dsh-remote-ops__web details>button{margin:4px 4px 4px 0}
+      .dsh-remote-ops__webCheck{flex-direction:row!important;align-items:center}.dsh-remote-ops__webCheck input{width:16px!important;min-height:16px}
+      .dsh-remote-ops__webResult{padding:6px 0;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}
+      .dsh-remote-ops__web pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto;font:11px/1.6 ui-monospace,Consolas,monospace;margin:6px 0}
+      .dsh-remote-ops__web img{display:block;width:100%;height:auto;border:1px solid var(--dsw-alias-border-l3,#d8dce5);box-sizing:border-box}
+      .dsh-remote-ops__web :is(input,select,summary):focus-visible{outline:2px solid var(--dsw-alias-interactive-brand,#4d6bfe);outline-offset:1px}
+    `;
+    const glyph = { environments: "▦", quick: "⌘", sftp: "⇄", browser: "◎", diagnostics: "⌁" };
     const terminalScreenModel = (value, rows = 40, columns = 160) => {
       const source = String(value ?? "");
       let screen = Array.from({ length: rows }, () => []);
@@ -726,6 +744,132 @@ window.__ModuleLoader__.load({
         open && failure && !modalOpen ? h("div", { className: "dsh-remote-ops__quickReceipt dsh-remote-ops__dangerAction", role: "alert" }, failure) : null,
         editorView, managerView, confirmView);
     }
+    const webDrafts = new Map();
+    const browserStatus = { running: "执行中", paused: "已暂停", pausing: "等待当前步骤结束", stopping: "等待当前步骤结束后停止", manual: "人工接管中", completed: "步骤已完成", failed: "执行失败", unknown: "结果待确认，请检查网页", stopped: "已停止" };
+    const webTarget = () => ({ kind: "css", value: "" });
+    function BrowserWorkspacePanel({ sessionId }) {
+      const draft = webDrafts.get(sessionId) ?? {};
+      const [data, setData] = useState({ sites: [], flows: [], sessions: [], runtime: {} });
+      const [siteId, setSiteId] = useState(draft.siteId ?? ""); const [browserId, setBrowserId] = useState(draft.browserId ?? "");
+      const [siteForm, setSiteForm] = useState(null); const [password, setPassword] = useState("");
+      const [steps, setSteps] = useState(draft.steps ?? []); const [flowId, setFlowId] = useState(draft.flowId ?? ""); const [savedFlowId, setSavedFlowId] = useState(draft.savedFlowId ?? ""); const [flowName, setFlowName] = useState(draft.flowName ?? "");
+      const [variables, setVariables] = useState(draft.variables ?? {}); const [observation, setObservation] = useState(null);
+      const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [busy, setBusy] = useState(false);
+      const alive = useRef(true), pending = useRef(false), revision = useRef(0), retry = useRef(null);
+      useEffect(() => { webDrafts.set(sessionId, { siteId, browserId, steps, flowId, savedFlowId, flowName, variables }); if (webDrafts.size > 10) webDrafts.delete(webDrafts.keys().next().value); }, [sessionId, siteId, browserId, steps, flowId, savedFlowId, flowName, variables]);
+      const site = data.sites.find(item => item.id === siteId) ?? data.sites.find(item => item.id === data.sessions.find(session => !session.closed)?.siteId) ?? data.sites[0];
+      const session = data.sessions.find(item => !item.closed && item.id === browserId && item.siteId === site?.id) ?? data.sessions.find(item => !item.closed && item.siteId === site?.id);
+      const job = session?.job, live = !!session && !session.closed;
+      const executing = job && ["running", "pausing", "stopping"].includes(job.status);
+      const unfinished = job && ["running", "paused", "pausing", "stopping", "manual"].includes(job.status);
+      const editable = !busy && !executing && session?.holder !== "manual";
+      const load = useCallback(async signal => {
+        const ticket = ++revision.current;
+        const value = await request(`/api/dsh-remote-ops/browser?sessionId=${encodeURIComponent(sessionId ?? "")}`, { signal });
+        if (alive.current && ticket === revision.current) setData(value);
+      }, [sessionId]);
+      useEffect(() => {
+        alive.current = true; let stopped = false, timer; const controller = new AbortController();
+        const poll = async () => {
+          try { if (!document.hidden && !pending.current) await load(controller.signal); }
+          catch (failure) { if (!stopped && failure.name !== "AbortError") setError(failure.message); }
+          if (!stopped) timer = setTimeout(poll, 1500);
+        };
+        void poll();
+        return () => { stopped = true; alive.current = false; clearTimeout(timer); controller.abort(); };
+      }, [load]);
+      const action = async body => {
+        if (pending.current) return;
+        pending.current = true; setBusy(true); setError(""); setNotice(""); revision.current++;
+        try {
+          const value = await request("/api/dsh-remote-ops/browser", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, browserId: session?.id, ...body }) });
+          if (body.action === "run" || body.action === "login") retry.current = null;
+          if (alive.current) { await load(); return value.result; }
+        } catch (failure) { if (alive.current) setError(failure.message); }
+        finally { pending.current = false; if (alive.current) setBusy(false); }
+      };
+      const run = async (mode = "run", login = false) => {
+        const body = login ? { action: "login" } : { action: "run", mode, ...(flowId ? { flowId } : { steps }), variables };
+        const signature = JSON.stringify({ browserId: session?.id, ...body });
+        if (retry.current?.signature !== signature) retry.current = { signature, id: crypto.randomUUID() };
+        await action({ ...body, requestId: retry.current.id });
+      };
+      const control = control => action({ action: "control", control });
+      const input = (label, value, change, props = {}) => h("label", null, h("span", null, label), h("input", { value: value ?? "", onChange: event => change(event.target.value), ...props }));
+      const targetEditor = (label, target, change) => h("fieldset", { className: "dsh-remote-ops__webTarget" }, h("legend", null, label),
+        h("select", { "aria-label": `${label}方式`, value: target.kind, onChange: event => change({ ...target, kind: event.target.value }) }, ["css", "xpath", "role", "label", "text", "placeholder"].map(kind => h("option", { key: kind, value: kind }, kind))),
+        h("input", { "aria-label": label, placeholder: target.kind === "xpath" ? "//button[@type='submit']" : "选择器或精确文本", value: target.value, onChange: event => change({ ...target, value: event.target.value }) }),
+        target.kind === "role" ? input(`${label}名称`, target.name, value => change({ ...target, name: value })) : null,
+        h("details", null, h("summary", null, "iframe"), input(`${label}iframe`, target.frame, value => change({ ...target, frame: value || undefined }), { placeholder: "iframe 的 CSS 选择器（可选）" })));
+      const selectSite = value => { setSiteId(value); setBrowserId(""); setFlowId(""); setSavedFlowId(""); setSteps([]); setFlowName(""); setVariables({}); setObservation(null); };
+      const newSite = item => { setPassword(""); setSiteForm(item ? JSON.parse(JSON.stringify(item)) : { name: "", url: "", browser: "chromium", slowMo: 150, username: "" }); };
+      const changeStep = (index, patch) => { setFlowId(""); setSteps(items => items.map((item, n) => n === index ? { ...item, ...patch } : item)); };
+      const parameters = [...new Set((JSON.stringify(steps).match(/\{\{[a-zA-Z0-9_]+\}\}/g) ?? []).map(value => value.slice(2, -2)))];
+      const editor = siteForm ? h("form", { className: "dsh-remote-ops__webSection", "aria-label": "网站配置", onSubmit: async event => {
+        event.preventDefault(); const result = await action({ action: "site.save", site: siteForm, password });
+        if (result) { selectSite(result.id); setSiteForm(null); setPassword(""); }
+      } }, h("strong", null, siteForm.id ? "编辑网站" : "新增网站"),
+        input("网站名称", siteForm.name, name => setSiteForm({ ...siteForm, name }), { required: true, maxLength: 120 }),
+        input("网站地址", siteForm.url, url => setSiteForm({ ...siteForm, url }), { required: true, type: "url", placeholder: "https://example.com/login" }),
+        h("label", null, "浏览器", h("select", { "aria-label": "浏览器", value: siteForm.browser, onChange: event => setSiteForm({ ...siteForm, browser: event.target.value }) }, h("option", { value: "chromium" }, "专用 Chromium（推荐）"), h("option", { value: "msedge" }, "已安装的 Microsoft Edge"), h("option", { value: "chrome" }, "已安装的 Google Chrome"))),
+        input("动作间隔（毫秒）", siteForm.slowMo, value => setSiteForm({ ...siteForm, slowMo: Number(value) }), { type: "number", min: 0, max: 1500 }),
+        h("details", null, h("summary", null, "自动登录（可选，也可人工登录）"),
+          input("网页登录用户名", siteForm.username, username => setSiteForm({ ...siteForm, username }), { autoComplete: "off" }),
+          input("网页登录密码", password, setPassword, { type: "password", autoComplete: "new-password", placeholder: siteForm.passwordRef ? "已保存；留空保留" : "仅保存至本机 DSH 凭据服务" }),
+          h("button", { type: "button", onClick: () => setSiteForm({ ...siteForm, login: siteForm.login ? undefined : { username: webTarget(), password: webTarget(), submit: webTarget(), success: webTarget() } }) }, siteForm.login ? "移除自动登录定位" : "配置自动登录定位"),
+          siteForm.login ? [ ["username", "用户名定位"], ["password", "密码定位"], ["submit", "登录按钮定位"], ["success", "登录成功定位"] ].map(([key, label]) => h(React.Fragment, { key }, targetEditor(label, siteForm.login[key], value => setSiteForm({ ...siteForm, login: { ...siteForm.login, [key]: value } })))) : null,
+          input("额外凭据域名", (siteForm.allowedOrigins ?? []).join(", "), value => setSiteForm({ ...siteForm, allowedOrigins: value.split(",").map(item => item.trim()).filter(Boolean) }), { placeholder: "https://sso.example.com（逗号分隔）" })),
+        h("div", { className: "dsh-remote-ops__webActions" }, h("button", { disabled: busy, type: "submit" }, "保存网站"), h("button", { type: "button", disabled: busy, onClick: () => { setSiteForm(null); setPassword(""); } }, "取消"))) : null;
+      return h("section", { className: "dsh-remote-ops__web", "aria-label": "网页操作" },
+        h("div", { className: "dsh-remote-ops__webSection" }, h("div", { className: "dsh-remote-ops__webActions" }, h("strong", null, "网页"), h("button", { disabled: busy, onClick: () => newSite() }, "新增网站")),
+          h("p", { className: "dsh-remote-ops__muted" }, "操作在独立浏览器窗口中可见。切换模块或收起侧栏，任务会继续。"),
+          h("label", null, "选择网站", h("select", { "aria-label": "选择网站", value: site?.id ?? "", disabled: busy, onChange: event => selectSite(event.target.value) }, !site ? h("option", { value: "" }, "先新增一个网站") : null, data.sites.map(item => h("option", { key: item.id, value: item.id }, item.name)))),
+          h("div", { className: "dsh-remote-ops__webActions" }, h("button", { disabled: busy || !site || !sessionId, onClick: async () => { const opened = await action({ action: "open", siteId: site.id }); if (opened) setBrowserId(opened.id); } }, busy ? "处理中…" : live ? "显示浏览器" : "打开浏览器"), site ? h("button", { disabled: busy || live, onClick: () => newSite(site) }, "编辑网站") : null,
+            live ? h("button", { disabled: busy, onClick: () => control("close") }, "关闭浏览器") : null),
+          !sessionId ? h("p", null, "请先选择或创建一个 DSH 对话。") : null,
+          h("details", null, h("summary", null, "浏览器准备与网站管理"), h("p", null, data.runtime.chromium ? "Chromium 已就绪" : "首次使用可下载专用 Chromium，也可在网站配置中选择已安装的 Edge / Chrome。"),
+            h("button", { disabled: busy || data.runtime.install?.status === "installing", onClick: () => action({ action: "runtime.install" }) }, data.runtime.install?.status === "installing" ? "下载中…" : "安装 / 检查 Chromium"),
+            data.runtime.install?.output || data.runtime.install?.error ? h("pre", null, data.runtime.install.error ?? data.runtime.install.output) : null,
+            site ? h("button", { disabled: busy || live, onClick: async () => { if (window.confirm(`删除网站“${site.name}”及其流程？`)) { await action({ action: "site.delete", siteId: site.id }); selectSite(""); } } }, "删除网站及流程") : null)),
+        editor,
+        error ? h("div", { className: "dsh-remote-ops__webSection dsh-remote-ops__dangerAction", role: "alert" }, error) : null,
+        notice ? h("div", { className: "dsh-remote-ops__webSection", role: "status" }, notice) : null,
+        live ? h(React.Fragment, null,
+          h("div", { className: "dsh-remote-ops__webSection" }, h("div", { role: "status", "aria-live": "polite" }, h("strong", null, session.holder === "manual" ? "人工接管中" : job ? browserStatus[job.status] : "浏览器已打开"), job ? ` · ${job.index}/${job.count} 步` : ""),
+            session.notice ? h("p", null, session.notice) : null,
+            h("label", null, "当前网页", h("select", { "aria-label": "当前网页", value: session.activePageId, disabled: busy || executing, onChange: event => action({ action: "control", control: "select-page", value: event.target.value }) }, session.pages.map((page, index) => h("option", { key: page.id, value: page.id }, `${index + 1}. ${page.url}`)))),
+            h("div", { className: "dsh-remote-ops__webActions" },
+              h("button", { disabled: busy || !site.login || !!unfinished || session.holder === "manual", onClick: () => run("run", true) }, "自动登录"),
+              h("button", { disabled: busy || session.holder === "manual" || job?.status === "pausing", onClick: () => control("takeover") }, "人工接管"),
+              session.holder === "manual" ? h("button", { disabled: busy, onClick: () => control("release") }, "交还控制") : null,
+              unfinished ? h("button", { disabled: busy || !executing, onClick: () => control("pause") }, "暂停") : null,
+              unfinished ? h("button", { disabled: busy || executing || session.holder === "manual", onClick: () => control("resume") }, "继续") : null,
+              unfinished ? h("button", { disabled: busy || executing || session.holder === "manual", onClick: () => control("step") }, "执行下一步") : null,
+              unfinished ? h("button", { disabled: busy || job.status === "stopping", onClick: () => control("stop") }, "停止任务") : null),
+            session.holder === "manual" ? h("p", null, "现在可在浏览器中完成登录、验证码或其他操作。交还后任务保持暂停，请检查页面再继续。") : null,
+            session.dialog ? h("div", null, h("p", null, `网页弹窗：${session.dialog.message}`), h("button", { disabled: busy, onClick: () => control("dialog-accept") }, "确认网页弹窗"), h("button", { disabled: busy, onClick: () => control("dialog-dismiss") }, "取消网页弹窗")) : null),
+          h("div", { className: "dsh-remote-ops__webSection" }, h("label", null, "已保存流程", h("select", { "aria-label": "已保存流程", value: flowId, disabled: busy, onChange: event => { const flow = data.flows.find(item => item.id === event.target.value); setFlowId(flow?.id ?? ""); setSavedFlowId(flow?.id ?? ""); setFlowName(flow?.name ?? ""); setSteps(flow?.steps ?? []); setVariables({}); } }, h("option", { value: "" }, "新建流程 / 临时操作"), data.flows.filter(item => item.siteId === site.id).map(item => h("option", { key: item.id, value: item.id }, item.name)))),
+            h("details", { open: true }, h("summary", null, `编辑步骤（${steps.length}）`),
+              steps.map((step, index) => h("div", { key: index, className: "dsh-remote-ops__webStep" }, h("div", { className: "dsh-remote-ops__webActions" }, h("strong", null, `步骤 ${index + 1}`), h("select", { "aria-label": `步骤 ${index + 1}动作`, value: step.action, disabled: busy, onChange: event => changeStep(index, { action: event.target.value }) }, ["goto", "click", "fill", "press", "select", "check", "uncheck", "scroll", "wait", "read", "assert"].map(value => h("option", { key: value, value }, value))), h("button", { disabled: busy, onClick: () => { setFlowId(""); setSteps(items => items.filter((_item, n) => n !== index)); } }, `删除步骤 ${index + 1}`)),
+                step.action === "goto" ? input(`步骤 ${index + 1}网址`, step.url, url => changeStep(index, { url })) : targetEditor(`步骤 ${index + 1}定位`, step.target ?? webTarget(), target => changeStep(index, { target })),
+                ["fill", "press", "select", "assert"].includes(step.action) && !step.secretRef ? input(`步骤 ${index + 1}内容`, step.value, value => changeStep(index, { value }), { placeholder: "支持 {{参数}}；密码使用下方凭据引用" }) : null,
+                step.action === "fill" && site.passwordRef ? h("label", { className: "dsh-remote-ops__webCheck" }, h("input", { type: "checkbox", checked: !!step.secretRef, onChange: event => changeStep(index, { secretRef: event.target.checked ? site.passwordRef : undefined, value: undefined }) }), "使用本站保存的密码") : null,
+                step.action === "click" ? h("label", { className: "dsh-remote-ops__webCheck" }, h("input", { type: "checkbox", checked: !!step.expectPopup, onChange: event => changeStep(index, { expectPopup: event.target.checked }) }), "点击后切换到新弹出网页") : null,
+                step.action !== "goto" ? h("button", { disabled: busy || !!executing || !step.target?.value, onClick: async () => { const tested = await action({ action: "target.test", target: step.target }); if (tested) setNotice(tested.unique ? "匹配到 1 个元素，已在浏览器中高亮" : `匹配到 ${tested.count} 个元素，请调整定位`); } }, `测试步骤 ${index + 1}定位`) : null,
+                h("details", null, h("summary", null, "执行后检查"), h("button", { disabled: busy, onClick: () => changeStep(index, { expect: step.expect ? undefined : { target: webTarget(), text: "" } }) }, step.expect ? "移除检查" : "添加结果检查"), step.expect ? h(React.Fragment, null, targetEditor(`步骤 ${index + 1}结果定位`, step.expect.target, target => changeStep(index, { expect: { ...step.expect, target } })), input(`步骤 ${index + 1}预期文本`, step.expect.text, text => changeStep(index, { expect: { ...step.expect, text } }))) : null))),
+              h("button", { disabled: busy || steps.length >= 40, onClick: () => { setFlowId(""); setSteps(items => [...items, { action: "click", target: webTarget() }]); } }, "添加步骤"),
+              input("流程名称", flowName, setFlowName, { placeholder: "保存后可由 Agent 直接调用" }),
+              h("div", { className: "dsh-remote-ops__webActions" }, h("button", { disabled: busy || !flowName.trim() || !steps.length, onClick: async () => { const saved = await action({ action: "flow.save", flow: { id: savedFlowId || undefined, siteId: site.id, name: flowName, steps } }); if (saved) { setFlowId(saved.id); setSavedFlowId(saved.id); setNotice("流程已保存"); } } }, "保存流程"), flowId ? h("button", { disabled: busy, onClick: async () => { if (window.confirm(`删除流程“${flowName}”？`)) { await action({ action: "flow.delete", flowId }); setFlowId(""); setSavedFlowId(""); } } }, "删除流程") : null)),
+            parameters.map(key => h(React.Fragment, { key }, input(`参数 ${key}`, variables[key], value => setVariables({ ...variables, [key]: value })))),
+            h("div", { className: "dsh-remote-ops__webActions" }, h("button", { disabled: !editable || !!unfinished || !steps.length, onClick: () => run() }, "运行流程"), h("button", { disabled: !editable || !!unfinished || !steps.length, onClick: () => run("step") }, "单步准备")),
+            h("small", { className: "dsh-remote-ops__muted" }, "暂停和停止会等待当前动作结束。未配置结果检查的步骤，仅表示动作执行完毕。")),
+          h("div", { className: "dsh-remote-ops__webSection" }, h("strong", null, "执行结果"), job?.error ? h("p", { role: "alert", className: "dsh-remote-ops__dangerAction" }, job.error.message, job.error.note ? " · 操作可能已经生效，不会自动重试。" : "") : null,
+            job?.results.map(item => h("div", { key: item.index, className: "dsh-remote-ops__webResult" }, h("span", null, `${item.index}. ${item.action} · ${item.completion === "checked" ? "检查通过" : item.completion === "observed" ? "已读取" : "动作已完成，业务结果未检查"}`), item.value !== undefined ? h("pre", null, item.value) : null)),
+            h("div", { className: "dsh-remote-ops__webActions" }, h("button", { disabled: busy || !!executing, onClick: async () => { const value = await action({ action: "observe" }); if (value) setObservation(value); } }, "读取当前网页"), h("button", { disabled: busy || !!executing, onClick: () => action({ action: "capture" }) }, "更新截图")),
+            observation ? h("details", { open: true }, h("summary", null, observation.title || "网页内容"), h("pre", null, observation.text), h("details", null, h("summary", null, "元素定位参考"), h("pre", null, JSON.stringify(observation.elements, null, 2)))) : null,
+            session.screenshotAt ? h("details", null, h("summary", null, `最近截图 · ${new Date(session.screenshotAt).toLocaleTimeString()}`), h("img", { alt: "当前网页截图，输入框及已知密码已遮罩", src: `/api/dsh-remote-ops/browser/screenshot?sessionId=${encodeURIComponent(sessionId)}&browserId=${encodeURIComponent(session.id)}&v=${encodeURIComponent(session.screenshotAt)}` })) : null,
+            session.history.length > 1 ? h("details", null, h("summary", null, "近期运行"), session.history.slice(0, -1).reverse().map(item => h("p", { key: item.id }, `${browserStatus[item.status]} · ${item.index}/${item.count} · ${new Date(item.startedAt).toLocaleTimeString()}`))) : null)) : null);
+    }
     function RemoteOpsPanel({ sessionId }) {
       const browserUpload = useSyncExternalStore(browserUploads.subscribe, () => browserUploads.get(sessionId));
       const knownTabs = useRef({ owner: sessionId, tabs: [] });
@@ -1099,7 +1243,7 @@ window.__ModuleLoader__.load({
         error ? h("div", { className: "dsh-remote-ops__error", role: "alert" }, h("div", { className: "dsh-remote-ops__errorBody" }, error.split("\n")[0], h("details", null, h("summary", null, "错误详情"), error), /AUTH|credential|password|认证/i.test(error) ? h("button", { onClick: () => { setDrawer(true); if (activeEnvironment) openEnvironmentForm(activeEnvironment); } }, "检查环境凭据") : /CONTROL|ACTIVE/.test(error) ? h("button", { onClick: () => void workspaceAction({ action: "control", session: activeTerminalId, control: "takeover" }) }, "人工接管") : /OWNER|SESSION_REQUIRED/.test(error) ? h("button", { disabled: !sessionId, onClick: () => void workspaceAction({ action: "activate" }) }, "绑定当前会话") : h("button", { onClick: () => void refreshNow() }, "刷新状态")), h("button", { className: "dsh-remote-ops__errorClose", title: "关闭错误", "aria-label": "关闭错误", onClick: () => setError("") }, "×")) : null,
         pasteView, choicesView, diagnosticsView,
         commandTarget ? h(CommandDialog, { key: sessionId, sessionId, target: commandTarget, onClose: () => setCommandTarget(null) }) : null,
-        h("div", { className: "dsh-remote-ops__workspace" }, h("nav", { className: "dsh-remote-ops__rail", "aria-label": "Remote Ops 导航" }, [["environments", "环境"], ["quick", "快捷命令"], ["sftp", "SFTP"], ["diagnostics", "诊断"]].map(([id, label]) => h("button", { key: id, "data-active": id === "environments" ? drawer : id === "quick" ? quickOpen : module === id, title: label, "aria-label": label, onClick: () => id === "environments" ? (setDrawer((value) => !value), setModule("terminal")) : id === "quick" ? (setDrawer(false), setModule("terminal"), setQuickOpen((value) => !value)) : (setDrawer(false), setModule((value) => value === id ? "terminal" : id)) }, glyph[id]))), h("main", { className: "dsh-remote-ops__main", "data-module": module }, module === "sftp" ? sftpWorkspace : terminal, quickPanel), envDrawer, aux));
+        h("div", { className: "dsh-remote-ops__workspace" }, h("nav", { className: "dsh-remote-ops__rail", "aria-label": "Remote Ops 导航" }, [["environments", "环境"], ["quick", "快捷命令"], ["sftp", "SFTP"], ["browser", "网页"], ["diagnostics", "诊断"]].map(([id, label]) => h("button", { key: id, "data-active": id === "environments" ? drawer : id === "quick" ? quickOpen : module === id, title: label, "aria-label": label, onClick: () => id === "environments" ? (setDrawer((value) => !value), setModule("terminal")) : id === "quick" ? (setDrawer(false), setModule("terminal"), setQuickOpen((value) => !value)) : (setDrawer(false), setModule((value) => value === id ? "terminal" : id)) }, glyph[id]))), h("main", { className: "dsh-remote-ops__main", "data-module": module }, module === "browser" ? h(BrowserWorkspacePanel, { key: sessionId, sessionId }) : module === "sftp" ? sftpWorkspace : terminal, module === "browser" ? null : quickPanel), envDrawer, aux));
     }
     function RemoteOpsTitle() { return h("span", null, "Remote Ops"); }
     function RemoteOpsIcon({ size = 18, active = false }) {
@@ -1125,9 +1269,9 @@ window.__ModuleLoader__.load({
       ctx.effect(() => {
         const beforeUnload = event => { if (browserUploads.hasActive()) { event.preventDefault(); event.returnValue = ""; } };
         window.addEventListener?.("beforeunload", beforeUnload);
-        return () => { window.removeEventListener?.("beforeunload", beforeUnload); browserUploads.dispose(); };
+        return () => { window.removeEventListener?.("beforeunload", beforeUnload); browserUploads.dispose(); webDrafts.clear(); };
       }, "dsh-remote-ops: browser uploads");
-      ctx.effect(() => ctx.locale.register(NS, { zh: { title: "Remote Ops", guideTitle: "远程运维", guideDescription: "管理 SSH 环境、终端和 SFTP" }, en: { title: "Remote Ops", guideTitle: "Remote operations", guideDescription: "Manage SSH environments, terminals and SFTP" } }), "dsh-remote-ops: dictionaries");
+      ctx.effect(() => ctx.locale.register(NS, { zh: { title: "Remote Ops", guideTitle: "远程运维", guideDescription: "管理 SSH 环境、终端、SFTP 和可见网页" }, en: { title: "Remote Ops", guideTitle: "Remote operations", guideDescription: "Manage SSH environments, terminals, SFTP and visible web operations" } }), "dsh-remote-ops: dictionaries");
       const t = ctx.locale.bind(NS);
       ctx.effect(() => { setLauncherError(""); return () => setLauncherError(""); }, "dsh-remote-ops: launcher error state");
       ctx.effect(() => ctx.slots.inject("shell.overlay", () => ctx.slots.register({ name: "shell.overlay", id: "dsh-remote-ops.launch-error", locale: NS }, LauncherErrorOverlay)), "dsh-remote-ops: launcher error overlay");

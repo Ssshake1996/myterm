@@ -6,6 +6,12 @@
 
 客户端兼容 DSH 0.2.0-rc.2 的 `Regular` 图标导出，并回退支持旧版按尺寸命名的图标。v0.2.23 修复图标导出变化导致的 Remote Ops 面板空白；启动失败提示改由 DSH `shell.overlay` 宿主插槽承载，不再向页面 body 创建全局浮层。
 
+## 可见网页操作（v0.3.0）
+
+新增“网页”模块：Playwright 打开独立可见浏览器，支持登录会话、XPath/CSS/role/label/text/placeholder 定位、iframe、新标签页、参数流程、结果检查、暂停/单步/停止和人工接管。任务在切换终端、SFTP、收起右栏或刷新 DSH 网页时继续；插件卸载或 DSH 重启会结束。密码由本机 Harness 凭据服务保存，专用浏览器 profile 按对话与网站隔离。
+
+第一次可从网页模块安装专用 Chromium，或选择本机 Edge / Chrome。DSH 需与用户处于同一交互桌面。详见[网页操作使用说明与边界](WEB.md)；验证码/MFA 需人工完成，暂停不能撤销已发出的操作，失败不会自动重试。
+
 ## 能力
 
 - 按分组保存环境，文件位于 `remote-ops/environments/<分组>/environments.<分组>.json`。
@@ -33,11 +39,11 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.2.30.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.3.0.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops 标题显示 `v0.2.30`。环境与快捷命令数据保留，已有终端连接需重新打开。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops 标题显示 `v0.3.0`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
 
 如果使用已经发布到 registry 的包，则包名为：
 

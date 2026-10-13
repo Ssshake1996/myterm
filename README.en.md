@@ -5,6 +5,12 @@ operations. The repository has been cut over to the plugin boundary: it no
 longer contains the myterm desktop application, a Tauri host, or a second
 Agent kernel.
 
+## Visible web operations (v0.3.0)
+
+The new Web workspace opens a visible Playwright browser for login, XPath/CSS/role/label/text/placeholder actions, frames/popups, reusable parameterized flows, result checks, pause/step/stop and human takeover. Jobs survive workspace changes, Sidebar closure and DSH page reloads; plugin unload or DSH restart ends them. Passwords use local Harness credential references; dedicated profiles are scoped by conversation and site.
+
+Install Chromium from the workspace or choose installed Edge / Chrome. DSH must share your interactive desktop. See [Web usage and boundaries](integrations/dsh-remote-ops/WEB.md). CAPTCHA/MFA remain manual; pause cannot undo a submitted effect and failed actions are never automatically retried.
+
 ## Capabilities
 
 - The `Remote Ops` action at the bottom of the DSH Web left sidebar opens the native right Sidebar, preserving the conversation and its draft. Repeated clicks reuse the existing tab. Expanded left-sidebar entries align the icon and label to the left with native host entries; collapsed entries keep a centered icon and Tooltip.
@@ -29,11 +35,11 @@ Agent kernel.
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.2.30.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.3.0.tgz
 dsh web
 ```
 
-For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.2.30` in the Remote Ops header. Saved environments and quick commands remain; terminal connections must be reopened.
+For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.3.0` in the Remote Ops header. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
 
 Click `Remote Ops` at the bottom of the left sidebar to open the native right Sidebar while preserving the main conversation. It uses the official `sidebar.footer.action` seat and `sidebarRight.openTab`; it no longer registers a `sidebar.panellist` / `main` replacement. Tested on DSH `0.2.0-rc.2`; other host versions remain untested. If the entry is missing, check the installation profile, host/plugin versions and whether the old process exited. On narrow screens DSH may present its right Sidebar full screen; collapsing it returns to the original conversation.
 
@@ -73,15 +79,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.2.30
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.3.0
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.2.30
-node scripts/release-dsh-remote-ops.mjs 0.2.30 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.3.0
+node scripts/release-dsh-remote-ops.mjs 0.3.0 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and
