@@ -17,6 +17,7 @@ async function fixture(t) {
       const page=new EventEmitter(); let url='about:blank';
       Object.assign(page,{url:()=>url,mainFrame:()=>page,isClosed:()=>false,title:async()=> 'Fixture',bringToFront:async()=>{},
         goto:async value=>{url=value;page.emit('framenavigated',page);},close:async()=>page.emit('close'),
+        setViewportSize:async size=>inputs.push(['viewport',size]),
         locator:()=>({}),getByText:()=>({}),screenshot:async()=>Buffer.from('png'),
         evaluate:async()=>({text:'fixture',elements:[]}),
         mouse:{click:async(...v)=>inputs.push(['click',...v]),wheel:async(...v)=>inputs.push(['wheel',...v])},
@@ -40,6 +41,40 @@ test('a URL opens without a saved site and defaults to embedded; active selectio
   assert.equal(w.snapshot('a').activeBrowserId,one.id);assert.equal(w.session('a').id,one.id);
   assert.throws(()=>w.session('b',one.id),/BROWSER_SESSION_NOT_FOUND/);
   await assert.rejects(w.openUrl('a','javascript:alert(1)'),/BROWSER_URL_INVALID/);
+});
+
+test('panel viewport resizes are owner scoped, invalidate old coordinates and deduplicate unchanged sizes',async t=>{
+  const {w,inputs}=await fixture(t),one=await w.openUrl('a','https://example.test/'),r=w.session('a',one.id);
+  const frame=await w.frame('a',one.id,{});
+  await w.resizeViewport('a',one.id,{mode:'panel',width:390,height:480});
+  assert.deepEqual(inputs,[['viewport',{width:390,height:480}]]);
+  assert.ok(r.revision>frame.revision);
+  await assert.rejects(w.input('a',one.id,{kind:'click',x:10,y:10,pageId:frame.pageId,revision:frame.revision}),/BROWSER_FRAME_STALE/);
+  await w.resizeViewport('a',one.id,{mode:'panel',width:390,height:480});assert.equal(inputs.length,1);
+  await assert.rejects(w.resizeViewport('b',one.id,{mode:'panel',width:390,height:480}),/BROWSER_SESSION_NOT_FOUND/);
+  await assert.rejects(w.resizeViewport('a',one.id,{mode:'panel',width:Infinity,height:480}),/BROWSER_VIEWPORT_INVALID/);
+  await w.resizeViewport('a',one.id,{mode:'desktop'});assert.deepEqual(inputs.at(-1),['viewport',{width:1024,height:768}]);
+});
+
+test('new tabs inherit the selected viewport and resizing never reloads a page or clears its form',async t=>{
+  const {w,inputs}=await fixture(t),one=await w.openUrl('a','https://example.test/'),r=w.session('a',one.id);
+  await w.resizeViewport('a',one.id,{mode:'panel',width:420,height:500});
+  const first=r.pages.get(r.activePageId),url=first.url();first.unsaved='draft';
+  await w.navigate('a',one.id,'new-page');await new Promise(setImmediate);
+  assert.equal(first.url(),url);assert.equal(first.unsaved,'draft');
+  assert.deepEqual(inputs.at(-1),['viewport',{width:420,height:500}]);
+  assert.equal(w.publicSession(r).viewport.mode,'panel');
+});
+
+test('an advisory resize queued before a display switch is discarded without failing or reviving the closed view',async t=>{
+  const {w,inputs}=await fixture(t),one=await w.openUrl('a','https://example.test/'),r=w.session('a',one.id);
+  let release;r.inputQueue=new Promise(resolve=>{release=resolve;});
+  const pending=w.resizeViewport('a',one.id,{mode:'panel',width:390,height:480});
+  r.switching=true;release();
+  assert.equal((await pending).viewportSkipped,true);assert.equal(inputs.length,0);
+  r.switching=false;await w.control('a',one.id,'close');
+  assert.equal((await w.resizeViewport('a',one.id,{mode:'panel',width:390,height:480})).viewportSkipped,true);
+  assert.equal(r.closed,true);assert.equal(inputs.length,0);
 });
 test('display preferences persist and legacy saved-site opens remain visible',async t=>{
   const {w,root,launches}=await fixture(t);

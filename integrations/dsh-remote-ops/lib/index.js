@@ -25,6 +25,7 @@ export function apply(ctx) {
     await state.browser.dispose();
     for (const job of state.commands.values()) job.controller.abort();
     await Promise.allSettled([...state.commands.values()].map((job) => job.done));
+    state.commandHistory?.clear();
     await state.transfers.close();
     await state.localSession?.close("dsh-remote-ops disposed").catch(() => {});
     for (const record of state.sessions.values()) await ctx.terminals.kill(record.owner, record.sessionId, "dsh-remote-ops disposed").catch(() => {});

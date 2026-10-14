@@ -81,10 +81,14 @@ test("terminal rendering and transport invariants remain present", () => {
   assert.match(server, /LC_CTYPE/);
 });
 
-test("terminal controls expose usable focus and clear panel toggles", () => {
+test("terminal controls expose usable focus and accessible workspace tabs", () => {
   assert.match(client, /terminalInputRef\.current\?\.focus\(\{ preventScroll: true \}\)/);
   assert.match(client, /terminalInputRef\.current\?\.focus\(\)/);
-  assert.match(client, /setDrawer\(\(value\) => !value\)/);
+  assert.match(client, /role: "tablist", "aria-label": "Remote Ops 工作区"/);
+  assert.match(client, /role: "tab"/);
+  assert.match(client, /"aria-controls": "remote-ops-panel-"/);
+  assert.match(client, /ArrowRight:|ArrowLeft:/);
+  assert.match(client, /"aria-label": "环境管理", "aria-expanded": drawer/);
   assert.match(client, /dsh-remote-ops__headAction/);
   assert.match(client, /dsh-remote-ops__drawerClose/);
   assert.match(client, /aria-expanded/);

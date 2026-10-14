@@ -17,7 +17,7 @@ function loadClientFunction(name, endMarker, includeFrom = name, globals = {}) {
 }
 
 const terminalScreenModel = loadClientFunction("terminalScreenModel", "    const terminalVisibleText");
-const terminalVisibleText = loadClientFunction("terminalVisibleText", "    const ask =", "terminalScreenModel");
+const terminalVisibleText = loadClientFunction("terminalVisibleText", "    const parseSshCommand =", "terminalScreenModel");
 const parseSshCommand = loadClientFunction("parseSshCommand", "\n    const terminalUsesGrid");
 const environmentProfileValues = loadClientFunction("environmentProfileValues", "\n    // end environment form helpers");
 const environmentProfileFromForm = loadClientFunction("environmentProfileFromForm", "\n    // end environment form helpers");
@@ -110,6 +110,14 @@ test("VT screen model preserves cursor overwrites and scrollback", () => {
   assert.equal(terminalVisibleText("old\rnew"), "new");
   assert.equal(terminalVisibleText("one\r\ntwo\r\nthree"), "one\ntwo\nthree");
   assert.equal(terminalVisibleText("\u001b[2J\u001b[Hprompt>"), "prompt>");
+});
+
+test("plain and SGR log rendering preserves VT wrapping, scrollback, blank lines and cursor positions",()=>{
+  for(const columns of [5,10,80,160]) for(const rows of [3,40]) for(const source of ["", "abc", " ", "\r\n\r\nabc\r\n", "hello\r\n"+"abcde".repeat(50), "\x1b[32mhello\x1b[0m\r\n"+"wide log ".repeat(80), "first\nsecond"]){
+    // Erase-to-end at the final cursor is a no-op for append-only logs and exercises the full VT path.
+    assert.deepEqual(terminalScreenModel(source,rows,columns),terminalScreenModel(source+"\x1b[0K",rows,columns),JSON.stringify({source,rows,columns}));
+  }
+  assert.equal(terminalScreenModel("first\rX",3,5).text,"Xirst");
 });
 
 test("VT screen model exposes the real cursor position", () => {
@@ -229,7 +237,7 @@ test("quick buttons dispatch directly once and confirmation never follows a targ
   });
   const props = { commands: [{ id: "one", name: "状态", command: "echo x", revision: "v1", pinned: true, confirm: false }], groups: [], owner: "owner", target: { sessionId: "one", name: "SSH" }, frame: { streamId: "stream" }, ready: true, open: true, height: 190, setOpen() {}, setHeight() {}, inputPending: () => false, refresh: async () => {} };
   const tree = () => { cursor = 0; return render(props); };
-  const find = (node, label) => node?.props?.["aria-label"] === label ? node : node?.children?.map(child => find(child, label)).find(Boolean);
+  const find = (node, label) => node?.props?.["aria-label"] === label || node?.props?.closeLabel === label ? node : node?.children?.map(child => find(child, label)).find(Boolean);
   const button = find(tree(), "执行 状态");
   const sending = button.props.onClick({ detail: 1 });
   button.props.onClick({ detail: 1 });
@@ -247,7 +255,7 @@ test("quick buttons dispatch directly once and confirmation never follows a targ
   props.target = { sessionId: "two", name: "Other" }; tree();
   await confirm.props.onClick();
   assert.equal(calls.length, 1);
-  find(tree(), "关闭快捷命令弹窗").props.onClick();
+  find(tree(), "关闭快捷命令弹窗").props.onClose();
   props.action = async () => ({ pinned: false });
   find(tree(), "管理快捷命令").props.onClick();
   find(tree(), "显示按钮 状态").props.onChange({ target: { checked: false } });
@@ -279,7 +287,7 @@ test("file path edits wait for an in-flight endpoint change", () => {
   const render = loadClientFunction("SftpWorkspace", "\n    function CommandDialog", "fileEndpoint", {
     h: (tag, props, ...children) => ({ tag, props, children }),
     useState: initial => { let value = typeof initial === "function" ? initial() : initial; if (++hook === 2) value = value.map(pane => ({ ...pane, loading: true })); return [value, () => {}]; },
-    useRef: current => ({ current }), useEffect() {}, useCallback: value => value,
+    useRef: current => ({ current }), useEffect() {}, useCallback: value => value, useMemo: fn => fn(), FileIcon: "svg",
     useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
     localStorage: { getItem: () => null },
     IconRefreshOutline16: "refresh", IconDownloadOutline16: "download", IconFolderClose16: "folder",
@@ -300,10 +308,10 @@ test("revealing a transferred file preserves the target pane sort preference", a
       let value = typeof initial === "function" ? initial() : initial;
       const index = ++hook;
       if (index === 2) panes = value = value.map((pane, side) => ({ ...pane, path: side ? "/out" : "/in", sort: "size" }));
-      if (index === 7) value = [task];
+      if (index === 9) value = [task];
       return [value, update => { value = typeof update === "function" ? update(value) : update; if (index === 2) panes = value; }];
     },
-    useRef: current => ({ current }), useEffect() {}, useCallback: value => value,
+    useRef: current => ({ current }), useEffect() {}, useCallback: value => value, useMemo: fn => fn(), FileIcon: "svg",
     useSyncExternalStore: (_subscribe, snapshot) => snapshot(),
     request: async () => ({ path: "/out", entries: [{ name: "done.txt", type: "-", size: 4 }] }),
     window: { requestAnimationFrame: callback => callback() }, localStorage: { getItem: () => null },

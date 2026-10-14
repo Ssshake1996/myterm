@@ -45,8 +45,18 @@ async function runScenario(browser, scenario, directory) {
   const steps = [];
   const shots = [];
   const problems = [];
+  const httpChecks = [];
   page.on("console", (message) => { if (message.type() === "error" && !message.text().includes("Failed to load resource")) problems.push({ kind: "console", text: message.text() }); });
-  page.on("response", (response) => { if (response.status() >= 400 && !response.url().endsWith("/favicon.ico")) problems.push({ kind: "http", text: `${response.status()} ${response.url()}` }); });
+  page.on("response", response => {
+    if (response.status() < 400 || response.url().endsWith("/favicon.ico")) return;
+    httpChecks.push((async () => {
+      let action = "", code = "";
+      try { action = response.request().postDataJSON()?.action ?? ""; } catch { /* GET/binary request. */ }
+      try { code = (await response.json()).code ?? ""; } catch { /* Non-JSON error. */ }
+      // Preserve the action/code, never request bodies, credentials or page/command output.
+      problems.push({ kind: "http", text: `${response.status()} ${response.url()} · ${action} ${code}`.trim() });
+    })());
+  });
   page.on("pageerror", (error) => problems.push({ kind: "pageerror", text: String(error) }));
   page.on("dialog", async (dialog) => { if (dialog.type() === "prompt") await dialog.dismiss(); else await dialog.accept(); });
   const started = Date.now();
@@ -75,6 +85,7 @@ async function runScenario(browser, scenario, directory) {
     await page.locator("html[data-e2e-ready=true]").waitFor();
     shots.push(await shot(page, directory, `${scenario.id}-打开`));
     await scenario.run(t);
+    await Promise.allSettled(httpChecks);
     if (problems.length) throw new Error(problems.map((problem) => `${problem.kind}: ${problem.text}`).join("\n"));
   } catch (caught) {
     status = "failed";

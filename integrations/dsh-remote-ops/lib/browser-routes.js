@@ -22,6 +22,7 @@ export function registerBrowserRoutes(ctx, state) {
         case 'open-url': result=await workspace.openUrl(owner,body.url,{display:body.display,browser:body.browser});break;
         case 'navigate': result=await workspace.navigate(owner,body.browserId,body.navigation??'goto',body.url);break;
         case 'input': result=await workspace.input(owner,body.browserId,body.input);break;
+        case 'viewport': result=await workspace.resizeViewport(owner,body.browserId,body.viewport);break;
         case 'display': result=await workspace.changeDisplay(owner,body.browserId,body.display);break;
         case 'select-browser': {const record=workspace.session(owner,body.browserId);workspace.active.set(owner,record.id);result=workspace.publicSession(record);break;}
         case "site.save": result = await workspace.saveSite(body.site, body.password); break;

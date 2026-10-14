@@ -5,7 +5,19 @@ operations. The repository has been cut over to the plugin boundary: it no
 longer contains the myterm desktop application, a Tauri host, or a second
 Agent kernel.
 
-## Shared web operations (v0.4.0)
+## Workspaces and interaction (v0.5.0)
+
+- **终端 / 网页 / 文件** workspace tabs support arrows and Home/End. Environment management opens inside the panel; **更多设置** contains diagnostics, refresh and updates. The native DSH right Sidebar and the main conversation are preserved.
+- The module, selected terminal and environment filter recover per conversation after closing/reopening or refreshing. File path/sort/scroll/bookmarks keep their existing persistence. File filters, path drafts and reconciled selections survive module/panel switches within one webpage; a full reload fetches fresh entries and does not restore old selections.
+- **终端显示设置** contains font size, wrapping and PTY size; **状态详情** contains Agent binding and tool receipts. ASCII/SGR logs use a fast parser; cursor control, Unicode and full-screen programs retain the VT model.
+- Embedded pages default to a viewport following the panel, with an optional 1024×768 desktop viewport. Resizing does not deliberately navigate/reload; the website's responsive behavior can still change content. Independent windows use their own size. Page titles and close-current-tab are available; display switching warns that pages reload and unsaved inputs can be lost.
+- Files add filtering, select-all, Shift range selection and Enter for directories. Narrow panels switch between source A and target B, copy labels identify the destination, and finished transfer history is collapsed. Browser upload/download refers to the browser device, distinct from the DSH host.
+- UI independent commands run in the backend and survive closing the result view, switching modules and refreshing DSH Web. Reopening reads the current target's latest job/result. Completed results are memory-only, capped at 32 records and ten minutes; command drafts survive only within the current webpage. DSH restart does not restore/replay commands. A timeout/unknown remote exit never proves process termination.
+- Panel-local dialogs replace browser prompts/confirmations, contain Tab and close with Escape/restore focus. The main conversation remains usable. Environment validation and directory retry appear beside the operation; diagnostics show readable event summaries with expandable JSON.
+
+Human and Agent input stays shared. No takeover/pause/stop buttons or corresponding tools were added. The separately deferred SSH argument-space issue is outside this release.
+
+## Shared web operations (v0.5.0)
 
 Type a URL in **Web / 网页** and press Enter. No saved site is required. Choose an embedded interactive live view or an independent browser window; the Agent uses the same selected browser through the DSH conversation. Human input remains available during automation, with no takeover or handback.
 
@@ -16,7 +28,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 ## Capabilities
 
 - The `Remote Ops` action at the bottom of the DSH Web left sidebar opens the native right Sidebar, preserving the conversation and its draft. Repeated clicks reuse the existing tab. Expanded left-sidebar entries align the icon and label to the left with native host entries; collapsed entries keep a centered icon and Tooltip.
-- Narrow navigation rail and a hideable environment drawer.
+- Three workspace tabs, an in-panel environment view and consolidated utility settings.
 - Create, edit, delete, group, and persist SSH environments.
 - Multiple SSH terminal tabs with the terminal as the primary workspace.
 - A lightweight VT screen model handles ConPTY clears, cursor movement, and carriage-return updates; terminal output is transferred incrementally and remains scrollable to the final line.
@@ -28,7 +40,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 - SFTP directory listing, file read/write, mkdir, delete, and rename.
 - Browser upload batches continue across terminal, SFTP, and plugin panel switches within the same browser page; return to inspect progress or cancel. Closing/reloading the page, unloading the plugin, or stopping DSH may interrupt uploads; byte-level resume is not supported.
 - Directory refreshes skip historical completions, merge new completions, and serialize requests per pane while retaining entries, scroll position, and selections that still exist.
-- Narrow file workspaces scroll vertically to both panes and keep usable file-list height even with a long transfer history.
+- Narrow file workspaces switch between source/target and collapse finished history to retain usable file-list height.
 - Sequential Multi-SSH tools, Agent diagnostics, and Harness credential references.
 - The Sidebar shows the installed plugin version, checks GitHub Releases, and can install an update with one click; restart DSH after the upgrade.
 
@@ -37,11 +49,11 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.4.0.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.5.0.tgz
 dsh web
 ```
 
-For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.4.0` in the Remote Ops header. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
+For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.5.0` in the Remote Ops header. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
 
 Click `Remote Ops` at the bottom of the left sidebar to open the native right Sidebar while preserving the main conversation. It uses the official `sidebar.footer.action` seat and `sidebarRight.openTab`; it no longer registers a `sidebar.panellist` / `main` replacement. Tested on DSH `0.2.0-rc.2`; other host versions remain untested. If the entry is missing, check the installation profile, host/plugin versions and whether the old process exited. On narrow screens DSH may present its right Sidebar full screen; collapsing it returns to the original conversation.
 
@@ -81,15 +93,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.4.0
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.5.0
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.4.0
-node scripts/release-dsh-remote-ops.mjs 0.4.0 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.5.0
+node scripts/release-dsh-remote-ops.mjs 0.5.0 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and
@@ -111,7 +123,7 @@ For handoff and a ready-to-copy prompt for a new development conversation, see
 - DeepSeek Harness owns the Agent Loop, Sessions, Goals, Skills, MCP,
   permissions, and local tools.
 - This plugin provides SSH, interactive terminals, SFTP, quick commands,
-  Multi-SSH coordination, and remote diagnostics.
+  Multi-SSH coordination, visible web operations, and remote diagnostics.
 - The repository no longer builds or starts the myterm desktop application.
 
 See the [Chinese plugin guide](integrations/dsh-remote-ops/README.zh-CN.md),

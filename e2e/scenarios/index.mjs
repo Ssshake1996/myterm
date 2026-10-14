@@ -19,7 +19,7 @@ async function typeInTerminal(page, text) {
 async function createDeviceEnvironment(t, name) {
   const info = await t.info();
   await t.step(`保存环境 ${name}`, async () => {
-    await t.page.getByRole("button", { name: "环境", exact: true }).click();
+    await t.page.getByRole("button", { name: "环境管理", exact: true }).click();
     await t.page.getByRole("button", { name: "+ 环境" }).click();
     await t.page.getByLabel("显示名称").fill(name);
     await t.page.getByLabel("主机地址").fill(info.device.host);
@@ -31,11 +31,11 @@ async function createDeviceEnvironment(t, name) {
   });
 }
 
-export const scenarios = [liveBrowserScenario,
+export const scenarios = [workspaceUiScenario,liveBrowserScenario,
   websiteScenario,
   {
     id: "sftp-narrow",
-    title: "窄屏传输历史不挤掉文件列表，两侧目录均可滚动访问",
+    title: "窄屏传输历史不挤掉文件列表，来源与目标可切换访问",
     viewport: { width: 390, height: 844 },
     async run(t) {
       await openPanel(t);
@@ -46,13 +46,14 @@ export const scenarios = [liveBrowserScenario,
         if (body.action === "transfers") return route.fulfill({ json: { tasks: Array.from({ length: 20 }, (_, index) => ({ id: "history-" + index, names: ["long-upload-name-" + index + ".txt"], status: "completed", finishedAt: "now", bytes: 100, target: { kind: "host", path: "/narrow" } })) } });
         return route.continue();
       });
-      await t.step("目录保留可用高度，目标 B 可滚动进入视口", async () => {
-        await t.page.getByRole("button", { name: "SFTP", exact: true }).click();
+      await t.step("目录保留可用高度，目标 B 可切换访问", async () => {
+        await t.page.getByRole("tab", { name: "文件", exact: true }).click();
         await t.page.getByLabel("文件来源 A").getByLabel("选择 narrow-0.txt", { exact: true }).waitFor();
-        await t.page.getByLabel("传输任务", { exact: true }).getByText("long-upload-name-19.txt", { exact: false }).waitFor();
-        const sizes = await t.page.locator(".dsh-remote-ops__sftpEntries").evaluateAll(nodes => nodes.map(node => node.clientHeight));
+        await t.page.getByLabel("传输任务", { exact: true }).getByText("已结束的传输 · 20", { exact: true }).waitFor();
+        const sizes = await t.page.locator(".dsh-remote-ops__sftpPane[data-focused=true] .dsh-remote-ops__sftpEntries").evaluateAll(nodes => nodes.map(node => node.clientHeight));
         if (sizes.some(height => height < 80)) throw new Error(`file lists collapsed to ${sizes.join(",")}px`);
-        await t.page.getByLabel("路径 B", { exact: true }).scrollIntoViewIfNeeded();
+        await t.page.getByRole("button", { name: "目标 B", exact: true }).click();
+        await t.page.getByLabel("路径 B", { exact: true }).waitFor({state:"visible"});
         const inView = await t.page.getByLabel("路径 B", { exact: true }).evaluate(node => { const pane = node.closest(".dsh-remote-ops__sftpSplit").getBoundingClientRect(), rect = node.getBoundingClientRect(); return rect.top >= pane.top && rect.bottom <= pane.bottom; });
         if (!inView) throw new Error("target B path is clipped");
         if (await t.page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error("narrow SFTP overflows horizontally");
@@ -71,7 +72,7 @@ export const scenarios = [liveBrowserScenario,
       const payloads = [{ name: "navigation-one.txt", mimeType: "text/plain", buffer: Buffer.from("FIRST-UPLOAD-".repeat(10000)) }, { name: "navigation-two.txt", mimeType: "text/plain", buffer: Buffer.from("SECOND-UPLOAD\n") }];
       try {
         await t.step("开始批量上传并切换终端、关闭和重新打开运维面板", async () => {
-          await t.page.getByRole("button", { name: "SFTP", exact: true }).click();
+          await t.page.getByRole("tab", { name: "文件", exact: true }).click();
           const fileRoot = (await t.info()).fileRoot;
           await t.page.getByLabel("路径 A", { exact: true }).fill(fileRoot);
           const directoryResponse = t.page.waitForResponse(response => { try { const body = response.request().postDataJSON(); return response.url().includes("/workspace") && body.action === "files" && body.endpoint.path === fileRoot; } catch { return false; } });
@@ -123,7 +124,7 @@ export const scenarios = [liveBrowserScenario,
       });
       try {
         await t.step("首次读取历史任务只加载两个面板", async () => {
-          await t.page.getByRole("button", { name: "SFTP", exact: true }).click();
+          await t.page.getByRole("tab", { name: "文件", exact: true }).click();
           await t.page.getByLabel("文件来源 A").getByLabel("选择 file-000.txt", { exact: true }).check();
           await pause(t.page, 1700);
           if (listRequests !== 2) throw new Error(`historical jobs caused ${listRequests} directory requests`);
@@ -188,7 +189,9 @@ export const scenarios = [liveBrowserScenario,
         await t.page.getByLabel("终端输出").getByText("Welcome to Fake Array").waitFor();
       });
       await t.step("把 PTY 调到 200×50", async () => {
+        await t.page.getByLabel("终端显示设置",{exact:true}).click();
         await t.page.getByLabel("终端大小").selectOption("50x200");
+        await t.page.getByLabel("终端显示设置",{exact:true}).click();
         const deadline = Date.now() + 5000;
         while (!(await t.info()).device.windows.some(item => item.rows === 50 && item.cols === 200)) {
           if (Date.now() >= deadline) throw new Error("PTY size did not reach 200x50");
@@ -202,6 +205,7 @@ export const scenarios = [liveBrowserScenario,
         const before = (await t.info()).device.commands;
         t.acceptNextDialog();
         await t.page.getByRole("button", { name: "重新连接" }).click();
+        await t.page.getByRole("dialog",{name:"确认操作",exact:true}).getByRole("button",{name:"确认",exact:true}).click();
         await t.page.getByText("连接已断开").waitFor({ state: "hidden" });
         await t.page.getByLabel("终端输出").getByText("Welcome to Fake Array").waitFor();
         const after = (await t.info()).device.commands;
@@ -270,3 +274,4 @@ export const scenarios = [liveBrowserScenario,
   },
 ];
 import { liveBrowserScenario } from './browser-live.mjs';
+import { workspaceUiScenario } from './workspace-ui.mjs';

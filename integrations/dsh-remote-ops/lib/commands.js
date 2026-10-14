@@ -16,10 +16,14 @@ const bounded = limit => {
   };
 };
 
-// This channel never writes to, or infers completion from, the interactive PTY.
-export async function executeCommand({ subprocess, client, command, cwd, signal, timeoutMs = 30000, maxBytes = 65536, platform = process.platform }) {
+export function validateCommand(command, timeoutMs = 30000, maxBytes = 65536) {
   if (typeof command !== "string" || !command.trim() || command.length > 32768 || command.includes("\0")) throw failure("COMMAND_INVALID", "Command must contain 1-32768 characters without NUL");
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 300000 || !Number.isSafeInteger(maxBytes) || maxBytes < 1024 || maxBytes > 262144) throw failure("COMMAND_LIMIT_INVALID", "Timeout must be 1-300000 ms; output limit 1024-262144 bytes per stream");
+}
+
+// This channel never writes to, or infers completion from, the interactive PTY.
+export async function executeCommand({ subprocess, client, command, cwd, signal, timeoutMs = 30000, maxBytes = 65536, platform = process.platform }) {
+  validateCommand(command, timeoutMs, maxBytes);
   const started = Date.now(), stdout = bounded(maxBytes), stderr = bounded(maxBytes);
   let stop, outcome, stopped = false, cause, abortResolve, timer;
   const aborted = new Promise(resolve => { abortResolve = resolve; });

@@ -15,7 +15,7 @@ export class BrowserWorkspace extends BrowserSessions {
     this.sites = []; this.flows = []; this.sessions = new Map(); this.openings = new Map(); this.receipts = new Map();
     this.writes = Promise.resolve(); this.mutations = Promise.resolve(); this.disposed = false;
     this.ready = this.load(); void this.ready.catch(() => {});
-    this.active = new Map(); this.ownerSignals = new Map(); this.preferences = { display: 'embedded', browser: 'chromium' };
+    this.active = new Map(); this.ownerSignals = new Map(); this.preferences = { display: 'embedded', browser: 'chromium', viewport: 'panel' };
   }
   async load() {
     await mkdir(this.root, { recursive: true });
@@ -28,8 +28,8 @@ export class BrowserWorkspace extends BrowserSessions {
   }
   validatePreferences(input) {
     const value={...this.preferences,...input};
-    if(!['embedded','window'].includes(value.display)||!['chromium','msedge','chrome'].includes(value.browser))throw browserError('BROWSER_DISPLAY_INVALID','Choose an embedded/window display and Chromium/Edge/Chrome');
-    return {display:value.display,browser:value.browser};
+    if(!['embedded','window'].includes(value.display)||!['chromium','msedge','chrome'].includes(value.browser)||!['panel','desktop'].includes(value.viewport??'panel'))throw browserError('BROWSER_DISPLAY_INVALID','Choose an embedded/window display, Chromium/Edge/Chrome and a panel/desktop viewport');
+    return {display:value.display,browser:value.browser,viewport:value.viewport??'panel'};
   }
   savePreferences(input) { return this.mutate(async()=>{await this.ready;const value=this.validatePreferences(input);await this.persist('preferences.json',value);this.preferences=value;return value;}); }
   async openUrl(owner,value,options={}) {
@@ -44,6 +44,25 @@ export class BrowserWorkspace extends BrowserSessions {
   async frame(owner,id,options) {const r=this.session(owner,id);r.view??=new BrowserView(r);return r.view.frame(options);}
   input(owner,id,input) {
     const r=this.session(owner,id),pending=(r.inputQueue??Promise.resolve()).then(()=>browserInput(this,r,input));
+    r.inputQueue=pending.catch(()=>{});return pending;
+  }
+  async resizeViewport(owner,id,input) {
+    const r=this.session(owner,id),mode=input?.mode??r.viewport?.mode??'panel';
+    const size=mode==='desktop'?{width:1024,height:768}:{width:input?.width,height:input?.height};
+    if(!['panel','desktop'].includes(mode)||!Number.isSafeInteger(size.width)||!Number.isSafeInteger(size.height)||size.width<240||size.width>1600||size.height<180||size.height>1200) return Promise.reject(browserError('BROWSER_VIEWPORT_INVALID','Viewport must be 240–1600 × 180–1200 pixels'));
+    const pending=(r.inputQueue??Promise.resolve()).then(async()=>{
+      // An observer may finish after its viewer closes or switches to a window.
+      // A valid, owner-scoped layout hint then becomes a no-op, never a new browser.
+      if(r.closed||r.switching||r.display!=='embedded')return {...this.publicSession(r),viewportSkipped:true};
+      if(r.viewport?.mode===mode&&r.viewport.width===size.width&&r.viewport.height===size.height)return this.publicSession(r);
+      // Discard coordinates from the old viewport before accepting another input.
+      r.revision=(r.revision??0)+1;
+      try { await r.view?.stop(); await Promise.all([...r.pages.values()].map(page=>page.setViewportSize(size))); }
+      catch(error){if(r.closed||r.switching)return {...this.publicSession(r),viewportSkipped:true};throw error;}
+      r.viewport={mode,...size};
+      if(this.preferences.viewport!==mode)await this.savePreferences({viewport:mode});
+      return this.publicSession(r);
+    });
     r.inputQueue=pending.catch(()=>{});return pending;
   }
   bindOwnerSignal(owner,signal) {

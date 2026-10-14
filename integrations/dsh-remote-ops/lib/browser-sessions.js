@@ -26,6 +26,9 @@ export class BrowserSessions {
     for (const [id, existing] of record.pages) if (existing === page) return id;
     const id = fixedId??randomUUID(); record.pages.set(id, page); if (!record.activePageId || finished(record.job)) record.activePageId = id;
     const context=record.context;
+    const title=()=>{const url=page.url();if(typeof page.title==='function')void page.title().then(value=>{if(record.context===context&&record.pages.get(id)===page&&page.url()===url){record.pageTitles??=new Map();record.pageTitles.set(id,value);}}).catch(()=>{});};
+    page.on('domcontentloaded',title);title();
+    if(record.display==='embedded'&&record.viewport&&(record.viewport.width!==1024||record.viewport.height!==768))void page.setViewportSize?.({width:record.viewport.width,height:record.viewport.height}).catch(()=>{});
     page.on('framenavigated',frame=>{if(context===record.context&&id===record.activePageId&&frame===page.mainFrame()){record.revision=(record.revision??0)+1;record.navigatedAt=Date.now();record.view?.invalidate();}});
     page.on("dialog", dialog => { if(context===record.context)record.dialog = dialog; });
     page.on("close", () => { if(record.switching||record.context!==context)return;record.pages.delete(id); if (record.activePageId === id) record.activePageId = record.pages.keys().next().value; if (!record.pages.size) { record.closed = true; record.job?.wake?.();void this.closeRecord(record); } });
@@ -52,7 +55,7 @@ export class BrowserSessions {
       const display=options.display??'window';
       const context = await this.launch(site, owner,display);
       if (this.disposed) { await context.close(); throw browserError("BROWSER_DISPOSED", "The plugin is unloading"); }
-      const record = { id: randomUUID(), owner, site, context, display, revision:0, pages: new Map(), secrets: new Set(), secretTargets: [], closed: false, createdAt: new Date().toISOString(), history: [] };
+      const record = { id: randomUUID(), owner, site, context, display, viewport:{mode:this.preferences?.viewport??'panel',width:1024,height:768}, revision:0, pages: new Map(), secrets: new Set(), secretTargets: [], closed: false, createdAt: new Date().toISOString(), history: [] };
       this.sessions.set(record.id, record);
       this.active?.set(owner,record.id);
       this.bindContext(record,context);
@@ -68,8 +71,8 @@ export class BrowserSessions {
     try { return await opening; } finally { this.openings.delete(key); }
   }
   publicSession(record) {
-    return { id: record.id, siteId: record.site.id, name: record.site.name, display:record.display??'window', temporary:!!record.site.temporary, revision:record.revision??0, closed: record.closed, holder: "shared", activePageId: record.activePageId,
-      pages: [...record.pages].map(([id, page]) => ({ id, url: displayUrl(page.url()), active: id === record.activePageId })),
+    return { id: record.id, siteId: record.site.id, name: record.site.name, display:record.display??'window', viewport:record.viewport??{mode:'desktop',width:1024,height:768}, temporary:!!record.site.temporary, revision:record.revision??0, closed: record.closed, holder: "shared", activePageId: record.activePageId,
+      pages: [...record.pages].map(([id, page]) => ({ id, url: displayUrl(page.url()), title:this.redact(record,record.pageTitles?.get(id)??'').slice(0,120), active: id === record.activePageId })),
       job: record.job ? this.publicJob(record, record.job) : null, history: record.history.slice(-15), notice: record.notice ?? "",
       dialog: record.dialog ? { type: record.dialog.type(), message: this.redact(record, record.dialog.message()).slice(0, 1000) } : null,
       screenshotAt: record.screenshot?.at ?? null };
@@ -86,7 +89,7 @@ export class BrowserSessions {
     else if(action==='back')await page.goBack({waitUntil:'domcontentloaded',timeout:30000});
     else if(action==='forward')await page.goForward({waitUntil:'domcontentloaded',timeout:30000});
     else if(action==='reload')await page.reload({waitUntil:'domcontentloaded',timeout:30000});
-    else if(action==='new-page') {if(r.pages.size>=12)throw browserError('BROWSER_PAGE_LIMIT','At most twelve pages per browser');const opened=await r.context.newPage();r.activePageId=this.attachPage(r,opened);}
+    else if(action==='new-page') {if(r.pages.size>=12)throw browserError('BROWSER_PAGE_LIMIT','At most twelve pages per browser');const opened=await r.context.newPage();r.activePageId=this.attachPage(r,opened);if(r.display==='embedded'&&r.viewport)await opened.setViewportSize?.({width:r.viewport.width,height:r.viewport.height});}
     else throw browserError('BROWSER_ACTION_INVALID','Unknown navigation action');
     this.active?.set(owner,r.id);return this.publicSession(r);
   }
@@ -175,6 +178,11 @@ export class BrowserSessions {
     if (action === "close") { await this.closeRecord(record); return this.publicSession(record); }
     if (record.closed) throw browserError("BROWSER_CLOSED", "This browser was closed");
     if (action === "focus") await record.pages.get(record.activePageId)?.bringToFront();
+    else if (action === "close-page") {
+      const page=record.pages.get(value??record.activePageId);
+      if(!page)throw browserError("BROWSER_PAGE_INVALID","The page is no longer open");
+      await page.close();
+    }
     else if (action === "select-page") {
       if (!record.pages.has(value)) throw browserError("BROWSER_PAGE_INVALID", "The page is no longer open");
       record.activePageId = value;

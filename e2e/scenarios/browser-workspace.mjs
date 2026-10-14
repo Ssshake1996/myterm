@@ -17,8 +17,9 @@ export const websiteScenario = {
     await api({ action: "site.save", site: { name: "Inactive first site", url: info.website.url } });
     await t.step("网页表单保存自动登录配置并按显示偏好打开浏览器", async () => {
       await page.getByRole("button", { name: "Remote Ops", exact: true }).click();
-      await page.getByRole("button", { name: "网页", exact: true }).click();
-      await page.getByText('高级：收藏网站与流程',{exact:true}).click();
+      await page.getByRole("tab", { name: "网页", exact: true }).click();
+      await page.getByText('浏览器设置与高级功能',{exact:true}).click();
+      await page.getByText('收藏网站与流程',{exact:true}).click();
       await page.getByRole("button", { name: "新增网站", exact: true }).click();
       await page.getByLabel("网站名称", { exact: true }).fill("Local console");
       await page.getByLabel("网站地址", { exact: true }).fill(`${info.website.url}/login`);
@@ -70,10 +71,10 @@ export const websiteScenario = {
         {action:'click',target:css('#slow'),expect:{target:css('#output'),text:'Slow finished'}},
         {action:'click',target:css('#run')},{action:'read',target:css('#output')},
       ]});
-      await page.getByRole('button',{name:'SFTP',exact:true}).click();
+      await page.getByRole('tab',{name:'文件',exact:true}).click();
       assert.equal((await snapshot()).sessions[0].closed,false);
       await call('/e2e/turn/cancel',{});
-      await page.getByRole('button',{name:'网页',exact:true}).click();
+      await page.getByRole('tab',{name:'网页',exact:true}).click();
       const stopped=await done(browser.id);assert.equal(stopped.job.status,'unknown');assert.equal(stopped.job.index,0);
       assert.deepEqual((await t.info()).website.log.commands,['show version','show status']);
     });
@@ -99,16 +100,17 @@ export const websiteScenario = {
     });
     await t.step("390 像素下网页操作可滚动且无横向溢出", async () => {
       await page.getByRole("button", { name: "显示浏览器", exact: true }).first().waitFor();
-      const library=page.getByText('高级：收藏网站与流程',{exact:true});if(await library.locator('..').getAttribute('open')!==null)await library.click();
+      const library=page.getByText('收藏网站与流程',{exact:true});if(await library.locator('..').getAttribute('open')!==null)await library.click();
       await page.setViewportSize({ width: 390, height: 844 });
-      const overflow = await page.locator(".dsh-remote-ops__web").evaluate(node => ({ horizontal: node.scrollWidth - node.clientWidth, vertical: node.scrollHeight > node.clientHeight }));
+      const overflow = await page.locator(".dsh-remote-ops__webBrowser").evaluate(node => ({ horizontal: node.scrollWidth - node.clientWidth, vertical: node.scrollHeight > node.clientHeight }));
       assert.ok(overflow.horizontal <= 1, JSON.stringify(overflow));
     });
     await t.step("DSH 网页刷新后恢复当前对话的活动网站", async () => {
       await page.reload(); await page.locator("html[data-e2e-ready=true]").waitFor();
       await page.getByRole("button", { name: "Remote Ops", exact: true }).click();
-      await page.getByRole("button", { name: "网页", exact: true }).click();
-      await page.getByText('高级：收藏网站与流程',{exact:true}).click();
+      await page.getByRole("tab", { name: "网页", exact: true }).click();
+      await page.getByText('浏览器设置与高级功能',{exact:true}).click();
+      await page.getByText('收藏网站与流程',{exact:true}).click();
       await page.getByRole("button", { name: "编辑网站", exact: true }).waitFor();
       assert.equal(await page.getByLabel("选择网站", { exact: true }).inputValue(), browser.siteId);
       await page.getByRole("button", { name: "显示浏览器", exact: true }).first().waitFor();

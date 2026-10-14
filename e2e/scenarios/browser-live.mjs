@@ -9,16 +9,16 @@ export const liveBrowserScenario={id:'web-live',title:'网址直开、实时画�
   const until=async f=>{for(let n=0;n<150;n++){const v=await f();if(v)return v;await new Promise(r=>setTimeout(r,100));}throw Error('browser did not settle');};
   let browser;
   await t.step('直接输入网址并打开插件内网页，无需保存网站',async()=>{
-    await p.getByRole('button',{name:'Remote Ops',exact:true}).click();await p.getByRole('button',{name:'网页',exact:true}).click();
-    await p.getByText('浏览器设置',{exact:true}).click();await p.getByLabel('浏览器引擎',{exact:true}).selectOption('chrome');
+    await p.getByRole('button',{name:'Remote Ops',exact:true}).click();await p.getByRole('tab',{name:'网页',exact:true}).click();
+    await p.getByText('浏览器设置与高级功能',{exact:true}).click();await p.getByLabel('浏览器引擎',{exact:true}).selectOption('chrome');
     await p.getByRole('textbox',{name:'网页地址',exact:true}).fill(`${info.website.url}/login`);
     await p.getByRole('button',{name:'打开网页',exact:true}).click();
     await p.getByAltText('网页实时画面',{exact:true}).waitFor();
     await p.waitForFunction(()=>{const image=document.querySelector('img[alt="网页实时画面"]'),surface=document.querySelector('.dsh-remote-ops__liveSurface');return image&&surface&&image.getBoundingClientRect().bottom<=surface.getBoundingClientRect().bottom+1;});
     browser=(await snapshot()).sessions.find(v=>!v.closed);
     assert.equal(browser.display,'embedded');assert.equal((await snapshot()).sites.length,0);
-    const tab=p.getByRole('tab',{selected:true});assert.equal(await tab.getAttribute('tabindex'),'0');
-    assert.equal(await p.getByRole('tabpanel').getAttribute('id'),await tab.getAttribute('aria-controls'));
+    const tab=p.getByRole('tablist',{name:'网页标签页'}).getByRole('tab',{selected:true});assert.equal(await tab.getAttribute('tabindex'),'0');
+    assert.equal(await p.locator('.dsh-remote-ops__webPage').getAttribute('id'),await tab.getAttribute('aria-controls'));
     for(const name of ['人工接管','接管','暂停','停止任务','执行下一步'])assert.equal(await p.getByRole('button',{name,exact:true}).count(),0);
   });
   await t.step('Agent 在当前网页执行操作，输出进入折叠记录',async()=>{
@@ -31,7 +31,7 @@ export const liveBrowserScenario={id:'web-live',title:'网址直开、实时画�
     await tool('remote_browser_run',{requestId:'live-human-during-agent',steps:[{action:'wait',target:{kind:'css',value:'#echo'},expect:{target:{kind:'css',value:'#echo'},text:'中文'}}]});
     const image=p.getByAltText('网页实时画面',{exact:true});
     await until(async()=>Number(await image.getAttribute('data-revision'))===(await snapshot()).sessions.find(v=>v.id===browser.id).revision);
-    const bounds=await image.boundingBox();await image.click({position:{x:50*bounds.width/1024,y:60*bounds.height/768}});await p.keyboard.insertText('中文');
+    const current=(await snapshot()).sessions.find(v=>v.id===browser.id),bounds=await image.boundingBox();await image.click({position:{x:50*bounds.width/current.viewport.width,y:60*bounds.height/current.viewport.height}});await p.keyboard.insertText('中文');
     await until(async()=>(await tool('remote_browser_read',{})).page.text.includes('中文'));
     await until(async()=>((await snapshot()).sessions.find(v=>v.id===browser.id)?.job?.status==='completed'));
     await p.keyboard.press('Control+Escape');assert.equal(await p.getByRole('textbox',{name:'网页地址',exact:true}).evaluate(n=>document.activeElement===n),true);
@@ -46,14 +46,22 @@ export const liveBrowserScenario={id:'web-live',title:'网址直开、实时画�
   });
   await t.step('切换模块及刷新不取消浏览器，终端也没有任务控制按钮',async()=>{
     await p.getByRole('textbox',{name:'网页地址',exact:true}).fill('https://unsent-draft.test/');
-    await p.getByRole('button',{name:'SFTP',exact:true}).click();await p.getByRole('button',{name:'网页',exact:true}).click();
+    await p.getByRole('tab',{name:'文件',exact:true}).click();
+    let release,started,finished;const held=new Promise(resolve=>{release=resolve;}),loading=new Promise(resolve=>{started=resolve;}),handled=new Promise(resolve=>{finished=resolve;});
+    const delay=async route=>{started();try{await held;await route.continue();}finally{finished();}};
+    await p.route('**/api/dsh-remote-ops/browser?**',delay);
+    try{
+      await p.getByRole('tab',{name:'网页',exact:true}).click();await loading;
+      assert.equal(await p.getByLabel('网页显示方式',{exact:true}).isDisabled(),true,'display must wait for the selected browser snapshot');
+      assert.equal(await p.getByRole('button',{name:'打开网页',exact:true}).isDisabled(),true,'opening must not create a second browser before reconciliation');
+    }finally{release();await handled;await p.unroute('**/api/dsh-remote-ops/browser?**',delay);}
     await p.getByAltText('网页实时画面',{exact:true}).waitFor();
     assert.equal(await p.getByRole('textbox',{name:'网页地址',exact:true}).inputValue(),'https://unsent-draft.test/');
     assert.equal((await snapshot()).sessions.find(v=>v.id===browser.id).closed,false);
     await p.reload();await p.locator('html[data-e2e-ready=true]').waitFor();
     await p.getByRole('button',{name:'Remote Ops',exact:true}).click();
     for(const name of ['人工接管','中断前台进程','停止等待'])assert.equal(await p.getByRole('button',{name,exact:true}).count(),0);
-    await p.getByRole('button',{name:'网页',exact:true}).click();await p.getByAltText('网页实时画面',{exact:true}).waitFor();
+    await p.getByRole('tab',{name:'网页',exact:true}).click();await p.getByAltText('网页实时画面',{exact:true}).waitFor();
   });
   await t.step('空闲时切换独立窗口并保留当前网址，再返回插件内',async()=>{
     await p.getByLabel('网页显示方式',{exact:true}).selectOption('window');

@@ -20,6 +20,7 @@ function fixture() {
     useRef(current) { const hook = hooks("ref"); return hook.value ??= { current }; },
     useEffect(effect, deps) { const hook = hooks("effect"); if (!hook.deps || !deps || deps.some((value, index) => value !== hook.deps[index])) { hook.deps = deps; active.effects.push(() => { hook.cleanup?.(); hook.cleanup = effect(); }); } },
     useCallback(fn, deps) { const hook = hooks("callback"); if (!hook.deps || deps.some((value, index) => value !== hook.deps[index])) { hook.value = fn; hook.deps = deps; } return hook.value; },
+    useMemo(fn, deps) { const hook = hooks("memo"); if (!hook.deps || deps.some((value, index) => value !== hook.deps[index])) { hook.value = fn(); hook.deps = deps; } return hook.value; },
     useSyncExternalStore(_subscribe, snapshot) { return snapshot(); },
   };
   class Xhr {
@@ -42,8 +43,8 @@ function fixture() {
   const nodes = tree => { const result = []; const visit = node => { if (node && typeof node === "object") { result.push(node); node.children?.forEach(visit); } }; visit(tree); return result; };
   const mount = (owner = "owner-a") => {
     if (!storage.has("remote-ops.files." + owner)) storage.set("remote-ops.files." + owner, JSON.stringify({ panes: [{ kind: "host", path: "/files" }, { kind: "host", path: "/files" }] }));
-    const view = { hooks: [], effects: [], index: 0, tree: null, errors: [] };
-    view.render = () => { view.index = 0; active = view; view.tree = plugin.SftpWorkspace({ sessionId: owner, environments: [], onError: error => view.errors.push(error), onClose() {} }); active = null; view.effects.splice(0).forEach(effect => effect()); return view; };
+    const view = { hooks: [], effects: [], index: 0, tree: null, errors: [], visible: true };
+    view.render = () => { view.index = 0; active = view; view.tree = plugin.SftpWorkspace({ sessionId: owner, environments: [], visible: view.visible, onError: error => view.errors.push(error), onClose() {} }); active = null; view.effects.splice(0).forEach(effect => effect()); return view; };
     view.find = predicate => nodes(view.tree).find(predicate);
     view.unmount = () => view.hooks.forEach(hook => hook.cleanup?.());
     return view.render();
@@ -62,11 +63,60 @@ test("historical completed transfers establish a baseline without reloading eith
   assert.equal(f.requests.filter(row => row.action === "files").length, 2);
 });
 
+test("Enter opens a directory once, while Space and ordinary file activation never navigate", async () => {
+  const f = fixture();
+  f.files(() => ({ path: "/files", entries: [{ name: "folder", type: "d", size: 0 }, f.directory.entries[0]] }));
+  const view = f.mount(); await tick(); view.render();
+  const folder = view.find(node => node.type === "button" && node.props.title === "folder");
+  assert.equal(typeof folder.props.onKeyDown, "function", "directory names need keyboard activation");
+  let prevented = 0;
+  folder.props.onKeyDown({ key: " ", preventDefault: () => prevented++ });
+  assert.equal(f.requests.filter(row => row.action === "files").length, 2);
+  folder.props.onKeyDown({ key: "Enter", preventDefault: () => prevented++ });
+  await tick(); view.render();
+  assert.equal(f.requests.filter(row => row.action === "files" && row.endpoint.path === "/files/folder").length, 1);
+  assert.equal(prevented, 1);
+  const regular = view.find(node => node.type === "button" && node.props.title === "keep.txt");
+  regular.props.onKeyDown?.({ key: "Enter", preventDefault() {} });
+  assert.equal(f.requests.filter(row => row.action === "files").length, 3);
+});
+
+test("a file selection survives switching workspaces but is reconciled with fresh directory contents", async () => {
+  const f = fixture(), first = f.mount(); await tick(); first.render();
+  first.find(node => node.props["aria-label"] === "选择 keep.txt").props.onChange({ target: { checked: true } }); first.render(); first.unmount();
+  const returned = f.mount(); await tick(); returned.render();
+  assert.equal(returned.find(node => node.props["aria-label"] === "选择 keep.txt").props.checked, true);
+  returned.unmount(); f.files(() => ({path:"/files",entries:[f.directory.entries[1]]}));
+  const changed = f.mount(); await tick(); changed.render();
+  assert.equal(changed.find(node => node.props["aria-label"] === "选择 keep.txt"), undefined);
+  assert.equal(changed.find(node => node.props["aria-label"] === "选择 remove.txt").props.checked, false);
+});
+
+test("Shift selection follows the filtered sorted directory and never selects a hidden file", async () => {
+  const f=fixture(); f.files(()=>({path:"/files",entries:[{name:"a.log",type:"-",size:1},{name:"b.txt",type:"-",size:1},{name:"c.log",type:"-",size:1},{name:"d.log",type:"-",size:1}]}));
+  const view=f.mount();await tick();view.render();
+  view.find(n=>n.props["aria-label"]==="筛选目录 A").props.onChange({target:{value:".log"}});view.render();
+  view.find(n=>n.props["aria-label"]==="选择 a.log").props.onChange({target:{checked:true}});view.render();
+  view.find(n=>n.props["aria-label"]==="选择 d.log").props.onChange({target:{checked:true},nativeEvent:{shiftKey:true}});view.render();
+  assert.equal(view.find(n=>n.props["aria-label"]==="选择 c.log").props.checked,true);
+  view.find(n=>n.props["aria-label"]==="筛选目录 A").props.onChange({target:{value:""}});view.render();
+  assert.equal(view.find(n=>n.props["aria-label"]==="选择 b.txt").props.checked,false);
+});
+
 test("new completions refresh each matching pane once and repeated polls do nothing", async () => {
   const f = fixture(); f.mount(); await tick();
   f.tasks([completed("one"), completed("two"), completed("elsewhere", "/other")]); await f.poll();
   assert.equal(f.requests.filter(row => row.action === "files").length, 4);
   await f.poll(); assert.equal(f.requests.filter(row => row.action === "files").length, 4);
+});
+
+test("returning to a retained file view refreshes each pane once, coalescing completions while hidden",async()=>{
+  const f=fixture(),view=f.mount();await tick();view.render();
+  view.visible=false;view.render();const requests=f.requests.length;
+  f.tasks([completed("hidden-one"),completed("hidden-two")]);await tick();assert.equal(f.requests.length,requests);
+  view.visible=true;view.render();await tick();view.render();
+  assert.equal(f.requests.filter(row=>row.action==="files").length,4);
+  await f.poll();assert.equal(f.requests.filter(row=>row.action==="files").length,4);
 });
 
 test("refresh keeps visible entries, current selection and scroll until updated results arrive", async () => {
@@ -136,6 +186,25 @@ test("completions during an in-flight directory request queue one follow-up inst
   assert.equal(f.requests.filter(row => row.action === "files").length, 4, "only B may refresh while A's request is active");
   response.resolve(f.directory); await tick();
   assert.equal(f.requests.filter(row => row.action === "files").length, 5, "A receives exactly one follow-up");
+});
+
+test("a queued refresh after directory navigation keeps the address at the directory being shown",async()=>{
+  const f=fixture();f.files(()=>({path:"/files",entries:[{name:"folder",type:"d",size:0}]}));
+  const view=f.mount();await tick();view.render();
+  const response=deferred();let count=0;
+  f.files(body=>body.endpoint.path==="/files/folder"&&count++===0?response.promise:{path:body.endpoint.path,entries:[]});
+  view.find(n=>n.type==="button"&&n.props.title==="folder").props.onKeyDown({key:"Enter",preventDefault(){}});view.render();
+  f.tasks([completed("navigation-finished","/files/folder")]);await f.poll();
+  response.resolve({path:"/files/folder",entries:[]});await tick();view.render();
+  assert.equal(view.find(n=>n.props["aria-label"]==="路径 A").props.value,"/files/folder");
+  assert.equal(f.requests.filter(r=>r.action==="files"&&r.endpoint.path==="/files/folder").length,2);
+});
+
+test("directory refresh retains an actual unsubmitted path edit",async()=>{
+  const f=fixture(),view=f.mount();await tick();view.render();
+  view.find(n=>n.props["aria-label"]==="路径 A").props.onChange({target:{value:"/typed-but-not-opened"}});view.render();
+  view.find(n=>n.props["aria-label"]==="刷新目录 A").props.onClick();await tick();view.render();
+  assert.equal(view.find(n=>n.props["aria-label"]==="路径 A").props.value,"/typed-but-not-opened");
 });
 
 test("the plugin upload owner rejects a duplicate batch and disposes active requests on plugin unload", async () => {

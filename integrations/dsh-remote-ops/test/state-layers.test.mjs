@@ -29,7 +29,7 @@ const PUBLIC_METHODS = [
   "activeRemoteSessions", "getSession", "reconcileHostSessions", "resolvePassword", "storePassword", "spawnBackend", "open", "openDirect", "resolveOwner", "enter", "recordDisconnect", "resize", "close",
   "ensureLocalSession", "startLocalSession",
   "terminalOutput", "readTerminal", "claimInput", "control", "send", "input", "signal",
-  "execute", "cancelCommand",
+  "execute", "cancelCommand", "startCommand", "commandJob", "commandJobsFor",
   "listLocalFiles", "connectFiles", "listFiles", "sftp",
 ];
 

@@ -22,6 +22,9 @@ export function registerWorkspaceRoutes(ctx, state) {
         if (body.action === "quick.dispatch") return json(await state.dispatchQuick(owner, body));
         if (body.action === "quick.move") return json(await state.moveQuickCommand(body.commandId, body.direction));
         if (body.action === "command-execute") return json(await state.execute(owner, body.session, { ...body, signal: request.signal }));
+        if (body.action === "command-start") return json(await state.startCommand(owner, body.session, body));
+        if (body.action === "command-status") return json(state.commandJob(owner, body.requestId));
+        if (body.action === "command-list") return json({ jobs: state.commandJobsFor(owner, body.session) });
         if (body.action === "command-cancel") return json(state.cancelCommand(owner, body.requestId));
         if (body.action === "files") return json(await state.listFiles(body.endpoint, request.signal));
         if (body.action === "transfer") return json(state.transfers.start(owner.id, body));

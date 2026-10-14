@@ -23,22 +23,21 @@ window.__ModuleLoader__.load({
     const TAB_ID = "@dsh/remote-ops";
     const TAB_KIND = "dsh-remote-ops";
     const styleId = "dsh-remote-ops-style";
-    if (!document.getElementById(styleId)) {
-      const style = document.createElement("style"); style.id = styleId;
-      style.textContent = `
+    if (!document.getElementById(styleId)) { const style = document.createElement("style"); style.id = styleId; document.head.appendChild(style); }
+    const remoteOpsStyle = document.getElementById(styleId);
+    if (remoteOpsStyle) remoteOpsStyle.textContent = `
         .dsh-remote-ops{height:100%;display:flex;flex-direction:column;overflow:hidden;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#182230);font:13px/1.45 system-ui,sans-serif}
         .dsh-remote-ops button{border:1px solid var(--dsw-alias-border-l3,#d8dce5);background:var(--dsw-alias-bg-layer-1,#f6f8fa);color:inherit;border-radius:7px;padding:5px 8px;cursor:pointer;font:inherit}.dsh-remote-ops button:hover{background:var(--dsw-alias-interactive-bg-hover,#edf1f5)}.dsh-remote-ops button:disabled{opacity:.5;cursor:default}.dsh-remote-ops input,.dsh-remote-ops textarea{box-sizing:border-box;width:100%;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:6px;padding:6px 7px;background:var(--dsw-alias-bg-base,#fff);color:inherit;font:inherit}
         .dsh-remote-ops__head{display:flex;align-items:center;gap:7px;padding:9px 11px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);flex:none}.dsh-remote-ops__head strong{flex:1;min-width:0}.dsh-remote-ops__headEnv{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#667085)}.dsh-remote-ops__muted{color:var(--dsw-alias-label-tertiary,#98a2b3)}.dsh-remote-ops__error{margin:7px 9px;padding:7px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#d92d20) 36%,transparent);border-radius:7px;color:var(--dsw-alias-state-error-primary,#d92d20);white-space:pre-wrap;overflow:auto;max-height:80px;flex:none}.dsh-remote-ops__launcherError{display:flex;align-items:flex-start;gap:10px;max-width:min(420px,calc(100vw - 32px));margin:16px;padding:12px 12px 12px 14px;border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary,#d92d20) 45%,transparent);border-radius:9px;background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-state-error-primary,#d92d20);box-shadow:0 8px 28px rgba(16,24,40,.18)}.dsh-remote-ops__launcherErrorBody{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-remote-ops__launcherErrorClose{flex:none;padding:2px 6px!important;border-color:transparent!important;background:transparent!important;color:inherit!important;font-size:18px!important;line-height:1!important}
-        .dsh-remote-ops__workspace{display:flex;position:relative;min-height:0;flex:1;overflow:hidden}.dsh-remote-ops__rail{width:40px;flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 4px;border-right:1px solid var(--dsw-alias-border-l2,#d8dce5);background:var(--dsw-alias-bg-layer-1,#f7f9fb)}.dsh-remote-ops__rail button{width:32px;height:32px;padding:0;border-color:transparent;background:transparent;color:var(--dsw-alias-label-tertiary,#98a2b3);display:grid;place-items:center;font-size:15px}.dsh-remote-ops__rail button[data-active=true]{border-color:color-mix(in srgb,var(--dsw-alias-interactive-brand,#4d6bfe) 32%,transparent);background:color-mix(in srgb,var(--dsw-alias-interactive-brand,#4d6bfe) 12%,transparent);color:var(--dsw-alias-interactive-brand,#4d6bfe)}.dsh-remote-ops__railSpacer{flex:1}
+        .dsh-remote-ops__workspace{display:flex;position:relative;min-height:0;flex:1;overflow:hidden}
         .dsh-remote-ops__main{display:grid;grid-template-rows:minmax(0,1fr) auto;flex:1;min-width:0;min-height:0;gap:8px;padding:8px;overflow:hidden}.dsh-remote-ops__terminal{display:flex;min-height:0;flex-direction:column;overflow:hidden;border:1px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:9px;background:var(--dsw-alias-bg-base,#fff);box-shadow:0 1px 2px rgba(16,24,40,.08)}.dsh-remote-ops__terminalHead{display:flex;align-items:center;gap:6px;padding:7px 8px;background:var(--dsw-alias-bg-layer-1,#f7f9fb);color:var(--dsw-alias-label-primary,#182230);flex:none}.dsh-remote-ops__terminalHead strong{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__terminalHead small{color:var(--dsw-alias-label-tertiary,#98a2b3)}.dsh-remote-ops__tabs{display:flex;gap:4px;overflow:auto;padding:5px 6px;border-top:1px solid var(--dsw-alias-border-l3,#e5e7eb);border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb);background:var(--dsw-alias-bg-layer-1,#f7f9fb);flex:none}.dsh-remote-ops__tabs button{padding:3px 7px;border-color:var(--dsw-alias-border-l3,#d8dce5);background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-secondary,#667085);white-space:nowrap;font-size:11px}.dsh-remote-ops__tabs button[data-active=true]{border-color:var(--dsw-alias-interactive-brand,#4d6bfe);background:color-mix(in srgb,var(--dsw-alias-interactive-brand,#4d6bfe) 11%,var(--dsw-alias-bg-base,#fff));color:var(--dsw-alias-label-primary,#182230)}.dsh-remote-ops__screen{position:relative;flex:1;min-height:0;overflow:hidden;background:var(--dsw-alias-bg-base,#fff)}.dsh-remote-ops__output{box-sizing:border-box;position:absolute;inset:0;width:100%;height:100%;min-height:0;overflow-y:scroll;overflow-x:auto;margin:0;padding:10px 12px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:var(--dsw-alias-label-primary,#182230);scrollbar-gutter:stable;scrollbar-width:auto;scrollbar-color:var(--dsw-alias-border-l1,#aeb7c4) var(--dsw-alias-bg-layer-1,#f4f6f8)}.dsh-remote-ops__output::-webkit-scrollbar{width:12px;height:12px}.dsh-remote-ops__output::-webkit-scrollbar-track{background:var(--dsw-alias-bg-layer-1,#f4f6f8)}.dsh-remote-ops__output::-webkit-scrollbar-thumb{min-height:32px;border:3px solid var(--dsw-alias-bg-layer-1,#f4f6f8);border-radius:999px;background:var(--dsw-alias-border-l1,#aeb7c4)}.dsh-remote-ops__inputCapture{position:absolute;inset:0;z-index:2;width:100%;height:100%;margin:0;padding:0;border:0!important;outline:none!important;border-radius:0!important;resize:none;overflow:hidden;background:transparent!important;color:transparent!important;caret-color:transparent!important;opacity:.02;cursor:text;pointer-events:none;user-select:none}.dsh-remote-ops__screenHint{position:absolute;right:20px;bottom:10px;z-index:1;padding:3px 7px;border-radius:5px;background:color-mix(in srgb,var(--dsw-alias-bg-layer-1,#f7f9fb) 88%,transparent);color:var(--dsw-alias-label-tertiary,#98a2b3);font-size:11px;pointer-events:none}.dsh-remote-ops__empty{display:grid;place-items:center;min-height:150px;padding:20px;text-align:center;color:var(--dsw-alias-label-tertiary,#98a2b3)}
-        .dsh-remote-ops__quick{display:flex;flex:1;min-height:0;max-height:none;flex-direction:column;overflow:hidden;border:1px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:9px;background:var(--dsw-alias-bg-layer-1,#f8fafb)}.dsh-remote-ops__quickHead{display:flex;align-items:center;gap:6px;padding:7px 8px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);flex:none}.dsh-remote-ops__quickHead strong{flex:1}.dsh-remote-ops__quickBody{display:flex;gap:7px;min-height:0;max-height:none;flex:1;padding:7px;overflow:auto}.dsh-remote-ops__quickGroups{display:flex;flex:none;width:88px;flex-direction:column;gap:4px;overflow:auto;padding-right:5px;border-right:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__quickGroups button{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-color:transparent;background:transparent;padding:5px;font-size:12px}.dsh-remote-ops__quickGroups button[data-active=true]{border-color:color-mix(in srgb,var(--dsw-alias-interactive-brand,#4d6bfe) 28%,transparent);background:color-mix(in srgb,var(--dsw-alias-interactive-brand,#4d6bfe) 11%,transparent);color:var(--dsw-alias-interactive-brand,#4d6bfe);font-weight:600}.dsh-remote-ops__quickItems{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));align-content:start;gap:6px;min-width:0;flex:1;overflow:auto}.dsh-remote-ops__quickItem{display:flex;align-items:center;gap:4px;min-width:0;padding:6px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:7px;background:var(--dsw-alias-bg-base,#fff)}.dsh-remote-ops__quickItem span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__tiny{padding:3px 5px!important;font-size:11px!important}
-        .dsh-remote-ops__drawer,.dsh-remote-ops__aux{position:absolute;z-index:4;top:0;bottom:0;display:flex;flex-direction:column;overflow:hidden;background:var(--dsw-alias-bg-base,#fff);box-shadow:8px 0 22px rgba(16,24,40,.14)}.dsh-remote-ops__drawer{left:0;width:min(270px,74%);border-right:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__aux{right:0;width:min(300px,78%);border-left:1px solid var(--dsw-alias-border-l2,#d8dce5);box-shadow:-8px 0 22px rgba(16,24,40,.14)}.dsh-remote-ops__drawerHead{display:flex;align-items:center;gap:5px;padding:8px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);flex:none}.dsh-remote-ops__drawerHead strong{flex:1}.dsh-remote-ops__drawerBody,.dsh-remote-ops__auxBody{min-height:0;flex:1;overflow:auto;padding:8px}.dsh-remote-ops__tools{display:flex;gap:5px;margin-bottom:7px}.dsh-remote-ops__tools input{flex:1}.dsh-remote-ops__group{margin-bottom:10px}.dsh-remote-ops__groupTitle{display:flex;align-items:center;gap:4px;padding:3px;color:var(--dsw-alias-label-secondary,#667085);font-weight:650}.dsh-remote-ops__groupTitle span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__env{display:flex;align-items:center;gap:5px;padding:6px 4px;border-radius:7px}.dsh-remote-ops__env:hover{background:var(--dsw-alias-interactive-bg-hover,#edf1f5)}.dsh-remote-ops__dot{width:7px;height:7px;flex:none;border-radius:50%;background:#a5adba}.dsh-remote-ops__dot[data-connected=true]{background:#35a16c;box-shadow:0 0 0 3px rgba(53,161,108,.13)}.dsh-remote-ops__envInfo{flex:1;min-width:0;cursor:pointer}.dsh-remote-ops__envName,.dsh-remote-ops__envMeta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__envName{font-weight:600}.dsh-remote-ops__envMeta{font-size:11px;color:var(--dsw-alias-label-tertiary,#98a2b3)}.dsh-remote-ops__emptyList{padding:24px 8px;text-align:center;color:var(--dsw-alias-label-tertiary,#98a2b3)}.dsh-remote-ops__card{border:1px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:8px;padding:8px;margin-bottom:7px}.dsh-remote-ops__row{display:flex;align-items:center;gap:6px;min-width:0}.dsh-remote-ops__row span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__version{font-size:11px;color:var(--dsw-alias-label-tertiary,#98a2b3);white-space:nowrap}.dsh-remote-ops__update{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#35a16c) 46%,var(--dsw-alias-border-l3,#d8dce5));color:var(--dsw-alias-state-success-primary,#267c50);white-space:nowrap}.dsh-remote-ops__form{display:flex;flex-direction:column;gap:7px;margin-bottom:9px;padding:9px;border:1px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:8px;background:var(--dsw-alias-bg-layer-1,#f7f9fb)}.dsh-remote-ops__form label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--dsw-alias-label-secondary,#667085)}.dsh-remote-ops__formActions{display:flex;gap:6px;justify-content:flex-end}.dsh-remote-ops__formNote{font-size:11px;color:var(--dsw-alias-label-tertiary,#98a2b3)}.dsh-remote-ops__quickDock{display:flex;min-height:72px;max-height:50vh;min-width:0;flex-direction:column}.dsh-remote-ops__quickResize{height:9px;flex:none;display:grid;place-items:center;cursor:ns-resize;color:var(--dsw-alias-label-tertiary,#98a2b3);touch-action:none}.dsh-remote-ops__quickResize::before{content:"";width:38px;height:3px;border-radius:999px;background:var(--dsw-alias-border-l2,#c9d0db);transition:width .16s ease,background .16s ease}.dsh-remote-ops__quickResize:hover::before{width:54px;background:var(--dsw-alias-interactive-brand,#4d6bfe)}.dsh-remote-ops__headNotice{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-state-success-primary,#267c50)}.dsh-remote-ops__headNotice[data-error=true]{color:var(--dsw-alias-state-error-primary,#d92d20)}.dsh-remote-ops__launchControl{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:36px;padding:8px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary,#182230);font:inherit;cursor:pointer}.dsh-remote-ops__launchControl[data-wide=true]{justify-content:flex-start;text-align:start;padding-inline:10px}.dsh-remote-ops__launchControl:hover{background:var(--dsw-alias-interactive-bg-hover,#edf1f5)}.dsh-remote-ops__launchControl:focus-visible{outline:2px solid var(--dsw-alias-interactive-brand,#4d6bfe);outline-offset:-2px}.dsh-remote-ops__launchControl svg{flex:none}.dsh-remote-ops__error{display:flex;align-items:flex-start;gap:8px}.dsh-remote-ops__errorBody{flex:1;min-width:0;max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-remote-ops__errorClose{flex:none;padding:2px 6px!important;border-color:transparent!important;background:transparent!important;color:inherit!important;font-size:16px!important;line-height:1}.dsh-remote-ops__errorClose:hover{background:color-mix(in srgb,currentColor 10%,transparent)!important}.dsh-remote-ops__screenEmpty{cursor:text}.dsh-remote-ops__pendingCommand{margin:12px 0 0;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:7px;background:var(--dsw-alias-bg-layer-1,#f7f9fb);color:var(--dsw-alias-label-primary,#182230);font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;text-align:left}
-      `; document.head.appendChild(style); style.textContent += `.dsh-remote-ops__head{flex-wrap:wrap}.dsh-remote-ops__headAction{min-height:36px!important;padding:7px 10px!important;font-size:12px!important;font-weight:650!important;white-space:nowrap}.dsh-remote-ops__drawerClose{min-width:36px;min-height:36px;padding:5px 9px!important;border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d92d20) 52%,transparent)!important;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d92d20) 10%,var(--dsw-alias-bg-base,#fff))!important;color:var(--dsw-alias-state-error-primary,#d92d20)!important;font-size:20px!important;font-weight:700!important;line-height:1!important}.dsh-remote-ops__drawerClose:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d92d20) 18%,var(--dsw-alias-bg-base,#fff))!important}`;
-    }
-    const remoteOpsStyle = document.getElementById(styleId); if (remoteOpsStyle) remoteOpsStyle.textContent += `.dsh-remote-ops__inputCursor{display:inline-block;width:2px;height:1.15em;vertical-align:-.18em;background:var(--dsw-alias-interactive-brand,#4d6bfe);box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-interactive-brand,#4d6bfe) 18%,transparent);animation:dsh-remote-ops-caret 1s steps(1,end) infinite;pointer-events:none}@keyframes dsh-remote-ops-caret{0%,45%{opacity:1}46%,100%{opacity:0}}`;
-    if (remoteOpsStyle) remoteOpsStyle.textContent += `.dsh-remote-ops__formAdvanced{padding:6px 8px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:6px}.dsh-remote-ops__formAdvanced summary{cursor:pointer;font-weight:600;font-size:12px}.dsh-remote-ops__formAdvancedBody{display:flex;flex-direction:column;gap:7px;margin-top:7px}`;
-    if (remoteOpsStyle) remoteOpsStyle.textContent += `.dsh-remote-ops__main[data-module=sftp]{display:flex;padding:0;gap:0}.dsh-remote-ops__tab{display:flex;align-items:stretch;flex:none}.dsh-remote-ops__tab>button:first-child{border-radius:7px 0 0 7px}.dsh-remote-ops__tabClose{border-left:0!important;border-radius:0 7px 7px 0!important;padding:3px 6px!important}.dsh-remote-ops__dangerAction{color:var(--dsw-alias-state-error-primary,#d92d20)!important}.dsh-remote-ops__env{flex-wrap:wrap}.dsh-remote-ops__envConnections{width:100%;display:flex;flex-direction:column;gap:3px;margin:2px 0 0 13px;padding-left:7px;border-left:2px solid color-mix(in srgb,var(--dsw-alias-interactive-brand,#4d6bfe) 22%,transparent)}.dsh-remote-ops__envConnection{display:flex;align-items:center;gap:5px;min-width:0}.dsh-remote-ops__connectionLink{flex:1;min-width:0;padding:2px 4px!important;border:0!important;background:transparent!important;text-align:left;font-size:11px!important;color:var(--dsw-alias-label-secondary,#667085)!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__sftpWorkspace{display:flex;min-width:0;min-height:0;flex:1;flex-direction:column;background:var(--dsw-alias-bg-base,#fff)}.dsh-remote-ops__sftpHead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);flex:none}.dsh-remote-ops__sftpHead strong{flex:none}.dsh-remote-ops__sftpHead select{min-width:170px;max-width:260px;padding:6px 8px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:6px;background:var(--dsw-alias-bg-base,#fff);color:inherit;font:inherit}.dsh-remote-ops__sftpHead .dsh-remote-ops__muted{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__sftpSplit{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-height:0;flex:1}.dsh-remote-ops__sftpPane{display:flex;min-width:0;min-height:0;flex-direction:column}.dsh-remote-ops__sftpPane+ .dsh-remote-ops__sftpPane{border-left:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__sftpPaneHead{display:flex;align-items:center;gap:5px;padding:8px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);flex:none}.dsh-remote-ops__sftpPaneHead strong{flex:1}.dsh-remote-ops__sftpPath{padding:8px;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb);flex:none}.dsh-remote-ops__sftpEntries{min-height:0;flex:1;overflow:auto;padding:7px}.dsh-remote-ops__sftpEntry{display:flex;align-items:center;gap:6px;padding:6px 5px;border-bottom:1px solid var(--dsw-alias-border-l3,#eef0f3)}.dsh-remote-ops__sftpEntry:hover{background:var(--dsw-alias-interactive-bg-hover,#edf1f5)}.dsh-remote-ops__sftpName{display:flex;align-items:center;gap:6px;flex:1;min-width:0;border:0!important;background:transparent!important;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__sftpLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__sftpIcon{display:inline-grid;place-items:center;width:18px;flex:none;font-size:15px;font-weight:700;line-height:1}.dsh-remote-ops__sftpIcon[data-type=directory]{color:#c78100}.dsh-remote-ops__sftpIcon[data-type=file]{color:#3e72c4}.dsh-remote-ops__sftpSize{width:70px;text-align:right;color:var(--dsw-alias-label-tertiary,#98a2b3);font-size:11px}.dsh-remote-ops__sftpEmpty{padding:24px 8px;text-align:center;color:var(--dsw-alias-label-tertiary,#98a2b3)}@media (max-width:720px){.dsh-remote-ops__sftpSplit{grid-template-columns:1fr;grid-template-rows:minmax(220px,1fr) minmax(220px,1fr)}.dsh-remote-ops__sftpPane+ .dsh-remote-ops__sftpPane{border-left:0;border-top:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__sftpHead{flex-wrap:wrap}.dsh-remote-ops__sftpHead .dsh-remote-ops__muted{flex-basis:100%;order:3}}`;
-    if (remoteOpsStyle) remoteOpsStyle.textContent += `
+        .dsh-remote-ops__quick{display:flex;flex:1;min-height:0;max-height:none;flex-direction:column;overflow:hidden;border:1px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:9px;background:var(--dsw-alias-bg-layer-1,#f8fafb)}.dsh-remote-ops__quickHead{display:flex;align-items:center;gap:6px;padding:7px 8px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);flex:none}.dsh-remote-ops__quickHead strong{flex:1}.dsh-remote-ops__quickBody{display:flex;gap:7px;min-height:0;max-height:none;flex:1;padding:7px;overflow:auto}.dsh-remote-ops__quickGroups{display:flex;flex:none;width:88px;flex-direction:column;gap:4px;overflow:auto;padding-right:5px;border-right:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__quickGroups button{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-color:transparent;background:transparent;padding:5px;font-size:12px}.dsh-remote-ops__quickGroups button[data-active=true]{border-color:color-mix(in srgb,var(--dsw-alias-interactive-brand,#4d6bfe) 28%,transparent);background:color-mix(in srgb,var(--dsw-alias-interactive-brand,#4d6bfe) 11%,transparent);color:var(--dsw-alias-interactive-brand,#4d6bfe);font-weight:600}.dsh-remote-ops__quickItems{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));align-content:start;gap:6px;min-width:0;flex:1;overflow:auto}.dsh-remote-ops__quickItem{display:flex;align-items:center;gap:4px;min-width:0;padding:6px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:7px;background:var(--dsw-alias-bg-base,#fff)}.dsh-remote-ops__quickItem span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__tiny{padding:3px 5px!important;font-size:11px!important}.dsh-remote-ops__drawer{left:0;width:min(270px,74%);border-right:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__drawerHead{display:flex;align-items:center;gap:5px;padding:8px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);flex:none}.dsh-remote-ops__drawerHead strong{flex:1}.dsh-remote-ops__tools{display:flex;gap:5px;margin-bottom:7px}.dsh-remote-ops__tools input{flex:1}.dsh-remote-ops__group{margin-bottom:10px}.dsh-remote-ops__groupTitle{display:flex;align-items:center;gap:4px;padding:3px;color:var(--dsw-alias-label-secondary,#667085);font-weight:650}.dsh-remote-ops__groupTitle span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__env{display:flex;align-items:center;gap:5px;padding:6px 4px;border-radius:7px}.dsh-remote-ops__env:hover{background:var(--dsw-alias-interactive-bg-hover,#edf1f5)}.dsh-remote-ops__dot{width:7px;height:7px;flex:none;border-radius:50%;background:#a5adba}.dsh-remote-ops__dot[data-connected=true]{background:#35a16c;box-shadow:0 0 0 3px rgba(53,161,108,.13)}.dsh-remote-ops__envInfo{flex:1;min-width:0;cursor:pointer}.dsh-remote-ops__envName,.dsh-remote-ops__envMeta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__envName{font-weight:600}.dsh-remote-ops__envMeta{font-size:11px;color:var(--dsw-alias-label-tertiary,#98a2b3)}.dsh-remote-ops__emptyList{padding:24px 8px;text-align:center;color:var(--dsw-alias-label-tertiary,#98a2b3)}.dsh-remote-ops__card{border:1px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:8px;padding:8px;margin-bottom:7px}.dsh-remote-ops__row{display:flex;align-items:center;gap:6px;min-width:0}.dsh-remote-ops__row span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__version{font-size:11px;color:var(--dsw-alias-label-tertiary,#98a2b3);white-space:nowrap}.dsh-remote-ops__update{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#35a16c) 46%,var(--dsw-alias-border-l3,#d8dce5));color:var(--dsw-alias-state-success-primary,#267c50);white-space:nowrap}.dsh-remote-ops__form{display:flex;flex-direction:column;gap:7px;margin-bottom:9px;padding:9px;border:1px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:8px;background:var(--dsw-alias-bg-layer-1,#f7f9fb)}.dsh-remote-ops__form label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--dsw-alias-label-secondary,#667085)}.dsh-remote-ops__formActions{display:flex;gap:6px;justify-content:flex-end}.dsh-remote-ops__formNote{font-size:11px;color:var(--dsw-alias-label-tertiary,#98a2b3)}.dsh-remote-ops__quickDock{display:flex;min-height:72px;max-height:50vh;min-width:0;flex-direction:column}.dsh-remote-ops__quickResize{height:9px;flex:none;display:grid;place-items:center;cursor:ns-resize;color:var(--dsw-alias-label-tertiary,#98a2b3);touch-action:none}.dsh-remote-ops__quickResize::before{content:"";width:38px;height:3px;border-radius:999px;background:var(--dsw-alias-border-l2,#c9d0db);transition:width .16s ease,background .16s ease}.dsh-remote-ops__quickResize:hover::before{width:54px;background:var(--dsw-alias-interactive-brand,#4d6bfe)}.dsh-remote-ops__headNotice{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-state-success-primary,#267c50)}.dsh-remote-ops__headNotice[data-error=true]{color:var(--dsw-alias-state-error-primary,#d92d20)}.dsh-remote-ops__launchControl{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:36px;padding:8px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary,#182230);font:inherit;cursor:pointer}.dsh-remote-ops__launchControl[data-wide=true]{justify-content:flex-start;text-align:start;padding-inline:10px}.dsh-remote-ops__launchControl:hover{background:var(--dsw-alias-interactive-bg-hover,#edf1f5)}.dsh-remote-ops__launchControl:focus-visible{outline:2px solid var(--dsw-alias-interactive-brand,#4d6bfe);outline-offset:-2px}.dsh-remote-ops__launchControl svg{flex:none}.dsh-remote-ops__error{display:flex;align-items:flex-start;gap:8px}.dsh-remote-ops__errorBody{flex:1;min-width:0;max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-remote-ops__errorClose{flex:none;padding:2px 6px!important;border-color:transparent!important;background:transparent!important;color:inherit!important;font-size:16px!important;line-height:1}.dsh-remote-ops__errorClose:hover{background:color-mix(in srgb,currentColor 10%,transparent)!important}.dsh-remote-ops__screenEmpty{cursor:text}.dsh-remote-ops__pendingCommand{margin:12px 0 0;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:7px;background:var(--dsw-alias-bg-layer-1,#f7f9fb);color:var(--dsw-alias-label-primary,#182230);font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;text-align:left}
+
+.dsh-remote-ops__head{flex-wrap:wrap}.dsh-remote-ops__headAction{min-height:36px!important;padding:7px 10px!important;font-size:12px!important;font-weight:650!important;white-space:nowrap}.dsh-remote-ops__drawerClose{min-width:36px;min-height:36px;padding:5px 9px!important;border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d92d20) 52%,transparent)!important;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d92d20) 10%,var(--dsw-alias-bg-base,#fff))!important;color:var(--dsw-alias-state-error-primary,#d92d20)!important;font-size:20px!important;font-weight:700!important;line-height:1!important}.dsh-remote-ops__drawerClose:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d92d20) 18%,var(--dsw-alias-bg-base,#fff))!important}
+.dsh-remote-ops__inputCursor{display:inline-block;width:2px;height:1.15em;vertical-align:-.18em;background:var(--dsw-alias-interactive-brand,#4d6bfe);box-shadow:0 0 0 1px color-mix(in srgb,var(--dsw-alias-interactive-brand,#4d6bfe) 18%,transparent);animation:dsh-remote-ops-caret 1s steps(1,end) infinite;pointer-events:none}@keyframes dsh-remote-ops-caret{0%,45%{opacity:1}46%,100%{opacity:0}}
+.dsh-remote-ops__formAdvanced{padding:6px 8px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:6px}.dsh-remote-ops__formAdvanced summary{cursor:pointer;font-weight:600;font-size:12px}.dsh-remote-ops__formAdvancedBody{display:flex;flex-direction:column;gap:7px;margin-top:7px}
+.dsh-remote-ops__main[data-module=sftp]{display:flex;padding:0;gap:0}.dsh-remote-ops__tab{display:flex;align-items:stretch;flex:none}.dsh-remote-ops__tab>button:first-child{border-radius:7px 0 0 7px}.dsh-remote-ops__tabClose{border-left:0!important;border-radius:0 7px 7px 0!important;padding:3px 6px!important}.dsh-remote-ops__dangerAction{color:var(--dsw-alias-state-error-primary,#d92d20)!important}.dsh-remote-ops__env{flex-wrap:wrap}.dsh-remote-ops__envConnections{width:100%;display:flex;flex-direction:column;gap:3px;margin:2px 0 0 13px;padding-left:7px;border-left:2px solid color-mix(in srgb,var(--dsw-alias-interactive-brand,#4d6bfe) 22%,transparent)}.dsh-remote-ops__envConnection{display:flex;align-items:center;gap:5px;min-width:0}.dsh-remote-ops__connectionLink{flex:1;min-width:0;padding:2px 4px!important;border:0!important;background:transparent!important;text-align:left;font-size:11px!important;color:var(--dsw-alias-label-secondary,#667085)!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__sftpWorkspace{display:flex;min-width:0;min-height:0;flex:1;flex-direction:column;background:var(--dsw-alias-bg-base,#fff)}.dsh-remote-ops__sftpHead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);flex:none}.dsh-remote-ops__sftpHead strong{flex:none}.dsh-remote-ops__sftpHead select{min-width:170px;max-width:260px;padding:6px 8px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:6px;background:var(--dsw-alias-bg-base,#fff);color:inherit;font:inherit}.dsh-remote-ops__sftpHead .dsh-remote-ops__muted{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__sftpSplit{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-height:0;flex:1}.dsh-remote-ops__sftpPane{display:flex;min-width:0;min-height:0;flex-direction:column}.dsh-remote-ops__sftpPane+ .dsh-remote-ops__sftpPane{border-left:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__sftpPaneHead{display:flex;align-items:center;gap:5px;padding:8px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);flex:none}.dsh-remote-ops__sftpPaneHead strong{flex:1}.dsh-remote-ops__sftpPath{padding:8px;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb);flex:none}.dsh-remote-ops__sftpEntries{min-height:0;flex:1;overflow:auto;padding:7px}.dsh-remote-ops__sftpEntry{display:flex;align-items:center;gap:6px;padding:6px 5px;border-bottom:1px solid var(--dsw-alias-border-l3,#eef0f3)}.dsh-remote-ops__sftpEntry:hover{background:var(--dsw-alias-interactive-bg-hover,#edf1f5)}.dsh-remote-ops__sftpName{display:flex;align-items:center;gap:6px;flex:1;min-width:0;border:0!important;background:transparent!important;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__sftpLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__sftpIcon{display:inline-grid;place-items:center;width:18px;flex:none;font-size:15px;font-weight:700;line-height:1}.dsh-remote-ops__sftpIcon[data-type=directory]{color:#c78100}.dsh-remote-ops__sftpIcon[data-type=file]{color:#3e72c4}.dsh-remote-ops__sftpSize{width:70px;text-align:right;color:var(--dsw-alias-label-tertiary,#98a2b3);font-size:11px}.dsh-remote-ops__sftpEmpty{padding:24px 8px;text-align:center;color:var(--dsw-alias-label-tertiary,#98a2b3)}@media (max-width:720px){.dsh-remote-ops__sftpSplit{grid-template-columns:1fr;grid-template-rows:minmax(220px,1fr) minmax(220px,1fr)}.dsh-remote-ops__sftpPane+ .dsh-remote-ops__sftpPane{border-left:0;border-top:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__sftpHead{flex-wrap:wrap}.dsh-remote-ops__sftpHead .dsh-remote-ops__muted{flex-basis:100%;order:3}}
+
       .dsh-remote-ops__main{padding:0;gap:0}
       .dsh-remote-ops__terminal{border:0;border-radius:0;box-shadow:none}
       .dsh-remote-ops__head{padding:6px 10px;gap:8px}
@@ -65,8 +64,8 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__quickHead{flex-wrap:wrap}
       .dsh-remote-ops button:focus-visible{outline:2px solid var(--dsw-alias-interactive-brand,#4d6bfe);outline-offset:-2px}
       @media(prefers-reduced-motion:reduce){.dsh-remote-ops__inputCursor{animation:none}}
-    `;
-    if (remoteOpsStyle) remoteOpsStyle.textContent += `
+
+
       .dsh-remote-ops{position:relative;container-type:inline-size;letter-spacing:0}
       .dsh-remote-ops__quickHead strong{flex:none;white-space:nowrap}.dsh-remote-ops__quickHead select{max-width:160px}.dsh-remote-ops__modal button{overflow-wrap:anywhere}
       .dsh-remote-ops select{min-width:0;max-width:100%;padding:5px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:5px;background:var(--dsw-alias-bg-base,#fff);color:inherit;font:inherit}
@@ -87,8 +86,8 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__tab>button:first-child{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .dsh-remote-ops__sftpPaneHead select{flex-basis:90px}.dsh-remote-ops__sftpPaneHead button[aria-pressed=true]{color:#c78100}
       @container(max-width:600px){.dsh-remote-ops__sftpSplit{grid-template-columns:1fr;grid-template-rows:repeat(2,minmax(340px,1fr));overflow-y:auto}.dsh-remote-ops__sftpPane+.dsh-remote-ops__sftpPane{border-left:0;border-top:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__quickItems{grid-template-columns:1fr}.dsh-remote-ops__sftpSize{width:50px}}
-    `;
-    if (remoteOpsStyle) remoteOpsStyle.textContent += `
+
+
       .dsh-remote-ops__quickDock{min-height:0;max-height:none;overflow:hidden;background:var(--dsw-alias-bg-base,#fff)}
       .dsh-remote-ops__quickResize{height:12px;border-top:1px solid var(--dsw-alias-border-l2,#d8dce5);outline-offset:-2px}
       .dsh-remote-ops__quickHead{flex-wrap:nowrap;padding:3px 8px;border:0;min-height:36px;box-sizing:border-box}
@@ -107,11 +106,8 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__quickForm{display:flex;flex-direction:column;gap:10px}.dsh-remote-ops__quickCheck{flex-direction:row!important;align-items:center}
       .dsh-remote-ops__quickModalHead{display:flex;align-items:center;gap:8px}.dsh-remote-ops__quickModalHead strong{flex:1;min-width:0}
       .dsh-remote-ops__quickEmpty{grid-column:1/-1;font-size:12px;color:var(--dsw-alias-label-secondary,#667085);padding:8px 0}
-    `;
-    const failureMessage = (value, status) => [value.title, `HTTP ${status}`, value.code, value.stage, value.error, value.details ?? value.stack, value.cleanupError].filter(Boolean).join("\n");
-    async function request(path, init) { const response = await fetch(path, init); const text = await response.text(); let value = {}; try { value = text ? JSON.parse(text) : {}; } catch { throw new Error(`HTTP ${response.status}: ${text}`); } if (!response.ok) { const error = Object.assign(new Error(value.error ?? `HTTP ${response.status}`), value); error.message = failureMessage(value, response.status); throw error; } return value; }
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.4.0", update: { currentVersion: "0.4.0", latestVersion: "0.4.0", updateAvailable: false } };
-    if (remoteOpsStyle) remoteOpsStyle.textContent += `
+
+
       .dsh-remote-ops__main[data-module=browser]{display:flex;min-height:0}
       .dsh-remote-ops__web{flex:1;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;background:var(--dsw-alias-bg-base,#fff);font-size:12px;line-height:1.6;scrollbar-gutter:stable}
       .dsh-remote-ops__webSection{display:flex;flex-direction:column;gap:9px;padding:14px 12px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);min-width:0;overflow-wrap:anywhere}
@@ -128,8 +124,8 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__web pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto;font:11px/1.6 ui-monospace,Consolas,monospace;margin:6px 0}
       .dsh-remote-ops__web img{display:block;width:100%;height:auto;border:1px solid var(--dsw-alias-border-l3,#d8dce5);box-sizing:border-box}
       .dsh-remote-ops__web :is(input,select,summary):focus-visible{outline:2px solid var(--dsw-alias-interactive-brand,#4d6bfe);outline-offset:1px}
-    `;
-    if(remoteOpsStyle)remoteOpsStyle.textContent+=`
+
+
       .dsh-remote-ops__main[data-module=browser]{display:flex;padding:0;gap:0}
       .dsh-remote-ops__webBrowser{display:flex;flex-direction:column;gap:0;min-width:0}
       .dsh-remote-ops__webBar{display:flex;align-items:center;gap:8px;padding:9px 12px;flex:none;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}
@@ -150,10 +146,124 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__webLog,.dsh-remote-ops__webSettings{flex:none;padding:7px 12px;border-top:1px solid var(--dsw-alias-border-l3,#e5e7eb)}.dsh-remote-ops__webLog[open]{max-height:35%;overflow:auto}.dsh-remote-ops__webLog summary,.dsh-remote-ops__webSettings summary{cursor:pointer}
       .dsh-remote-ops__webSettings>label{display:flex;align-items:center;gap:7px;margin-block:7px}.dsh-remote-ops__webSettings>small{display:block;margin-block:5px}.dsh-remote-ops__webSettings>.dsh-remote-ops__web{display:block;max-height:520px;overflow:auto}
       @container(max-width:420px){.dsh-remote-ops__webAddress{flex-wrap:wrap}.dsh-remote-ops__webAddress input{flex-basis:180px}.dsh-remote-ops__webAddress button[type=submit]{margin-left:auto}.dsh-remote-ops__webState .dsh-remote-ops__muted{flex-basis:100%}}
+
+
+      .dsh-remote-ops{position:relative;container-type:inline-size;font-size:13px;line-height:1.5}
+      .dsh-remote-ops [hidden]{display:none!important}
+      .dsh-remote-ops button{min-height:32px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:5px 8px;font-weight:400}
+      .dsh-remote-ops :is(input,textarea,select){max-width:100%;min-width:0;min-height:32px;border-radius:6px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);background:var(--dsw-alias-bg-base,#fff);color:inherit;font:inherit;box-sizing:border-box}
+      .dsh-remote-ops select{padding:4px 6px}.dsh-remote-ops input:is([type=checkbox],[type=radio]){width:16px;min-height:16px;flex:none}
+      .dsh-remote-ops :is(button,input,select,textarea,summary):focus-visible{outline:2px solid var(--dsw-alias-interactive-brand,#4d6bfe);outline-offset:2px}
+      .dsh-remote-ops :is(small,.dsh-remote-ops__version,.dsh-remote-ops__formNote){font-size:12px}
+      .dsh-remote-ops__muted{color:var(--dsw-alias-label-secondary,#667085)}
+      .dsh-remote-ops .dsh-remote-ops__primary{background:var(--dsw-alias-label-primary,#182230);border-color:transparent;color:var(--dsw-alias-bg-base,#fff)}
+      .dsh-remote-ops__head{padding:7px 10px;gap:8px;min-height:44px;position:relative;z-index:20;flex-wrap:nowrap}
+      .dsh-remote-ops__headAction{width:auto!important;min-width:32px;height:32px;padding:5px 7px!important;border-color:transparent!important;background:transparent!important;white-space:nowrap}
+      .dsh-remote-ops__head strong{font-size:13px;font-weight:500}.dsh-remote-ops__version{margin-right:auto}
+      .dsh-remote-ops__menu{position:relative;flex:none}.dsh-remote-ops__menu>summary{display:flex;align-items:center;justify-content:center;width:32px;min-height:32px;cursor:pointer;list-style:none;border-radius:6px}
+      .dsh-remote-ops__menu>summary::-webkit-details-marker{display:none}.dsh-remote-ops__menu[open]>summary{background:var(--dsw-alias-interactive-bg-hover,#edf1f5)}
+      .dsh-remote-ops__menu>div{position:absolute;right:0;top:calc(100% + 5px);min-width:170px;padding:5px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:7px;background:var(--dsw-alias-bg-base,#fff);box-shadow:0 6px 20px #0002;display:flex;flex-direction:column;z-index:30}
+      .dsh-remote-ops__menu>div>button{justify-content:flex-start;border-color:transparent;background:transparent}
+      .dsh-remote-ops__notice{padding:5px 12px;font-size:12px;flex:none;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb);overflow-wrap:anywhere}
+      .dsh-remote-ops__notice[data-error=true]{color:var(--dsw-alias-state-error-primary,#d92d20)}
+      .dsh-remote-ops__workspaceTabs{display:flex;gap:4px;flex:none;padding:4px 8px;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}
+      .dsh-remote-ops__workspaceTabs>button{border:0;background:transparent;padding:7px 10px;color:var(--dsw-alias-label-secondary,#667085);font-size:13px}
+      .dsh-remote-ops__workspaceTabs>button[aria-selected=true]{background:color-mix(in srgb,var(--dsw-alias-interactive-brand,#4d6bfe) 10%,var(--dsw-alias-bg-base,#fff));color:var(--dsw-alias-interactive-brand,#4d6bfe)}
+      .dsh-remote-ops__workspace{position:relative;display:flex;flex:1;min-height:0;min-width:0;overflow:hidden}
+      .dsh-remote-ops__main{display:flex!important;flex-direction:column;flex:1;min-height:0;min-width:0;overflow:hidden;padding:0!important;gap:0!important}
+      .dsh-remote-ops__terminal{flex:1;border:0;border-radius:0;box-shadow:none;min-height:120px}
+      .dsh-remote-ops__terminalHead{padding:8px 12px;background:var(--dsw-alias-bg-base,#fff);min-height:36px}
+      .dsh-remote-ops__terminalIdentity{min-width:0;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;text-align:left;flex-wrap:wrap;gap:4px 12px}
+      .dsh-remote-ops__terminalHead{justify-content:flex-start;text-align:left}.dsh-remote-ops__terminalIdentity strong{flex:none}
+      .dsh-remote-ops__terminalIdentity small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary,#667085)}
+      .dsh-remote-ops__tabs{background:transparent;padding:4px 8px;gap:4px}
+      .dsh-remote-ops__tabs button{font-size:12px;min-height:30px;border-color:transparent;background:transparent}
+      .dsh-remote-ops__tab>button[data-active=true]{background:var(--dsw-alias-bg-layer-1,#f6f8fa);border-color:var(--dsw-alias-border-l3,#e5e7eb)}
+      .dsh-remote-ops__toolbar{gap:6px;padding:5px 10px;min-height:36px;flex:none}
+      .dsh-remote-ops__terminal>.dsh-remote-ops__toolbar{border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}
+      .dsh-remote-ops__toolbar>button{border-color:transparent;background:transparent}.dsh-remote-ops__toolbar>label{font-size:12px}
+      .dsh-remote-ops__terminalLook{margin-left:auto;position:relative;flex:none}.dsh-remote-ops__terminalLook>summary{list-style:none;display:flex;align-items:center;justify-content:center;min-height:32px;min-width:32px;cursor:pointer}
+      .dsh-remote-ops__terminalLook>div{position:absolute;top:100%;right:0;width:190px;padding:12px;z-index:15;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:7px;box-shadow:0 5px 16px #0002;display:grid;gap:10px}
+      .dsh-remote-ops__terminalLook label{display:flex;align-items:center;gap:8px}.dsh-remote-ops__terminalLook input[type=number]{width:72px}.dsh-remote-ops__terminalLook select{width:auto}
+      .dsh-remote-ops__terminalStatus{padding:6px 12px;font-size:12px;gap:4px 10px;min-height:32px;border-top:1px solid var(--dsw-alias-border-l3,#e5e7eb)}
+      .dsh-remote-ops__statusDetails{margin-left:auto;position:relative;color:var(--dsw-alias-label-secondary,#667085)}
+      .dsh-remote-ops__statusDetails>summary{cursor:pointer}.dsh-remote-ops__statusDetails>div{position:absolute;bottom:calc(100% + 8px);right:0;z-index:10;width:min(300px,calc(100cqw - 30px));padding:12px;display:grid;gap:6px;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:7px;box-shadow:0 4px 16px #0002;overflow-wrap:anywhere}
+      .dsh-remote-ops__quickDock{flex:none;border-top:1px solid var(--dsw-alias-border-l3,#e5e7eb);border-radius:0;background:var(--dsw-alias-bg-base,#fff)}
+      .dsh-remote-ops__quickHead{padding:6px 10px;border-bottom:0;gap:6px}.dsh-remote-ops__quickHead strong{font-weight:500}
+      .dsh-remote-ops__quickFilters{padding:2px 10px 6px;gap:6px}.dsh-remote-ops__quickFilters select{max-width:125px}
+      .dsh-remote-ops__quickButtons{padding:2px 10px 10px;gap:6px}.dsh-remote-ops__quickButtons>button{border-color:var(--dsw-alias-border-l3,#e5e7eb);font-size:12px;min-height:32px}
+      .dsh-remote-ops__quickIcon{min-width:30px;width:30px;min-height:30px!important;border-color:transparent!important;background:transparent!important}
+      .dsh-remote-ops__quickLibraryRow{padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}
+      .dsh-remote-ops__drawer,.dsh-remote-ops__utilityView{position:static!important;inset:auto!important;width:100%!important;max-width:none!important;height:100%;min-height:0;display:flex;flex:1;flex-direction:column;border:0!important;border-radius:0!important;box-shadow:none!important;background:var(--dsw-alias-bg-base,#fff)}
+      .dsh-remote-ops__drawerHead{padding:8px 12px;min-height:44px;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb);gap:6px}
+      .dsh-remote-ops__drawerHead strong{margin-right:auto;font-weight:500}.dsh-remote-ops__drawerBody{padding:10px 12px;overflow:auto;flex:1;min-height:0}
+      .dsh-remote-ops .dsh-remote-ops__drawerClose{width:30px;min-height:30px;padding:4px;border-color:transparent!important;background:transparent!important;color:var(--dsw-alias-label-secondary,#667085)!important}
+      .dsh-remote-ops__group{border:0;margin:8px 0 14px;border-radius:0}.dsh-remote-ops__groupTitle{padding:4px 0;background:transparent;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}
+      .dsh-remote-ops__env{padding:10px 0;border-radius:0;border:0;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}
+      .dsh-remote-ops__envConnections{padding-top:6px}.dsh-remote-ops__envConnection{font-size:12px}.dsh-remote-ops__connectionLink{font-size:12px!important}
+      .dsh-remote-ops__form{padding:0;gap:12px;border:0;background:transparent;box-shadow:none}.dsh-remote-ops__form label{gap:5px;font-size:13px}.dsh-remote-ops__formNote{color:var(--dsw-alias-label-secondary,#667085)}
+      .dsh-remote-ops__formAdvanced{padding:8px 0;border-top:1px solid var(--dsw-alias-border-l3,#e5e7eb);border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}
+      .dsh-remote-ops__modalBackdrop{position:absolute;inset:0;z-index:70;padding:12px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--dsw-alias-label-primary,#182230) 16%,transparent)}
+      .dsh-remote-ops__modal{box-sizing:border-box;width:100%;max-width:600px;max-height:100%;min-width:0;overflow:auto;padding:14px;border-radius:8px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);background:var(--dsw-alias-bg-base,#fff);box-shadow:0 8px 24px #0002;display:flex;flex-direction:column;gap:10px}
+      .dsh-remote-ops__quickModalHead{display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}
+      .dsh-remote-ops__quickModalHead>strong{flex:1;font-weight:500}.dsh-remote-ops__modal form{display:flex;flex-direction:column;gap:10px}.dsh-remote-ops__modal textarea{min-height:100px;resize:vertical}
+      .dsh-remote-ops__modal :is(pre,p){margin:0;overflow-wrap:anywhere}.dsh-remote-ops__modal pre{white-space:pre-wrap;max-height:280px;overflow:auto;font:12px/1.6 ui-monospace,Consolas,monospace}
+      .dsh-remote-ops__modal .dsh-remote-ops__toolbar{padding:0}.dsh-remote-ops__modal .dsh-remote-ops__toolbar label{display:flex;align-items:center;gap:7px}.dsh-remote-ops__modal .dsh-remote-ops__toolbar input{width:80px}
+      .dsh-remote-ops__resultTabs{display:flex;gap:5px;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}.dsh-remote-ops__resultTabs>button{background:transparent;border-color:transparent}.dsh-remote-ops__resultTabs>button[aria-selected=true]{color:var(--dsw-alias-interactive-brand,#4d6bfe)}
+      .dsh-remote-ops__diagnostics{flex:1;min-height:0;display:flex;flex-direction:column}.dsh-remote-ops__diagnosticEvents{flex:1;min-height:0;overflow:auto;padding:8px 12px}
+      .dsh-remote-ops__diagnosticEvents>details{padding:10px 0;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}.dsh-remote-ops__diagnosticEvents summary{cursor:pointer;overflow-wrap:anywhere}.dsh-remote-ops__diagnosticEvents time{float:right;font-size:12px;color:var(--dsw-alias-label-secondary,#667085)}
+      .dsh-remote-ops__diagnosticEvents pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,Consolas,monospace}
+      .dsh-remote-ops__sftpWorkspace{flex:1;display:flex;flex-direction:column;min-height:0;gap:0;padding:0;overflow:auto;border:0;border-radius:0}
+      .dsh-remote-ops__fileHost{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;overflow:hidden}
+      .dsh-remote-ops__sftpHead{padding:8px 12px;min-height:40px}.dsh-remote-ops__sftpHead strong{font-weight:500}
+      .dsh-remote-ops__sftpSplit{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);flex:1;min-height:220px;gap:0;overflow:hidden}
+      .dsh-remote-ops__sftpPane{border:0;border-top:1px solid var(--dsw-alias-border-l3,#e5e7eb);border-radius:0;min-height:220px}.dsh-remote-ops__sftpPane+section{border-left:1px solid var(--dsw-alias-border-l3,#e5e7eb)}
+      .dsh-remote-ops__sftpPaneHead{padding:7px 8px;gap:4px;background:transparent}.dsh-remote-ops__sftpPaneHead select{font-size:12px;max-width:150px}.dsh-remote-ops__sftpPaneHead>button{border-color:transparent;background:transparent;min-width:28px}
+      .dsh-remote-ops__sftpPath{padding:4px 8px;gap:4px}.dsh-remote-ops__sftpPath input{font-size:12px}
+      .dsh-remote-ops__fileFilter{display:flex;align-items:center;gap:8px;padding:4px 8px 8px;min-width:0}.dsh-remote-ops__fileFilter>input{flex:1;width:0;font-size:12px}.dsh-remote-ops__fileFilter>label{display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap}.dsh-remote-ops__fileFilter>small{white-space:nowrap}
+      .dsh-remote-ops__sftpEntries{min-height:100px;flex:1;padding:0 8px}.dsh-remote-ops__sftpEntry{padding:3px 0;min-height:36px;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb);gap:6px}
+      .dsh-remote-ops__sftpName{min-width:0;border:0!important;background:transparent!important;justify-content:flex-start!important;padding:4px!important;font-size:13px!important}.dsh-remote-ops__sftpSize{font-size:12px;color:var(--dsw-alias-label-secondary,#667085)}
+      .dsh-remote-ops__sftpPane>.dsh-remote-ops__toolbar{border-top:1px solid var(--dsw-alias-border-l3,#e5e7eb);align-items:flex-start}.dsh-remote-ops__sftpPane>.dsh-remote-ops__toolbar>label{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}.dsh-remote-ops__sftpPane input[type=file]{font-size:12px;width:100%;padding:3px}
+      .dsh-remote-ops__fileError{padding:6px 8px;display:flex;gap:6px;align-items:center;font-size:12px;overflow-wrap:anywhere}
+      .dsh-remote-ops__fileTime{font-size:12px;white-space:nowrap;color:var(--dsw-alias-label-secondary,#667085)}.dsh-remote-ops__fileActions{flex-wrap:wrap;justify-content:flex-start}.dsh-remote-ops__fileActions>button{overflow-wrap:anywhere;max-width:100%}.dsh-remote-ops__sftpIcon{color:var(--dsw-alias-label-secondary,#667085)!important}
+      .dsh-remote-ops__fileSides{display:none;padding:4px 8px;gap:6px}.dsh-remote-ops__fileSides>button[aria-pressed=true]{background:var(--dsw-alias-bg-layer-1,#f6f8fa);color:var(--dsw-alias-interactive-brand,#4d6bfe)}
+      .dsh-remote-ops__transfers{flex:none;max-height:30%;min-height:32px;padding:8px 12px;overflow:auto;border-top:1px solid var(--dsw-alias-border-l3,#e5e7eb);font-size:12px}.dsh-remote-ops__transfer{padding:5px 0;gap:6px;overflow-wrap:anywhere}
+      .dsh-remote-ops__transferHistory>summary{cursor:pointer;padding:4px 0;color:var(--dsw-alias-label-secondary,#667085)}
+      .dsh-remote-ops__webBrowser{flex:1;min-height:0;overflow:auto;background:var(--dsw-alias-bg-base,#fff)}
+      .dsh-remote-ops__webBar{padding:6px 10px;min-height:36px;border:0}.dsh-remote-ops__webBar>span,.dsh-remote-ops__webBar>select{min-width:0;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+      .dsh-remote-ops__webDisplayWarning{font-size:12px;padding:0 10px 5px;color:var(--dsw-alias-label-secondary,#667085);flex:none;overflow-wrap:anywhere}
+      .dsh-remote-ops__webPagesBar{display:flex;align-items:center;gap:3px;padding-right:8px;flex:none;min-width:0;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}.dsh-remote-ops__webPagesBar>button{min-width:28px;border-color:transparent;background:transparent}
+      .dsh-remote-ops__webPages{flex:1;min-width:0;padding:4px 8px;gap:4px}.dsh-remote-ops__webPages button{min-height:30px;border-color:transparent;background:transparent;font-size:12px;max-width:200px;display:block}.dsh-remote-ops__webPages button[aria-selected=true]{border-color:var(--dsw-alias-border-l3,#e5e7eb);background:var(--dsw-alias-bg-layer-1,#f6f8fa)}
+      .dsh-remote-ops__webAddress{flex-wrap:nowrap!important;padding:6px 8px;gap:4px}.dsh-remote-ops__webAddress input{flex:1 1 0!important;width:0;min-width:0;font-size:12px}.dsh-remote-ops__webAddress button{min-width:28px;padding:4px 6px;min-height:32px}.dsh-remote-ops__webAddress button[type=submit]{margin-left:0}
+      .dsh-remote-ops__webPage{flex:1;min-height:180px}.dsh-remote-ops__live{min-height:180px}.dsh-remote-ops__liveTools{padding:4px 8px;font-size:12px;flex-wrap:wrap}.dsh-remote-ops__liveTools select{font-size:12px;min-width:80px;min-height:28px}
+      .dsh-remote-ops__liveSurface img{border:0}.dsh-remote-ops__webState{padding:5px 10px;min-height:30px;gap:6px;border-top:1px solid var(--dsw-alias-border-l3,#e5e7eb)}.dsh-remote-ops__webState>strong{font-weight:400}.dsh-remote-ops__webState>details{margin-left:auto}
+      .dsh-remote-ops__webLog,.dsh-remote-ops__webSettings{padding:5px 10px;font-size:12px}.dsh-remote-ops__webSettings[open]{max-height:50%;overflow:auto;min-height:100px}.dsh-remote-ops__webSettings>.dsh-remote-ops__web{padding:0}.dsh-remote-ops__webSettings details>.dsh-remote-ops__web{padding:8px 0;display:block}
+      .dsh-remote-ops__webWelcome{gap:8px}.dsh-remote-ops__webWelcome p{margin:0;font-size:12px}
+      @container(max-width:600px){.dsh-remote-ops__sftpSplit{display:flex;min-height:240px}.dsh-remote-ops__sftpPane{flex:1;width:100%;border-left:0!important}.dsh-remote-ops__sftpPane:not([data-focused=true]){display:none}.dsh-remote-ops__fileSides{display:flex}.dsh-remote-ops__fileActions>button:not([data-focused=true]){display:none}.dsh-remote-ops__fileTime{display:none}}
+      @container(max-width:420px){.dsh-remote-ops__head{gap:4px}.dsh-remote-ops__version{font-size:12px}.dsh-remote-ops__modalBackdrop{padding:8px}.dsh-remote-ops__modal{padding:12px}.dsh-remote-ops__terminalIdentity small{max-width:100%}.dsh-remote-ops__toolbar{gap:4px}.dsh-remote-ops__quickFilters{flex-wrap:nowrap}.dsh-remote-ops__quickFilters>input{flex:1;width:0;min-width:0}.dsh-remote-ops__quickFilters select{width:104px}.dsh-remote-ops__webBar>label{gap:3px}.dsh-remote-ops__webBar select{min-width:80px}}
+      @media(pointer:coarse){.dsh-remote-ops button,.dsh-remote-ops summary{min-height:40px}.dsh-remote-ops input:not([type=checkbox]),.dsh-remote-ops textarea{font-size:16px}}
+      @media(prefers-reduced-motion:reduce){.dsh-remote-ops *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
     `;
-    const glyph = { environments: "▦", quick: "⌘", sftp: "⇄", browser: "◎", diagnostics: "⌁" };
+    const failureMessage = (value, status) => [value.title, `HTTP ${status}`, value.code, value.stage, value.error, value.details ?? value.stack, value.cleanupError].filter(Boolean).join("\n");
+    async function request(path, init) { const response = await fetch(path, init); const text = await response.text(); let value = {}; try { value = text ? JSON.parse(text) : {}; } catch { throw new Error(`HTTP ${response.status}: ${text}`); } if (!response.ok) { const error = Object.assign(new Error(value.error ?? `HTTP ${response.status}`), value); error.message = failureMessage(value, response.status); throw error; } return value; }
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.5.0", update: { currentVersion: "0.5.0", latestVersion: "0.5.0", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160) => {
       const source = String(value ?? "");
+      // Append-only ASCII logs (including SGR colour codes) need no per-cell emulator.
+      // Cursor motion, alternate screens, Unicode and incomplete sequences use the VT path.
+      const plain = source.replace(/\x1b\[[0-9;]*m/g, "");
+      if (Number.isInteger(columns) && columns > 0 && !/[^\x20-\x7e\r\n]/.test(plain) && !/\r(?!\n)|(?<!\r)\n/.test(plain)) {
+        const lines = [];
+        let cursorColumn = 0;
+        for (const line of plain.split("\r\n")) {
+          if (!line.length) { lines.push(""); cursorColumn = 0; continue; }
+          for (let offset = 0; offset < line.length; offset += columns) lines.push(line.slice(offset, offset + columns).replace(/ +$/g, ""));
+          cursorColumn = (line.length - 1) % columns + 1;
+        }
+        let first = 0;
+        while (first < lines.length - 1 && !lines[first]) first++;
+        return { text: lines.slice(first).join("\n"), alternateScreen: false, cursorVisible: true, cursor: { row: lines.length - first - 1, column: cursorColumn } };
+      }
       let screen = Array.from({ length: rows }, () => []);
       let scrollback = [];
       let normalScreen;
@@ -302,7 +412,6 @@ window.__ModuleLoader__.load({
       return { text, alternateScreen: Boolean(normalScreen), cursorVisible, cursor: { row: visibleCursorRow, column: cursorColumn } };
     };
     const terminalVisibleText = (value, rows = 40, columns = 160) => terminalScreenModel(value, rows, columns).text;
-    const ask = (label, value = "") => { const result = window.prompt(label, value); return result === null ? undefined : result.trim(); };
     const parseSshCommand = (value) => { const text = String(value ?? "").trim(); if (!/^ssh(?:\s|$)/i.test(text)) return undefined; const tokens = text.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.slice(1).map((item) => item.replace(/^("|')|("|')$/g, "")) ?? []; let hostToken = ""; let username = ""; let port = 22; let privateKeyPath = ""; const takesValue = new Set(["-p", "-i", "-l", "-F", "-J", "-o", "-b", "-D", "-L", "-R", "-W", "-S", "-B", "-c", "-m", "-w"]); for (let index = 0; index < tokens.length; index += 1) { const token = tokens[index]; if (token === "--") { hostToken = tokens[index + 1] ?? ""; break; } if (token === "-p") { port = Number(tokens[++index]); continue; } if (token.startsWith("-p") && token.length > 2) { port = Number(token.slice(2)); continue; } if (token === "-i") { privateKeyPath = tokens[++index] ?? ""; continue; } if (token.startsWith("-i") && token.length > 2) { privateKeyPath = token.slice(2); continue; } if (token === "-l") { username = tokens[++index] ?? ""; continue; } if (token.startsWith("-l") && token.length > 2) { username = token.slice(2); continue; } if (token.startsWith("-")) { if (takesValue.has(token)) index += 1; continue; } if (!hostToken) hostToken = token; } if (!hostToken) return { error: "SSH 命令缺少主机地址，请使用 ssh [user@]host。" }; const at = hostToken.lastIndexOf("@"); if (at >= 0) { username = hostToken.slice(0, at) || username; hostToken = hostToken.slice(at + 1); } const host = hostToken.replace(/^\[|\]$/g, ""); if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return { error: "SSH 命令中的主机或端口无效。" }; return { host, username, port, privateKeyPath }; };
 
     const environmentProfileValues = (environment) => ({
@@ -455,10 +564,28 @@ window.__ModuleLoader__.load({
     };
     const browserUploads = createBrowserUploads();
 
-    function SftpWorkspace({ sessionId, environments, initialEnvironment, onError, onClose }) {
+    // UI positions only. Never persist credentials, terminal contents or command output.
+    const workspaceViews = new Map(), fileViews = new Map(), commandDrafts = new Map();
+    const workspaceView = owner => {
+      if (workspaceViews.has(owner)) return workspaceViews.get(owner);
+      try { const saved = JSON.parse(sessionStorage.getItem("remote-ops.view." + owner) || "{}"); return { module: ["terminal", "browser", "sftp"].includes(saved.module) ? saved.module : "terminal", activeSessionId: typeof saved.activeSessionId === "string" ? saved.activeSessionId.slice(0, 200) : "", search: typeof saved.search === "string" ? saved.search.slice(0, 120) : "" }; }
+      catch { return { module: "terminal", activeSessionId: "", search: "" }; }
+    };
+    const rememberWorkspace = (owner, value) => {
+      if (!owner) return;
+      workspaceViews.set(owner, value);
+      if (workspaceViews.size > 64) workspaceViews.delete(workspaceViews.keys().next().value);
+      try { sessionStorage.setItem("remote-ops.view." + owner, JSON.stringify(value)); } catch { /* Storage is optional. */ }
+    };
+
+
+    function SftpWorkspace({ sessionId, environments, initialEnvironment, onError, onClose, visible = true }) {
       const initial = (kind, environment = "") => ({ kind, environment, path: ".", draft: ".", sort: "name", scrollTop: 0, entries: [], selected: [], loading: false, loaded: false, error: "" });
       const [saved] = useState(() => { try { return fileWorkspacePreferences(JSON.parse(localStorage.getItem("remote-ops.files." + sessionId) || "{}")); } catch { return fileWorkspacePreferences(); } });
-      const [panes, setPanes] = useState(() => [initial("host"), initial(environments.length ? "ssh" : "host", initialEnvironment || environments[0]?.id)].map((pane, side) => ({ ...pane, ...saved.panes[side], draft: saved.panes[side]?.path ?? "." })));
+      const [panes, setPanes] = useState(() => [initial("host"), initial(environments.length ? "ssh" : "host", initialEnvironment || environments[0]?.id)].map((pane, side) => ({ ...pane, ...saved.panes[side], ...fileViews.get(sessionId)?.panes[side], entries: [], loaded: false, loading: false, error: "", draft: fileViews.get(sessionId)?.panes[side]?.draft ?? saved.panes[side]?.path ?? "." })));
+      const [filters, setFilters] = useState(() => fileViews.get(sessionId)?.filters ?? ["", ""]), [fileSide, setFileSide] = useState(() => fileViews.get(sessionId)?.side ?? 0);
+      const filtersRef = useRef(filters), sideRef = useRef(fileSide), taskSignature = useRef(""), selectionAnchor = useRef([null, null]); filtersRef.current = filters; sideRef.current = fileSide;
+      const visibleEntries = useMemo(() => panes.map((pane, side) => sortedFileEntries(pane.entries, pane.sort).filter(item => item.name.toLowerCase().includes(filters[side].toLowerCase()))), [panes, filters]);
       const [bookmarks, setBookmarks] = useState(saved.bookmarks);
       const [preview, setPreview] = useState(null), [preparing, setPreparing] = useState(false);
       const [conflict, setConflict] = useState("error");
@@ -468,9 +595,10 @@ window.__ModuleLoader__.load({
       const generations = useRef([0, 0]), alive = useRef(true), inFlight = useRef([null, null]), pendingRefresh = useRef([false, false]);
       const panesRef = useRef(panes), bookmarksRef = useRef(bookmarks), lists = useRef([]), scrolls = useRef(panes.map(pane => pane.scrollTop));
       const saveTimer = useRef(), confirmation = useRef(), seenTasks = useRef(new Set(upload?.completedTasks.map(task => task.id) ?? [])), taskBaseline = useRef(false);
+      const wasVisible = useRef(visible), refreshOnShow = useRef(false);
       panesRef.current = panes; bookmarksRef.current = bookmarks;
-      const save = () => { try { localStorage.setItem("remote-ops.files." + sessionId, JSON.stringify(fileWorkspacePreferences({ panes: panesRef.current.map((pane, side) => ({ ...pane, scrollTop: scrolls.current[side] })), bookmarks: bookmarksRef.current }))); } catch { /* Browser storage may be disabled. */ } };
-      useEffect(() => { save(); }, [panes, bookmarks]);
+      const save = () => { const retained = panesRef.current.map((pane, side) => ({ ...fileEndpoint(pane), draft: pane.draft, sort: pane.sort, selected: pane.selected, scrollTop: scrolls.current[side] })); fileViews.set(sessionId, { panes: retained, filters: filtersRef.current, side: sideRef.current }); if (fileViews.size > 64) fileViews.delete(fileViews.keys().next().value); try { localStorage.setItem("remote-ops.files." + sessionId, JSON.stringify(fileWorkspacePreferences({ panes: retained, bookmarks: bookmarksRef.current }))); } catch { /* Browser storage may be disabled. */ } };
+      useEffect(() => { save(); }, [panes, bookmarks, filters, fileSide]);
       const invoke = useCallback(body => request("/api/dsh-remote-ops/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, sessionId }) }), [sessionId]);
       const change = (side, patch) => setPanes(current => current.map((pane, index) => index === side ? { ...pane, ...patch } : pane));
       const load = async (side, endpoint, selected) => {
@@ -478,26 +606,29 @@ window.__ModuleLoader__.load({
         const previous = panesRef.current[side], sameLocation = sameFileLocation(previous, endpoint), refreshing = previous.loaded && sameLocation;
         const position = sameLocation ? scrolls.current[side] : 0;
         inFlight.current[side] = endpoint; pendingRefresh.current[side] = false;
-        change(side, { ...endpoint, loading: true, loaded: refreshing, error: "", entries: refreshing ? previous.entries : [], selected: selected ?? (refreshing ? previous.selected : []) });
+        change(side, { ...endpoint, ...(!sameLocation ? { draft: endpoint.path } : {}), loading: true, loaded: refreshing, error: "", entries: refreshing ? previous.entries : [], selected: selected ?? (refreshing ? previous.selected : []) });
         try {
           const value = await invoke({ action: "files", endpoint: fileEndpoint(endpoint) });
           if (alive.current && generation === generations.current[side]) {
             const selection = (selected ?? (refreshing ? panesRef.current[side].selected : [])).filter(name => value.entries.some(item => item.name === name));
-            change(side, { path: value.path, draft: value.path, entries: value.entries, selected: selection, loaded: true, loading: false });
+            change(side, { path: value.path, draft: sameLocation && !sameFileLocation(previous, { ...previous, path: panesRef.current[side].draft }) ? panesRef.current[side].draft : value.path, entries: value.entries, selected: selection, loaded: true, loading: false });
             window.requestAnimationFrame(() => { const list = lists.current[side]; if (!list || !alive.current || generation !== generations.current[side]) return; list.scrollTop = sameLocation ? scrolls.current[side] : position; if (selected?.length) list.querySelector("[data-selected=true]")?.scrollIntoView({ block: "nearest" }); scrolls.current[side] = list.scrollTop; save(); });
           }
-        } catch (error) { if (alive.current && generation === generations.current[side]) { change(side, { error: error.message }); onError(error.message); } }
+        } catch (error) { if (alive.current && generation === generations.current[side]) change(side, { error: error.message }); }
         finally { if (alive.current && generation === generations.current[side]) { inFlight.current[side] = null; change(side, { loading: false }); if (pendingRefresh.current[side]) { pendingRefresh.current[side] = false; void load(side, panesRef.current[side]); } } }
       };
       useEffect(() => {
         alive.current = true;
-        void load(0, panes[0]); void load(1, panes[1]);
+        void load(0, panes[0], panes[0].selected); void load(1, panes[1], panes[1].selected);
         return () => { alive.current = false; clearTimeout(saveTimer.current); save(); confirmation.current?.(false); };
       }, []);
+      useEffect(() => { if (visible && !wasVisible.current) refreshOnShow.current = true; wasVisible.current = visible; }, [visible]);
       useEffect(() => {
-        let stopped = false, timer, failures = 0;
+        if (!visible) return;
+        let stopped = false, timer, failures = 0, polling = false;
         const poll = async () => {
-          if (sessionId) try {
+          if (stopped || polling) return; polling = true;
+          if (sessionId && !document.hidden) try {
             const value = await invoke({ action: "transfers" }); failures = 0;
             if (!stopped) {
               const browserTasks = browserUploads.get(sessionId)?.completedTasks ?? [];
@@ -507,14 +638,17 @@ window.__ModuleLoader__.load({
               taskBaseline.current = true;
               const retainedIds = new Set([...value.tasks, ...browserTasks].map(task => task.id));
               for (const id of seenTasks.current) if (!retainedIds.has(id)) seenTasks.current.delete(id);
-              panesRef.current.forEach((pane, side) => { if (changed.some(task => sameFileLocation(pane, task.target))) { if (inFlight.current[side]) pendingRefresh.current[side] = true; else void load(side, pane); } });
-              setTasks(value.tasks);
+              panesRef.current.forEach((pane, side) => { if (refreshOnShow.current || changed.some(task => sameFileLocation(pane, task.target))) { if (inFlight.current[side]) pendingRefresh.current[side] = true; else void load(side, pane); } });
+              refreshOnShow.current = false;
+              const signature = JSON.stringify(value.tasks); if (signature !== taskSignature.current) { taskSignature.current = signature; setTasks(value.tasks); }
             }
           } catch (error) { failures++; if (!stopped) onError(error.message); }
-          if (!stopped) timer = setTimeout(poll, failures ? retryDelay(failures) : 1500);
+          polling = false; if (!stopped) timer = setTimeout(poll, document.hidden ? 10000 : failures ? retryDelay(failures) : 1500);
         };
-        void poll(); return () => { stopped = true; clearTimeout(timer); };
-      }, [invoke, sessionId]);
+        const wake = () => { if (!document.hidden) { clearTimeout(timer); void poll(); } };
+        document.addEventListener?.("visibilitychange", wake);
+        void poll(); return () => { stopped = true; clearTimeout(timer); document.removeEventListener?.("visibilitychange", wake); };
+      }, [invoke, sessionId, visible]);
       const confirmOverwrite = async body => {
         if (body.conflict !== "overwrite") return true;
         const value = await invoke({ ...body, action: "transfer-preview" });
@@ -553,7 +687,14 @@ window.__ModuleLoader__.load({
       const retry = async task => { try { const value = await invoke({ action: "transfer-retry", id: task.id }); if (alive.current) setTasks(current => [...current, value]); } catch (error) { onError(error.message); } };
       const describeFile = details => details ? String(details.size ?? "?") + " B · " + (details.modifiedAt ? new Date(details.modifiedAt).toLocaleString() : "时间未知") : "不存在";
       const join = (path, name) => `${path.replace(/[\\/]+$/, "")}/${name}`;
-      const renderPane = (pane, side) => h("section", { className: "dsh-remote-ops__sftpPane", key: side, "aria-label": side ? "文件目标 B" : "文件来源 A" },
+      const endpointName = pane => pane.kind === "host" ? "DSH 主机" : environments.find(env => env.id === pane.environment)?.name ?? "SSH 环境";
+      const selectFile = (side, item, event) => {
+        const entries = visibleEntries[side], anchor = entries.findIndex(entry => entry.name === selectionAnchor.current[side]), index = entries.indexOf(item);
+        const range = (event.nativeEvent?.shiftKey || event.shiftKey) && anchor >= 0 ? entries.slice(Math.min(anchor, index), Math.max(anchor, index) + 1).filter(entry => ["d", "-"].includes(entry.type)).map(entry => entry.name) : [item.name];
+        if (!(event.nativeEvent?.shiftKey || event.shiftKey) || anchor < 0) selectionAnchor.current[side] = item.name;
+        change(side, { selected: event.target.checked ? [...new Set([...panes[side].selected, ...range])] : panes[side].selected.filter(name => !range.includes(name)) });
+      };
+      const renderPane = (pane, side) => h("section", { className: "dsh-remote-ops__sftpPane", key: side, "data-focused": fileSide === side, "aria-label": side ? "文件目标 B" : "文件来源 A" },
         h("div", { className: "dsh-remote-ops__sftpPaneHead" }, h("strong", null, side ? "B" : "A"),
           h("select", { "aria-label": `位置 ${side ? "B" : "A"}`, value: pane.kind === "host" ? "host" : pane.environment, onChange: event => void load(side, initial(event.target.value === "host" ? "host" : "ssh", event.target.value === "host" ? "" : event.target.value)) }, h("option", { value: "host" }, "DSH 所在主机"), environments.map(env => h("option", { key: env.id, value: env.id }, env.name))),
           h("button", { title: "上级目录", "aria-label": `上级目录 ${side ? "B" : "A"}`, disabled: pane.loading, onClick: () => void load(side, { ...pane, path: join(pane.path, "..") }) }, "↑"),
@@ -563,22 +704,20 @@ window.__ModuleLoader__.load({
           h("select", { "aria-label": "排序 " + (side ? "B" : "A"), value: pane.sort, onChange: event => change(side, { sort: event.target.value }) }, h("option", { value: "name" }, "名称"), h("option", { value: "size" }, "大小"), h("option", { value: "modified" }, "修改时间")),
         ),
         h("form", { className: "dsh-remote-ops__sftpPath", onSubmit: event => { event.preventDefault(); void load(side, { ...pane, path: pane.draft }); } }, h("input", { "aria-label": `路径 ${side ? "B" : "A"}`, disabled: pane.loading, value: pane.draft, onChange: event => change(side, { draft: event.target.value }) }), h("button", { title: "打开路径", "aria-label": "打开路径", disabled: pane.loading }, "→")),
-        h("div", { className: "dsh-remote-ops__sftpEntries", ref: node => { lists.current[side] = node; }, onScroll: event => { if (pane.loading && !pane.loaded) return; scrolls.current[side] = event.currentTarget.scrollTop; clearTimeout(saveTimer.current); saveTimer.current = setTimeout(save, 300); }, "aria-busy": pane.loading }, pane.loading && !pane.loaded ? "加载中…" : pane.error && !pane.loaded ? h("pre", { className: "dsh-remote-ops__fileError" }, pane.error) : pane.entries.length ? sortedFileEntries(pane.entries, pane.sort).map(item => h("div", { className: "dsh-remote-ops__sftpEntry", key: item.name, "data-selected": pane.selected.includes(item.name) },
-          h("input", { type: "checkbox", "aria-label": `选择 ${item.name}`, disabled: !["d", "-"].includes(item.type), checked: pane.selected.includes(item.name), onChange: event => change(side, { selected: event.target.checked ? [...pane.selected, item.name] : pane.selected.filter(name => name !== item.name) }) }),
-          h("button", { className: "dsh-remote-ops__sftpName", onDoubleClick: () => { if (item.type === "d") void load(side, { ...pane, path: join(pane.path, item.name) }); }, title: item.name }, h("span", { className: "dsh-remote-ops__sftpIcon", "data-type": item.type === "d" ? "directory" : "file", "aria-hidden": true }, item.type === "d" ? h(IconFolderClose16) : "▱"), h("span", { className: "dsh-remote-ops__sftpLabel" }, item.name)),
+        h("div", { className: "dsh-remote-ops__fileFilter" }, h("input", { type: "search", "aria-label": "筛选目录 " + (side ? "B" : "A"), placeholder: "筛选当前目录…", value: filters[side], onChange: event => setFilters(current => current.map((value, index) => index === side ? event.target.value : value)) }), h("label", null, h("input", { type: "checkbox", "aria-label": "全选 " + (side ? "B" : "A"), disabled: !pane.loaded, checked: visibleEntries[side].some(item => ["d", "-"].includes(item.type)) && visibleEntries[side].filter(item => ["d", "-"].includes(item.type)).every(item => pane.selected.includes(item.name)), onChange: event => { const names = visibleEntries[side].filter(item => ["d", "-"].includes(item.type)).map(item => item.name); change(side, { selected: event.target.checked ? [...new Set([...pane.selected, ...names])] : pane.selected.filter(name => !names.includes(name)) }); } }), "全选"), h("small", null, "已选 " + pane.selected.length)),
+        pane.error ? h("div", { className: "dsh-remote-ops__fileError", role: "alert" }, h("span", null, pane.error.split("\n").at(-1)), h("button", { disabled: pane.loading, onClick: () => void load(side, pane) }, "重试目录")) : null,
+        h("div", { className: "dsh-remote-ops__sftpEntries", ref: node => { lists.current[side] = node; }, onScroll: event => { if (!visible || pane.loading && !pane.loaded) return; scrolls.current[side] = event.currentTarget.scrollTop; clearTimeout(saveTimer.current); saveTimer.current = setTimeout(save, 300); }, "aria-busy": pane.loading }, pane.loading && !pane.loaded ? "加载中…" : visibleEntries[side].length ? visibleEntries[side].map(item => h("div", { className: "dsh-remote-ops__sftpEntry", key: item.name, "data-selected": pane.selected.includes(item.name) },
+          h("input", { type: "checkbox", "aria-label": `选择 ${item.name}`, disabled: !["d", "-"].includes(item.type), checked: pane.selected.includes(item.name), onChange: event => selectFile(side, item, event) }),
+          h("button", { className: "dsh-remote-ops__sftpName", onDoubleClick: () => { if (item.type === "d") void load(side, { ...pane, path: join(pane.path, item.name) }); }, onKeyDown: event => { if (event.key === "Enter" && item.type === "d") { event.preventDefault(); void load(side, { ...pane, path: join(pane.path, item.name) }); } }, title: item.name }, h("span", { className: "dsh-remote-ops__sftpIcon", "data-type": item.type === "d" ? "directory" : "file", "aria-hidden": true }, item.type === "d" ? h(IconFolderClose16) : h(FileIcon)), h("span", { className: "dsh-remote-ops__sftpLabel" }, item.name)),
           h("span", { className: "dsh-remote-ops__sftpSize" }, item.type === "d" ? "" : `${(item.size / 1024).toFixed(1)} K`),
-        )) : h("div", { className: "dsh-remote-ops__sftpEmpty" }, "空目录")),
+          item.modifiedAt ? h("time", { className: "dsh-remote-ops__fileTime", title: new Date(item.modifiedAt).toLocaleString() }, new Date(item.modifiedAt).toLocaleDateString()) : null,
+        )) : h("div", { className: "dsh-remote-ops__sftpEmpty" }, pane.error ? "目录暂不可用" : filters[side] ? "没有匹配的文件" : "空目录")),
         h("div", { className: "dsh-remote-ops__toolbar" },
-          h("label", { title: "从当前浏览器设备上传文件", "aria-label": "浏览器上传 " + (side ? "B" : "A") }, "浏览器上传", h("input", { type: "file", multiple: true, disabled: !sessionId || !pane.loaded || preparing || uploading, style: { width: "130px" }, onChange: event => { const files = [...event.target.files]; event.target.value = ""; void browserUpload(side, files); } })),
-          h("button", { disabled: !sessionId || pane.selected.length !== 1 || pane.entries.find(item => item.name === pane.selected[0])?.type !== "-", title: "下载到当前浏览器设备", onClick: () => { const link = document.createElement("a"); link.href = fileUrl(pane, pane.selected[0]); link.download = pane.selected[0]; link.click(); } }, h(IconDownloadOutline16), " 浏览器"),
+          h("label", { title: "从当前浏览器所在设备上传到此目录", "aria-label": "浏览器上传 " + (side ? "B" : "A") }, "上传本机文件", h("input", { type: "file", multiple: true, disabled: !sessionId || !pane.loaded || preparing || uploading, onChange: event => { const files = [...event.target.files]; event.target.value = ""; void browserUpload(side, files); } })),
+          h("button", { disabled: !sessionId || pane.selected.length !== 1 || pane.entries.find(item => item.name === pane.selected[0])?.type !== "-", title: "下载到当前浏览器所在设备", onClick: () => { const link = document.createElement("a"); link.href = fileUrl(pane, pane.selected[0]); link.download = pane.selected[0]; link.click(); } }, h(IconDownloadOutline16), " 下载文件"),
         ),
       );
-      return h("section", { className: "dsh-remote-ops__sftpWorkspace" },
-        h("div", { className: "dsh-remote-ops__sftpHead" }, h("strong", null, "文件传输"), h("span", { className: "dsh-remote-ops__muted" }, sessionId ? "" : "请先选择一个 DSH 会话"), h("button", { className: "dsh-remote-ops__drawerClose", "aria-label": "关闭 SFTP", title: "关闭 SFTP", onClick: onClose }, "×")),
-        h("div", { className: "dsh-remote-ops__toolbar" }, h("button", { disabled: !sessionId || !panes[0].selected.length || preparing || panes.some(pane => !pane.loaded), onClick: () => void transfer(0) }, "A → B"), h("button", { disabled: !sessionId || !panes[1].selected.length || preparing || panes.some(pane => !pane.loaded), onClick: () => void transfer(1) }, "A ← B"), h("label", null, "同名文件", h("select", { value: conflict, onChange: event => setConflict(event.target.value) }, h("option", { value: "error" }, "停止并报告"), h("option", { value: "skip" }, "跳过"), h("option", { value: "overwrite" }, "覆盖")))),
-        h("div", { className: "dsh-remote-ops__sftpSplit" }, panes.map(renderPane)),
-        h("div", { className: "dsh-remote-ops__transfers", "aria-label": "传输任务" }, upload ? h("div", { className: "dsh-remote-ops__transfer", role: "status" }, h("span", null, `${upload.index}/${upload.count} · ${upload.name} · ${upload.bytes}/${upload.total} B · ${{ uploading: "上传中，可切换页面", cancelling: "正在取消", completed: "上传完成", cancelled: "已取消上传", failed: "上传失败" }[upload.status]}`), uploading ? h("button", { disabled: upload.status === "cancelling", onClick: () => browserUploads.cancel(sessionId) }, "取消上传") : null, upload.error ? h("small", { className: "dsh-remote-ops__dangerAction" }, upload.error) : null) : null,
-          tasks.slice().reverse().map(task => h("div", { className: "dsh-remote-ops__transfer", key: task.id },
+      const renderTransfer = task => h("div", { className: "dsh-remote-ops__transfer", key: task.id },
             h("span", null, task.names.join(", ") + " · " + { queued: "排队", running: "传输中", completed: "完成", cancelled: "已取消", failed: "失败" }[task.status] + " · " + (task.bytes / 1048576).toFixed(2) + " MiB"),
             ["queued", "running"].includes(task.status) ? h("button", { onClick: () => void invoke({ action: "transfer-cancel", id: task.id }).catch(error => onError(error.message)) }, "取消") : null,
             task.retryable ? h("button", { disabled: preparing, onClick: () => void retry(task) }, "重试未完成项") : null,
@@ -587,45 +726,76 @@ window.__ModuleLoader__.load({
             h("details", null, h("summary", null, "完成 " + (task.counts?.completed ?? 0) + " · 失败 " + (task.counts?.failed ?? 0) + " · 待处理 " + (task.counts?.pending ?? 0) + " · 跳过 " + (task.counts?.skipped ?? 0)),
               (task.items ?? []).map(item => h("div", { className: "dsh-remote-ops__transfer", key: item.name }, h("span", null, item.name + " · " + { completed: "完成", failed: "失败", pending: "待处理", running: "传输中", skipped: "跳过" }[item.status]), item.status === "completed" ? h("button", { title: "定位文件", onClick: () => void reveal(task, item) }, h(IconFolderClose16)) : null)),
               task.itemsTruncated ? h("small", null, "显示前 200 项") : null, task.error?.stack ? h("pre", null, task.error.stack) : null)
-          )), tasks.length || upload ? null : "暂无传输任务"),
-        preview ? h("div", { className: "dsh-remote-ops__modalBackdrop" }, h("section", { className: "dsh-remote-ops__modal", role: "dialog", "aria-modal": true, "aria-label": "确认覆盖" },
-          h("div", { className: "dsh-remote-ops__row" }, h("span", null, "覆盖 " + preview.conflictCount + " 个同名项目"), h("button", { className: "dsh-remote-ops__drawerClose", "aria-label": "取消覆盖", onClick: () => finishPreview(false) }, "×")),
+          );
+      return h("section", { className: "dsh-remote-ops__sftpWorkspace" },
+        h("div", { className: "dsh-remote-ops__sftpHead" }, h("strong", null, "文件传输"), h("span", { className: "dsh-remote-ops__muted" }, sessionId ? "" : "请先选择一个 DSH 会话"), h("button", { className: "dsh-remote-ops__drawerClose", "aria-label": "关闭 SFTP", title: "关闭 SFTP", onClick: onClose }, "×")),
+        h("div", { className: "dsh-remote-ops__toolbar dsh-remote-ops__fileActions" }, [0, 1].map(side => h("button", { key: side, "data-focused": fileSide === side, "aria-label": (side ? "B → A" : "A → B") + " · 复制到 " + endpointName(panes[1 - side]), disabled: !sessionId || !panes[side].selected.length || preparing || panes.some(pane => !pane.loaded), onClick: () => void transfer(side) }, "复制到 " + endpointName(panes[1 - side]) + (panes[side].selected.length ? ` (${panes[side].selected.length})` : ""))), h("label", null, "同名文件", h("select", { value: conflict, onChange: event => setConflict(event.target.value) }, h("option", { value: "error" }, "停止并报告"), h("option", { value: "skip" }, "跳过"), h("option", { value: "overwrite" }, "覆盖")))),
+        h("div", { className: "dsh-remote-ops__fileSides", "aria-label": "文件位置" }, ["来源 A", "目标 B"].map((label, side) => h("button", { key: side, "aria-pressed": fileSide === side, onClick: () => setFileSide(side) }, label))),
+        h("div", { className: "dsh-remote-ops__sftpSplit" }, panes.map(renderPane)),
+        h("div", { className: "dsh-remote-ops__transfers", "aria-label": "传输任务" }, upload ? h("div", { className: "dsh-remote-ops__transfer", role: "status" }, h("span", null, `${upload.index}/${upload.count} · ${upload.name} · ${upload.bytes}/${upload.total} B · ${{ uploading: "上传中，可切换页面", cancelling: "正在取消", completed: "上传完成", cancelled: "已取消上传", failed: "上传失败" }[upload.status]}`), uploading ? h("button", { disabled: upload.status === "cancelling", onClick: () => browserUploads.cancel(sessionId) }, "取消上传") : null, upload.error ? h("small", { className: "dsh-remote-ops__dangerAction" }, upload.error) : null) : null,
+          tasks.filter(task => ["queued", "running", "failed"].includes(task.status)).slice().reverse().map(renderTransfer),
+          tasks.some(task => !["queued", "running", "failed"].includes(task.status)) ? h("details", { className: "dsh-remote-ops__transferHistory" }, h("summary", null, "已结束的传输 · " + tasks.filter(task => !["queued", "running", "failed"].includes(task.status)).length), tasks.filter(task => !["queued", "running", "failed"].includes(task.status)).slice().reverse().map(renderTransfer)) : null, tasks.length || upload ? null : "暂无传输任务"),
+        preview ? h(ModalDialog, { title: "确认覆盖", closeLabel: "取消覆盖", onClose: () => finishPreview(false) },
+          h("strong", null, "覆盖 " + preview.conflictCount + " 个同名项目"),
           h("small", null, (preview.source.path ?? "浏览器") + " → " + preview.target.path),
           preview.conflicts.map(item => h("div", { key: item.name }, h("strong", null, item.name), h("div", null, "来源：" + describeFile(item.source)), h("div", null, "目标：" + describeFile(item.target)))),
           preview.truncated ? h("small", null, "仅显示前 200 个冲突") : null,
-          h("div", { className: "dsh-remote-ops__formActions" }, h("button", { onClick: () => finishPreview(false) }, "取消"), h("button", { className: "dsh-remote-ops__dangerAction", onClick: () => finishPreview(true) }, "确认覆盖"))
-        )) : null,
+          h("div", { className: "dsh-remote-ops__formActions" }, h("button", { onClick: () => finishPreview(false) }, "取消"), h("button", { className: "dsh-remote-ops__dangerAction", onClick: () => finishPreview(true) }, "确认覆盖"))) : null,
       );
     }
+    const MemoFileWorkspace = typeof React !== "undefined" && React.memo ? React.memo(SftpWorkspace) : SftpWorkspace;
     function CommandDialog({ sessionId, target, onClose }) {
-      const [command, setCommand] = useState(""), [timeout, setTimeoutSeconds] = useState(30);
-      const [running, setRunning] = useState(false), [result, setResult] = useState(null), [failure, setFailure] = useState("");
-      const current = useRef(null), alive = useRef(true);
-      const invoke = (body, signal) => request("/api/dsh-remote-ops/workspace", { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, sessionId }) });
-      const cancel = async () => { if (current.current) try { await invoke({ action: "command-cancel", requestId: current.current.id }); } catch (error) { if (alive.current) setFailure(error.message); } };
-      useEffect(() => { alive.current = true; return () => { alive.current = false; if (current.current) { void cancel(); current.current.controller.abort(); } }; }, []);
+      const key = sessionId + ":" + target.sessionId, draft = commandDrafts.get(key) ?? {};
+      const [command, setCommand] = useState(draft.command ?? ""), [timeout, setTimeoutSeconds] = useState(draft.timeout ?? 30);
+      const [job, setJob] = useState(null), [requestId, setRequestId] = useState(""), [pending, setPending] = useState(false), [loadingResult, setLoadingResult] = useState(true), [failure, setFailure] = useState(""), [stream, setStream] = useState("stdout");
+      const alive = useRef(true), revision = useRef(0), starting = useRef(false), receipt = useRef(draft.receipt ?? null);
+      const running = job?.status === "running", result = job?.result;
+      const invoke = useCallback((body, signal) => request("/api/dsh-remote-ops/workspace", { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, sessionId, session: target.sessionId }) }), [sessionId, target.sessionId]);
+      useEffect(() => { commandDrafts.set(key, { command, timeout, receipt: receipt.current }); if (commandDrafts.size > 32) commandDrafts.delete(commandDrafts.keys().next().value); }, [key, command, timeout, pending]);
+      useEffect(() => {
+        let stopped = false, timer; const controller = new AbortController(), ticket = ++revision.current; alive.current = true;
+        const poll = async () => {
+          try {
+            if (document.hidden) { timer = setTimeout(poll, 3000); return; }
+            if (!requestId) {
+              const latest = (await invoke({ action: "command-list" }, controller.signal)).jobs.at(-1);
+              if (stopped || ticket !== revision.current) return;
+              setJob(latest ?? null); if (latest) setRequestId(latest.requestId); else setLoadingResult(false);
+              return;
+            }
+            const value = await invoke({ action: "command-status", requestId }, controller.signal);
+            if (stopped || ticket !== revision.current) return;
+            setJob(value ?? null); setLoadingResult(false); if (value?.failure) setFailure(value.failure);
+            if (value?.status === "running") timer = setTimeout(poll, 750);
+          } catch (error) { if (!stopped && error.name !== "AbortError" && ticket === revision.current) { setLoadingResult(false); setFailure(error.message); timer = setTimeout(poll, 3000); } }
+        };
+        void poll();
+        return () => { stopped = true; alive.current = false; clearTimeout(timer); controller.abort(); };
+      }, [invoke, requestId]);
       const execute = async event => {
-        event.preventDefault();
-        const id = window.crypto?.randomUUID?.() ?? Date.now().toString(36) + Math.random().toString(36).slice(2), controller = new AbortController();
-        current.current = { id, controller }; setRunning(true); setResult(null); setFailure("");
-        try { const value = await invoke({ action: "command-execute", session: target.sessionId, command, timeoutSeconds: timeout, requestId: id }, controller.signal); if (alive.current) setResult(value); }
-        catch (error) { if (alive.current) setFailure(error.message); }
-        finally { current.current = null; if (alive.current) setRunning(false); }
+        event.preventDefault(); if (loadingResult || starting.current || running || !command.trim()) return;
+        starting.current = true; revision.current++; setPending(true); setFailure(""); setJob(null); setStream("stdout");
+        const identity = JSON.stringify([command, timeout]);
+        const id = receipt.current?.identity === identity ? receipt.current.id : window.crypto?.randomUUID?.() ?? Date.now().toString(36) + Math.random().toString(36).slice(2);
+        receipt.current = { identity, id }; commandDrafts.set(key, { command, timeout, receipt: receipt.current });
+        try { const value = await invoke({ action: "command-start", command, timeoutSeconds: timeout, requestId: id }); receipt.current = null; commandDrafts.set(key, { command, timeout, receipt: null }); if (alive.current) { setJob(value); setRequestId(value.requestId); } }
+        catch (error) { if (alive.current) setFailure(error.message + "\n请求结果未确认；重试会使用同一请求编号，不会重复执行。也可关闭后重开查看最近结果。"); }
+        finally { starting.current = false; if (alive.current) setPending(false); }
       };
-      const close = () => { if (!running || window.confirm("取消正在等待的独立命令并关闭？远程进程可能仍在运行。")) onClose(); };
-      return h("div", { className: "dsh-remote-ops__modalBackdrop" }, h("section", { className: "dsh-remote-ops__modal", role: "dialog", "aria-modal": true, "aria-label": "独立命令" },
-        h("div", { className: "dsh-remote-ops__row" }, h("span", null, "独立命令 · " + (target.name)), h("button", { className: "dsh-remote-ops__drawerClose", "aria-label": "关闭独立命令", onClick: close }, "×")),
-        h("small", null, "工作目录：" + (target.kind === "local" ? target.workingDirectory : "SSH 服务默认目录") + " · 不继承交互终端的目录和临时变量"),
-        h("form", { onSubmit: execute }, h("textarea", { autoFocus: true, required: true, maxLength: 32768, "aria-label": "独立命令内容", spellCheck: false, disabled: running, value: command, onChange: event => setCommand(event.target.value) }),
-          h("div", { className: "dsh-remote-ops__toolbar" }, h("label", null, "超时（秒）", h("input", { type: "number", required: true, min: 1, max: 300, value: timeout, disabled: running, onChange: event => setTimeoutSeconds(Number(event.target.value)) })),
-            h("button", { type: "submit", disabled: running || !command.trim() }, h(IconPlayOutline16), running ? " 执行中…" : " 执行"))),
-        failure ? h("pre", { className: "dsh-remote-ops__dangerAction" }, failure) : null,
-        running ? h("div", { role: "status" }, "执行中") : null,
-        result ? h(React.Fragment, null, h("strong", { role: "status" }, ({ completed: "已退出", failed: "执行失败", cancelled: "已取消", timed_out: "已超时", unknown: "退出未知" }[result.status] ?? result.status) + " · 退出码 " + (result.exitCode ?? "未知") + " · " + result.durationMs + " ms"),
-          result.completion === "unknown" ? h("small", { className: "dsh-remote-ops__dangerAction" }, "未确认命令完成；远程进程可能仍在运行") : null,
-          h("strong", null, "stdout" + (result.stdoutTruncated ? " · 已截断" : "")), h("pre", { "aria-label": "命令标准输出" }, result.stdout || "（空）"),
-          h("strong", null, "stderr" + (result.stderrTruncated ? " · 已截断" : "")), h("pre", { "aria-label": "命令标准错误" }, result.stderr || "（空）")) : null
-      ));
+      return h(ModalDialog, { title: "独立命令 · " + target.name, closeLabel: "关闭独立命令", onClose },
+        h("small", { className: "dsh-remote-ops__muted" }, "独立进程 · 不继承交互终端的目录和临时变量"),
+        h("details", null, h("summary", null, "执行目录与结果保留"), h("p", null, "工作目录：" + (target.kind === "local" ? target.workingDirectory : "SSH 服务默认目录") + "。结果仅在本次 DSH 运行中保留，最多 10 分钟；重启后不会恢复或重跑。")),
+        h("form", { onSubmit: execute }, h("textarea", { autoFocus: true, required: true, maxLength: 32768, "aria-label": "独立命令内容", spellCheck: false, disabled: pending || running, value: command, onChange: event => setCommand(event.target.value) }),
+          h("div", { className: "dsh-remote-ops__toolbar" }, h("label", null, "超时（秒）", h("input", { type: "number", required: true, min: 1, max: 300, value: timeout, disabled: pending || running, onChange: event => setTimeoutSeconds(Number(event.target.value)) })),
+            h("button", { type: "submit", className: "dsh-remote-ops__primary", disabled: loadingResult || pending || running || !command.trim() }, h(IconPlayOutline16), loadingResult ? " 同步结果…" : pending ? " 提交中…" : running ? " 执行中…" : " 执行"))),
+        job ? h("small", { className: "dsh-remote-ops__muted" }, "最近任务 · " + new Date(job.startedAt).toLocaleString()) : null,
+        failure ? h("pre", { className: "dsh-remote-ops__dangerAction", role: "alert" }, failure) : null,
+        running ? h("div", { role: "status" }, "执行中，关闭此视图后继续运行。") : null,
+        result ? h(React.Fragment, null,
+          h("strong", { role: "status" }, ({ completed: "已退出", failed: "执行失败", cancelled: "已取消", timed_out: "已超时", unknown: "退出未知" }[result.status] ?? result.status) + " · 退出码 " + (result.exitCode ?? "未知") + " · " + result.durationMs + " ms"),
+          result.completion === "unknown" ? h("small", { className: "dsh-remote-ops__dangerAction" }, "未确认命令完成；远程进程可能仍在运行，不会自动重试。") : null,
+          h("div", { className: "dsh-remote-ops__resultTabs", role: "tablist", "aria-label": "命令输出" }, ["stdout", "stderr"].map((kind, index) => h("button", { key: kind, role: "tab", id: "command-" + kind, "aria-selected": stream === kind, "aria-controls": "command-result", tabIndex: stream === kind ? 0 : -1, onClick: () => setStream(kind), onKeyDown: event => { if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); const next = event.key === "Home" ? 0 : event.key === "End" ? 1 : 1 - index; setStream(["stdout", "stderr"][next]); event.currentTarget.parentElement.children[next]?.focus(); } } }, kind + (result[kind + "Truncated"] ? " · 已截断" : "")))),
+          h("pre", { id: "command-result", role: "tabpanel", "aria-labelledby": "command-" + stream, className: "dsh-remote-ops__commandOutput" }, result[stream] || "（空）")) : null);
     }
     const terminalDraftPending = (pending, text) => {
       for (const char of text) { if (/[\r\n\u0003]/.test(char)) pending = false; else if (char >= " " || char === "\t" || char === "\u001b") pending = true; }
@@ -645,6 +815,43 @@ window.__ModuleLoader__.load({
     const quickCommandList = (commands, query = "", group = "", pinnedOnly = true) => commands.filter(item => (!pinnedOnly || item.pinned !== false) && (!group || item.group === group) && `${item.name}\n${item.command}\n${item.group}`.toLowerCase().includes(query.trim().toLowerCase())).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     const quickDispatchDraft = (command, target, frame, owner, requestId) => ({ commandId: command.id, command: command.command, name: command.name, revision: command.revision, session: target?.sessionId, targetName: target?.name, streamId: frame?.streamId, owner, requestId });
     const quickDraftValid = (draft, owner, session, streamId) => Boolean(draft?.session && draft.streamId && draft.owner === owner && draft.session === session && draft.streamId === streamId);
+    function ModalDialog({ title, onClose, children, closeLabel, closeDisabled = false }) {
+      const dialog = useRef(null), close = useRef(onClose), previous = useRef(document.activeElement); close.current = onClose;
+      useEffect(() => {
+        dialog.current?.querySelector("[data-autofocus],textarea,input,button,select")?.focus({ preventScroll: true });
+        return () => { if (previous.current?.isConnected) previous.current.focus({ preventScroll: true }); };
+      }, []);
+      const key = event => {
+        if (event.isComposing) return;
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (!closeDisabled) close.current(); }
+        if (event.key !== "Tab") return;
+        const controls = [...(dialog.current?.querySelectorAll("button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex='0']") ?? [])].filter(node => !node.closest?.("[hidden]") && (!node.getClientRects || node.getClientRects().length));
+        const first = controls[0], last = controls.at(-1);
+        if (!first) { event.preventDefault(); dialog.current?.focus(); }
+        else if (event.shiftKey && (document.activeElement === first || !dialog.current.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && (document.activeElement === last || !dialog.current.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
+      };
+      return h("div", { className: "dsh-remote-ops__modalBackdrop" }, h("section", { className: "dsh-remote-ops__modal", role: "dialog", "aria-modal": false, "aria-label": title, tabIndex: -1, ref: dialog, onKeyDown: key },
+        h("div", { className: "dsh-remote-ops__quickModalHead" }, h("strong", null, title), h("button", { type: "button", className: "dsh-remote-ops__drawerClose", "aria-label": closeLabel ?? `关闭${title}`, disabled: closeDisabled, onClick: onClose }, h(IconCloseOutline16, { "aria-hidden": true }))), children));
+    }
+    function QuestionDialog({ question, onDone }) {
+      const [value, setValue] = useState(question.initial ?? "");
+      return h(ModalDialog, { title: question.input ? "编辑名称" : "确认操作", closeLabel: "关闭确认", onClose: () => onDone(null) },
+        h("form", { onSubmit: event => { event.preventDefault(); onDone(question.input ? value.trim() : true); } },
+          question.input ? h("label", null, question.message, h("input", { "aria-label": question.message, autoFocus: true, required: true, maxLength: 120, value, onChange: event => setValue(event.target.value) })) : h("p", null, question.message),
+          h("div", { className: "dsh-remote-ops__formActions" }, h("button", { type: "button", onClick: () => onDone(null) }, "取消"), h("button", { type: "submit", className: question.input ? "dsh-remote-ops__primary" : /删除|放弃|关闭连接/.test(question.message) ? "dsh-remote-ops__dangerAction" : "dsh-remote-ops__primary", disabled: question.input && !value.trim() }, "确认"))));
+    }
+    function usePanelQuestion(owner) {
+      const [question, setQuestion] = useState(null), pending = useRef(null);
+      useEffect(() => () => { pending.current?.resolve(null); pending.current = null; }, [owner]);
+      const askPanel = useCallback((message, initial) => new Promise(resolve => {
+        pending.current?.resolve(null);
+        const next = { id: window.crypto?.randomUUID?.() ?? Math.random().toString(36), message, initial, input: initial !== undefined, resolve };
+        pending.current = next; setQuestion(next);
+      }), []);
+      const done = value => { const current = pending.current; pending.current = null; setQuestion(null); current?.resolve(value); };
+      return [askPanel, question ? h(QuestionDialog, { key: question.id, question, onDone: done }) : null];
+    }
     function QuickCommands({ commands, groups, owner, target, frame, ready, open, setOpen, height, setHeight, action, workspaceAction, inputPending, onSending, hidden = false }) {
       const [query, setQuery] = useState("");
       const [group, setGroup] = useState("");
@@ -657,7 +864,7 @@ window.__ModuleLoader__.load({
       const [pinDraft, setPinDraft] = useState(null);
       const [failure, setFailure] = useState("");
       const [bounds, setBounds] = useState({ available: 800, reserve: 240 });
-      const dock = useRef(null), drag = useRef(null), sending = useRef(false), editing = useRef(false), dialog = useRef(null);
+      const dock = useRef(null), drag = useRef(null), sending = useRef(false), editing = useRef(false);
       const current = useRef(null);
       current.current = { owner, target, frame, ready, commands, hidden };
       const visibleHeight = quickPaneHeight(height, bounds.available, bounds.reserve);
@@ -673,24 +880,13 @@ window.__ModuleLoader__.load({
       useEffect(() => { setConfirmation(null); setReceipt(null); setFailure(""); }, [owner]);
       useEffect(() => { if (group && !groups.includes(group)) setGroup(""); }, [groups, group]);
       useEffect(() => { if (pinDraft && commands.some(item => item.id === pinDraft.id && item.pinned === pinDraft.pinned)) setPinDraft(null); }, [commands, pinDraft]);
+      const [askPanel, panelQuestion] = usePanelQuestion(owner);
       const modalOpen = Boolean(manager || editor || confirmation);
-      useEffect(() => {
-        if (!modalOpen) return;
-        const previous = document.activeElement;
-        dialog.current?.querySelector("input,button,textarea")?.focus({ preventScroll: true });
-        return () => previous?.isConnected && previous.focus({ preventScroll: true });
-      }, [modalOpen, Boolean(editor), Boolean(confirmation)]);
+
       const iconButton = (label, Icon, onClick, disabled = false, extra = {}) => h("button", { type: "button", className: "dsh-remote-ops__quickIcon", "aria-label": label, title: label, disabled, onClick, ...extra }, h(Icon, { "aria-hidden": true }));
-      const closeEditor = () => { if (!saving && (!editor || JSON.stringify(editor.value) === editor.original || window.confirm("放弃未保存的修改？"))) { setEditor(null); setFailure(""); } };
+      const closeEditor = async () => { if (!saving && (!editor || JSON.stringify(editor.value) === editor.original || await askPanel("放弃未保存的修改？"))) { setEditor(null); setFailure(""); } };
       const closeModal = () => { if (saving || pending) return; if (editor) closeEditor(); else { setManager(false); setConfirmation(null); setFailure(""); } };
-      const modal = (title, content) => h("div", { className: "dsh-remote-ops__modalBackdrop" }, h("section", { className: "dsh-remote-ops__modal", role: "dialog", "aria-modal": true, "aria-label": title, ref: dialog, onKeyDown: event => {
-        if (event.key === "Escape") { event.stopPropagation(); closeModal(); }
-        if (event.key !== "Tab") return;
-        const controls = [...event.currentTarget.querySelectorAll("button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex='0']")];
-        const first = controls[0], last = controls.at(-1);
-        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-      } }, h("div", { className: "dsh-remote-ops__quickModalHead" }, h("strong", null, title), iconButton("关闭快捷命令弹窗", IconCloseOutline16, closeModal, saving || pending, { className: "dsh-remote-ops__quickIcon dsh-remote-ops__dangerAction" })), content, failure ? h("pre", { role: "alert", className: "dsh-remote-ops__dangerAction" }, failure) : null));
+      const modal = (title, content) => h(ModalDialog, { title, closeLabel: "关闭快捷命令弹窗", onClose: closeModal, closeDisabled: saving || pending }, content, failure ? h("pre", { role: "alert", className: "dsh-remote-ops__dangerAction" }, failure) : null);
       const startEditor = item => {
         const value = { id: item?.id ?? crypto.randomUUID(), name: item?.name ?? "", command: item?.command ?? "", group: item?.group ?? (group || groups[0] || "常用"), pinned: item?.pinned ?? true, confirm: item?.confirm ?? false, ...(item?.revision ? { expectedRevision: item.revision } : {}) };
         setEditor({ value, original: JSON.stringify(value), existing: Boolean(item) }); setFailure("");
@@ -743,38 +939,54 @@ window.__ModuleLoader__.load({
         h("div", { className: "dsh-remote-ops__formActions" }, !editor.existing ? h("button", { type: "button", disabled: saving, onClick: () => { closeEditor(); setManager(true); } }, "已有命令") : null, h("button", { type: "button", disabled: saving, onClick: closeEditor }, "取消"), h("button", { type: "submit", disabled: saving || !editor.value.name.trim() || !editor.value.command.trim() }, saving ? "保存中…" : "保存")))) : null;
       const managerView = manager && !editor ? modal("管理快捷命令", h(React.Fragment, null, filters,
         h("div", { className: "dsh-remote-ops__toolbar" }, iconButton("新增快捷命令", IconPlusOutline16, () => startEditor(), saving), h("span", null, `${commands.length} 条`),
-          h("button", { disabled: saving, onClick: async () => { const name = window.prompt("快捷命令分组名称"); if (name?.trim()) await mutate({ action: "quick-group.create", name: name.trim() }); } }, "新建分组"),
-          iconButton("重命名分组", IconEditOutline16, async () => { const name = window.prompt("新的快捷命令分组名称", group); if (name?.trim() && name.trim() !== group && await mutate({ action: "quick-group.rename", group, name: name.trim() })) setGroup(name.trim()); }, saving || !group),
-          iconButton("删除空分组", IconCloseOutline16, async () => { if (window.confirm(`删除空分组“${group}”？`)) await mutate({ action: "quick-group.delete", group }); }, saving || !group)),
+          h("button", { disabled: saving, onClick: async () => { const name = await askPanel("快捷命令分组名称", ""); if (name?.trim()) await mutate({ action: "quick-group.create", name: name.trim() }); } }, "新建分组"),
+          iconButton("重命名分组", IconEditOutline16, async () => { const name = await askPanel("新的快捷命令分组名称", group); if (name?.trim() && name.trim() !== group && await mutate({ action: "quick-group.rename", group, name: name.trim() })) setGroup(name.trim()); }, saving || !group),
+          iconButton("删除空分组", IconCloseOutline16, async () => { if (await askPanel(`删除空分组“${group}”？`)) await mutate({ action: "quick-group.delete", group }); }, saving || !group)),
         h("div", { className: "dsh-remote-ops__quickLibrary" }, quickCommandList(commands, query, group, false).map(item => h("div", { key: item.id, className: "dsh-remote-ops__quickLibraryRow" },
           h("input", { type: "checkbox", checked: pinDraft?.id === item.id ? pinDraft.pinned : item.pinned !== false, "aria-label": `显示按钮 ${item.name}`, disabled: saving || Boolean(pinDraft), onChange: async event => { const pinned = event.target.checked; setPinDraft({ id: item.id, pinned }); if (!await mutate({ action: "quick.save", command: { ...item, expectedRevision: item.revision, pinned } })) setPinDraft(null); } }),
           h("span", { title: item.command }, item.name, h("small", null, item.group, item.confirm ? " · 执行前确认" : "")),
           iconButton(`上移 ${item.name}`, IconChevronUpOutline14, () => mutate({ action: "quick.move", commandId: item.id, direction: -1 }, true), saving || all[0]?.id === item.id),
           iconButton(`下移 ${item.name}`, IconChevronDownOutline14, () => mutate({ action: "quick.move", commandId: item.id, direction: 1 }, true), saving || all.at(-1)?.id === item.id),
           iconButton(`编辑 ${item.name}`, IconEditOutline16, () => startEditor(item), saving),
-          iconButton(`删除命令 ${item.name}`, IconCloseOutline16, () => { if (window.confirm(`永久删除快捷命令“${item.name}”？`)) return mutate({ action: "quick.delete", commandId: item.id }); }, saving, { className: "dsh-remote-ops__quickIcon dsh-remote-ops__dangerAction" }))),
+          iconButton(`删除命令 ${item.name}`, IconCloseOutline16, async () => { if (await askPanel(`永久删除快捷命令“${item.name}”？`)) return mutate({ action: "quick.delete", commandId: item.id }); }, saving, { className: "dsh-remote-ops__quickIcon dsh-remote-ops__dangerAction" }))),
           commands.length ? null : h("p", null, "暂无命令")))) : null;
       const confirmView = confirmation ? modal("确认下发快捷命令", h(React.Fragment, null, h("strong", null, `${confirmation.name} → ${confirmation.targetName}`), h("small", { className: "dsh-remote-ops__sessionIdentity" }, confirmation.session), h("pre", null, confirmation.command), h("div", { className: "dsh-remote-ops__formActions" }, h("button", { disabled: pending, onClick: () => setConfirmation(null) }, "取消"), h("button", { "aria-label": "确认下发", disabled: pending || !quickDraftValid(confirmation, owner, target?.sessionId, frame?.streamId), onClick: () => send(confirmation, true) }, pending ? "下发中…" : "确认下发")))) : null;
       if (hidden) return null;
-      return h("section", { ref: dock, className: "dsh-remote-ops__quickDock", "aria-label": "常用命令窗格", style: { height: open ? `${visibleHeight}px` : "42px" } },
+      return h("section", { ref: dock, className: "dsh-remote-ops__quickDock", "aria-label": "常用命令窗格", style: { height: open ? `${commands.length ? visibleHeight : 92}px` : "42px" } },
         open ? h("div", { className: "dsh-remote-ops__quickResize", role: "separator", tabIndex: 0, "aria-label": "调整快捷命令区域高度", "aria-orientation": "horizontal", "aria-valuemin": Math.min(92, visibleHeight), "aria-valuemax": Math.max(0, bounds.available - bounds.reserve), "aria-valuenow": Math.round(visibleHeight), title: "拖动调整高度；双击恢复默认", onPointerDown: resize, onPointerMove: event => { if (drag.current?.id === event.pointerId) setHeight(quickPaneHeight(drag.current.height + drag.current.y - event.clientY, bounds.available, bounds.reserve)); }, onPointerUp: () => { drag.current = null; }, onPointerCancel: () => { drag.current = null; }, onLostPointerCapture: () => { drag.current = null; }, onDoubleClick: () => setHeight(190), onKeyDown: event => { const values = { ArrowUp: visibleHeight + 32, ArrowDown: visibleHeight - 32, Home: 92, End: bounds.available - bounds.reserve }; if (event.key in values) { event.preventDefault(); setHeight(quickPaneHeight(values[event.key], bounds.available, bounds.reserve)); } } }) : null,
         h("div", { className: "dsh-remote-ops__quickHead" }, iconButton(open ? "收起常用命令" : "展开常用命令", open ? IconChevronDownOutline14 : IconChevronUpOutline14, () => setOpen(!open), false, { "aria-expanded": open }), h("div", { className: "dsh-remote-ops__quickIdentity" }, h("strong", null, "常用命令"), h("small", { title: target?.sessionId }, target?.name ?? "未选择终端")), iconButton("新增快捷命令", IconPlusOutline16, () => startEditor()), iconButton("管理快捷命令", IconSettingsOutline16, () => { setManager(true); setFailure(""); })),
-        open ? filters : null,
+        open && commands.length ? filters : null,
         open ? h("div", { className: "dsh-remote-ops__quickButtons" }, items.length ? items.map(item => h("button", { key: item.id, "aria-label": `执行 ${item.name}`, title: `${item.name}\n${item.command}${item.confirm ? "\n执行前确认" : ""}`, disabled: pending || !ready || target?.disconnected, "aria-busy": pending, onClick: event => run(item, event) }, h(IconPlayOutline16, { "aria-hidden": true }), h("span", null, item.name))) : h("div", { className: "dsh-remote-ops__quickEmpty" }, commands.length ? "没有匹配的快捷按钮" : "暂无常用命令")) : null,
         open && pending ? h("div", { className: "dsh-remote-ops__quickReceipt", role: "status" }, "下发中…") : null,
         open && receipt ? h("div", { className: "dsh-remote-ops__quickReceipt", role: "status" }, `${receipt.label} · ${receipt.status === "written" ? "已写入终端" : receipt.status === "failed" ? "未下发" : "写入结果未知，请先检查终端"}`, receipt.error ? h("details", null, h("summary", null, "错误详情"), [receipt.error.code, receipt.error.stage, receipt.error.details].filter(Boolean).join("\n")) : null) : null,
         open && failure && !modalOpen ? h("div", { className: "dsh-remote-ops__quickReceipt dsh-remote-ops__dangerAction", role: "alert" }, failure) : null,
-        editorView, managerView, confirmView);
+        editorView, managerView, confirmView, panelQuestion);
     }
     const webDrafts = new Map();
 
     const browserStatus = { running: "执行中", paused: "已暂停", pausing: "等待当前步骤结束", stopping: "等待当前步骤结束后停止", manual: "人工接管中", completed: "步骤已完成", failed: "执行失败", unknown: "结果待确认，请检查网页", stopped: "已停止" };
     const webTarget = () => ({ kind: "css", value: "" });
     function BrowserLiveView({ sessionId, browser }) {
-      const [frame,setFrame]=useState(null),[message,setMessage]=useState('正在连接网页画面…'),[zoom,setZoom]=useState('fit'),[size,setSize]=useState({width:0,height:0});
+      const [frame,setFrame]=useState(null),[message,setMessage]=useState('正在连接网页画面…'),[zoom,setZoom]=useState('fit'),[size,setSize]=useState({width:0,height:0}),[viewportMode,setViewportMode]=useState(browser.viewport?.mode??'panel');
       const image=useRef(null),capture=useRef(null),surface=useRef(null),current=useRef(null),queue=useRef(Promise.resolve()),alive=useRef(true),composing=useRef(false);
-      current.current={frame,browser};
+      current.current={frame,browser,viewportMode,size};
       useEffect(()=>{const node=surface.current;if(!node)return;const measure=()=>setSize({width:node.clientWidth,height:node.clientHeight});const observer=new ResizeObserver(measure);observer.observe(node);measure();return()=>observer.disconnect();},[]);
+      useEffect(()=>{setViewportMode(browser.viewport?.mode??'panel');},[browser.viewport?.mode]);
+      const resizeViewport=mode=>{
+        queue.current=queue.current.then(async()=>{
+          if(!alive.current||current.current.viewportMode!==mode)return;
+          const measured=current.current.size;
+          if(mode==='panel'&&(!measured.width||!measured.height))return;
+          const viewport=mode==='desktop'?{mode}:{mode,width:Math.max(240,Math.min(1600,Math.floor(measured.width))),height:Math.max(180,Math.min(1200,Math.floor(measured.height)))};
+          try{await request('/api/dsh-remote-ops/browser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'viewport',sessionId,browserId:browser.id,viewport})});}
+          catch(error){if(alive.current)setMessage('视口调整失败 · '+error.message.split('\n')[0]);}
+        });
+      };
+      useEffect(()=>{
+        if(viewportMode!=='panel'||!size.width||!size.height)return;
+        const timer=setTimeout(()=>resizeViewport('panel'),250);return()=>clearTimeout(timer);
+      },[size.width,size.height,viewportMode,browser.id,browser.display]);
+
       useEffect(()=>{
         let stopped=false,pending=false,timer,sequence=0;const controller=new AbortController();alive.current=true;setFrame(null);
         const poll=async()=>{
@@ -818,7 +1030,7 @@ window.__ModuleLoader__.load({
       };
       const flush=event=>{if(composing.current)return;const value=event.currentTarget.value;event.currentTarget.value='';if(value)send({kind:'text',text:value});};
       return h('div',{className:'dsh-remote-ops__live'},
-        h('div',{className:'dsh-remote-ops__liveTools'},h('span',{role:'status'},message||'实时画面 · Ctrl+Esc 返回地址栏'),h('select',{'aria-label':'网页画面缩放',value:zoom,onChange:event=>setZoom(event.target.value)},h('option',{value:'fit'},'适应画面'),h('option',{value:'actual'},'原始大小'))),
+        h('div',{className:'dsh-remote-ops__liveTools'},h('span',{role:'status',title:'Ctrl+Esc 返回地址栏'},message||'实时画面'),h('select',{'aria-label':'网页视口',value:viewportMode,onChange:event=>{const mode=event.target.value;current.current.viewportMode=mode;setViewportMode(mode);resizeViewport(mode);}},h('option',{value:'panel'},'跟随面板'),h('option',{value:'desktop'},'桌面视口')),viewportMode==='desktop'?h('select',{'aria-label':'网页画面缩放',value:zoom,onChange:event=>setZoom(event.target.value)},h('option',{value:'fit'},'适应画面'),h('option',{value:'actual'},'原始大小')):null),
         h('div',{ref:surface,className:'dsh-remote-ops__liveSurface'},frame?h('img',{ref:image,alt:'网页实时画面','data-revision':frame.revision,draggable:false,src:'data:image/jpeg;base64,'+frame.data,style:{width:`${frame.width*(zoom==='fit'?Math.min(size.width/frame.width,size.height/frame.height,1):1)}px`,maxWidth:'none'},onContextMenu:event=>event.preventDefault(),onClick:event=>{
           const rect=image.current.getBoundingClientRect();capture.current?.focus({preventScroll:true});send({kind:'click',x:(event.clientX-rect.left)*frame.width/rect.width,y:(event.clientY-rect.top)*frame.height/rect.height,button:event.button===2?'right':event.button===1?'middle':'left',count:Math.min(2,event.detail||1)});
         }}):h('div',{className:'dsh-remote-ops__empty'},message),
@@ -826,16 +1038,16 @@ window.__ModuleLoader__.load({
     }
     function BrowserWorkspacePanel({ sessionId }) {
       const draft=webDrafts.get(sessionId)??{},[data,setData]=useState({sites:[],flows:[],sessions:[],preferences:{display:'embedded',browser:'chromium'},runtime:{}});
-      const [address,setAddress]=useState(draft.address??''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[library,setLibrary]=useState(false);
+      const [address,setAddress]=useState(draft.address??''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[library,setLibrary]=useState(false),[synced,setSynced]=useState(false);
       const alive=useRef(true),pending=useRef(false),revision=useRef(0),signature=useRef(''),addressDirty=useRef(!!draft.addressDirty),seenPage=useRef('');
       const session=data.sessions.find(v=>!v.closed&&v.id===data.activeBrowserId)??data.sessions.find(v=>!v.closed),page=session?.pages.find(v=>v.id===session.activePageId),job=session?.job;
       const unfinished=job&&['running','paused','pausing','stopping','manual'].includes(job.status);
-      const navigating=busy;
+      const navigating=busy||!synced;
       useEffect(()=>{webDrafts.set(sessionId,{...webDrafts.get(sessionId),address,addressDirty:addressDirty.current});if(webDrafts.size>10)webDrafts.delete(webDrafts.keys().next().value);},[sessionId,address]);
       const load=useCallback(async signal=>{
         const ticket=++revision.current,value=await request(`/api/dsh-remote-ops/browser?sessionId=${encodeURIComponent(sessionId??'')}`,{signal});
         if(!alive.current||ticket!==revision.current)return;
-        const next=JSON.stringify(value);if(next!==signature.current){signature.current=next;setData(value);}
+        const next=JSON.stringify(value);if(next!==signature.current){signature.current=next;setData(value);}setSynced(true);
       },[sessionId]);
       useEffect(()=>{
         let stopped=false,timer,inFlight=false;const controller=new AbortController();alive.current=true;
@@ -845,26 +1057,26 @@ window.__ModuleLoader__.load({
       },[load]);
       useEffect(()=>{const identity=`${session?.id}:${page?.id}:${page?.url}`;if(identity!==seenPage.current){seenPage.current=identity;if(!addressDirty.current&&page?.url)setAddress(page.url==='about:blank'?'':page.url.replace(/\?\[redacted\]$/,''));}},[session?.id,page?.id,page?.url]);
       const action=async body=>{
-        if(pending.current)return;pending.current=true;setBusy(true);setError('');revision.current++;
+        if(!synced||pending.current)return;pending.current=true;setBusy(true);setError('');revision.current++;
         try{const value=await request('/api/dsh-remote-ops/browser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,browserId:session?.id,...body})});if(alive.current){await load();return value.result;}}
         catch(failure){if(alive.current)setError(failure.message);}finally{pending.current=false;if(alive.current)setBusy(false);}
       };
       const go=async event=>{event.preventDefault();let url=address.trim();if(!/^[a-zA-Z][\w+.-]*:/.test(url))url='https://'+url;const result=await action(session?{action:'navigate',url}:{action:'open-url',url});if(result){addressDirty.current=false;webDrafts.set(sessionId,{...webDrafts.get(sessionId),addressDirty:false});setAddress(result.pages.find(v=>v.active)?.url.replace(/\?\[redacted\]$/,'')??url);}};
       const nav=(label,glyph,navigation)=>h('button',{type:'button',title:label,'aria-label':label,disabled:!session||navigating,onClick:()=>action({action:'navigate',navigation})},glyph);
-      return h('section',{className:'dsh-remote-ops__web dsh-remote-ops__webBrowser','aria-label':'网页操作'},
-        h('div',{className:'dsh-remote-ops__webBar'},h('strong',null,'网页'),h('label',null,h('span',{className:'dsh-remote-ops__muted'},'显示'),h('select',{'aria-label':'网页显示方式',value:session?.display??data.preferences.display,disabled:busy||!!unfinished,title:session?'切换显示会重新载入网页，登录状态保留；未提交表单不会恢复。':'选择默认显示方式',onChange:event=>action(session?{action:'display',display:event.target.value}:{action:'preferences.save',preferences:{display:event.target.value}})},h('option',{value:'embedded'},'插件内'),h('option',{value:'window'},'独立窗口')))),
-        session?h('div',{className:'dsh-remote-ops__webPages',role:'tablist','aria-label':'网页标签页'},session.pages.map(item=>h('button',{key:item.id,id:'web-tab-'+item.id,role:'tab','aria-controls':'web-panel-'+session.id,'aria-selected':item.id===session.activePageId,tabIndex:item.id===session.activePageId?0:-1,'data-active':item.active,disabled:navigating,title:item.url,onClick:()=>action({action:'control',control:'select-page',value:item.id}),onKeyDown:event=>{const index=session.pages.findIndex(v=>v.id===item.id),next={ArrowRight:(index+1)%session.pages.length,ArrowLeft:(index+session.pages.length-1)%session.pages.length,Home:0,End:session.pages.length-1}[event.key];if(next!==undefined){event.preventDefault();void action({action:'control',control:'select-page',value:session.pages[next].id});event.currentTarget.parentElement.children[next]?.focus();}}},item.url==='about:blank'?'新标签页':item.url.replace(/^https?:\/\//,''))),nav('新建网页','＋','new-page')):null,
-        h('form',{className:'dsh-remote-ops__webAddress',onSubmit:go},nav('网页后退','←','back'),nav('网页前进','→','forward'),nav('刷新网页','↻','reload'),h('input',{'aria-label':'网页地址',placeholder:'输入网址，按 Enter 打开',value:address,onChange:event=>{addressDirty.current=true;setAddress(event.target.value);},required:true,disabled:navigating}),h('button',{type:'submit',disabled:!sessionId||navigating||!address.trim()},busy?'打开中…':'打开网页')),
-        error?h('div',{className:'dsh-remote-ops__webError',role:'alert'},error.split('\n').slice(1).join(' · ')||error):null,
-        h('div',{className:'dsh-remote-ops__webState',role:'status'},session?h(React.Fragment,null,h('strong',null,job?browserStatus[job.status]:'网页已打开'),job?` · ${job.index}/${job.count} 步`:'',h('span',{className:'dsh-remote-ops__muted'},'你和 Agent 可同时操作当前网页。')):'输入网址后，即可在主对话中让 Agent 操作。'),
-        session?.notice?h('small',{className:'dsh-remote-ops__webNotice'},session.notice):null,
+      return h('section',{className:'dsh-remote-ops__web dsh-remote-ops__webBrowser','aria-label':'网页操作','aria-busy':navigating},
+        h('div',{className:'dsh-remote-ops__webBar'},data.sessions.filter(v=>!v.closed).length>1?h('select',{'aria-label':'活动浏览器',value:session?.id,disabled:navigating,onChange:event=>action({action:'select-browser',browserId:event.target.value})},data.sessions.filter(v=>!v.closed).map(v=>h('option',{key:v.id,value:v.id},v.name))):h('span',{className:'dsh-remote-ops__muted'},session?.name??'输入网址开始'),h('label',null,h('span',{className:'dsh-remote-ops__muted'},'显示'),h('select',{'aria-label':'网页显示方式','aria-describedby':session?'web-display-note':undefined,value:session?.display??data.preferences.display,disabled:navigating||!!unfinished,onChange:event=>action(session?{action:'display',display:event.target.value}:{action:'preferences.save',preferences:{display:event.target.value}})},h('option',{value:'embedded'},'插件内'),h('option',{value:'window'},'独立窗口')))),
+        session?h('small',{id:'web-display-note',className:'dsh-remote-ops__webDisplayWarning'},'切换显示会重载网页；未提交内容可能丢失。'):null,
+        session?h('div',{className:'dsh-remote-ops__webPagesBar'},h('div',{className:'dsh-remote-ops__webPages',role:'tablist','aria-label':'网页标签页'},session.pages.map(item=>h('button',{key:item.id,id:'web-tab-'+item.id,role:'tab','aria-controls':'web-panel-'+session.id,'aria-selected':item.id===session.activePageId,tabIndex:item.id===session.activePageId?0:-1,disabled:navigating,title:item.url,onClick:()=>action({action:'control',control:'select-page',value:item.id}),onKeyDown:event=>{const index=session.pages.findIndex(v=>v.id===item.id),next={ArrowRight:(index+1)%session.pages.length,ArrowLeft:(index+session.pages.length-1)%session.pages.length,Home:0,End:session.pages.length-1}[event.key];if(next!==undefined){event.preventDefault();void action({action:'control',control:'select-page',value:session.pages[next].id});event.currentTarget.parentElement.children[next]?.focus();}}},item.title||(item.url==='about:blank'?'新标签页':item.url.replace(/^https?:\/\//,''))))),nav('新建网页','＋','new-page'),h('button',{type:'button','aria-label':'关闭当前网页',title:'关闭当前标签页',disabled:navigating,onClick:()=>action({action:'control',control:'close-page',value:session.activePageId})},h(IconCloseOutline16))):null,
+        h('form',{className:'dsh-remote-ops__webAddress',onSubmit:go},nav('网页后退','←','back'),nav('网页前进','→','forward'),nav('刷新网页','↻','reload'),h('input',{'aria-label':'网页地址',placeholder:'输入网址，按 Enter 打开',value:address,onChange:event=>{addressDirty.current=true;setAddress(event.target.value);},required:true,disabled:navigating}),h('button',{type:'submit','aria-label':'打开网页',className:'dsh-remote-ops__primary',disabled:!sessionId||navigating||!address.trim()},busy?'打开中…':'打开')),
+        error?h('div',{className:'dsh-remote-ops__webError',role:'alert'},error.split('\n').slice(1).join(' · ')||error,!synced?h('button',{onClick:()=>{setError('');void load().catch(failure=>{if(alive.current)setError(failure.message);});}},'重试读取网页状态'):null):null,
         session?.dialog?h('div',{className:'dsh-remote-ops__webNotice'},`网页弹窗：${session.dialog.message}。请在主对话告诉 Agent 如何处理。`):null,
-        h('div',{className:'dsh-remote-ops__webPage',role:session?'tabpanel':undefined,id:session?'web-panel-'+session.id:undefined,'aria-labelledby':session?'web-tab-'+session.activePageId:undefined},session?.display==='embedded'?h(BrowserLiveView,{key:session.id,sessionId,browser:session}):session?h('div',{className:'dsh-remote-ops__webWindow'},h('p',null,'网页正在独立浏览器窗口中显示。'),h('button',{disabled:busy,onClick:()=>action({action:'control',control:'focus'})},'显示浏览器')):h('div',{className:'dsh-remote-ops__webWelcome'},h('strong',null,'打开网页，直接开始'),h('p',null,'无需先保存网站或编排流程。'))),
+        h('div',{className:'dsh-remote-ops__webPage',role:session?'tabpanel':undefined,id:session?'web-panel-'+session.id:undefined,'aria-labelledby':session?'web-tab-'+session.activePageId:undefined},session?.display==='embedded'?h(BrowserLiveView,{key:session.id,sessionId,browser:session}):session?h('div',{className:'dsh-remote-ops__webWindow'},h('p',null,'网页正在独立浏览器窗口中显示。'),h('button',{disabled:navigating,onClick:()=>action({action:'control',control:'focus'})},'显示浏览器')):h('div',{className:'dsh-remote-ops__webWelcome'},h(BrowserIcon,{size:26}),h('strong',null,synced?'打开网页，直接开始':'正在读取网页状态…'),h('p',null,'无需先保存网站或编排流程。'))),
+        h('div',{className:'dsh-remote-ops__webState',role:'status'},session?h(React.Fragment,null,h('strong',null,job?browserStatus[job.status]:'网页已打开'),job?` · ${job.index}/${job.count} 步`:'',session.notice?h('details',null,h('summary',null,'提示'),h('p',null,session.notice)):null):'输入网址后，在主对话中让 Agent 操作。'),
         job?h('details',{className:'dsh-remote-ops__webLog'},h('summary',null,`操作记录 · ${job.results.length} 项${job.error?' · 执行异常':''}`),job.error?h('p',{role:'alert'},job.error.message,job.error.note?' · 操作结果未确认，不会自动重试。':''):null,job.results.map(item=>h('div',{key:item.index,className:'dsh-remote-ops__webResult'},`${item.index}. ${{goto:'打开网页',click:'点击',fill:'输入',press:'按键',read:'读取',scroll:'滚动',wait:'等待',assert:'检查',select:'选择',check:'勾选',uncheck:'取消勾选'}[item.action]??item.action} · ${item.completion==='checked'?'检查通过':item.completion==='observed'?'已读取':'动作完成，业务结果未检查'}`,item.value!==undefined?h('pre',null,item.value):null))):null,
-        h('details',{className:'dsh-remote-ops__webSettings'},h('summary',null,'浏览器设置'),h('label',null,'浏览器引擎',h('select',{'aria-label':'浏览器引擎',value:data.preferences.browser,disabled:busy,onChange:event=>action({action:'preferences.save',preferences:{browser:event.target.value}})},h('option',{value:'chromium'},'专用 Chromium'),h('option',{value:'msedge'},'Microsoft Edge'),h('option',{value:'chrome'},'Google Chrome'))),h('small',null,'引擎选择对新打开的浏览器生效。'),h('button',{disabled:busy||data.runtime.install?.status==='installing',onClick:()=>action({action:'runtime.install'})},data.runtime.install?.status==='installing'?'安装中…':'安装 / 检查 Chromium'),data.runtime.install?.error?h('p',{role:'alert'},data.runtime.install.error):null,
-          data.sessions.filter(v=>!v.closed).length>1?h('label',null,'活动浏览器',h('select',{'aria-label':'活动浏览器',value:session?.id,disabled:busy,onChange:event=>action({action:'select-browser',browserId:event.target.value})},data.sessions.filter(v=>!v.closed).map(v=>h('option',{key:v.id,value:v.id},v.name)))):null),
-        h('details',{className:'dsh-remote-ops__webSettings',open:library,onToggle:event=>setLibrary(event.currentTarget.open)},h('summary',null,'高级：收藏网站与流程'),library?h(BrowserLibraryPanel,{sessionId}):null));
+        h('details',{className:'dsh-remote-ops__webSettings'},h('summary',null,'浏览器设置与高级功能'),h('label',null,'浏览器引擎',h('select',{'aria-label':'浏览器引擎',value:data.preferences.browser,disabled:navigating,onChange:event=>action({action:'preferences.save',preferences:{browser:event.target.value}})},h('option',{value:'chromium'},'专用 Chromium'),h('option',{value:'msedge'},'Microsoft Edge'),h('option',{value:'chrome'},'Google Chrome'))),h('small',null,'引擎选择对新打开的浏览器生效。'),h('button',{disabled:navigating||data.runtime.install?.status==='installing',onClick:()=>action({action:'runtime.install'})},data.runtime.install?.status==='installing'?'安装中…':'安装 / 检查 Chromium'),data.runtime.install?.error?h('p',{role:'alert'},data.runtime.install.error):null,
+          h('details',{open:library,onToggle:event=>setLibrary(event.currentTarget.open)},h('summary',null,'收藏网站与流程'),synced&&library?h(BrowserLibraryPanel,{sessionId}):null)));
     }
+
     function BrowserLibraryPanel({ sessionId }) {
       const draft = webDrafts.get(sessionId) ?? {};
       const [data, setData] = useState({ sites: [], flows: [], sessions: [], runtime: {} });
@@ -873,6 +1085,7 @@ window.__ModuleLoader__.load({
       const [steps, setSteps] = useState(draft.steps ?? []); const [flowId, setFlowId] = useState(draft.flowId ?? ""); const [savedFlowId, setSavedFlowId] = useState(draft.savedFlowId ?? ""); const [flowName, setFlowName] = useState(draft.flowName ?? "");
       const [variables, setVariables] = useState(draft.variables ?? {}); const [observation, setObservation] = useState(null);
       const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [busy, setBusy] = useState(false);
+      const [askPanel, panelQuestion] = usePanelQuestion(sessionId);
       const alive = useRef(true), pending = useRef(false), revision = useRef(0);
       useEffect(() => { webDrafts.set(sessionId, { ...webDrafts.get(sessionId),siteId, browserId, steps, flowId, savedFlowId, flowName, variables }); if (webDrafts.size > 10) webDrafts.delete(webDrafts.keys().next().value); }, [sessionId, siteId, browserId, steps, flowId, savedFlowId, flowName, variables]);
       const site = data.sites.find(item => item.id === siteId) ?? data.sites.find(item => item.id === data.sessions.find(session => !session.closed)?.siteId) ?? data.sites[0];
@@ -929,7 +1142,7 @@ window.__ModuleLoader__.load({
           siteForm.login ? [ ["username", "用户名定位"], ["password", "密码定位"], ["submit", "登录按钮定位"], ["success", "登录成功定位"] ].map(([key, label]) => h(React.Fragment, { key }, targetEditor(label, siteForm.login[key], value => setSiteForm({ ...siteForm, login: { ...siteForm.login, [key]: value } })))) : null,
           input("额外凭据域名", (siteForm.allowedOrigins ?? []).join(", "), value => setSiteForm({ ...siteForm, allowedOrigins: value.split(",").map(item => item.trim()).filter(Boolean) }), { placeholder: "https://sso.example.com（逗号分隔）" })),
         h("div", { className: "dsh-remote-ops__webActions" }, h("button", { disabled: busy, type: "submit" }, "保存网站"), h("button", { type: "button", disabled: busy, onClick: () => { setSiteForm(null); setPassword(""); } }, "取消"))) : null;
-      return h("section", { className: "dsh-remote-ops__web", "aria-label": "网页操作" },
+      return h("section", { className: "dsh-remote-ops__web", "aria-label": "网页操作" }, panelQuestion,
         h("div", { className: "dsh-remote-ops__webSection" }, h("div", { className: "dsh-remote-ops__webActions" }, h("strong", null, "网页"), h("button", { disabled: busy, onClick: () => newSite() }, "新增网站")),
           h("p", { className: "dsh-remote-ops__muted" }, "操作在独立浏览器窗口中可见。切换模块或收起侧栏，任务会继续。"),
           h("label", null, "选择网站", h("select", { "aria-label": "选择网站", value: site?.id ?? "", disabled: busy, onChange: event => selectSite(event.target.value) }, !site ? h("option", { value: "" }, "先新增一个网站") : null, data.sites.map(item => h("option", { key: item.id, value: item.id }, item.name)))),
@@ -939,7 +1152,7 @@ window.__ModuleLoader__.load({
           h("details", null, h("summary", null, "浏览器准备与网站管理"), h("p", null, data.runtime.chromium ? "Chromium 已就绪" : "首次使用可下载专用 Chromium，也可在网站配置中选择已安装的 Edge / Chrome。"),
             h("button", { disabled: busy || data.runtime.install?.status === "installing", onClick: () => action({ action: "runtime.install" }) }, data.runtime.install?.status === "installing" ? "下载中…" : "安装 / 检查 Chromium"),
             data.runtime.install?.output || data.runtime.install?.error ? h("pre", null, data.runtime.install.error ?? data.runtime.install.output) : null,
-            site ? h("button", { disabled: busy || live, onClick: async () => { if (window.confirm(`删除网站“${site.name}”及其流程？`)) { await action({ action: "site.delete", siteId: site.id }); selectSite(""); } } }, "删除网站及流程") : null)),
+            site ? h("button", { disabled: busy || live, onClick: async () => { if (await askPanel(`删除网站“${site.name}”及其流程？`)) { await action({ action: "site.delete", siteId: site.id }); selectSite(""); } } }, "删除网站及流程") : null)),
         editor,
         error ? h("div", { className: "dsh-remote-ops__webSection dsh-remote-ops__dangerAction", role: "alert" }, error) : null,
         notice ? h("div", { className: "dsh-remote-ops__webSection", role: "status" }, notice) : null,
@@ -959,7 +1172,7 @@ window.__ModuleLoader__.load({
                 h("details", null, h("summary", null, "执行后检查"), h("button", { disabled: busy, onClick: () => changeStep(index, { expect: step.expect ? undefined : { target: webTarget(), text: "" } }) }, step.expect ? "移除检查" : "添加结果检查"), step.expect ? h(React.Fragment, null, targetEditor(`步骤 ${index + 1}结果定位`, step.expect.target, target => changeStep(index, { expect: { ...step.expect, target } })), input(`步骤 ${index + 1}预期文本`, step.expect.text, text => changeStep(index, { expect: { ...step.expect, text } }))) : null))),
               h("button", { disabled: busy || steps.length >= 40, onClick: () => { setFlowId(""); setSteps(items => [...items, { action: "click", target: webTarget() }]); } }, "添加步骤"),
               input("流程名称", flowName, setFlowName, { placeholder: "保存后可由 Agent 直接调用" }),
-              h("div", { className: "dsh-remote-ops__webActions" }, h("button", { disabled: busy || !flowName.trim() || !steps.length, onClick: async () => { const saved = await action({ action: "flow.save", flow: { id: savedFlowId || undefined, siteId: site.id, name: flowName, steps } }); if (saved) { setFlowId(saved.id); setSavedFlowId(saved.id); setNotice("流程已保存"); } } }, "保存流程"), flowId ? h("button", { disabled: busy, onClick: async () => { if (window.confirm(`删除流程“${flowName}”？`)) { await action({ action: "flow.delete", flowId }); setFlowId(""); setSavedFlowId(""); } } }, "删除流程") : null)),
+              h("div", { className: "dsh-remote-ops__webActions" }, h("button", { disabled: busy || !flowName.trim() || !steps.length, onClick: async () => { const saved = await action({ action: "flow.save", flow: { id: savedFlowId || undefined, siteId: site.id, name: flowName, steps } }); if (saved) { setFlowId(saved.id); setSavedFlowId(saved.id); setNotice("流程已保存"); } } }, "保存流程"), flowId ? h("button", { disabled: busy, onClick: async () => { if (await askPanel(`删除流程“${flowName}”？`)) { await action({ action: "flow.delete", flowId }); setFlowId(""); setSavedFlowId(""); } } }, "删除流程") : null)),
             h("small", { className: "dsh-remote-ops__muted" }, "在 DSH 主对话中让 Agent 执行已保存流程。未配置结果检查的步骤，仅表示动作执行完毕。")),
           h("div", { className: "dsh-remote-ops__webSection" }, h("strong", null, "执行结果"), job?.error ? h("p", { role: "alert", className: "dsh-remote-ops__dangerAction" }, job.error.message, job.error.note ? " · 操作可能已经生效，不会自动重试。" : "") : null,
             job?.results.map(item => h("div", { key: item.index, className: "dsh-remote-ops__webResult" }, h("span", null, `${item.index}. ${item.action} · ${item.completion === "checked" ? "检查通过" : item.completion === "observed" ? "已读取" : "动作已完成，业务结果未检查"}`), item.value !== undefined ? h("pre", null, item.value) : null)),
@@ -970,10 +1183,13 @@ window.__ModuleLoader__.load({
     }
     function RemoteOpsPanel({ sessionId }) {
       const browserUpload = useSyncExternalStore(browserUploads.subscribe, () => browserUploads.get(sessionId));
+      const [restoredView] = useState(() => workspaceView(sessionId));
+      const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+      const [filesVisited, setFilesVisited] = useState(restoredView.module === "sftp");
       const knownTabs = useRef({ owner: sessionId, tabs: [] });
       const [reviewStream, setReviewStream] = useState(null);
       const composingRef = useRef(false);
-      const [loadedSnapshot, setSnapshot] = useState(empty); const [terminalFrames, setTerminalFrames] = useState({}); const [drawer, setDrawer] = useState(false); const [module, setModule] = useState("terminal"); const [quickOpen, setQuickOpen] = useState(() => { try { return localStorage.getItem("remote-ops.quick-open") !== "false"; } catch { return true; } }); const [environmentForm, setEnvironmentForm] = useState(null); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [actionNotice, setActionNotice] = useState(""); const [update, setUpdate] = useState(empty.update); const [updateBusy, setUpdateBusy] = useState(false); const [refreshBusy, setRefreshBusy] = useState(false); const [selectedEnv, setSelectedEnv] = useState(""); const [activeSessionId, setActiveSessionId] = useState(""); const [terminalInput, setTerminalInput] = useState(""); const [pendingSshInput, setPendingSshInput] = useState(""); const [quickHeight, setQuickHeight] = useState(190); const [search, setSearch] = useState(""); const outputRef = useRef(null); const terminalInputRef = useRef(null); const stickToBottom = useRef(true); const userScrollIntent = useRef(false); const scrollIntentTimer = useRef(); const rawInputQueue = useRef([]); const rawInputTimer = useRef(); const rawInputSending = useRef(false); const pendingSshInputRef = useRef(""); const refreshRequest = useRef(); const snapshotSignature = useRef(""); const terminalFramesRef = useRef({});
+      const [loadedSnapshot, setSnapshot] = useState(empty); const [terminalFrames, setTerminalFrames] = useState({}); const [drawer, setDrawer] = useState(false); const [module, setModule] = useState(restoredView.module); const [quickOpen, setQuickOpen] = useState(() => { try { return localStorage.getItem("remote-ops.quick-open") !== "false"; } catch { return true; } }); const [environmentForm, setEnvironmentForm] = useState(null); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [actionNotice, setActionNotice] = useState(""); const [update, setUpdate] = useState(empty.update); const [updateBusy, setUpdateBusy] = useState(false); const [refreshBusy, setRefreshBusy] = useState(false); const [selectedEnv, setSelectedEnv] = useState(""); const [activeSessionId, setActiveSessionId] = useState(restoredView.activeSessionId); const [terminalInput, setTerminalInput] = useState(""); const [pendingSshInput, setPendingSshInput] = useState(""); const [quickHeight, setQuickHeight] = useState(190); const [search, setSearch] = useState(restoredView.search); const outputRef = useRef(null); const terminalInputRef = useRef(null); const stickToBottom = useRef(true); const userScrollIntent = useRef(false); const scrollIntentTimer = useRef(); const rawInputQueue = useRef([]); const rawInputTimer = useRef(); const rawInputSending = useRef(false); const pendingSshInputRef = useRef(""); const refreshRequest = useRef(); const snapshotSignature = useRef(""); const terminalFramesRef = useRef({});
       const viewOwner = useRef(sessionId), viewRevision = useRef(0);
       if (viewOwner.current !== sessionId) { viewOwner.current = sessionId; viewRevision.current += 1; }
       const snapshot = loadedSnapshot.viewOwner === (sessionId ?? "") ? loadedSnapshot : empty;
@@ -993,10 +1209,13 @@ window.__ModuleLoader__.load({
       const [connectionChoices, setConnectionChoices] = useState(null);
       const [diagnosticPreview, setDiagnosticPreview] = useState(null);
       const [commandTarget, setCommandTarget] = useState(null);
+      const [askPanel, panelQuestion] = usePanelQuestion(sessionId);
+      const [environmentError, setEnvironmentError] = useState("");
       useEffect(() => { setCommandTarget(null); }, [sessionId]);
       useEffect(() => { setQuickHeight(preferences.quickHeight); }, []);
+      useEffect(() => { rememberWorkspace(sessionId, { module, activeSessionId, search }); }, [sessionId, module, activeSessionId, search]);
       useEffect(() => { try { localStorage.setItem("remote-ops.preferences", JSON.stringify({ ...preferences, quickHeight })); } catch { /* Storage can be disabled by browser policy. */ } }, [preferences, quickHeight]);
-      useEffect(() => { setPasteDraft(null); setConnectionChoices(null); setActiveSessionId(""); setReviewStream(null); setBusy(false); }, [sessionId]);
+      useEffect(() => { setPasteDraft(null); setConnectionChoices(null); setActiveSessionId(current => current); setReviewStream(null); setBusy(false); }, [sessionId]);
       const refresh = useCallback(() => {
         if (refreshRequest.current && refreshRequest.current.ownerKey === sessionId) return refreshRequest.current;
         const task = (async () => {
@@ -1025,19 +1244,20 @@ window.__ModuleLoader__.load({
       }, [sessionId]);
       useEffect(() => {
         let stopped = false, timer, attempt = 0;
-        const poll = async () => { const ok = await refresh(); attempt = ok ? 0 : attempt + 1; if (!stopped) timer = setTimeout(poll, Math.max(3000, retryDelay(attempt))); };
+        const poll = async () => { const ok = document.hidden ? true : await refresh(); attempt = ok ? 0 : attempt + 1; if (!stopped) timer = setTimeout(poll, document.hidden ? 10000 : Math.max(3000, retryDelay(attempt))); };
         void poll(); return () => { stopped = true; clearTimeout(timer); };
       }, [refresh]);
       const workspaceAction = useCallback(async body => {
         const owner = sessionId, revision = viewRevision.current;
         const isCurrent = () => viewOwner.current === owner && viewRevision.current === revision;
-        setBusy(true);
+        const changesConnection = ["enter", "control"].includes(body.action);
+        if (changesConnection) setBusy(true);
         try {
           const value = await request("/api/dsh-remote-ops/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, sessionId: owner }) });
           if (!isCurrent()) return undefined;
           setError(""); await refresh(); return isCurrent() ? value : undefined;
         } catch (cause) { if (isCurrent()) setError(cause.message); return undefined; }
-        finally { if (isCurrent()) setBusy(false); }
+        finally { if (isCurrent() && changesConnection) setBusy(false); }
       }, [sessionId, refresh]);
       const checkUpdate = useCallback(async (silent = false) => { setUpdateBusy(true); if (!silent) setActionNotice(""); try { const value = await request("/api/dsh-remote-ops/update"); setUpdate(value); setError(""); if (!silent) setActionNotice(value.updateAvailable ? `发现新版本 v${value.latestVersion}` : `已是最新版本 v${value.currentVersion}`); return value; } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); if (!silent) setActionNotice("检查更新失败"); return undefined; } finally { setUpdateBusy(false); } }, []);
       useEffect(() => { void checkUpdate(true); }, [checkUpdate]);
@@ -1058,7 +1278,7 @@ window.__ModuleLoader__.load({
           return undefined;
         } finally { if (isCurrent()) setBusy(false); }
       }, [refresh, sessionId]);
-      const installUpdate = async () => { if (!update.updateAvailable || updateBusy) return; if (!window.confirm(`安装 Remote Ops v${update.latestVersion}？安装完成后需要重启 DSH。`)) return; setUpdateBusy(true); setActionNotice(""); try { const value = await request("/api/dsh-remote-ops/update", { method: "POST" }); setUpdate(value); setError(""); setActionNotice(`已安装 v${value.currentVersion ?? update.latestVersion}，请重启 DSH`); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setActionNotice("升级失败"); } finally { setUpdateBusy(false); } };
+      const installUpdate = async () => { if (!update.updateAvailable || updateBusy) return; if (!await askPanel(`安装 Remote Ops v${update.latestVersion}？安装完成后需要重启 DSH。`)) return; setUpdateBusy(true); setActionNotice(""); try { const value = await request("/api/dsh-remote-ops/update", { method: "POST" }); setUpdate(value); setError(""); setActionNotice(`已安装 v${value.currentVersion ?? update.latestVersion}，请重启 DSH`); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setActionNotice("升级失败"); } finally { setUpdateBusy(false); } };
       const tabs = snapshot.tabs ?? snapshot.sessions;
       const activeSession = activeSessionId ? tabs.find(item => item.sessionId === activeSessionId) : tabs[0]; const activeEnvironment = snapshot.environments.find((item) => item.id === (activeSession?.environmentId ?? selectedEnv)); const localActive = activeSession?.kind === "local";
       const activeTerminalId = activeSession?.sessionId ?? "";
@@ -1082,7 +1302,7 @@ window.__ModuleLoader__.load({
         const before = line.slice(0, terminalScreen.cursor.column).padEnd(terminalScreen.cursor.column, " ");
         return h("span", props, before, h("span", { className: "dsh-remote-ops__inputCursor", "aria-hidden": true }), line.slice(terminalScreen.cursor.column), index < lines.length - 1 ? "\n" : null);
       }) : "等待终端输出…";
-      useEffect(() => { if (!terminalReady) return undefined; const frame = window.requestAnimationFrame(() => terminalInputRef.current?.focus({ preventScroll: true })); return () => window.cancelAnimationFrame(frame); }, [activeTerminalId, terminalReady]);
+      useEffect(() => { if (!terminalReady) return undefined; const frame = window.requestAnimationFrame(() => { if (module === "terminal" && !document.activeElement?.closest?.('[role="dialog"],input,textarea,[role="tab"]')) terminalInputRef.current?.focus({ preventScroll: true }); }); return () => window.cancelAnimationFrame(frame); }, [activeTerminalId, terminalReady]);
       useEffect(() => {
         if (!activeTerminalId || activeSession?.disconnected) { setOutputConnection("disconnected"); return undefined; }
         setOutputConnection("connecting");
@@ -1133,7 +1353,7 @@ window.__ModuleLoader__.load({
         if (!sessionId) { setError("REMOTE_SESSION_REQUIRED: 请先在 DSH 选择一个会话"); return; }
         setSelectedEnv(env.id);
         const value = create ? await action({ action: "open", environment: env.id }) : await workspaceAction({ action: "enter", environment: env.id });
-        if (value?.sessionId) { setActiveSessionId(value.sessionId); setDrawer(false); }
+        if (value?.sessionId) { setActiveSessionId(value.sessionId); setModule("terminal"); setDrawer(false); }
         if (value?.choices) setConnectionChoices(value.choices);
       };
       const openFromSshCommand = useCallback(async (command) => { const parsed = parseSshCommand(command); if (!parsed) { setError("当前没有活动 SSH 会话，请输入 ssh [user@]host 并按 Enter 连接。"); return; } if (parsed.error) { setError(parsed.error); return; } const saved = snapshot.environments.find((item) => item.host === parsed.host && Number(item.port ?? 22) === parsed.port && (!parsed.username || item.username === parsed.username)); if (!saved && !parsed.username) { setError("SSH 命令未指定用户名，且目标环境未保存；请使用 ssh user@host。 "); return; } const value = saved ? await action({ action: "open", environment: saved.id }) : await action({ action: "open-command", environment: parsed }); if (value?.sessionId) { setActiveSessionId(value.sessionId); setSelectedEnv(saved?.id ?? ""); pendingSshInputRef.current = ""; setPendingSshInput(""); } }, [action, snapshot.environments]);
@@ -1180,11 +1400,11 @@ window.__ModuleLoader__.load({
       useEffect(() => { rawInputRevision.current += 1; rawInputQueue.current = []; rawInputDrafts.current.clear(); pendingSshInputRef.current = ""; setPendingSshInput(""); setTerminalInput(""); }, [sessionId]);
       useEffect(() => () => { rawInputRevision.current += 1; if (rawInputTimer.current) window.clearTimeout(rawInputTimer.current); if (scrollIntentTimer.current) window.clearTimeout(scrollIntentTimer.current); rawInputQueue.current = []; rawInputDrafts.current.clear(); }, []);
       const keySequence = (event) => { if (event.ctrlKey && !event.altKey && !event.metaKey) { const key = event.key.toLowerCase(); if (key === "v") return undefined; if (key.length === 1 && key >= "a" && key <= "z") return String.fromCharCode(key.charCodeAt(0) - 96); if (key === "[") return "\u001b"; if (key === "\\") return "\u001c"; if (key === "]") return "\u001d"; if (key === "^") return "\u001e"; if (key === "_") return "\u001f"; if (key === " ") return "\u0000"; } if (event.key === "Tab") return event.shiftKey ? "\u001b[Z" : "\t"; const sequences = { Enter: "\r", Escape: "\u001b", Backspace: "\u007f", Delete: "\u001b[3~", ArrowUp: "\u001b[A", ArrowDown: "\u001b[B", ArrowRight: "\u001b[C", ArrowLeft: "\u001b[D", Home: "\u001b[H", End: "\u001b[F", PageUp: "\u001b[5~", PageDown: "\u001b[6~", Insert: "\u001b[2~" }; return sequences[event.key]; };
-      const addGroup = async () => { const name = ask("环境分组名称"); if (name) await action({ action: "group.create", name }); };
-      const editGroup = async (group) => { const name = ask("新的环境分组名称", group); if (name && name !== group) await action({ action: "group.rename", group, name }); };
-      const openEnvironmentForm = (initial) => setEnvironmentForm({ mode: initial ? "edit" : "create", id: initial?.id ?? "", name: initial?.name ?? "", host: initial?.host ?? "", username: initial?.username ?? "root", group: initial?.group ?? snapshot.groups[0] ?? "default", port: String(initial?.port ?? 22), passwordRef: initial?.passwordRef === "configured" ? "" : initial?.passwordRef ?? "", password: "", privateKeyPath: initial?.privateKeyPath ?? "", credentialConfigured: initial?.passwordRef === "configured", ...environmentProfileValues(initial) });
+      const addGroup = async () => { const name = await askPanel("环境分组名称", ""); if (name) await action({ action: "group.create", name }); };
+      const editGroup = async (group) => { const name = await askPanel("新的环境分组名称", group); if (name && name !== group) await action({ action: "group.rename", group, name }); };
+      const openEnvironmentForm = (initial) => { setEnvironmentError(""); setEnvironmentForm({ mode: initial ? "edit" : "create", id: initial?.id ?? "", name: initial?.name ?? "", host: initial?.host ?? "", username: initial?.username ?? "root", group: initial?.group ?? snapshot.groups[0] ?? "default", port: String(initial?.port ?? 22), passwordRef: initial?.passwordRef === "configured" ? "" : initial?.passwordRef ?? "", password: "", privateKeyPath: initial?.privateKeyPath ?? "", credentialConfigured: initial?.passwordRef === "configured", ...environmentProfileValues(initial) }); };
       const updateEnvironmentForm = (field, value) => setEnvironmentForm((current) => current ? { ...current, [field]: value } : current);
-      const saveEnvironmentForm = async (event) => { event.preventDefault(); if (!environmentForm) return; const required = [["主机地址", environmentForm.host], ["用户名", environmentForm.username]]; const missing = required.find(([, value]) => !String(value ?? "").trim()); if (missing) { setError(`${missing[0]}不能为空`); return; } const port = Number(environmentForm.port); if (!Number.isInteger(port) || port < 1 || port > 65535) { setError("SSH 端口必须是 1-65535 的整数"); return; } const advanced = environmentProfileFromForm(environmentForm); if (advanced.error) { setError(advanced.error); return; } const environment = { ...(environmentForm.id ? { id: environmentForm.id.trim() } : {}), name: environmentForm.name.trim() || environmentForm.host.trim(), host: environmentForm.host.trim(), username: environmentForm.username.trim(), group: environmentForm.group.trim() || "default", port }; if (environmentForm.privateKeyPath.trim()) environment.privateKeyPath = environmentForm.privateKeyPath.trim(); environment.cliProfile = advanced.cliProfile; environment.terminal = advanced.terminal; const body = { action: "environment.save", environment }; if (environmentForm.password) body.password = environmentForm.password; const value = await action(body); if (value) setEnvironmentForm(null); };
+      const saveEnvironmentForm = async (event) => { event.preventDefault(); if (!environmentForm) return; const required = [["主机地址", environmentForm.host], ["用户名", environmentForm.username]]; const missing = required.find(([, value]) => !String(value ?? "").trim()); if (missing) { setEnvironmentError(`${missing[0]}不能为空`); return; } const port = Number(environmentForm.port); if (!Number.isInteger(port) || port < 1 || port > 65535) { setEnvironmentError("SSH 端口必须是 1-65535 的整数"); return; } const advanced = environmentProfileFromForm(environmentForm); if (advanced.error) { setEnvironmentError(advanced.error); return; } const environment = { ...(environmentForm.id ? { id: environmentForm.id.trim() } : {}), name: environmentForm.name.trim() || environmentForm.host.trim(), host: environmentForm.host.trim(), username: environmentForm.username.trim(), group: environmentForm.group.trim() || "default", port }; if (environmentForm.privateKeyPath.trim()) environment.privateKeyPath = environmentForm.privateKeyPath.trim(); environment.cliProfile = advanced.cliProfile; environment.terminal = advanced.terminal; const body = { action: "environment.save", environment }; if (environmentForm.password) body.password = environmentForm.password; const value = await action(body); if (value) setEnvironmentForm(null); };
       const previewInput = async (text, target = activeSession) => {
         if (!target) { setError("TERMINAL_TARGET_REQUIRED: 请先选择终端"); return; }
         if (target.disconnected) { setError("REMOTE_SESSION_EXITED: 此连接已断开"); return; }
@@ -1214,12 +1434,12 @@ window.__ModuleLoader__.load({
       };
       const releaseSession = async session => {
         if (session.disconnected) { dismissTab(session.sessionId); return; }
-        if (!window.confirm(`关闭连接“${session.name}”？这会结束该终端会话。`)) return;
+        if (!await askPanel(`关闭连接“${session.name}”？这会结束该终端会话。`)) return;
         const value = await action({ action: "close", session: session.sessionId });
         if (value?.closed) dismissTab(session.sessionId);
       };
       const reconnect = async () => {
-        if (!activeEnvironment || !window.confirm(`重新连接“${activeSession.name}”？不会重发任何命令。`)) return;
+        if (!activeEnvironment || !await askPanel(`重新连接“${activeSession.name}”？不会重发任何命令。`)) return;
         const previous = activeSession.sessionId;
         const value = await action({ action: "open", environment: activeEnvironment.id });
         if (value?.sessionId) { dismissTab(previous); setActiveSessionId(value.sessionId); }
@@ -1235,20 +1455,21 @@ window.__ModuleLoader__.load({
           h("button", { className: "dsh-remote-ops__tiny", disabled: busy || !sessionId, onClick: () => void connect(env), title: "进入已有连接；没有连接时新建" }, "进入"),
           h("button", { className: "dsh-remote-ops__tiny", disabled: busy || !sessionId || (env.connectionCount ?? 0) >= (env.maxConnections ?? 3), onClick: () => void connect(env, true), title: "新建独立连接", "aria-label": `新建 ${env.name} 连接` }, "+"),
           h("button", { className: "dsh-remote-ops__tiny", onClick: () => openEnvironmentForm(env) }, "编辑"),
-          h("button", { className: "dsh-remote-ops__tiny dsh-remote-ops__dangerAction", onClick: () => { if (window.confirm(`删除环境“${env.name}”？`)) void action({ action: "environment.delete", environment: env.id }); } }, "×"),
-          connections.length ? h("div", { className: "dsh-remote-ops__envConnections" }, connections.map((session, index) => h("div", { className: "dsh-remote-ops__envConnection", key: session.sessionId }, h("button", { className: "dsh-remote-ops__connectionLink", title: `会话：${session.ownerId} · 最近活动：${session.lastActivity ? new Date(session.lastActivity).toLocaleString() : "暂无"}`, onClick: () => { setActiveSessionId(session.sessionId); setSelectedEnv(env.id); setDrawer(false); } }, `连接 ${index + 1} · ${session.status?.kind === "running" ? "已连接" : "已退出"}`), h("button", { className: "dsh-remote-ops__tiny dsh-remote-ops__dangerAction", disabled: busy, title: "释放这个具体连接", onClick: () => void releaseSession(session) }, "释放")))) : null,
+          h("button", { className: "dsh-remote-ops__tiny dsh-remote-ops__dangerAction", onClick: async () => { if (await askPanel(`删除环境“${env.name}”？`)) void action({ action: "environment.delete", environment: env.id }); } }, "×"),
+          connections.length ? h("div", { className: "dsh-remote-ops__envConnections" }, connections.map((session, index) => h("div", { className: "dsh-remote-ops__envConnection", key: session.sessionId }, h("button", { className: "dsh-remote-ops__connectionLink", title: `会话：${session.ownerId} · 最近活动：${session.lastActivity ? new Date(session.lastActivity).toLocaleString() : "暂无"}`, onClick: () => { setActiveSessionId(session.sessionId); setSelectedEnv(env.id); setModule("terminal"); setDrawer(false); } }, `连接 ${index + 1} · ${session.status?.kind === "running" ? "已连接" : "已退出"}`), h("button", { className: "dsh-remote-ops__tiny dsh-remote-ops__dangerAction", disabled: busy, title: "释放这个具体连接", onClick: () => void releaseSession(session) }, "释放")))) : null,
         );
       };
       const renderEnvironmentGroup = ({ group, items }) => h("section", { className: "dsh-remote-ops__group", key: group },
         h("div", { className: "dsh-remote-ops__groupTitle" },
           h("span", null, "▾ ", group),
           h("button", { className: "dsh-remote-ops__tiny", onClick: () => void editGroup(group) }, "编辑"),
-          h("button", { className: "dsh-remote-ops__tiny", onClick: () => { if (window.confirm(`删除空分组“${group}”？`)) void action({ action: "group.delete", group }); } }, "×"),
+          h("button", { className: "dsh-remote-ops__tiny", onClick: async () => { if (await askPanel(`删除空分组“${group}”？`)) void action({ action: "group.delete", group }); } }, "×"),
         ),
         items.length ? items.map(renderEnvironment) : h("div", { className: "dsh-remote-ops__muted", style: { padding: "4px" } }, "空分组"),
       );
       const environmentFormView = environmentForm ? h("form", { className: "dsh-remote-ops__form", onSubmit: saveEnvironmentForm },
         h("strong", null, environmentForm.mode === "edit" ? "编辑环境" : "新增环境"),
+        environmentError ? h("div", { role: "alert", className: "dsh-remote-ops__dangerAction" }, environmentError) : null,
         h("label", null, "显示名称", h("input", { value: environmentForm.name, onChange: (event) => updateEnvironmentForm("name", event.target.value), placeholder: "生产环境" })),
         h("label", null, "主机地址", h("input", { value: environmentForm.host, onChange: (event) => updateEnvironmentForm("host", event.target.value), placeholder: "192.168.1.10" })),
         h("div", { className: "dsh-remote-ops__row" },
@@ -1273,13 +1494,14 @@ window.__ModuleLoader__.load({
           h("button", { className: "dsh-remote-ops__drawerClose", "aria-label": "关闭环境", title: "关闭环境", onClick: () => setDrawer(false) }, "×"),
         ),
         h("div", { className: "dsh-remote-ops__drawerBody" },
-          environmentFormView,
+          environmentFormView ?? h(React.Fragment, null,
           h("div", { className: "dsh-remote-ops__tools" }, h("input", { value: search, onChange: (event) => setSearch(event.target.value), placeholder: "搜索环境" })),
           grouped.map(renderEnvironmentGroup),
           snapshot.groups.length ? null : h("div", { className: "dsh-remote-ops__emptyList" }, "还没有分组。点击“+ 分组”开始管理。"),
+          ),
         ),
       ) : null;
-      const quickPanel = h(QuickCommands, { commands: snapshot.quickCommands, groups: snapshot.quickGroups, owner: sessionId, target: activeSession, frame: activeTerminalFrame, ready: terminalReady, open: quickOpen, setOpen: setQuickOpen, height: quickHeight, setHeight: setQuickHeight, action, workspaceAction, onSending: value => { quickSending.current = value; }, hidden: module === "sftp", inputPending: () => Boolean(pasteSending.current || rawInputSending.current || rawInputQueue.current.length || composingRef.current || terminalInputRef.current?.value || manualDrafts.current.get(`${sessionId ?? ""}:${activeTerminalId}:${activeTerminalFrame?.streamId}`)) });
+      const quickPanel = h(QuickCommands, { commands: snapshot.quickCommands, groups: snapshot.quickGroups, owner: sessionId, target: activeSession, frame: activeTerminalFrame, ready: terminalReady, open: quickOpen, setOpen: setQuickOpen, height: quickHeight, setHeight: setQuickHeight, action, workspaceAction, onSending: value => { quickSending.current = value; }, hidden: module !== "terminal" || drawer || diagnosticsOpen, inputPending: () => Boolean(pasteSending.current || rawInputSending.current || rawInputQueue.current.length || composingRef.current || terminalInputRef.current?.value || manualDrafts.current.get(`${sessionId ?? ""}:${activeTerminalId}:${activeTerminalFrame?.streamId}`)) });
       const markUserScrollIntent = (event) => {
         if (event?.type === "pointerdown" && event.clientX < event.currentTarget.getBoundingClientRect().right - 18) return;
         userScrollIntent.current = true;
@@ -1293,17 +1515,17 @@ window.__ModuleLoader__.load({
       const terminal = h("section", { className: "dsh-remote-ops__terminal" },
         h("div", { className: "dsh-remote-ops__terminalHead" },
           h("div", { className: "dsh-remote-ops__terminalIdentity" }, h("strong", null, activeSession?.name ?? "终端"), h("small", { title: localActive ? activeSession.workingDirectory : activeEnvironment?.host }, localActive ? activeSession.workingDirectory : activeEnvironment ? `${activeEnvironment.username}@${activeEnvironment.host}:${activeEnvironment.port ?? 22}` : activeSession?.sessionId)),
-          h("button", { className: "dsh-remote-ops__headAction", "aria-expanded": drawer, title: drawer ? "收起环境" : "打开环境", "aria-label": "环境管理", onClick: () => setDrawer((value) => !value) }, h(IconPanelLeftOutline16, { "aria-hidden": true })),
         ),
         h("div", { className: "dsh-remote-ops__tabs" }, tabs.length ? tabs.map((item) => h("div", { className: "dsh-remote-ops__tab", key: item.sessionId }, h("button", { "data-active": activeSession?.sessionId === item.sessionId, onClick: () => { setActiveSessionId(item.sessionId); setSelectedEnv(item.environmentId); stickToBottom.current = true; } }, `${item.name}${item.disconnected ? " · 已断开" : ""}`), item.kind === "ssh" ? h("button", { className: "dsh-remote-ops__tabClose dsh-remote-ops__dangerAction", title: item.disconnected ? "关闭记录" : "释放此连接", "aria-label": `释放${item.name}`, disabled: busy, onClick: (event) => { event.stopPropagation(); void releaseSession(item); } }, "×") : null)) : h("span", { className: "dsh-remote-ops__muted" }, "没有活动终端")),
         h("div", { className: "dsh-remote-ops__toolbar" },
           h("button", { title: "搜索输出", "aria-label": "搜索输出", "aria-expanded": searchOpen, onClick: () => setSearchOpen(value => !value) }, h(IconSearchOutline16)),
           h("button", { title: "独立执行命令", disabled: !sessionId || !activeSession || activeSession.disconnected, onClick: () => setCommandTarget({ ...activeSession }) }, h(IconPlayOutline16), " 独立命令"),
           h("button", { title: "复制选区或当前输出", "aria-label": "复制输出", onClick: () => { const selection = window.getSelection(); const text = outputRef.current?.contains(selection?.anchorNode) ? selection.toString() : ""; void writeClipboard(text || terminalOutput).catch(cause => setError(`CLIPBOARD_WRITE: ${cause.message}`)); } }, h(IconCopyOutline16)),
+          h("details", { className: "dsh-remote-ops__terminalLook" }, h("summary", { "aria-label": "终端显示设置", title: "字号、换行与终端大小" }, h(IconSettingsOutline16)), h("div", null,
           h("label", null, "字号", h("input", { type: "number", min: 11, max: 22, "aria-label": "终端字号", value: preferences.fontSize, onChange: event => setPreferences(current => terminalPreferences({ ...current, fontSize: event.target.value })) })),
           !localActive && activeSession && !activeSession.disconnected ? terminalSizeSelect(activeTerminalFrame?.size, busy, (size) => void action({ action: "resize", session: activeTerminalId, ...size })) : null,
           h("label", null, h("input", { type: "checkbox", checked: preferences.wrap, onChange: event => setPreferences(current => ({ ...current, wrap: event.target.checked })) }), "换行"),
-          h("span", null, "共享输入"),
+          h("span", null, "共享输入"))),
         ),
         activeSession?.disconnected ? h("div", { className: "dsh-remote-ops__toolbar", role: "status" }, h("span", { title: "不会自动重放任何命令" }, `连接已断开 · 保留最后输出${snapshot.disconnects?.find((item) => item.sessionId === activeSession.sessionId)?.reason ? ` · ${snapshot.disconnects.find((item) => item.sessionId === activeSession.sessionId).reason}` : ""}`), activeEnvironment ? h("button", { disabled: busy, onClick: () => void reconnect() }, "重新连接") : null, h("button", { onClick: () => dismissTab(activeTerminalId) }, "关闭记录")) : null,
         reviewStream === activeFrameKey ? h("div", { className: "dsh-remote-ops__toolbar", role: "status" }, "终端已重建", h("button", { onClick: () => { setReviewStream(null); terminalInputRef.current?.focus(); } }, "启用新终端输入")) : null,
@@ -1315,31 +1537,49 @@ window.__ModuleLoader__.load({
         ) : h("div", { className: "dsh-remote-ops__screen dsh-remote-ops__screenEmpty", onClick: () => terminalInputRef.current?.focus() }, h("div", { className: "dsh-remote-ops__empty" }, h("div", null, h("div", { style: { fontSize: "22px", marginBottom: "8px" } }, "›_"), h("div", null, terminalReady ? "输入 ssh [user@]host 并按 Enter 连接，或从环境抽屉选择环境。" : "等待本地 CMD 启动…"), pendingSshInput ? h("pre", { className: "dsh-remote-ops__pendingCommand" }, pendingSshInput) : null)), terminalInputCapture, h("div", { className: "dsh-remote-ops__screenHint" }, terminalReady ? "输入 SSH 命令 · Enter 连接" : "等待本地 CMD 启动…")),
         h("div", { className: "dsh-remote-ops__terminalStatus", role: "status" },
           h("span", { "data-state": outputConnection }, activeSession ? activeSession.disconnected ? "已断开" : outputConnection === "connected" ? "实时输出" : outputConnection === "retrying" ? "输出重连中" : "同步中" : "未连接"),
+          h("span", { className: "dsh-remote-ops__muted" }, "共享输入"),
+          h("details", { className: "dsh-remote-ops__statusDetails" }, h("summary", null, "状态详情"), h("div", null,
           h("span", { title: "Agent 绑定状态，不代表 Agent 已读取当前输出" }, snapshot.bound ? "Agent 已绑定" : "Agent 未绑定"),
           h("span", { title: activeTerminalFrame?.toolReceipt ? JSON.stringify(activeTerminalFrame.toolReceipt) : "尚未产生此输出流的工具读取回执" }, activeTerminalFrame?.toolReceipt ? "工具已返回 · " + new Date(activeTerminalFrame.toolReceipt.at).toLocaleTimeString() + (activeTerminalFrame.toolReceipt.newOutput ? " · 有新输出" : "") : "工具未读取"),
           h("span", { className: "dsh-remote-ops__sessionIdentity", title: activeTerminalId }, activeTerminalId ? `${localActive ? "本地" : "SSH"} · ${activeTerminalId.slice(-12)}` : ""),
           activityLabel ? h("span", { title: "PTY 存活与命令完成是不同状态" }, activityLabel) : null,
-          activeTerminalFrame?.truncated ? h("span", { title: "历史已截断或输出流已重建" }, "历史已重置") : null,
+          activeTerminalFrame?.truncated ? h("span", { title: "历史已截断或输出流已重建" }, "历史已重置") : null)),
         ),
       );
-      const sftpWorkspace = module === "sftp" ? h(SftpWorkspace, { key: sessionId, sessionId, environments: snapshot.environments, initialEnvironment: activeEnvironment?.id, onError: setError, onClose: () => setModule("terminal") }) : null;
-      const aux = module === "diagnostics" ? h("aside", { className: "dsh-remote-ops__aux" }, h("div", { className: "dsh-remote-ops__drawerHead" }, h("strong", null, "诊断"), h("button", { disabled: busy, onClick: async () => { const report = await workspaceAction({ action: "diagnostics" }); if (report) setDiagnosticPreview(JSON.stringify(report, null, 2)); } }, "预览导出"), h("button", { className: "dsh-remote-ops__drawerClose", title: "关闭诊断", "aria-label": "关闭诊断", onClick: () => setModule("terminal") }, "×")), h("pre", { className: "dsh-remote-ops__auxBody", style: { whiteSpace: "pre-wrap" } }, (snapshot.events ?? []).map((item) => JSON.stringify(item)).join("\n") || "暂无事件")) : null;
-      const modal = (title, close, content) => h("div", { className: "dsh-remote-ops__modalBackdrop", onKeyDown: event => { if (event.key === "Escape") { event.stopPropagation(); close(); } } }, h("section", { className: "dsh-remote-ops__modal", role: "dialog", "aria-modal": true, "aria-label": title }, h("div", { className: "dsh-remote-ops__row" }, h("span", null, title), h("button", { className: "dsh-remote-ops__drawerClose", title: `关闭${title}`, "aria-label": `关闭${title}`, onClick: close }, "×")), content));
+      const closeFiles = useCallback(() => setModule("terminal"), []);
+      const sftpWorkspace = filesVisited ? h(MemoFileWorkspace, { key: sessionId, sessionId, environments: snapshot.environments, initialEnvironment: activeEnvironment?.id, onError: setError, onClose: closeFiles, visible: module === "sftp" && !drawer && !diagnosticsOpen }) : null;
+      const aux = diagnosticsOpen ? h("section", { className: "dsh-remote-ops__diagnostics", "aria-label": "诊断" },
+        h("div", { className: "dsh-remote-ops__drawerHead" }, h("strong", null, "诊断"), h("button", { onClick: async () => { const report = await workspaceAction({ action: "diagnostics" }); if (report) setDiagnosticPreview(JSON.stringify(report, null, 2)); } }, "预览导出"), h("button", { className: "dsh-remote-ops__drawerClose", "aria-label": "关闭诊断", onClick: () => setDiagnosticsOpen(false) }, h(IconCloseOutline16))),
+        h("div", { className: "dsh-remote-ops__diagnosticEvents" }, (snapshot.events ?? []).slice().reverse().map((item, index) => h("details", { key: index }, h("summary", null, h("span", null, item.kind ?? item.type ?? item.event ?? "事件"), h("time", null, item.at ? new Date(item.at).toLocaleTimeString() : ""), item.status ? h("span", null, item.status) : null), h("pre", null, JSON.stringify(item, null, 2)))), !(snapshot.events ?? []).length ? h("div", { className: "dsh-remote-ops__empty" }, "暂无事件") : null)) : null;
+      const modal = (title, close, content) => h(ModalDialog, { title, onClose: close }, content);
       const pasteView = pasteDraft ? modal("确认终端输入", () => setPasteDraft(null), h(React.Fragment, null, h("strong", null, `目标：${pasteDraft.name}`), h("small", null, pasteDraft.session), h("textarea", { autoFocus: true, "aria-label": "待发送内容", spellCheck: false, value: pasteDraft.text, onChange: event => setPasteDraft(current => ({ ...current, text: event.target.value })) }), /[\r\n]/.test(pasteDraft.text) ? h("strong", { className: "dsh-remote-ops__dangerAction" }, "包含换行，将提交命令") : null, h("div", { className: "dsh-remote-ops__formActions" }, h("button", { onClick: () => setPasteDraft(null) }, "取消"), h("button", { disabled: busy || !pasteDraft.text, onClick: () => void submitPaste() }, "发送到此终端")))) : null;
-      const choicesView = connectionChoices ? modal("选择连接", () => setConnectionChoices(null), connectionChoices.map(item => h("button", { key: item.sessionId, onClick: () => { setActiveSessionId(item.sessionId); setConnectionChoices(null); setDrawer(false); } }, `${item.name} · ${item.ownerId} · ${item.lastActivity ? new Date(item.lastActivity).toLocaleTimeString() : "暂无活动"}`))) : null;
+      const choicesView = connectionChoices ? modal("选择连接", () => setConnectionChoices(null), connectionChoices.map(item => h("button", { key: item.sessionId, onClick: () => { setActiveSessionId(item.sessionId); setModule("terminal"); setConnectionChoices(null); setDrawer(false); } }, `${item.name} · ${item.ownerId} · ${item.lastActivity ? new Date(item.lastActivity).toLocaleTimeString() : "暂无活动"}`))) : null;
       const diagnosticsView = diagnosticPreview !== null ? modal("诊断导出预览", () => setDiagnosticPreview(null), h(React.Fragment, null, h("pre", null, diagnosticPreview), h("button", { onClick: () => { const url = URL.createObjectURL(new Blob([diagnosticPreview], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = "remote-ops-diagnostics.json"; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); } }, h(IconDownloadOutline16), " 导出 JSON"))) : null;
+      const workspaces = [["terminal", "终端", RemoteOpsIcon], ["browser", "网页", BrowserIcon], ["sftp", "文件", IconFolderClose16]];
+      const uiKey = encodeURIComponent(sessionId ?? "local");
+      const selectWorkspace = id => { if (id === "sftp") setFilesVisited(true); setModule(id); setDrawer(false); setDiagnosticsOpen(false); };
       return h("div", { className: "dsh-remote-ops" },
         h("div", { className: "dsh-remote-ops__head" },
           h("strong", null, "Remote Ops"), h("span", { className: "dsh-remote-ops__version" }, `v${snapshot.pluginVersion ?? update.currentVersion ?? "?"}`),
-          browserUpload && ["uploading", "cancelling"].includes(browserUpload.status) ? h("button", { "aria-label": "查看上传进度", title: "上传在后台继续，点击查看进度或取消", onClick: () => setModule("sftp") }, `上传 ${browserUpload.index}/${browserUpload.count}`) : null,
-          h("button", { className: `dsh-remote-ops__headAction${update.updateAvailable ? " dsh-remote-ops__update" : ""}`, disabled: updateBusy, "aria-busy": updateBusy, "aria-label": update.updateAvailable ? `升级 v${update.latestVersion}` : "检查更新", title: update.updateAvailable ? `升级 v${update.latestVersion}` : "检查更新", onClick: () => void (update.updateAvailable ? installUpdate() : checkUpdate(false)) }, h(IconDownloadOutline16, { "aria-hidden": true })),
-          h("button", { className: "dsh-remote-ops__headAction", disabled: refreshBusy, "aria-busy": refreshBusy, "aria-label": "刷新状态", title: "刷新状态", onClick: () => void refreshNow() }, h(IconRefreshOutline16, { "aria-hidden": true })),
-          actionNotice ? h("span", { className: "dsh-remote-ops__headNotice", "data-error": actionNotice.includes("失败") }, actionNotice) : null),
-        error ? h("div", { className: "dsh-remote-ops__error", role: "alert" }, h("div", { className: "dsh-remote-ops__errorBody" }, error.split("\n")[0], h("details", null, h("summary", null, "错误详情"), error), /AUTH|credential|password|认证/i.test(error) ? h("button", { onClick: () => { setDrawer(true); if (activeEnvironment) openEnvironmentForm(activeEnvironment); } }, "检查环境凭据") : /OWNER|SESSION_REQUIRED/.test(error) ? h("button", { disabled: !sessionId, onClick: () => void workspaceAction({ action: "activate" }) }, "绑定当前会话") : h("button", { onClick: () => void refreshNow() }, "刷新状态")), h("button", { className: "dsh-remote-ops__errorClose", title: "关闭错误", "aria-label": "关闭错误", onClick: () => setError("") }, "×")) : null,
-        pasteView, choicesView, diagnosticsView,
-        commandTarget ? h(CommandDialog, { key: sessionId, sessionId, target: commandTarget, onClose: () => setCommandTarget(null) }) : null,
-        h("div", { className: "dsh-remote-ops__workspace" }, h("nav", { className: "dsh-remote-ops__rail", "aria-label": "Remote Ops 导航" }, [["environments", "环境"], ["quick", "快捷命令"], ["sftp", "SFTP"], ["browser", "网页"], ["diagnostics", "诊断"]].map(([id, label]) => h("button", { key: id, "data-active": id === "environments" ? drawer : id === "quick" ? module === "terminal" && !drawer && quickOpen : module === id, title: label, "aria-label": label, onClick: () => id === "environments" ? (setDrawer((value) => !value), setModule("terminal")) : id === "quick" ? (setDrawer(false), setModule("terminal"), setQuickOpen((value) => !value)) : (setDrawer(false), setModule((value) => value === id ? "terminal" : id)) }, glyph[id]))), h("main", { className: "dsh-remote-ops__main", "data-module": module }, module === "browser" ? h(BrowserWorkspacePanel, { key: sessionId, sessionId }) : module === "sftp" ? sftpWorkspace : terminal, module === "browser" ? null : quickPanel), envDrawer, aux));
+          browserUpload && ["uploading", "cancelling"].includes(browserUpload.status) ? h("button", { "aria-label": "查看上传进度", onClick: () => selectWorkspace("sftp") }, `上传 ${browserUpload.index}/${browserUpload.count}`) : null,
+          h("button", { className: "dsh-remote-ops__headAction", "aria-label": "环境管理", "aria-expanded": drawer, "aria-controls": "remote-ops-environments-" + uiKey, onClick: () => { setDrawer(value => !value); setDiagnosticsOpen(false); } }, h(IconPanelLeftOutline16, { "aria-hidden": true }), "环境"),
+          h("details", { className: "dsh-remote-ops__menu" }, h("summary", { "aria-label": "更多设置" }, h(IconSettingsOutline16, { "aria-hidden": true })), h("div", null,
+            h("button", { disabled: refreshBusy, "aria-busy": refreshBusy, "aria-label": "刷新状态", onClick: () => void refreshNow() }, h(IconRefreshOutline16), "刷新状态"),
+            h("button", { "aria-label": "诊断", onClick: event => { event.currentTarget.closest("details").open = false; setDiagnosticsOpen(true); setDrawer(false); } }, "诊断记录"),
+            h("button", { disabled: updateBusy, "aria-label": update.updateAvailable ? `升级 v${update.latestVersion}` : "检查更新", onClick: () => void (update.updateAvailable ? installUpdate() : checkUpdate(false)) }, h(IconDownloadOutline16), update.updateAvailable ? `升级 v${update.latestVersion}` : "检查更新")))),
+        actionNotice ? h("div", { className: "dsh-remote-ops__notice", role: "status", "data-error": actionNotice.includes("失败") }, actionNotice) : null,
+        error ? h("div", { className: "dsh-remote-ops__error", role: "alert" }, h("div", { className: "dsh-remote-ops__errorBody" }, error.split("\n")[0], h("details", null, h("summary", null, "错误详情"), error), /AUTH|credential|password|认证/i.test(error) ? h("button", { onClick: () => { setDrawer(true); if (activeEnvironment) openEnvironmentForm(activeEnvironment); } }, "检查环境凭据") : /OWNER|SESSION_REQUIRED/.test(error) ? h("button", { disabled: !sessionId, onClick: () => void workspaceAction({ action: "activate" }) }, "绑定当前会话") : h("button", { onClick: () => void refreshNow() }, "刷新状态")), h("button", { className: "dsh-remote-ops__errorClose", "aria-label": "关闭错误", onClick: () => setError("") }, h(IconCloseOutline16))) : null,
+        panelQuestion, pasteView, choicesView, diagnosticsView,
+        commandTarget ? h(CommandDialog, { key: sessionId + ":" + commandTarget.sessionId, sessionId, target: commandTarget, onClose: () => setCommandTarget(null) }) : null,
+        h("nav", { className: "dsh-remote-ops__workspaceTabs", role: "tablist", "aria-label": "Remote Ops 工作区" }, workspaces.map(([id, label, Icon], index) => h("button", { key: id, type: "button", role: "tab", id: "remote-ops-tab-" + uiKey + "-" + id, "aria-label": label, "aria-selected": module === id, "aria-controls": "remote-ops-panel-" + uiKey, tabIndex: module === id ? 0 : -1, onClick: () => selectWorkspace(id), onKeyDown: event => { const next = { ArrowRight: (index + 1) % workspaces.length, ArrowLeft: (index + workspaces.length - 1) % workspaces.length, Home: 0, End: workspaces.length - 1 }[event.key]; if (next !== undefined) { event.preventDefault(); selectWorkspace(workspaces[next][0]); event.currentTarget.parentElement.children[next]?.focus(); } } }, h(Icon, { size: 16, "aria-hidden": true }), label))),
+        h("div", { className: "dsh-remote-ops__workspace" }, h("main", { className: "dsh-remote-ops__main", id: "remote-ops-panel-" + uiKey, role: drawer || diagnosticsOpen ? undefined : "tabpanel", "aria-labelledby": drawer || diagnosticsOpen ? undefined : "remote-ops-tab-" + uiKey + "-" + module, "data-module": drawer ? "environments" : diagnosticsOpen ? "diagnostics" : module },
+          drawer ? h("div", { id: "remote-ops-environments-" + uiKey, className: "dsh-remote-ops__utilityView" }, envDrawer) : diagnosticsOpen ? aux : module === "browser" ? h(BrowserWorkspacePanel, { key: sessionId, sessionId }) : module === "terminal" ? terminal : null,
+          h("div", { className: "dsh-remote-ops__fileHost", hidden: module !== "sftp" || drawer || diagnosticsOpen }, sftpWorkspace),
+          quickPanel)));
     }
+    function BrowserIcon({ size = 16 }) { return h("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, "aria-hidden": true }, h("circle", { cx: 12, cy: 12, r: 9 }), h("path", { d: "M3 12h18M12 3a17 17 0 0 1 0 18 17 17 0 0 1 0-18" })); }
+    function FileIcon() { return h("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, "aria-hidden": true }, h("path", { d: "M14 3H6v18h12V7zM14 3v5h4M8 12h8M8 16h8" })); }
+
     function RemoteOpsTitle() { return h("span", null, "Remote Ops"); }
     function RemoteOpsIcon({ size = 18, active = false }) {
       return h("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: active ? 1.8 : 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true }, h("rect", { x: 3, y: 4, width: 18, height: 16, rx: 3 }), h("path", { d: "m7 9 3 3-3 3m6 0h4" }));
@@ -1364,7 +1604,7 @@ window.__ModuleLoader__.load({
       ctx.effect(() => {
         const beforeUnload = event => { if (browserUploads.hasActive()) { event.preventDefault(); event.returnValue = ""; } };
         window.addEventListener?.("beforeunload", beforeUnload);
-        return () => { window.removeEventListener?.("beforeunload", beforeUnload); browserUploads.dispose(); webDrafts.clear(); };
+        return () => { window.removeEventListener?.("beforeunload", beforeUnload); browserUploads.dispose(); webDrafts.clear(); workspaceViews.clear(); fileViews.clear(); commandDrafts.clear(); };
       }, "dsh-remote-ops: browser uploads");
       ctx.effect(() => ctx.locale.register(NS, { zh: { title: "Remote Ops", guideTitle: "远程运维", guideDescription: "管理 SSH 环境、终端、SFTP 和可见网页" }, en: { title: "Remote Ops", guideTitle: "Remote operations", guideDescription: "Manage SSH environments, terminals, SFTP and visible web operations" } }), "dsh-remote-ops: dictionaries");
       const t = ctx.locale.bind(NS);

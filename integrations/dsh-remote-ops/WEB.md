@@ -1,18 +1,18 @@
 # Shared web workspace
 
-Remote Ops 0.4.0 provides a browser in the native DSH right Sidebar. Type a URL to begin; saved sites and flows are optional. DSH owns the Agent and conversation. The plugin provides one browser session that both the user and Agent can operate.
+Remote Ops 0.5.0 provides a browser in the native DSH right Sidebar. Type a URL to begin; saved sites and flows are optional. DSH owns the Agent and conversation. The plugin provides one browser session that both the user and Agent can operate.
 
 ## First use
 
 1. Select or create a DSH conversation and open **Remote Ops → 网页**.
-2. In **浏览器设置**, install the dedicated Chromium or select installed Edge / Chrome. Engine changes apply to newly opened browsers.
+2. In **浏览器设置与高级功能**, install the dedicated Chromium or select installed Edge / Chrome. Engine changes apply to newly opened browsers.
 3. Choose **插件内** or **独立窗口** under **显示**, enter an HTTP(S) URL and press Enter. A schemeless address gets `https://`. Independent windows require DSH and the user on the same interactive desktop. Embedded mode streams the dedicated browser into the DSH webpage; it does not iframe the target website.
-4. Ask the Agent in the main conversation to operate the current page. The Agent can omit `browserId` to use this conversation's selected browser. You can also click, scroll, type, paste text and sign in directly, including while the conversation runs. There is no takeover/handback or input ownership. Use **Ctrl+Esc** to return keyboard focus to the plugin address field; choose **原始大小** for a larger scrollable view.
+4. Ask the Agent in the main conversation to operate the current page. The Agent can omit `browserId` to use this conversation's selected browser. You can also click, scroll, type, paste text and sign in directly, including while the conversation runs. There is no takeover/handback or input ownership. Use **Ctrl+Esc** to return keyboard focus to the plugin address field; choose **桌面视口 → 原始大小** for a larger scrollable desktop view. The default **跟随面板** viewport follows the available panel size without reloading the page; the website may respond to resize events. Independent windows use their own viewport.
 5. Use native DSH conversation cancellation to stop the Agent. There are no takeover, pause or stop buttons in the browser or terminal panels, and no dedicated Agent task-control tools. Cancellation prevents subsequent browser steps after the current action settles. A dispatched click or request may already have taken effect; website server jobs do not roll back. A pending terminal send attempts Ctrl+C on cancellation; already returned commands and remote background processes may continue. Inspect actual results before claiming completion or process exit.
 
-Human actions can change the page while the Agent works. The Agent must read the current page again before dependent actions. Input captured before a navigation or page switch is rejected, rather than replayed on a different page. UI keyboard requests are sent in order; multiple input sources can still change the same field or terminal command line.
+Human actions can change the page while the Agent works. The Agent must read the current page again before dependent actions. Input captured before a navigation, page switch or viewport resize is rejected, rather than replayed on a different page. UI keyboard requests are sent in order; multiple input sources can still change the same field or terminal command line.
 
-Page tabs support arrow keys, Home/End and native focus. Back, forward, reload and a new page are available beside the address field. Browser tasks keep their intended page ID when the visible tab changes. Collapsed operation records show progress, results and failures without covering the page.
+Page tabs support arrow keys, Home/End and native focus. Back, forward, reload, new-page and close-current-page actions are available. Tabs show titles when available; the tooltip retains the sanitized URL. Browser tasks keep their intended page ID when the visible tab changes. Collapsed operation records show progress, results and failures without covering the page.
 
 Changing display mode while idle restarts the browser with the same dedicated profile and page URLs. Login cookies are retained; pages reload and unsaved form contents are not restored. Mode changes wait until a running task or pending native dialog finishes. Switching modules or refreshing DSH is different: it only reconnects the view and does not restart the browser.
 
@@ -60,3 +60,5 @@ This release supports mouse clicks, wheel scrolling, keyboard input, Chinese tex
 在“网页”里输入网址即可打开，无需先配网站或流程。“插件内”提供可点击和输入的实时画面，也可选择“独立窗口”。人和 Agent 使用同一网页与终端，对话期间均可操作，不区分输入权，不需要接管或交还；停止 Agent 统一使用 DSH 原生停止对话入口。
 
 切换终端/SFTP、收起右栏及刷新 DSH 不取消后台网页任务。切换显示方式会重新载入网页并保留 Cookie，未提交内容不会恢复。取消对话会停止后续步骤，不能撤销已发出的业务请求或保证远程进程退出；`unknown` 需检查实际网页，不会自动重试。登录凭据和专用浏览器 profile 只保存在 DSH 本机。
+
+工作区入口为顶部“终端 / 网页 / 文件”，环境与诊断在辅助入口中。默认“跟随面板”视口，也可选择 1024×768“桌面视口”。改变视口不会主动重载；切换“插件内 / 独立窗口”会重载并可能丢失未提交内容。设置和收藏/流程合并在“浏览器设置与高级功能”中。
