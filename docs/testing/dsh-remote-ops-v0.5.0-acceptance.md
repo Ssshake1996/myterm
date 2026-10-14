@@ -35,7 +35,7 @@
 
 ## 界面记录
 
-以下为候选包安装后的真实 DSH 截图，网页内容来自本地测试站点：
+以下为正式 Release 包全新安装后的真实 DSH 截图，网页内容来自本地测试站点：
 
 ![浅色网页工作区与保留的主对话草稿](assets/dsh-remote-ops-v0.5.0/light.png)
 
@@ -45,7 +45,13 @@
 
 ## 发布包核验
 
-候选包已完成安装及真实宿主验收。正式 GitHub Release 资产生成后，另行下载核对 SHA256、包内文件与安装文件，再在新的隔离 profile 复验；该结果应独立记录，不能用候选包结果替代。
+正式 [GitHub Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.5.0) 已发布，tag 对应提交 `4c6d76fcd164473521e2ccebc26cc2b7ed58b4cd`；[Linux / Node 22 发布工作流](https://github.com/Ssshake1996/myterm/actions/runs/38596868495) 完整通过。
+
+- 重新下载正式 `dsh-remote-ops-v0.5.0.tgz` 和校验文件，SHA256 与本地发布包、GitHub 资产 digest 均一致：`8aef8d04c1aba8d3b19ceb956814e296bae8ec6b1b25a8be73318614224ed9d3`。
+- 包内 **45 个文件**逐一与当前源码及全新安装目录匹配，包版本为 `0.5.0`。
+- 正式资产安装到另一个新建、隔离的 `DSH_HOME` / `web` profile，并启动实际 DSH 0.2.0-rc.2；以上 **9 组流程再次全部通过**，无 console/pageerror 或 HTTP 错误。
+- 正式包复验中，网页原生停止约 **187ms**、终端等待取消约 **57ms**；人工输入可用，网页下一步未执行。该数值为本机一次验收观察，不是延迟保证。
+- 测试 profile 使用本地模型和站点夹具；日常 DSH profile 未被覆盖。测试服务和浏览器在验收后关闭，保留隔离目录与证据文件。
 
 ## 已知边界
 
