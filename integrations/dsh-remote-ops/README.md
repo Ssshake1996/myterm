@@ -3,11 +3,13 @@
 Standalone DeepSeek Harness plugin for remote Linux operations. It does not
 depend on or start the myterm desktop application.
 
-## Visible web operations (v0.3.0)
+## Shared web operations (v0.4.0)
 
-The new Web workspace opens a visible Playwright browser for login, XPath/CSS/role/label/text/placeholder actions, frames/popups, reusable parameterized flows, result checks, pause/step/stop and human takeover. Jobs survive workspace changes, Sidebar closure and DSH page reloads; plugin unload or DSH restart ends them. Passwords use local Harness credential references; dedicated profiles are scoped by conversation and site.
+Type a URL in **Web / 网页** and press Enter. No saved site is required. Choose an embedded interactive live view or an independent browser window; the Agent uses the same selected browser through the DSH conversation. Human input remains available during automation, with no takeover or handback.
 
-Install Chromium from the workspace or choose installed Edge / Chrome. DSH must share your interactive desktop. See [Web usage and boundaries](WEB.md). CAPTCHA/MFA remain manual; pause cannot undo a submitted effect and failed actions are never automatically retried.
+The browser and terminal panels have no takeover, pause or stop buttons, and no dedicated Agent tools for these controls. Use native DSH conversation cancellation to stop the Agent. Later browser steps stop; an already submitted action cannot be undone. Workspace switches, Sidebar closure and DSH page reloads keep backend browser jobs alive.
+
+XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flows, result checks and collapsed operation records are supported. Install Chromium in browser settings or choose installed Edge / Chrome. Independent windows require an interactive desktop shared with DSH. Changing display reloads the pages and preserves login cookies; unsaved forms are not restored. See [Web usage and boundaries](WEB.md).
 
 ## Capabilities
 
@@ -46,14 +48,14 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.3.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.4.0.tgz
 dsh web
 ```
 
 For an upgrade, install as the same user and with the same `DSH_HOME` used by
 DSH, and use its actual profile rather than assuming `web`. Fully stop the old
 DSH process after installation, restart it, refresh the browser, and confirm
-`v0.3.0` in the Remote Ops header. Saved environments and quick commands
+`v0.4.0` in the Remote Ops header. Saved environments and quick commands
 remain; terminal connections must be reopened.
 
 For a package obtained from a registry, the package name is:
@@ -89,7 +91,7 @@ it returns to the original conversation.
 ## Interactive Workspace
 
 - Enter reuses an existing connection or offers a chooser; the separate plus action opens a new connection (maximum three per environment and owner). Inspect owner/activity and release individual connections. Hosts exposing `sessionController.resolveAgent` can resume a saved session without a model prompt; an unsaved draft is not an SSH owner.
-- Manual input holds the terminal until explicitly returned to the Agent. Takeover, stop-wait, Ctrl+C and connection release are separate operations. The Agent receives `TERMINAL_MANUAL_CONTROL` instead of interleaved input. Adopted backends that cannot stop a wait without interruption report that limitation.
+- Human and Agent share terminal input, including while a conversation runs. No takeover or handback is required. Native DSH cancellation attempts Ctrl+C when a terminal send is still waiting; already returned commands and remote background processes may continue. Cancellation is not evidence of process exit. Direct keyboard Ctrl+C and SSH connection release remain available.
 - Quick buttons below terminal output dispatch the complete saved command plus Enter to the currently visible terminal without a model round trip. Management supports multiline editing, groups, search, ordering, pin/unpin and optional confirmation. Unpinning retains the library entry; deletion requires confirmation. Multiline paste still requires confirmation.
 - The dock opens by default and remembers its height and collapsed state. Drag its top border with a mouse or touch, use arrow keys, or double-click to restore 190px. Height is bounded by actual plugin space, not two rows or 360px, and preserves a minimum terminal viewport. The command list scrolls internally. The outer Sidebar width remains owned by Harness.
 - Dispatch captures the owner, exact terminal, stream and command revision. It neither reconnects nor switches targets. A bounded in-memory receipt cache deduplicates the same request for ten minutes (1024 entries maximum); the UI never automatically retries an uncertain write. Written means accepted by the terminal, not completed. Unsubmitted input from this browser blocks dispatch, but arbitrary interactive-program state and edits from other browsers cannot be inferred. Active Agent input is rejected, not automatically taken over.
@@ -202,8 +204,8 @@ declares, nothing more.
   dead connection explains that nothing was replayed and how to reopen it, and a
   send that ended because the connection dropped carries `reconnect`.
 - **Hardening.** `remote_terminal_send` and `remote_terminal_read` only forward
-  their declared arguments, so an undeclared `actor` can no longer bypass the
-  manual-input guard.
+  their declared arguments, so an undeclared `actor` cannot change Agent
+  receipt attribution. Input itself is shared.
 
 The terminal status bar distinguishes transport, Agent binding, and the last
 tool response range/time. A tool receipt is not proof that a model understood
@@ -232,7 +234,7 @@ Connections use their environment name; exact session IDs still select and close
 individual connections. Disconnected tabs retain their output until dismissed;
 reconnection is explicit and never replays commands. Manual input is shared
 across browser windows, without per-window locks or takeover. Human/Agent input
-coordination remains; simultaneous manual input can interleave. Recreated
+shares the same input stream; simultaneous input can interleave. Recreated
 terminal streams require input acknowledgement.
 
 SFTP remembers endpoint, path, sort, scroll and bookmarks per Harness session

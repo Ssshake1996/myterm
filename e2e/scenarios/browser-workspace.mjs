@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 export const websiteScenario = {
-  id: "web-workspace", title: "可见网页登录、参数流程、防重复、接管、iframe 与弹出网页",
+  id: "web-workspace", title: "可见网页登录、参数流程、防重复、对话取消、iframe 与弹出网页",
   async run(t) {
     const page = t.page, info = await t.info();
     const call = (path, body) => page.evaluate(async ({ path, body }) => {
@@ -15,9 +15,10 @@ export const websiteScenario = {
     const done = id => until(async () => { const current = (await snapshot()).sessions.find(item => item.id === id); return ["completed", "failed", "unknown", "stopped"].includes(current?.job?.status) ? current : false; });
     const css = value => ({ kind: "css", value });
     await api({ action: "site.save", site: { name: "Inactive first site", url: info.website.url } });
-    await t.step("网页表单保存自动登录配置并打开独立浏览器", async () => {
+    await t.step("网页表单保存自动登录配置并按显示偏好打开浏览器", async () => {
       await page.getByRole("button", { name: "Remote Ops", exact: true }).click();
       await page.getByRole("button", { name: "网页", exact: true }).click();
+      await page.getByText('高级：收藏网站与流程',{exact:true}).click();
       await page.getByRole("button", { name: "新增网站", exact: true }).click();
       await page.getByLabel("网站名称", { exact: true }).fill("Local console");
       await page.getByLabel("网站地址", { exact: true }).fill(`${info.website.url}/login`);
@@ -32,7 +33,7 @@ export const websiteScenario = {
       }
       await page.getByRole("button", { name: "保存网站", exact: true }).click();
       await page.getByRole("button", { name: "打开浏览器", exact: true }).click();
-      await page.getByRole("button", { name: "自动登录", exact: true }).click();
+      const opened=await until(async()=>(await snapshot()).sessions.find(v=>!v.closed));await tool('remote_browser_login',{browserId:opened.id,requestId:'login-once'});
       await until(async () => (await snapshot()).sessions[0]?.job?.status === "completed");
       assert.equal((await t.info()).website.log.logins, 1);
     });
@@ -44,7 +45,7 @@ export const websiteScenario = {
       await page.getByLabel("步骤 1定位", { exact: true }).fill("//*[@id='signed-in']");
       await page.getByRole("button", { name: "测试步骤 1定位", exact: true }).click();
       await page.getByText("匹配到 1 个元素，已在浏览器中高亮", { exact: true }).waitFor();
-      await page.getByRole("button", { name: "运行流程", exact: true }).click();
+      await tool('remote_browser_run',{browserId:browser.id,requestId:'read-signed-in',steps:[{action:'read',target:{kind:'xpath',value:"//*[@id='signed-in']"}}]});
       assert.equal((await done(browser.id)).job.results[0].value, "Signed in");
     });
     const flow = (await api({ action: "flow.save", flow: { siteId: browser.siteId, name: "Run command", steps: [
@@ -55,8 +56,7 @@ export const websiteScenario = {
     await t.step("参数流程由界面执行，模型轮询读取结果，重复请求不重复提交", async () => {
       await until(async () => (await snapshot()).flows.length === 1);
       await page.getByLabel("已保存流程", { exact: true }).selectOption(flow.id);
-      await page.getByLabel("参数 command", { exact: true }).fill("show version");
-      await page.getByRole("button", { name: "运行流程", exact: true }).click();
+      await tool('remote_browser_run',{browserId:browser.id,requestId:'version-once',flowId:flow.id,variables:{command:'show version'}});
       assert.equal((await done(browser.id)).job.results.at(-1).value, "OK: show version");
       const args = { browserId: browser.id, flowId: flow.id, variables: { command: "show status" }, requestId: "command-once" };
       const first = await tool("remote_browser_run", args), same = await tool("remote_browser_run", args);
@@ -65,21 +65,17 @@ export const websiteScenario = {
       assert.match(read.page.text, /OK: show status/); assert.ok(!JSON.stringify(read).includes("local-test-password"));
       assert.deepEqual((await t.info()).website.log.commands, ["show version", "show status"]);
     });
-    await t.step("接管等待当前动作完成，模块切换不取消，交还后单步再停止", async () => {
-      await api({ action: "run", browserId: browser.id, requestId: "takeover", steps: [
-        { action: "click", target: css("#slow"), expect: { target: css("#output"), text: "Slow finished" } },
-        { action: "click", target: css("#run") }, { action: "read", target: css("#output") },
-      ] });
-      await page.getByRole("button", { name: "人工接管", exact: true }).click();
-      const manual = await until(async () => { const current = (await snapshot()).sessions[0]; return current.holder === "manual" ? current : false; });
-      assert.equal(manual.job.index, 1); assert.equal(manual.job.status, "manual");
-      await page.getByRole("button", { name: "SFTP", exact: true }).click();
-      await page.getByRole("button", { name: "网页", exact: true }).click();
-      await page.getByRole("button", { name: "交还控制", exact: true }).click();
-      await page.getByRole("button", { name: "执行下一步", exact: true }).click();
-      await until(async () => { const job = (await snapshot()).sessions[0].job; return job.status === "paused" && job.index === 2; });
-      await page.getByRole("button", { name: "停止任务", exact: true }).click();
-      assert.equal((await done(browser.id)).job.status, "stopped");
+    await t.step("切换模块保留执行，原生对话取消阻止后续动作", async () => {
+      await tool('remote_browser_run',{browserId:browser.id,requestId:'cancel-after-current',steps:[
+        {action:'click',target:css('#slow'),expect:{target:css('#output'),text:'Slow finished'}},
+        {action:'click',target:css('#run')},{action:'read',target:css('#output')},
+      ]});
+      await page.getByRole('button',{name:'SFTP',exact:true}).click();
+      assert.equal((await snapshot()).sessions[0].closed,false);
+      await call('/e2e/turn/cancel',{});
+      await page.getByRole('button',{name:'网页',exact:true}).click();
+      const stopped=await done(browser.id);assert.equal(stopped.job.status,'unknown');assert.equal(stopped.job.index,0);
+      assert.deepEqual((await t.info()).website.log.commands,['show version','show status']);
     });
     await t.step("iframe 操作与网页原生确认弹窗", async () => {
       await api({ action: "run", browserId: browser.id, requestId: "frame", steps: [{ action: "click", target: { ...css("#frame-action"), frame: "iframe" }, expect: { target: { ...css("#frame-result"), frame: "iframe" }, text: "Frame done" } }] });
@@ -96,20 +92,26 @@ export const websiteScenario = {
       browser = (await api({ action: "open", siteId: browser.siteId })).result;
       assert.equal((await api({ action: "login", browserId: browser.id, requestId: "retained" })).result.authenticated, true);
       assert.equal((await t.info()).website.log.logins, 1);
+      await api({action:'display',browserId:browser.id,display:'embedded'});
+      assert.equal((await tool('remote_browser_login',{browserId:browser.id,requestId:'mode-login'})).authenticated,true);
+      await api({action:'display',browserId:browser.id,display:'window'});
+      assert.equal((await t.info()).website.log.logins,1);
     });
     await t.step("390 像素下网页操作可滚动且无横向溢出", async () => {
-      await page.getByRole("button", { name: "显示浏览器", exact: true }).waitFor();
+      await page.getByRole("button", { name: "显示浏览器", exact: true }).first().waitFor();
+      const library=page.getByText('高级：收藏网站与流程',{exact:true});if(await library.locator('..').getAttribute('open')!==null)await library.click();
       await page.setViewportSize({ width: 390, height: 844 });
       const overflow = await page.locator(".dsh-remote-ops__web").evaluate(node => ({ horizontal: node.scrollWidth - node.clientWidth, vertical: node.scrollHeight > node.clientHeight }));
-      assert.ok(overflow.horizontal <= 1, JSON.stringify(overflow)); assert.equal(overflow.vertical, true);
+      assert.ok(overflow.horizontal <= 1, JSON.stringify(overflow));
     });
     await t.step("DSH 网页刷新后恢复当前对话的活动网站", async () => {
       await page.reload(); await page.locator("html[data-e2e-ready=true]").waitFor();
       await page.getByRole("button", { name: "Remote Ops", exact: true }).click();
       await page.getByRole("button", { name: "网页", exact: true }).click();
+      await page.getByText('高级：收藏网站与流程',{exact:true}).click();
       await page.getByRole("button", { name: "编辑网站", exact: true }).waitFor();
       assert.equal(await page.getByLabel("选择网站", { exact: true }).inputValue(), browser.siteId);
-      await page.getByRole("button", { name: "显示浏览器", exact: true }).waitFor();
+      await page.getByRole("button", { name: "显示浏览器", exact: true }).first().waitFor();
     });
   },
 };

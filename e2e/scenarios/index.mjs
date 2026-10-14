@@ -31,7 +31,7 @@ async function createDeviceEnvironment(t, name) {
   });
 }
 
-export const scenarios = [
+export const scenarios = [liveBrowserScenario,
   websiteScenario,
   {
     id: "sftp-narrow",
@@ -211,7 +211,7 @@ export const scenarios = [
   },
   {
     id: "agent-shares-terminal",
-    title: "Agent 发送与界面看到同一条输出，人工输入时拒绝",
+    title: "Agent 与人工共享终端输入，停止对话取消等待",
     async run(t) {
       await openPanel(t);
       await t.step("Agent 发送出现在可见终端", async () => {
@@ -219,13 +219,13 @@ export const scenarios = [
         if (!response.ok()) throw new Error(await response.text());
         await t.page.getByLabel("终端输出").getByText("AGENT-VISIBLE", { exact: true }).waitFor();
       });
-      await t.step("人工输入后 Agent 被拒绝，交还后恢复", async () => {
-        await typeInTerminal(t.page, "draft");
-        await pause(t.page, 100);
-        const blocked = await t.page.request.post("/e2e/agent", { data: { tool: "remote_terminal_send", args: { session: "local-cmd", text: "echo SHOULD-NOT", quietMs: 40, timeoutSeconds: 3 } } });
-        const body = await blocked.json();
-        if (blocked.ok() || body.code !== "TERMINAL_MANUAL_CONTROL") throw new Error(JSON.stringify(body));
-        await t.page.getByRole("button", { name: "交还 Agent" }).click();
+      await t.step("Agent 等待期间人工可输入，停止对话取消等待后继续", async () => {
+        const sending=t.page.request.post('/e2e/agent',{data:{tool:'remote_terminal_send',args:{session:'local-cmd',text:'echo AGENT-WAIT',quietMs:1000,timeoutSeconds:5}}});
+        await t.page.getByLabel('终端输出').getByText('AGENT-WAIT',{exact:true}).waitFor();
+        await typeInTerminal(t.page,'echo HUMAN-DURING-AGENT');
+        await t.page.getByLabel('终端输出').getByText('HUMAN-DURING-AGENT',{exact:true}).waitFor();
+        await t.page.request.post('/e2e/turn/cancel');
+        const cancelled=await (await sending).json();if(cancelled.waitReason!=='cancelled')throw Error(JSON.stringify(cancelled));
         const allowed = await t.page.request.post("/e2e/agent", { data: { tool: "remote_terminal_send", args: { session: "local-cmd", text: "echo AGENT-AGAIN", quietMs: 40, timeoutSeconds: 5 } } });
         if (!allowed.ok()) throw new Error(await allowed.text());
         await t.page.getByLabel("终端输出").getByText("AGENT-AGAIN", { exact: true }).waitFor();
@@ -269,3 +269,4 @@ export const scenarios = [
     },
   },
 ];
+import { liveBrowserScenario } from './browser-live.mjs';

@@ -82,9 +82,6 @@ test("invalid scripts are rejected before anything is typed", async (t) => {
 test("an error before the first step is thrown, a later error is reported with the executed steps", async (t) => {
   const { state } = await fixture(t, device);
   await assert.rejects(runScript(state, OWNER, { session: "ssh-missing", steps: [{ text: "x" }] }), { code: "REMOTE_SESSION_NOT_FOUND" });
-  state.localSession.inputHolder = "manual";
-  await assert.rejects(run(state, [{ text: "show version" }]), { code: "TERMINAL_MANUAL_CONTROL" });
-  state.localSession.inputHolder = "available";
   const result = await run(state, [
     { text: "show version" },
     { text: "show status" },

@@ -122,13 +122,13 @@ test("terminal tools expose output options and the environment profile, and igno
   await assert.rejects(create.execute({ name: "legacy", host: "10.1.1.3", username: "admin", cliProfile: { autoConfirm: true } }, exec), /cliProfile\.autoConfirm was removed/);
 });
 
-test("an undeclared actor argument cannot let a model bypass the manual input guard", async (t) => {
-  const { tools, post } = await pluginFixture(t);
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal((await post({ action: "input", session: "local-cmd", text: "draft " })).status, 200);
-  const exec = { agent: { id: "tool-agent" } };
-  await assert.rejects(tools.get("remote_terminal_send").execute({ session: "local-cmd", text: "echo injected", actor: "manual", quietMs: 20, timeoutSeconds: 1 }, exec), { code: "TERMINAL_MANUAL_CONTROL" });
-  await assert.rejects(tools.get("remote_terminal_send").execute({ session: "local-cmd", text: "echo injected", quietMs: 20, timeoutSeconds: 1 }, exec), { code: "TERMINAL_MANUAL_CONTROL" });
+test("tool arguments cannot change receipt attribution in the shared terminal", async t => {
+  const {tools,post}=await pluginFixture(t);await new Promise(r=>setTimeout(r,20));
+  assert.equal((await post({action:'input',session:'local-cmd',text:'echo human\r'})).status,200);
+  const exec={agent:{id:'tool-agent'}};
+  await tools.get('remote_terminal_send').execute({session:'local-cmd',text:'echo agent',actor:'manual',quietMs:20,timeoutSeconds:1},exec);
+  const read=await tools.get('remote_terminal_read').execute({session:'local-cmd'},exec);
+  assert.equal(read.toolReceipt.source,'send');assert.equal(read.control.holder,'shared');
 });
 
 test("the terminal tools never answer a (y/n) prompt and tell callers that still pass the removed options", async (t) => {

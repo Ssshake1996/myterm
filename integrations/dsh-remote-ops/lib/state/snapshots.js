@@ -72,6 +72,6 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
   }
 
   controlSnapshot(session) {
-    return { holder: session.inputHolder ?? "available", waiting: Boolean(session.pendingSend || session.active) };
+    return { holder: "shared", waiting: Boolean(session.pendingSend || session.active) };
   }
 };

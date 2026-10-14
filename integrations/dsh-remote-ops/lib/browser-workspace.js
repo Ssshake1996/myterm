@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { BrowserSessions } from "./browser-sessions.js";
 import { browserError, browserSteps, browserTarget, browserUrl } from "./browser-steps.js";
+import { BrowserView, browserInput } from "./browser-view.js";
 
 const identifier = value => typeof value === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
 export const browserInstallerCli = () => join(dirname(createRequire(import.meta.url).resolve("playwright-core/package.json")), "cli.js");
@@ -14,6 +15,7 @@ export class BrowserWorkspace extends BrowserSessions {
     this.sites = []; this.flows = []; this.sessions = new Map(); this.openings = new Map(); this.receipts = new Map();
     this.writes = Promise.resolve(); this.mutations = Promise.resolve(); this.disposed = false;
     this.ready = this.load(); void this.ready.catch(() => {});
+    this.active = new Map(); this.ownerSignals = new Map(); this.preferences = { display: 'embedded', browser: 'chromium' };
   }
   async load() {
     await mkdir(this.root, { recursive: true });
@@ -22,6 +24,33 @@ export class BrowserWorkspace extends BrowserSessions {
       catch (error) { if (error.code === "ENOENT") return []; throw browserError("BROWSER_STORE_INVALID", `Cannot read ${name}; restore or repair the file before saving`); }
     };
     this.sites = await read("sites.json"); this.flows = await read("flows.json");
+    try { const saved=JSON.parse(await readFile(join(this.root,'preferences.json'),'utf8')); this.preferences=this.validatePreferences(saved); } catch(error) { if(error.code!=='ENOENT')throw error; }
+  }
+  validatePreferences(input) {
+    const value={...this.preferences,...input};
+    if(!['embedded','window'].includes(value.display)||!['chromium','msedge','chrome'].includes(value.browser))throw browserError('BROWSER_DISPLAY_INVALID','Choose an embedded/window display and Chromium/Edge/Chrome');
+    return {display:value.display,browser:value.browser};
+  }
+  savePreferences(input) { return this.mutate(async()=>{await this.ready;const value=this.validatePreferences(input);await this.persist('preferences.json',value);this.preferences=value;return value;}); }
+  async openUrl(owner,value,options={}) {
+    await this.ready;const url=browserUrl(value),origin=new URL(url).origin;
+    const site={id:'url-'+createHash('sha256').update(origin).digest('hex').slice(0,24),name:new URL(url).host,url,browser:options.browser??this.preferences.browser,slowMo:80,allowedOrigins:[origin],temporary:true};
+    const display=options.display??this.preferences.display;this.validatePreferences({display,browser:site.browser});
+    const existing=[...this.sessions.values()].find(r=>r.owner===owner&&!r.closed&&r.site.id===site.id);
+    const opened=await this.open(owner,site.id,{site,display});
+    if(existing&&existing.pages.get(existing.activePageId)?.url()!==url)return this.navigate(owner,opened.id,'goto',url);
+    return opened;
+  }
+  async frame(owner,id,options) {const r=this.session(owner,id);r.view??=new BrowserView(r);return r.view.frame(options);}
+  input(owner,id,input) {
+    const r=this.session(owner,id),pending=(r.inputQueue??Promise.resolve()).then(()=>browserInput(this,r,input));
+    r.inputQueue=pending.catch(()=>{});return pending;
+  }
+  bindOwnerSignal(owner,signal) {
+    const previous=this.ownerSignals.get(owner);if(previous?.signal===signal)return;
+    previous?.signal.removeEventListener('abort',previous.abort);
+    const abort=()=>{for(const r of this.sessions.values())if(r.owner===owner&&r.job&&!['completed','failed','unknown','stopped'].includes(r.job.status)){r.job.stop=true;r.job.status=r.job.inFlight?'stopping':'stopped';r.job.wake?.();}};
+    this.ownerSignals.set(owner,{signal,abort});signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
   }
   persist(name, value) {
     const content = JSON.stringify(value, null, 2) + "\n";
@@ -113,9 +142,9 @@ export class BrowserWorkspace extends BrowserSessions {
     const destination = join(this.profile(record.owner, record.site.id), "remote-ops-session.json"), temporary = `${destination}.${randomUUID()}.tmp`;
     await writeFile(temporary, JSON.stringify({ cookies: state.cookies }), { mode: 0o600 }); await rename(temporary, destination);
   }
-  async launch(site, owner) {
+  async launch(site, owner, display = 'window') {
     const profile = this.profile(owner, site.id);
-    const options = { headless: false, slowMo: site.slowMo, viewport: null, ...(site.browser !== "chromium" ? { channel: site.browser } : {}) };
+    const options = { headless: display === 'embedded', slowMo: site.slowMo, viewport: display === 'embedded' ? {width:1024,height:768} : null, ...(site.browser !== "chromium" ? { channel: site.browser } : {}) };
     if (this.launchContext) return this.launchContext(profile, options);
     const { chromium } = await this.library();
     try {
@@ -123,10 +152,11 @@ export class BrowserWorkspace extends BrowserSessions {
       try { const saved = JSON.parse(await readFile(join(profile, "remote-ops-session.json"), "utf8")); if (Array.isArray(saved.cookies)) await context.addCookies(saved.cookies); } catch { /* An expired/unusable session is recovered by signing in again in the visible browser. */ }
       return context;
     }
-    catch { throw browserError("BROWSER_LAUNCH_FAILED", `Cannot open ${site.browser}. Install Chromium in the Web workspace or choose installed Edge/Chrome. DSH must run in your interactive desktop session`); }
+    catch { throw browserError("BROWSER_LAUNCH_FAILED", `Cannot open ${site.browser}. Install Chromium in browser settings or choose installed Edge/Chrome. Check browser runtime dependencies${display==='window'?'; independent windows require an interactive desktop session':''}`); }
   }
   async dispose() {
     this.disposed = true; this.installer?.kill();
+    for(const {signal,abort} of this.ownerSignals.values())signal.removeEventListener('abort',abort);this.ownerSignals.clear();
     await this.ready.catch(() => {});
     await Promise.allSettled([...this.openings.values()]);
     await Promise.allSettled([...this.sessions.values()].map(record => this.closeRecord(record)));

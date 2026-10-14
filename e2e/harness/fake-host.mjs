@@ -15,6 +15,9 @@ export function createFakeHost({ agentIds = ["e2e-session"], localShellOptions =
   const credentials = new Map();
   const agents = new Map(agentIds.map((id) => [id, { id }]));
   const localShells = [];
+  const listeners=new Map(),turns=new Map();
+  const emit=async(name,payload)=>{for(const fn of listeners.get(name)??[])await fn(payload,async()=>{});};
+  const beginTurn=async(id)=>{let turn=turns.get(id);if(!turn||turn.signal.aborted){turn=new AbortController();turns.set(id,turn);await emit('agent/pre-step',{agent:agents.get(id),signal:turn.signal});}return turn.signal;};
   let sequence = 0;
 
   const owned = (owner, id) => {
@@ -53,6 +56,7 @@ export function createFakeHost({ agentIds = ["e2e-session"], localShellOptions =
   };
 
   const ctx = {
+    on(name,fn){const set=listeners.get(name)??new Set();set.add(fn);listeners.set(name,set);return()=>set.delete(fn);},
     effect(effect, label) {
       const dispose = effect();
       if (typeof dispose === "function") cleanups.push({ label, dispose });
@@ -84,7 +88,8 @@ export function createFakeHost({ agentIds = ["e2e-session"], localShellOptions =
   };
 
   return {
-    ctx, tools, routes, systemPrompts, agents, localShells, terminals,
+    ctx, tools, routes, systemPrompts, agents, localShells, terminals,beginTurn,
+    cancelTurn(id){turns.get(id)?.abort();},
     async dispose() {
       for (const { dispose } of cleanups.splice(0).reverse()) await Promise.resolve(dispose()).catch(() => {});
       for (const record of [...records.values()]) await record.session.close("host disposed").catch(() => {});

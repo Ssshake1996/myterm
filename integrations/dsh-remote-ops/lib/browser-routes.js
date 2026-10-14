@@ -2,7 +2,7 @@ import { ownerId } from "./common.js";
 import { browserError, browserTarget } from "./browser-steps.js";
 
 const headers = { "Cache-Control": "no-store" };
-const configuration = new Set(["site.save", "site.delete", "flow.save", "flow.delete", "runtime.install"]);
+const configuration = new Set(["site.save", "site.delete", "flow.save", "flow.delete", "runtime.install", "preferences.save"]);
 export function registerBrowserRoutes(ctx, state) {
   const workspace = state.browser;
   const register = definition => ctx.effect(() => ctx.connection.fetch.register({ requestBody: "buffered", ...definition }), "dsh-remote-ops browser route");
@@ -18,12 +18,18 @@ export function registerBrowserRoutes(ctx, state) {
       if (!configuration.has(body.action)) owner = ownerId(await state.resolveOwner(body.sessionId));
       let result;
       switch (body.action) {
+        case 'preferences.save': result=await workspace.savePreferences(body.preferences);break;
+        case 'open-url': result=await workspace.openUrl(owner,body.url,{display:body.display,browser:body.browser});break;
+        case 'navigate': result=await workspace.navigate(owner,body.browserId,body.navigation??'goto',body.url);break;
+        case 'input': result=await workspace.input(owner,body.browserId,body.input);break;
+        case 'display': result=await workspace.changeDisplay(owner,body.browserId,body.display);break;
+        case 'select-browser': {const record=workspace.session(owner,body.browserId);workspace.active.set(owner,record.id);result=workspace.publicSession(record);break;}
         case "site.save": result = await workspace.saveSite(body.site, body.password); break;
         case "site.delete": result = await workspace.deleteSite(body.siteId); break;
         case "flow.save": result = await workspace.saveFlow(body.flow); break;
         case "flow.delete": result = await workspace.deleteFlow(body.flowId); break;
         case "runtime.install": result = await workspace.install(); break;
-        case "open": result = await workspace.open(owner, body.siteId); break;
+        case "open": result = await workspace.open(owner, body.siteId,{display:body.display??workspace.preferences.display}); break;
         case "run": result = workspace.publicJob(workspace.session(owner, body.browserId), await workspace.run(owner, body.browserId, body.flowId ?? body.steps, { requestId: body.requestId, mode: body.mode, variables: body.variables, pageId: body.pageId })); break;
         case "login": {
           const job = await workspace.login(owner, body.browserId, { requestId: body.requestId });
@@ -38,6 +44,17 @@ export function registerBrowserRoutes(ctx, state) {
       return Response.json({ ok: true, result }, { headers });
     } catch (error) { return Response.json({ error: error.message, code: error.code ?? "BROWSER_OPERATION_FAILED" }, { status: 400, headers }); }
   } });
+  register({path:'/api/dsh-remote-ops/browser/frame',methods:['GET'],fetch:async request=>{
+    try {
+      const url=new URL(request.url),agent=ctx.agents.get(url.searchParams.get('sessionId'));
+      if(!agent)throw browserError('BROWSER_OWNER_REQUIRED','Select an active conversation');
+      const frame=await workspace.frame(ownerId(agent),url.searchParams.get('browserId'),{after:Number(url.searchParams.get('after')??0),signal:request.signal});
+      return Response.json(frame,{headers});
+    }catch(error){
+      if(['BROWSER_CLOSED','BROWSER_FRAME_PENDING'].includes(error.code))return Response.json({closed:error.code==='BROWSER_CLOSED',pending:error.code==='BROWSER_FRAME_PENDING'},{headers});
+      return Response.json({error:error.message,code:error.code},{status:error.name==='AbortError'?499:404,headers});
+    }
+  }});
   register({ path: "/api/dsh-remote-ops/browser/screenshot", methods: ["GET"], fetch: async request => {
     try {
       const url = new URL(request.url), agent = ctx.agents.get(url.searchParams.get("sessionId"));

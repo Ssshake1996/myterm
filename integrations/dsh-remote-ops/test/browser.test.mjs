@@ -87,21 +87,17 @@ test("run receipts prevent duplicate effects and reject changed retry payloads",
   await assert.rejects(w.run("owner", session.id, [click("delete")], { requestId: "same" }), /BROWSER_REQUEST_CONFLICT/);
 });
 
-test("takeover waits for the current effect and stops all subsequent steps", async t => {
+test("native conversation cancellation waits for the current effect and stops subsequent steps", async t => {
   const { workspace: w, site, writes, block } = await fixture(t);
   let finish; block(new Promise(resolve => { finish = resolve; }));
   const session = await w.open("owner", site.id);
   const job = await w.run("owner", session.id, [click("first"), click("second")]);
   await until(() => writes.length === 1);
-  await w.control("owner", session.id, "takeover");
-  assert.equal(job.status, "pausing"); assert.equal(w.session("owner", session.id).holder, "agent");
-  finish(); await until(() => job.status === "manual");
+  const controller=new AbortController();w.bindOwnerSignal('owner',controller.signal);controller.abort();
+  assert.equal(job.status,"stopping");
+  finish(); await until(() => job.status === "stopped");
   assert.deepEqual(writes, ["first"]);
-  await assert.rejects(w.run("owner", session.id, [click("other")]), /BROWSER_MANUAL_CONTROL/);
-  await w.control("owner", session.id, "release");
-  assert.equal(job.status, "paused");
-  await w.control("owner", session.id, "resume");
-  await until(() => job.status === "completed"); assert.deepEqual(writes, ["first", "second"]);
+  assert.equal(w.session('owner',session.id).closed,false);
 });
 
 test("single-step and stop preserve a paused browser without replaying completed actions", async t => {

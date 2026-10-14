@@ -69,9 +69,8 @@ export const withTerminalIo = (Base) => class TerminalIoLayer extends Base {
 
   claimInput(session, actor, streamId) {
     if (streamId && streamId !== session.outputBuffer.streamId) throw sessionError("TERMINAL_STREAM_CHANGED", "Terminal was replaced; review the new output before typing");
-    if (actor !== "manual" && session.inputHolder === "manual") throw sessionError("TERMINAL_MANUAL_CONTROL", "User is editing this terminal; wait for them to release input control");
-    if (actor === "manual" && session.inputHolder === "agent" && (session.pendingSend || session.active)) throw sessionError("TERMINAL_AGENT_ACTIVE", "Agent is sending; take over explicitly before typing");
-    session.inputHolder = actor === "manual" ? "manual" : "agent";
+    // Human and Agent use the same input stream. A running conversation does
+    // not lock the terminal; stream identity still prevents writes to a replacement.
     session.outputBuffer.notify();
   }
 
@@ -86,8 +85,6 @@ export const withTerminalIo = (Base) => class TerminalIoLayer extends Base {
       await operation.done;
       if (session.pendingSend === pending) session.pendingSend = undefined;
     }
-    if (action === "takeover") session.inputHolder = "manual";
-    if (action === "release") session.inputHolder = "available";
     session.outputBuffer.notify();
     return this.controlSnapshot(session);
   }

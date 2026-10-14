@@ -1,20 +1,28 @@
-# Visible web workspace
+# Shared web workspace
 
-Remote Ops 0.3.0 adds a **Web / 网页** module inside the existing native right Sidebar. DSH and the user must run on the same interactive desktop. Playwright opens a separate visible browser; the plugin shows controls, progress, results and a masked screenshot. There is no embedded video stream or second Agent loop.
+Remote Ops 0.4.0 provides a browser in the native DSH right Sidebar. Type a URL to begin; saved sites and flows are optional. DSH owns the Agent and conversation. The plugin provides one browser session that both the user and Agent can operate.
 
 ## First use
 
-1. Select or create a DSH conversation, open **Remote Ops → 网页**, and choose **新增网站**.
-2. Enter a name and full HTTP(S) address. Use the dedicated Chromium (install it with **浏览器准备与网站管理 → 安装 / 检查 Chromium**) or an installed Edge / Chrome. Browser downloads need network access; Linux also needs Chromium's system libraries and a graphical desktop. DSH running as a background service without desktop access cannot show a browser to you.
-3. Open the browser. For manual login, select **人工接管**, sign in in that window, and select **交还控制**. CAPTCHA and MFA remain manual. Automation stays paused after control is returned; inspect the page before continuing.
-4. Optional automatic login: configure the username, password, submit and signed-in indicator locators in the site editor. Close that site's browsers before editing its configuration. Passwords go to the local Harness credentials service; the site's JSON stores only a generated reference. Additional credential origins must be explicitly listed for an SSO page or cross-origin frame.
-5. Build steps, use **测试定位** to highlight a unique match, add an expected result, and run or prepare single-step mode. Save a named flow to reuse it from the UI or Agent. Text such as `{{command}}` becomes a parameter field.
+1. Select or create a DSH conversation and open **Remote Ops → 网页**.
+2. In **浏览器设置**, install the dedicated Chromium or select installed Edge / Chrome. Engine changes apply to newly opened browsers.
+3. Choose **插件内** or **独立窗口** under **显示**, enter an HTTP(S) URL and press Enter. A schemeless address gets `https://`. Independent windows require DSH and the user on the same interactive desktop. Embedded mode streams the dedicated browser into the DSH webpage; it does not iframe the target website.
+4. Ask the Agent in the main conversation to operate the current page. The Agent can omit `browserId` to use this conversation's selected browser. You can also click, scroll, type, paste text and sign in directly, including while the conversation runs. There is no takeover/handback or input ownership. Use **Ctrl+Esc** to return keyboard focus to the plugin address field; choose **原始大小** for a larger scrollable view.
+5. Use native DSH conversation cancellation to stop the Agent. There are no takeover, pause or stop buttons in the browser or terminal panels, and no dedicated Agent task-control tools. Cancellation prevents subsequent browser steps after the current action settles. A dispatched click or request may already have taken effect; website server jobs do not roll back. A pending terminal send attempts Ctrl+C on cancellation; already returned commands and remote background processes may continue. Inspect actual results before claiming completion or process exit.
 
-Prefer role + exact accessible name, label, text or placeholder locators; CSS and XPath are supported. `frame` is an optional CSS iframe selector. Each action requires exactly one target. A click marked **点击后切换到新弹出网页** selects its popup; other tabs can be selected from **当前网页** while paused. Native confirm/prompt dialogs wait for explicit accept/dismiss; they are never automatically accepted. Prompt text entry is not supported in this release.
+Human actions can change the page while the Agent works. The Agent must read the current page again before dependent actions. Input captured before a navigation or page switch is rejected, rather than replayed on a different page. UI keyboard requests are sent in order; multiple input sources can still change the same field or terminal command line.
 
-## Flow format and Agent tools
+Page tabs support arrow keys, Home/End and native focus. Back, forward, reload and a new page are available beside the address field. Browser tasks keep their intended page ID when the visible tab changes. Collapsed operation records show progress, results and failures without covering the page.
 
-Actions: `goto`, `click`, `fill`, `press`, `select`, `check`, `uncheck`, `scroll`, `wait`, `read`, `assert`. At most 40 steps, normally 10 seconds per step (100–30000 ms configurable) and five minutes of active execution per run. Flows cannot execute arbitrary JavaScript. File upload/download, element recording/picking, tracing, embedded streaming, cross-machine browser control and browser extensions are outside this release.
+Changing display mode while idle restarts the browser with the same dedicated profile and page URLs. Login cookies are retained; pages reload and unsaved form contents are not restored. Mode changes wait until a running task or pending native dialog finishes. Switching modules or refreshing DSH is different: it only reconnects the view and does not restart the browser.
+
+## Optional saved sites, login and flows
+
+Expand **高级：收藏网站与流程** to save sites, configure automatic login, test locators or build reusable flows. Passwords go to the local Harness credentials service; site JSON contains a generated reference. Close a saved site's browsers before editing its configuration. Add credential origins explicitly for an SSO page or cross-origin frame. CAPTCHA/MFA remain manual in the same browser.
+
+Prefer role plus exact accessible name, label, text or placeholder locators. CSS and XPath are also supported. `frame` is an optional CSS iframe selector. Each action requires exactly one match. `expectPopup` selects a newly opened page. Native confirm/prompt dialogs wait for an explicit Agent response and are never automatically accepted; prompt text entry is not supported.
+
+Actions: `goto`, `click`, `fill`, `press`, `select`, `check`, `uncheck`, `scroll`, `wait`, `read`, `assert`. A run supports 1–40 steps, normally 10 seconds per step (100–30000 ms configurable), and five minutes of active execution. Flows cannot execute arbitrary JavaScript.
 
 ```json
 [
@@ -27,30 +35,28 @@ Actions: `goto`, `click`, `fill`, `press`, `select`, `check`, `uncheck`, `scroll
 | Tool | Purpose |
 | --- | --- |
 | `remote_browser_list` | Saved sites/flows and this conversation's browsers |
-| `remote_browser_open` | Open or focus a saved site's visible browser |
-| `remote_browser_login` | Start the configured login, or check its signed-in indicator |
-| `remote_browser_run` | Start declarative steps or a saved, parameterized flow |
-| `remote_browser_read` | Poll progress/results and bounded page text/element metadata; optionally test a locator |
-| `remote_browser_control` | Focus, pause/resume/step/stop, takeover/release, select a page, close or respond to a native dialog |
+| `remote_browser_open` | Open a direct URL or saved site; optional display/engine |
+| `remote_browser_login` | Run a saved login or check its signed-in indicator |
+| `remote_browser_run` | Run declarative steps or a parameterized saved flow |
+| `remote_browser_read` | Read progress, bounded page text/element metadata or test a locator |
+| `remote_browser_control` | Focus, select a page, close it or answer a native dialog; no task ownership or pause/stop actions |
 
-Run/login return immediately. Poll `remote_browser_read` until the task settles. Use a stable `requestId` for the same intended operation: duplicate requests are deduplicated for ten minutes within the running plugin, with a bounded cache of 100 receipts. Changed content under the same ID is rejected. Receipts do not survive a DSH restart; never blindly resend after a restart or lost response.
+Run/login return immediately. Poll `remote_browser_read` until the job settles. Use one stable `requestId` for the same intended operation: duplicate requests are deduplicated for ten minutes in the running plugin, with a bounded cache of 100 receipts. Changed content under the same ID is rejected. Receipts do not survive DSH restart; never blindly resend after a restart or lost response.
 
-`completed` means all steps returned. `completion=checked` means the configured visible/hidden/text check passed; `observed` means text was read; `unverified` means an action returned without a business result check. `unknown` means an effect may have happened before an error: inspect the page before deciding what to do. No failed step is automatically retried. Checks can be too weak, so choose an indicator that proves the intended business outcome.
+`completed` means all steps returned. `completion=checked` means the configured visible/hidden/text check passed; `observed` means text was read; `unverified` means an action returned without a business result check. `unknown` means an effect may have happened before an error. No failed step is automatically retried. Choose checks that prove the intended outcome.
 
-Pause, stop and takeover wait for the current Playwright action/check to settle. They cannot retract a click, command or request already sent. Stopping prevents later steps; it does not roll back changes or cancel the website's server job. Close the browser to terminate the browser connection. Manual control is a coordination protocol; the plugin cannot prevent someone interacting directly with the visible window during automation.
+## Lifecycle, local data and limits
 
-## Lifecycle and local data
+Browsers/jobs belong to the plugin backend and DSH conversation. Switching terminal/SFTP, collapsing or closing the Sidebar, and refreshing the DSH webpage do not cancel them. Stopping the conversation stops later steps. Unloading/upgrading the plugin or stopping DSH closes browsers and ends jobs; running jobs cannot resume across a process restart. Saved configuration and login data remain. Up to three live browsers per conversation and eight per plugin are supported. The toolbar refuses to create another page once a browser has twelve open pages.
 
-Browser jobs belong to the plugin backend and DSH conversation. Switching terminal/SFTP, collapsing the Sidebar, closing the Remote Ops tab or refreshing the DSH webpage does not cancel them. Stop or close explicitly. Unloading/upgrading the plugin or stopping DSH closes browsers and ends jobs; running jobs cannot resume across a process restart. Saved sites, flows and login data remain. Up to three live browsers per conversation and eight per plugin are supported.
+Data lives under `$DSH_HOME/remote-ops/browser`: `sites.json`, `flows.json`, `preferences.json` and dedicated profiles scoped by conversation and site/origin. Configuration is shared for the local DSH user; browser pages/jobs/profiles are conversation scoped. Cookie snapshots retain session cookies after a normal close or display switch. Expired/revoked server sessions still require login. Browser profiles/cookies contain sensitive login data; do not commit/export them. Deleting a site leaves its credential reference and profile for explicit local cleanup.
 
-Local data is under `$DSH_HOME/remote-ops/browser`: `sites.json`, `flows.json`, and dedicated profiles scoped by conversation and site. Websites and flows are shared configuration for the local DSH user; browser pages/jobs and profiles are conversation scoped. Cookie snapshots retain session cookies when a browser is closed normally. Expired/revoked server sessions still require login. Browser profiles/cookie snapshots contain sensitive login data: do not commit or export this directory. Deleting a site removes its definition/flows, but deliberately leaves its credential reference and profiles; remove those locally when a full logout/data purge is required.
+Password fills require the site's saved reference and an allowed page/frame origin. Literal fills into password inputs are rejected. Input values are excluded from Agent page observations; known referenced passwords are redacted. Agent screenshots mask inputs and known secret text. The live user view is intentionally unmasked for direct interaction and is never included in tool results or stored as video. Only the latest live frame, latest masked screenshot and latest 15 job summaries are retained in memory. Other sensitive page text is not generally detected or removed.
 
-Passwords are filled only from the site's saved reference and only into its allowed page and frame origins. Literal fills into password inputs are rejected. Known referenced password values are redacted from text/results/errors; input values are excluded from page observations. Screenshots mask input fields and known password text. This is not general secret detection: other sensitive page text may still be visible. Only the latest screenshot and the latest 15 run summaries are retained in memory; this release does not record video, traces or per-step screenshot history.
+This release supports mouse clicks, wheel scrolling, keyboard input, Chinese text composition and text paste. Dragging, file upload/download automation, native file pickers, clipboard copy from the rendered view, audio/video streaming, recorders, tracing, extensions and cross-machine visible browser control are outside this release. A local test site passing does not establish compatibility with every site's login, CAPTCHA/MFA, access rules or anti-automation behavior.
 
-## 中文使用提示
+## 中文提示
 
-在同一台电脑的 DSH 对话中打开 **Remote Ops → 网页**，新增网站后打开独立浏览器。可以先人工接管完成登录，再交还控制；也可以保存本机凭据和四个登录定位（用户名、密码、登录按钮、成功标识）进行自动登录。验证码和 MFA 需人工完成。
+在“网页”里输入网址即可打开，无需先配网站或流程。“插件内”提供可点击和输入的实时画面，也可选择“独立窗口”。人和 Agent 使用同一网页与终端，对话期间均可操作，不区分输入权，不需要接管或交还；停止 Agent 统一使用 DSH 原生停止对话入口。
 
-支持 XPath、CSS、role/name、label、text、placeholder 和 iframe；建议先测试唯一定位，再添加结果检查。保存流程支持 `{{参数}}`。任务由后端管理，切换模块、收起或关闭右栏及刷新 DSH 网页均不会取消；插件卸载或 DSH 重启会结束任务。暂停、停止与接管等待当前动作结束，不能撤销已经发出的操作。`unknown` 状态需检查网页，禁止凭回显或超时判断业务成功，也不会自动重试。
-
-密码保存在本机 Harness 凭据服务，配置仅保留引用；浏览器专用 profile 与 Cookie 文件也属于敏感登录数据。其他对话不能访问当前对话的浏览器任务。首次 Chromium 下载、实际网站的登录兼容性、验证码及业务权限依赖本机与目标网站；本地验收站点通过不等于所有网站均已验证。
+切换终端/SFTP、收起右栏及刷新 DSH 不取消后台网页任务。切换显示方式会重新载入网页并保留 Cookie，未提交内容不会恢复。取消对话会停止后续步骤，不能撤销已发出的业务请求或保证远程进程退出；`unknown` 需检查实际网页，不会自动重试。登录凭据和专用浏览器 profile 只保存在 DSH 本机。

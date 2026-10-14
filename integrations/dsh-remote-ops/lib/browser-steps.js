@@ -6,7 +6,7 @@ export const browserUrl = value => {
   return url.href;
 };
 export const displayUrl = value => {
-  try { const url = new URL(value); return `${url.origin}${url.pathname}${url.search ? "?[redacted]" : ""}`; } catch { return "about:blank"; }
+  try { const url = new URL(value); if(url.protocol==='about:'&&url.pathname==='blank')return 'about:blank';if(!['http:','https:'].includes(url.protocol))return '[unsupported URL]';return `${url.origin}${url.pathname}${url.search ? "?[redacted]" : ""}`; } catch { return "about:blank"; }
 };
 const text = (value, max = 4000) => typeof value === "string" && value.length <= max;
 const kinds = new Set(["css", "xpath", "role", "label", "text", "placeholder"]);
@@ -74,17 +74,19 @@ async function unique(locator) {
   const count = await locator.count();
   if (count !== 1) throw browserError("BROWSER_TARGET_COUNT", `Expected one target, found ${count}. Test or refine the locator`);
 }
-async function verify(page, check, timeout) {
+async function verify(page, check, timeout, job) {
   const locator = locateBrowser(page, check.target);
-  await locator.waitFor({ state: check.state ?? "visible", timeout });
-  if (check.state !== "hidden") await unique(locator);
-  if (check.text !== undefined) {
-    const deadline = Date.now() + timeout;
-    while (true) {
-      if ((await locator.innerText({ timeout })).includes(check.text)) break;
-      if (Date.now() >= deadline) throw browserError("BROWSER_EXPECTATION_FAILED", "Expected result text did not appear");
-      await new Promise(resolve => setTimeout(resolve, 100));
+  const deadline = Date.now() + timeout;
+  while (true) {
+    if(job?.stop)throw browserError('BROWSER_CANCELLED','DSH conversation was stopped; later steps will not run');
+    const count=await locator.count();
+    if(count>1)await unique(locator);
+    const visible=count===1&&await locator.isVisible();
+    if(check.state==='hidden'?!visible:visible) {
+      if(check.text===undefined||(await locator.innerText({timeout:Math.max(1,deadline-Date.now())})).includes(check.text))return;
     }
+    if(Date.now()>=deadline)throw browserError('BROWSER_EXPECTATION_FAILED','Expected webpage state did not appear');
+    await new Promise(resolve=>setTimeout(resolve,100));
   }
 }
 export async function executeBrowserStep(workspace, record, job, step) {
@@ -100,7 +102,7 @@ export async function executeBrowserStep(workspace, record, job, step) {
   } else {
     const locator = locateBrowser(page, step.target);
     if (["wait", "assert"].includes(step.action)) {
-      await verify(page, { target: step.target, ...(step.state ? { state: step.state } : {}), ...(step.action === "assert" && step.value !== undefined ? { text: step.value } : {}) }, timeout);
+      await verify(page, { target: step.target, ...(step.state ? { state: step.state } : {}), ...(step.action === "assert" && step.value !== undefined ? { text: step.value } : {}) }, timeout, job);
     } else {
       if (await locator.count() === 0) await locator.waitFor({ state: "attached", timeout });
       await unique(locator);
@@ -136,6 +138,6 @@ export async function executeBrowserStep(workspace, record, job, step) {
       }
     }
   }
-  if (step.expect) await verify(record.pages.get(job.pageId), step.expect, timeout);
+  if (step.expect) await verify(record.pages.get(job.pageId), step.expect, timeout, job);
   return { action: step.action, status: "done", completion: step.expect || ["assert", "wait"].includes(step.action) ? "checked" : step.action === "read" ? "observed" : "unverified", ...(value !== undefined ? { value } : {}), pageId: job.pageId };
 }

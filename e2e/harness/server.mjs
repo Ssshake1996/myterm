@@ -60,12 +60,14 @@ export async function startApp({ home = process.env.DSH_HOME, device: deviceOpti
       if (incoming.method === "GET" && url.pathname === "/app.js") return send(response, 200, hostBundle, { "content-type": "text/javascript; charset=utf-8" });
       if (incoming.method === "GET" && url.pathname === "/client.js") return send(response, 200, clientSource, { "content-type": "text/javascript; charset=utf-8" });
       if (incoming.method === "GET" && url.pathname === "/e2e/info") return send(response, 200, JSON.stringify({ sessionId: SESSION_ID, pluginVersion: PLUGIN_VERSION, fileRoot: home, website: { url: website.url, log: website.log }, device: { host: device.host, port: device.port, username: device.username, name: device.name, commands: device.log.commands, replies: device.log.replies, windows: device.log.windows, interrupts: device.log.interrupts, executed: device.log.executed } }), { "content-type": "application/json" });
+      if(incoming.method==='POST'&&url.pathname==='/e2e/turn/cancel'){host.cancelTurn(SESSION_ID);return send(response,200,'{}',{'content-type':'application/json'});}
       if (incoming.method === "POST" && url.pathname === "/e2e/agent") {
         const body = JSON.parse((await readBody(incoming)).toString("utf8") || "{}");
         const tool = host.tools.get(body.tool);
         if (!tool) return send(response, 404, JSON.stringify({ error: `unknown tool ${body.tool}` }), { "content-type": "application/json" });
         try {
-          const value = await tool.execute(body.args ?? {}, { agent, signal: AbortSignal.timeout(body.timeoutMs ?? 15000) });
+          const signal=await host.beginTurn(SESSION_ID);
+          const value = await tool.execute(body.args ?? {}, { agent, signal: AbortSignal.any([signal,AbortSignal.timeout(body.timeoutMs ?? 15000)]) });
           return send(response, 200, JSON.stringify(value), { "content-type": "application/json" });
         } catch (error) {
           return send(response, 400, JSON.stringify({ error: String(error.message ?? error), code: error.code ?? null }), { "content-type": "application/json" });

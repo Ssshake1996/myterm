@@ -21,6 +21,7 @@ export async function startFakeWebsite() {
     if (path === "/command") { const command = await body(); log.commands.push(command); response.end(`OK: ${command}`); return; }
     if (path === "/slow") { setTimeout(() => response.end("Slow finished"), 2500); return; }
     response.setHeader("Content-Type", "text/html; charset=utf-8");
+    if(path==='/manual'){response.end('<!doctype html><html><body><input id="entry" aria-label="Manual text" style="position:absolute;left:20px;top:40px;width:250px;height:40px" oninput="document.querySelector(\'#echo\').textContent=this.value"><p id="echo" style="position:absolute;top:140px"></p></body></html>');return;}
     if (path === "/frame") { response.end('<button id="frame-action" onclick="document.querySelector(\'p\').textContent=\'Frame done\'">Frame action</button><p id="frame-result">Waiting</p>'); return; }
     if (path === "/popup") { response.end('<h1 id="popup-result">Popup ready</h1>'); return; }
     const signed = /signed=yes/.test(request.headers.cookie ?? "");
