@@ -24,4 +24,4 @@ dsh web
 
 人和 Agent 共享网页与终端，使用 DSH 原生停止对话功能；不增加接管、暂停、停止按钮。SSH 参数空格问题仍不在本次范围。
 
-321 项测试及 smoke、13 个浏览器场景、12 组真实 DSH 候选包验收通过。选中文字对比度为浅色 4.93:1 / 深色 8.55:1，主按钮文字为 5.41:1。正式包安装结果与限制见 [v0.6.0 验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.6.0-acceptance.md)。另一台电脑、真实远端 SSH/SFTP 和业务内网站点未在本轮实测。
+321 项测试及 smoke、13 个浏览器场景通过；候选包和正式包分别通过 12 组真实 DSH 验收，GitHub Linux / Windows 门禁通过。正式包 SHA256 与候选包一致，v0.5.4 升级后的六个数据文件保持一致。选中文字对比度为浅色 4.93:1 / 深色 8.55:1，主按钮文字为 5.41:1。验证详情与限制见 [v0.6.0 验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.6.0-acceptance.md)。另一台电脑、真实远端 SSH/SFTP 和业务内网站点未在本轮实测。

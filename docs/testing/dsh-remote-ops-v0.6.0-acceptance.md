@@ -35,7 +35,14 @@ A contrast audit of real rendered host colors caught selected/primary text at 4.
 
 ## Release and official package
 
-Final checks, release asset hashes and official downloaded-package verification are recorded here after completion. Candidate acceptance alone is not official-release installation proof.
+- Implementation/tag commit: `d57a3a7089fda54b8d7be9617169abbdd65254d6`; tag: `dsh-remote-ops-v0.6.0`.
+- [Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.6.0) is published with exactly two uploaded assets: `dsh-remote-ops-v0.6.0.tgz` (161,008 bytes) and `SHA256SUMS-dsh-remote-ops-v0.6.0.txt` (92 bytes). No Windows ZIP.
+- Downloaded official tgz, published checksum, GitHub asset digest and the locally tested candidate all match SHA256 `0fb739b67ccf7385e71654bdb00c302cc10db18d17a42abae60a19bacbf0f205`.
+- [Release workflow](https://github.com/Ssshake1996/myterm/actions/runs/38713277370) passed its Linux package/check, Windows check and publication jobs. [Main CI](https://github.com/Ssshake1996/myterm/actions/runs/38713272719) and [browser CI](https://github.com/Ssshake1996/myterm/actions/runs/38713272542) passed; the latter explicitly reported 13/13 scenarios.
+- The official v0.5.4 asset was downloaded, checksum-verified and installed using DSH's plugin CLI into `output/visual060-upgrade-home`. Its installed APIs created an environment, quick command, site, flow, browser preferences and profile-state fixture. After installing the downloaded v0.6.0 asset into the same profile, all six persisted file hashes were unchanged. Explicit site engine, embedded preference, system-default window choice and command confirmation setting were retained.
+- Started real DSH with that upgraded profile and repeated all 12 native acceptance groups: **PASS**, no unexpected console/page/HTTP errors. The updated bundled skill was discovered and loaded by the native Agent; XPath input was executed and checked. Actual light/dark contrast ratios matched the candidate. Evidence: `output/visual060-official-acceptance.json`, `output/visual060-official-test.log`, `output/visual060-official-contrast.json`, `output/visual060-upgrade-proof.json` and screenshots.
+
+The first upgraded-profile run completed its behavioral assertions but failed the strict HTTP gate: the intentionally unreachable saved SSH fixture was automatically selected as target B and produced two `files` request failures. A separate probe identified `SFTP_CONNECT_FAILED` for `upgrade-env`. The original failure report/log are retained as `output/visual060-official-first-run.*`. The final host-file acceptance explicitly presets both file locations to the DSH host before mounting the file workspace; the saved SSH environment remains present. No response was mocked, suppressed or reclassified in the passing run, and no product change was needed for this fixture correction. This does not constitute real remote SFTP acceptance.
 
 ## Limits
 

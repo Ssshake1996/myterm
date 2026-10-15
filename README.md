@@ -12,7 +12,7 @@
 
 左侧入口继续打开 DSH 原生右栏；人和 Agent 共享输入，停止对话使用 DSH 原生入口。仅发布 tgz 与 SHA256 校验文件，Chromium 按需联网安装，不修改 Agent。
 
-本地验证：321 项测试及 smoke、13 个浏览器场景、12 组真实 DSH 候选包验收通过，并检查深浅色对比度。正式包验收进度与限制见 [v0.6.0 验收记录](docs/testing/dsh-remote-ops-v0.6.0-acceptance.md)。
+验证：321 项测试及 smoke、13 个浏览器场景通过；候选包和正式包分别通过 12 组真实 DSH 验收，并核对 v0.5.4 升级数据、SHA256 和深浅色对比度。范围与限制见 [v0.6.0 验收记录](docs/testing/dsh-remote-ops-v0.6.0-acceptance.md)。
 
 ## 浏览器参数与按需安装（v0.5.4）
 

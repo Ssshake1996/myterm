@@ -15,7 +15,7 @@ Agent kernel.
 
 The left action still opens the native DSH right sidebar. Human and Agent input remain shared; use native conversation cancellation. Releases contain only tgz and SHA256, with Chromium installed on demand over the network. Agent/core are unchanged.
 
-Local validation passed 321 tests plus smoke, 13 browser scenarios and 12 real DSH candidate acceptance groups, with light/dark contrast checks. Official-package evidence and limits are tracked in [v0.6.0 acceptance](docs/testing/dsh-remote-ops-v0.6.0-acceptance.md).
+Validation passed 321 tests plus smoke and 13 browser scenarios. Both candidate and official packages passed 12 real DSH acceptance groups, including v0.5.4 upgrade data, SHA256 and light/dark contrast checks. See [v0.6.0 acceptance](docs/testing/dsh-remote-ops-v0.6.0-acceptance.md) for evidence and limits.
 
 ## Browser arguments and on-demand runtime (v0.5.4)
 
