@@ -11,6 +11,15 @@ export const displayUrl = value => {
 const text = (value, max = 4000) => typeof value === "string" && value.length <= max;
 const kinds = new Set(["css", "xpath", "role", "label", "text", "placeholder"]);
 const actions = new Set(["goto", "click", "fill", "press", "select", "check", "uncheck", "scroll", "wait", "read", "assert"]);
+export function browserRunSource({ flowId, steps }) {
+  if (flowId != null && typeof flowId !== "string") throw browserError("BROWSER_FLOW_ID_INVALID", "flowId must be a saved flow.id from remote_browser_list; omit it for inline steps. Nothing was dispatched");
+  if (steps != null && !Array.isArray(steps)) throw browserError("BROWSER_STEP_INVALID", "steps must be an array of action objects, not a JSON string or object. Nothing was dispatched");
+  const id = flowId?.trim(), hasSteps = Array.isArray(steps) && steps.length > 0;
+  if (id && hasSteps) throw browserError("BROWSER_RUN_SOURCE_CONFLICT", "Provide either a nonblank flowId or inline steps, not both. Omit flowId for ordinary webpage actions. Nothing was dispatched");
+  if (id) return id;
+  if (hasSteps) return steps;
+  throw browserError("BROWSER_RUN_SOURCE_REQUIRED", "Provide 1–40 inline steps, or a saved flow.id from remote_browser_list. Blank flowId and empty steps do not specify an operation. Nothing was dispatched");
+}
 export function browserTarget(value) {
   if (!value || !kinds.has(value.kind) || !text(value.value) || !value.value.trim()) throw browserError("BROWSER_STEP_INVALID", "A target needs kind (css/xpath/role/label/text/placeholder) and value");
   if (value.frame !== undefined && (!text(value.frame) || !value.frame.trim())) throw browserError("BROWSER_STEP_INVALID", "frame must be a CSS iframe selector");

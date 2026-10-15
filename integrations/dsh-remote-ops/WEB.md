@@ -1,6 +1,6 @@
 # Shared web workspace
 
-Remote Ops 0.5.0 provides a browser in the native DSH right Sidebar. Type a URL to begin; saved sites and flows are optional. DSH owns the Agent and conversation. The plugin provides one browser session that both the user and Agent can operate.
+Remote Ops 0.5.1 provides a browser in the native DSH right Sidebar. Type a URL to begin; saved sites and flows are optional. DSH owns the Agent and conversation. The plugin provides one browser session that both the user and Agent can operate.
 
 ## First use
 
@@ -16,9 +16,37 @@ Page tabs support arrow keys, Home/End and native focus. Back, forward, reload, 
 
 Changing display mode while idle restarts the browser with the same dedicated profile and page URLs. Login cookies are retained; pages reload and unsaved form contents are not restored. Mode changes wait until a running task or pending native dialog finishes. Switching modules or refreshing DSH is different: it only reconnects the view and does not restart the browser.
 
+### Choosing the operation source (v0.5.1)
+
+`remote_browser_run` and the plugin HTTP `run` route use the same argument validation. Inline actions need no saved website or flow:
+
+```json
+{
+  "requestId": "read-current-page-001",
+  "steps": [
+    { "action": "read", "target": { "kind": "css", "value": "body" } }
+  ]
+}
+```
+
+Omit `flowId` for inline operations. For compatibility, null/empty/whitespace-only IDs are absent. `steps` must be an actual array, not JSON encoded into a string. A nonblank ID with nonempty steps is a conflict; a saved-flow call may omit steps or use `[]`. Saved IDs are trimmed before lookup and must come from `remote_browser_list`; the flow must belong to the selected browser's site. A direct-URL browser has its own temporary site ID, even when its URL matches a saved site's URL. Open the saved `siteId` to run its flow; the plugin never silently reassigns site or credential scope.
+
+| Preflight error | Recovery |
+| --- | --- |
+| `BROWSER_FLOW_ID_INVALID` | Use a string flow ID from the list, or omit it for inline steps. |
+| `BROWSER_STEP_INVALID` | Pass 1–40 structured action objects with valid locators and values. |
+| `BROWSER_RUN_SOURCE_CONFLICT` | Provide either nonblank flowId or nonempty steps, not both. |
+| `BROWSER_RUN_SOURCE_REQUIRED` | Supply an operation: inline steps or an existing saved flow ID. |
+| `BROWSER_FLOW_NOT_FOUND` | Refresh the list and choose a real ID, or omit flowId for inline steps. |
+| `BROWSER_FLOW_SITE_MISMATCH` | Open the flow's saved site and use its browserId, or use inline steps on the current page. |
+
+These source/validation errors occur before this call dispatches an action; do not repeat unchanged invalid arguments. This differs from an `unknown` job result after an effect, which must still be inspected and never blindly replayed. The fix, updated tool metadata and `remote-ops-browser` skill are inside the plugin package; Agent implementation and DSH core are unchanged.
+
+The plugin exposes its bundled skill globally through the native DSH skill registry (verified on 0.2.0-rc.2). The Agent can discover its summary and load instructions with the existing `skill` tool; `/remote-ops-browser` also invokes it explicitly. No Agent configuration or global skill file copying is needed. User/project skills keep their normal precedence, and unloading the plugin removes this provider. If the host has no skill service, browser operations and parameter validation still work independently.
+
 ## Optional saved sites, login and flows
 
-Expand **高级：收藏网站与流程** to save sites, configure automatic login, test locators or build reusable flows. Passwords go to the local Harness credentials service; site JSON contains a generated reference. Close a saved site's browsers before editing its configuration. Add credential origins explicitly for an SSO page or cross-origin frame. CAPTCHA/MFA remain manual in the same browser.
+Expand **浏览器设置与高级功能 → 收藏网站与流程** to save sites, configure automatic login, test locators or build reusable flows. Passwords go to the local Harness credentials service; site JSON contains a generated reference. Close a saved site's browsers before editing its configuration. Add credential origins explicitly for an SSO page or cross-origin frame. CAPTCHA/MFA remain manual in the same browser.
 
 Prefer role plus exact accessible name, label, text or placeholder locators. CSS and XPath are also supported. `frame` is an optional CSS iframe selector. Each action requires exactly one match. `expectPopup` selects a newly opened page. Native confirm/prompt dialogs wait for an explicit Agent response and are never automatically accepted; prompt text entry is not supported.
 

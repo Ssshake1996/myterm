@@ -1,6 +1,6 @@
 {
   "name": "@dsh/remote-ops",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": false,
   "type": "module",
   "description": "DeepSeek Harness plugin for SSH terminals, SFTP and visible Playwright web operations",
@@ -30,6 +30,7 @@
   },
   "files": [
     "lib",
+    "skills/remote-ops-browser/SKILL.md",
     "README.md",
     "README.zh-CN.md",
     "WEB.md",

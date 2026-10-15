@@ -121,8 +121,9 @@ export class BrowserSessions {
     const record = this.session(owner, id);
     id=record.id;
     if (record.closed||record.switching) throw browserError("BROWSER_CLOSED", "Open a new browser; nothing was replayed");
-    const flow = typeof source === "string" ? this.flows.find(item => item.id === source && item.siteId === record.site.id) : undefined;
-    if (typeof source === "string" && !flow) throw browserError("BROWSER_FLOW_NOT_FOUND", "Choose a flow for this site");
+    const flow = typeof source === "string" ? this.flows.find(item => item.id === source) : undefined;
+    if (typeof source === "string" && !flow) throw browserError("BROWSER_FLOW_NOT_FOUND", "The saved flow does not exist. Read remote_browser_list for valid flow IDs, or omit flowId and provide inline steps. Nothing was dispatched");
+    if (flow && flow.siteId !== record.site.id) throw browserError("BROWSER_FLOW_SITE_MISMATCH", "The saved flow belongs to another site. Open its siteId with remote_browser_open and use the returned browserId, or omit flowId for inline steps in the current browser. Nothing was dispatched");
     const steps = expandBrowserSteps(browserSteps(flow?.steps ?? source), variables);
     if (typeof requestId !== "string" || !requestId || requestId.length > 160) throw browserError("BROWSER_REQUEST_INVALID", "Use a request ID up to 160 characters");
     const hash = createHash("sha256").update(JSON.stringify({ steps, mode, pageId })).digest("hex"), key = `${owner}:${id}:${requestId}`;

@@ -6,6 +6,16 @@
 
 客户端兼容 DSH 0.2.0-rc.2 的 `Regular` 图标导出，并回退支持旧版按尺寸命名的图标。v0.2.23 修复图标导出变化导致的 Remote Ops 面板空白；启动失败提示改由 DSH `shell.overlay` 宿主插槽承载，不再向页面 body 创建全局浮层。
 
+## 网页操作参数修复（v0.5.1）
+
+本版本修复 Agent 调用网页操作时，空 `flowId` 覆盖有效 `steps`、持续出现 `BROWSER_FLOW_NOT_FOUND` 的问题。修复、校验、工具说明和 `remote-ops-browser` skill 都随插件 tgz 分发，**不需要修改 Agent、DSH 内核或另行复制 skill**。
+
+- 普通网页操作传 `steps` 数组并省略 `flowId`；为兼容空值，`null`、空字符串和空白字符串均按未提供流程 ID 处理。
+- 保存流程只使用列表返回的真实 `flow.id`，且 `flow.siteId` 必须等于目标浏览器的 `siteId`。非空 `flowId` 与非空 `steps` 同时提供会被拒绝；保存流程可省略 `steps` 或传空数组。
+- 参数冲突、未提供操作、步骤格式错误、流程不存在、流程网站不匹配分别返回具体错误与恢复办法。这些参数校验在动作派发前失败，不会自动重试、改选浏览器或放宽凭据域名限制。
+- 插件加载后通过 DSH 原生 skill 服务全局提供 `remote-ops-browser` 指南，Agent 可自动发现并加载，也可在对话中用 `/remote-ops-browser` 调用；卸载插件后移除注册，不写入或覆盖用户的全局 skill 文件。此机制已验证于 DSH 0.2.0-rc.2。
+- 升级后完全停止旧 DSH 进程，重新启动并刷新网页，使已安装插件、skill 和工具说明重新加载。无需迁移 Agent 配置；另一台内网电脑只需安装同一 tgz。
+
 ## 工作区与交互（v0.5.0）
 
 - 顶部“终端 / 网页 / 文件”标签支持方向键、Home/End；环境管理独立展开在插件内，“更多设置”收纳诊断、刷新及更新。左侧入口仍打开 DSH 原生右栏，不替换主对话。
@@ -53,11 +63,11 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.5.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.5.1.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops 标题显示 `v0.5.0`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops 标题显示 `v0.5.1`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
 
 如果使用已经发布到 registry 的包，则包名为：
 

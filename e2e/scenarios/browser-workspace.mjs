@@ -57,7 +57,7 @@ export const websiteScenario = {
     await t.step("参数流程由界面执行，模型轮询读取结果，重复请求不重复提交", async () => {
       await until(async () => (await snapshot()).flows.length === 1);
       await page.getByLabel("已保存流程", { exact: true }).selectOption(flow.id);
-      await tool('remote_browser_run',{browserId:browser.id,requestId:'version-once',flowId:flow.id,variables:{command:'show version'}});
+      await tool('remote_browser_run',{browserId:browser.id,requestId:'version-once',flowId:flow.id,steps:[],variables:{command:'show version'}});
       assert.equal((await done(browser.id)).job.results.at(-1).value, "OK: show version");
       const args = { browserId: browser.id, flowId: flow.id, variables: { command: "show status" }, requestId: "command-once" };
       const first = await tool("remote_browser_run", args), same = await tool("remote_browser_run", args);

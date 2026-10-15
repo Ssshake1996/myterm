@@ -21,13 +21,17 @@ export const liveBrowserScenario={id:'web-live',title:'网址直开、实时画�
     assert.equal(await p.locator('.dsh-remote-ops__webPage').getAttribute('id'),await tab.getAttribute('aria-controls'));
     for(const name of ['人工接管','接管','暂停','停止任务','执行下一步'])assert.equal(await p.getByRole('button',{name,exact:true}).count(),0);
   });
-  await t.step('Agent 在当前网页执行操作，输出进入折叠记录',async()=>{
-    await tool('remote_browser_run',{requestId:'live-user',steps:[{action:'fill',target:{kind:'css',value:'#username'},value:'tester'}]});
+  await t.step('空 flowId 不阻止 Agent 在当前网页执行临时步骤',async()=>{
+    await tool('remote_browser_run',{requestId:'live-user',flowId:'',steps:[{action:'fill',target:{kind:'css',value:'#username'},value:'tester'}]});
     await until(async()=>((await snapshot()).sessions.find(v=>v.id===browser.id)?.job?.status==='completed'));
     const result=await tool('remote_browser_read',{});assert.equal(result.browser.id,browser.id);
   });
   await t.step('Agent 执行期间，用户可在实时画面中点击并输入中文',async()=>{
     await api({action:'navigate',browserId:browser.id,url:`${info.website.url}/manual`});
+    await tool('remote_browser_run',{requestId:'live-blank-flow',flowId:' \t ',steps:[{action:'fill',target:{kind:'xpath',value:"//*[@id='entry']"},value:'空流程 ID 已执行',expect:{target:{kind:'css',value:'#echo'},text:'空流程 ID 已执行'}}]});
+    const blankJob=await until(async()=>{const job=(await snapshot()).sessions.find(v=>v.id===browser.id)?.job;return job&&!['running','stopping'].includes(job.status)&&job;});
+    assert.equal(blankJob.status,'completed',JSON.stringify(blankJob.error));
+    assert.match((await tool('remote_browser_read',{})).page.text,/空流程 ID 已执行/);
     await tool('remote_browser_run',{requestId:'live-human-during-agent',steps:[{action:'wait',target:{kind:'css',value:'#echo'},expect:{target:{kind:'css',value:'#echo'},text:'中文'}}]});
     const image=p.getByAltText('网页实时画面',{exact:true});
     await until(async()=>Number(await image.getAttribute('data-revision'))===(await snapshot()).sessions.find(v=>v.id===browser.id).revision);

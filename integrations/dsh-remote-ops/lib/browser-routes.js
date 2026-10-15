@@ -1,5 +1,5 @@
 import { ownerId } from "./common.js";
-import { browserError, browserTarget } from "./browser-steps.js";
+import { browserError, browserRunSource, browserTarget } from "./browser-steps.js";
 
 const headers = { "Cache-Control": "no-store" };
 const configuration = new Set(["site.save", "site.delete", "flow.save", "flow.delete", "runtime.install", "preferences.save"]);
@@ -31,7 +31,7 @@ export function registerBrowserRoutes(ctx, state) {
         case "flow.delete": result = await workspace.deleteFlow(body.flowId); break;
         case "runtime.install": result = await workspace.install(); break;
         case "open": result = await workspace.open(owner, body.siteId,{display:body.display??workspace.preferences.display}); break;
-        case "run": result = workspace.publicJob(workspace.session(owner, body.browserId), await workspace.run(owner, body.browserId, body.flowId ?? body.steps, { requestId: body.requestId, mode: body.mode, variables: body.variables, pageId: body.pageId })); break;
+        case "run": result = workspace.publicJob(workspace.session(owner, body.browserId), await workspace.run(owner, body.browserId, browserRunSource(body), { requestId: body.requestId, mode: body.mode, variables: body.variables, pageId: body.pageId })); break;
         case "login": {
           const job = await workspace.login(owner, body.browserId, { requestId: body.requestId });
           result = job.authenticated ? job : workspace.publicJob(workspace.session(owner, body.browserId), job); break;

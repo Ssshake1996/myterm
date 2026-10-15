@@ -8,6 +8,36 @@ import { BrowserWorkspace, browserInstallerCli } from "../lib/browser-workspace.
 import { execFileSync } from "node:child_process";
 import { registerBrowserRoutes } from "../lib/browser-routes.js";
 import { registerBrowserTools } from "../lib/browser-tools.js";
+import { registerBrowserSkill } from "../lib/browser-skill.js";
+import { browserRunSource, browserSteps } from "../lib/browser-steps.js";
+
+test("bundled browser skill exposes valid inline examples through the native provider", async () => {
+  let provider;
+  registerBrowserSkill({ inject: (services, ready) => {
+    assert.deepEqual(services, ["skills"]);
+    ready({ skills: { registerProvider: create => { provider = create(); } } });
+  } });
+  const [candidate] = await provider.list({});
+  const skill = await provider.get(candidate, {});
+  assert.equal(candidate.name, "remote-ops-browser");
+  assert.equal(candidate.source, "bundled");
+  assert.equal(candidate.rank, 600);
+  assert.deepEqual(candidate.invocation, { modelInvocable: true, userInvocable: true });
+  assert.equal(candidate.path.endsWith(join("skills", "remote-ops-browser", "SKILL.md")), true);
+  assert.ok(candidate.description.length > 20);
+  assert.doesNotMatch(skill.content, /^---/);
+  const example = JSON.parse(skill.content.match(/```json\n([\s\S]*?)\n```/)[1]);
+  assert.equal(example.flowId, undefined);
+  assert.equal(browserRunSource(example), example.steps);
+  assert.equal(browserSteps(example.steps).at(-1).action, "read");
+});
+
+test("optional native skills service does not gate browser operations", () => {
+  assert.doesNotThrow(() => registerBrowserSkill({}));
+  let services;
+  assert.doesNotThrow(() => registerBrowserSkill({ inject: value => { services = value; } }));
+  assert.deepEqual(services, ["skills"]);
+});
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "remote-ops-browser-"));
@@ -43,6 +73,92 @@ async function fixture(t) {
 }
 const until = async predicate => { for (let n = 0; n < 100; n++) { if (predicate()) return; await new Promise(r => setTimeout(r, 5)); } throw new Error("test condition timed out"); };
 const click = value => ({ action: "click", target: { kind: "css", value } });
+
+function browserRunEntry(workspace, entry) {
+  const routes = new Map(), tools = new Map();
+  const ctx = { effect: effect => effect(), connection: { fetch: { register: route => routes.set(route.path, route) } }, tools: { register: tool => tools.set(tool.name, tool) }, systemPrompt: { section() {} } };
+  const state = { browser: workspace, resolveOwner: async id => ({ id }) };
+  registerBrowserRoutes(ctx, state); registerBrowserTools(ctx, state);
+  return async args => {
+    if (entry === "tool") return tools.get("remote_browser_run").execute(args, { agent: { id: "owner" } });
+    const response = await routes.get("/api/dsh-remote-ops/browser").fetch(new Request("http://local/api", { method: "POST", body: JSON.stringify({ action: "run", sessionId: "owner", ...args }) }));
+    const value = await response.json();
+    if (!response.ok) throw Object.assign(new Error(value.error), { code: value.code });
+    return value.result;
+  };
+}
+
+test("browser run treats omitted, null and blank flow IDs as inline steps in tools and HTTP", async t => {
+  const { workspace: w, site, writes } = await fixture(t), session = await w.open("owner", site.id);
+  for (const entry of ["tool", "http"]) for (const [index, flowId] of [undefined, null, "", " ", "\t\n"].entries()) {
+    const value = entry + index, result = await browserRunEntry(w, entry)({ browserId: session.id, requestId: value, flowId, steps: [click(value)] });
+    await w.session("owner", session.id).job.done;
+    assert.equal(result.count, 1); assert.equal(w.session("owner", session.id).job.status, "completed");
+  }
+  assert.deepEqual(writes, ["tool0", "tool1", "tool2", "tool3", "tool4", "http0", "http1", "http2", "http3", "http4"]);
+});
+
+test("saved browser flows accept trimmed IDs and empty optional steps without losing deduplication", async t => {
+  const { workspace: w, site, writes } = await fixture(t), session = await w.open("owner", site.id);
+  const flow = await w.saveFlow({ name: "Saved", siteId: site.id, steps: [click("saved")] });
+  for (const entry of ["tool", "http"]) {
+    const run = browserRunEntry(w, entry), args = { browserId: session.id, requestId: "saved-" + entry, flowId: " " + flow.id + " ", steps: [] };
+    const first = await run(args); await w.session("owner", session.id).job.done;
+    assert.equal((await run({ ...args, flowId: flow.id })).id, first.id);
+  }
+  assert.deepEqual(writes, ["saved", "saved"]);
+});
+
+test("nonblank browser flow IDs and inline steps conflict before either source executes", async t => {
+  const { workspace: w, site, writes } = await fixture(t), session = await w.open("owner", site.id);
+  const flow = await w.saveFlow({ name: "Saved", siteId: site.id, steps: [click("saved")] });
+  for (const entry of ["tool", "http"]) for (const flowId of [flow.id, "not-saved"]) {
+    await assert.rejects(browserRunEntry(w, entry)({ browserId: session.id, requestId: entry, flowId, steps: [click("inline")] }), { code: "BROWSER_RUN_SOURCE_CONFLICT" });
+  }
+  assert.deepEqual(writes, []); assert.equal(w.session("owner", session.id).job, undefined); assert.equal(w.receipts.size, 0);
+});
+
+test("invalid browser run field types are diagnosed before dispatch without exposing their contents", async t => {
+  const { workspace: w, site, writes } = await fixture(t), session = await w.open("owner", site.id);
+  for (const entry of ["tool", "http"]) for (const fields of [{ steps: JSON.stringify([click("test-secret")]) }, { steps: {} }, { steps: 4 }, { flowId: 3 }, { flowId: {} }]) {
+    const code = Object.hasOwn(fields, "steps") ? "BROWSER_STEP_INVALID" : "BROWSER_FLOW_ID_INVALID";
+    await assert.rejects(browserRunEntry(w, entry)({ browserId: session.id, requestId: entry, ...fields }), error => error.code === code && !error.message.includes("test-secret"));
+  }
+  assert.deepEqual(writes, []); assert.equal(w.receipts.size, 0);
+});
+
+test("browser run without a nonempty flow ID or steps array reports the missing source", async t => {
+  const { workspace: w, site, writes } = await fixture(t), session = await w.open("owner", site.id);
+  for (const entry of ["tool", "http"]) for (const fields of [{}, { flowId: "" }, { flowId: " ", steps: [] }, { flowId: null, steps: null }]) {
+    await assert.rejects(browserRunEntry(w, entry)({ browserId: session.id, requestId: entry, ...fields }), { code: "BROWSER_RUN_SOURCE_REQUIRED" });
+  }
+  assert.deepEqual(writes, []); assert.equal(w.receipts.size, 0);
+});
+
+test("missing browser flow errors are recoverable with inline steps under the same unaccepted request ID", async t => {
+  const { workspace: w, site, writes } = await fixture(t), session = await w.open("owner", site.id);
+  for (const entry of ["tool", "http"]) {
+    const run = browserRunEntry(w, entry), requestId = "recover-" + entry;
+    await assert.rejects(run({ browserId: session.id, requestId, flowId: "missing" }), error => error.code === "BROWSER_FLOW_NOT_FOUND" && /remote_browser_list/.test(error.message) && /steps/.test(error.message));
+    assert.equal(w.receipts.has("owner:" + session.id + ":" + requestId), false);
+    const args = { browserId: session.id, requestId, steps: [click(entry)] }, first = await run(args); await w.session("owner", session.id).job.done;
+    assert.equal((await run(args)).id, first.id);
+  }
+  assert.deepEqual(writes, ["tool", "http"]);
+});
+
+test("saved browser flows remain site-bound even when a direct URL has the same origin", async t => {
+  const { workspace: w, site, writes } = await fixture(t);
+  const flow = await w.saveFlow({ name: "Saved", siteId: site.id, steps: [click("saved")] });
+  const direct = await w.openUrl("owner", site.url); assert.notEqual(direct.siteId, site.id);
+  for (const entry of ["tool", "http"]) {
+    const run = browserRunEntry(w, entry);
+    await assert.rejects(run({ requestId: "wrong-site-" + entry, flowId: flow.id }), { code: "BROWSER_FLOW_SITE_MISMATCH" });
+    assert.equal(w.active.get("owner"), direct.id); assert.deepEqual(writes, []);
+  }
+  const result = await browserRunEntry(w, "tool")({ requestId: "direct-inline", flowId: "", steps: [click("inline")] });
+  await w.session("owner", direct.id).job.done; assert.equal(result.count, 1); assert.deepEqual(writes, ["inline"]);
+});
 
 test("the Chromium installer resolves a runnable packaged CLI", () => {
   assert.match(execFileSync(process.execPath, [browserInstallerCli(), "--version"], { encoding: "utf8" }), /Version 1\.64\.0/);

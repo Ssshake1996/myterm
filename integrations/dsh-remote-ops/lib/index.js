@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { BrowserWorkspace } from "./browser-workspace.js";
 import { registerBrowserRoutes } from "./browser-routes.js";
 import { registerBrowserTools } from "./browser-tools.js";
+import { registerBrowserSkill } from "./browser-skill.js";
 
 export const name = PLUGIN_NAME;
 export const inject = ["connection", "systemPrompt", "tools", "terminals", "agents", "credentials", "subprocess"];
@@ -37,4 +38,5 @@ export function apply(ctx) {
   registerRoutes(ctx, state);
   registerBrowserRoutes(ctx, state);
   registerBrowserTools(ctx, state);
+  registerBrowserSkill(ctx);
 }
