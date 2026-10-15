@@ -1,6 +1,7 @@
 import { normalizeGroupName, ownerId, sessionError, summarizeError, toLosslessJson, validateEnvironment } from "./common.js";
 import { MAX_SESSIONS_PER_ENVIRONMENT } from "./constants.js";
 import { MAX_SCRIPT_STEPS, runScript } from "./terminal-script.js";
+import { toolParameters } from "./tool-schema.js";
 
 const output = { schema: { type: "object", additionalProperties: true }, render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }] };
 const stringParam = (description, required = false) => ({ type: "string", description, ...(required ? { required: true } : {}) });
@@ -66,7 +67,7 @@ const REMOVED_OPTIONS = ["autoConfirm", "confirmPattern"];
 const REMOVED_OPTION_NOTICE = "autoConfirm/confirmPattern no longer exist: the plugin never answers (y/n) prompts by itself. Read the prompt in the output and answer it with remote_terminal_send, or script a user-approved sequence with remote_terminal_script answers.";
 const withNotices = (args, result) => REMOVED_OPTIONS.some((key) => args[key] !== undefined) ? { ...result, notices: [REMOVED_OPTION_NOTICE] } : result;
 
-// The host validates schemas at registration. An optional tool whose schema a host rejects is reported, not fatal.
+// A host may reject unsupported optional schemas at registration; report that rejection without dropping the plugin.
 function registerOptionalTool(ctx, state, definition) {
   try { registerTool(ctx, definition); } catch (error) { state.toolWarnings.push({ tool: definition.name, error: summarizeError(error) }); }
 }
@@ -80,7 +81,7 @@ function registerWithFallback(ctx, state, build) {
 }
 
 function registerTool(ctx, definition) {
-  ctx.tools.register({ ...definition, execute: async (...args) => toLosslessJson(await definition.execute(...args)), output });
+  ctx.tools.register({ ...definition, parameters: toolParameters(definition.parameters), execute: async (...args) => toLosslessJson(await definition.execute(...args)), output });
 }
 
 export function registerTools(ctx, state) {

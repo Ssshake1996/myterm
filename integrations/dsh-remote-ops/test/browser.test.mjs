@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process";
 import { registerBrowserRoutes } from "../lib/browser-routes.js";
 import { registerBrowserTools } from "../lib/browser-tools.js";
 import { registerBrowserSkill } from "../lib/browser-skill.js";
-import { browserRunSource, browserSteps } from "../lib/browser-steps.js";
+import { browserRunSource, browserSteps, browserTarget } from "../lib/browser-steps.js";
 
 test("bundled browser skill exposes valid inline examples through the native provider", async () => {
   let provider;
@@ -73,6 +73,60 @@ async function fixture(t) {
 }
 const until = async predicate => { for (let n = 0; n < 100; n++) { if (predicate()) return; await new Promise(r => setTimeout(r, 5)); } throw new Error("test condition timed out"); };
 const click = value => ({ action: "click", target: { kind: "css", value } });
+
+test("browser optional null fields and blank frame markers normalize without losing empty fills", async t => {
+  const { workspace: w, site, writes } = await fixture(t), session = await w.open("owner", site.id);
+  for (const entry of ["tool", "http"]) {
+    const run = browserRunEntry(w, entry), target = { kind: "css", value: "entry" };
+    const steps = [{ action: "fill", target, value: "" }, click("go")];
+    const padded = [{ ...steps[0], target: { ...target, frame: " \t ", name: null }, secretRef: null, timeoutMs: null, expect: null, state: null, expectPopup: null }, { ...steps[1], value: null, secretRef: null, expect: null }];
+    const requestId = "nulls-" + entry;
+    const first = await run({ requestId, browserId: session.id, pageId: null, variables: null, steps: padded });
+    await w.session("owner", session.id).job.done;
+    assert.equal(w.session("owner", session.id).job.status, "completed");
+    assert.equal((await run({ requestId, browserId: session.id, steps })).id, first.id);
+  }
+  assert.deepEqual(writes, ["", "go", "", "go"]);
+});
+
+test("browser locator nulls are optional while real iframe selectors and exact empty role names are retained", () => {
+  const base = { kind: "role", value: "button" };
+  assert.deepEqual(browserTarget({ ...base, frame: null, name: null }), base);
+  assert.deepEqual(browserTarget({ ...base, frame: "", name: "" }), { ...base, name: "" });
+  assert.deepEqual(browserTarget({ ...base, frame: "iframe#login" }), { ...base, frame: "iframe#login" });
+});
+
+test("browser invalid second steps report their exact field and dispatch nothing in tools and HTTP", async t => {
+  const { workspace: w, site, writes } = await fixture(t), session = await w.open("owner", site.id);
+  const target = { kind: "css", value: "must-not-leak" };
+  const invalid = [
+    [{ action: "read" }, "target"],
+    [{ action: "fill", target, value: null, secretRef: null }, "value"],
+    [{ action: "click", target: { ...target, frame: 4 } }, "target.frame"],
+    [{ action: "click", target: { ...target, kind: "invented" } }, "target.kind"],
+    [{ action: "click", target: { ...target, value: null } }, "target.value"],
+    [{ action: "click", target: { ...target, name: false } }, "target.name"],
+    [{ action: "click", target, expect: {} }, "expect.target"],
+    [{ action: "click", target, expect: 3 }, "expect"],
+    [{ action: "click", target, timeoutMs: "100" }, "timeoutMs"],
+    [{ action: "click", target, expectPopup: "true" }, "expectPopup"],
+    [{ action: "click", target, state: "invented" }, "state"],
+    [{ action: "type", target, value: "must-not-leak" }, "action"],
+    [null, "steps[1]"],
+  ];
+  for (const entry of ["tool", "http"]) for (const [index, [step, field]] of invalid.entries()) {
+    await assert.rejects(browserRunEntry(w, entry)({ requestId: entry + index, steps: [click("MUST_NOT_EXECUTE"), step] }), error =>
+      error.code === "BROWSER_STEP_INVALID" && error.message.includes(field.startsWith("steps[") ? field : "steps[1]." + field) && /Nothing was dispatched/.test(error.message) && !error.message.includes("must-not-leak"));
+  }
+  assert.deepEqual(writes, []); assert.equal(w.receipts.size, 0); assert.equal(w.session("owner", session.id).job, undefined);
+});
+
+test("browser null expectation options are omitted and required values stay invalid", () => {
+  const target = { kind: "css", value: "result" };
+  assert.deepEqual(browserSteps([{ action: "read", target, expect: { target, text: null, state: null } }]), [{ action: "read", target, expect: { target } }]);
+  assert.throws(() => browserSteps([{ action: "fill", target, value: null }]), error => error.code === "BROWSER_STEP_INVALID" && error.message.includes("steps[0].value"));
+  assert.throws(() => browserSteps([{ action: "press", target, value: "Enter", secretRef: "SECRET" }]), error => error.code === "BROWSER_STEP_INVALID" && error.message.includes("steps[0].secretRef"));
+});
 
 function browserRunEntry(workspace, entry) {
   const routes = new Map(), tools = new Map();

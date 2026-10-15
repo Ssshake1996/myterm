@@ -88,32 +88,36 @@ test("action route reports a failure shape that includes the failing stage", asy
   assert.equal(failed.body.code, "REMOTE_SESSION_NOT_FOUND");
 });
 
-// The host's schema DSL requires every explicit object node to declare additionalProperties and only allows required: true.
+// Registered tools use JSON Schema; required is an array on the containing object.
 function assertSchemaNode(node, path) {
   if (node === null || typeof node !== "object") return;
-  if (node.required !== undefined) assert.equal(node.required, true, `${path}.required must be true when present`);
+  if (node.required !== undefined) assert.ok(Array.isArray(node.required) && node.required.every(key => typeof key === "string"), `${path}.required must list field names`);
   if (node.type === "object") {
     assert.equal(typeof node.additionalProperties, "boolean", `${path} must declare additionalProperties`);
     for (const [key, child] of Object.entries(node.properties ?? {})) assertSchemaNode(child, `${path}.${key}`);
   }
   if (node.type === "array" && node.items) assertSchemaNode(node.items, `${path}[]`);
+  for (const branch of node.oneOf ?? []) assertSchemaNode(branch, path);
 }
 
-test("every registered tool parameter follows the host schema DSL", async (t) => {
+test("every registered tool parameter follows the host JSON Schema contract", async (t) => {
   const { tools } = await pluginFixture(t);
   assert.ok(tools.size >= 29);
-  for (const [name, definition] of tools) for (const [key, node] of Object.entries(definition.parameters ?? {})) assertSchemaNode(node, `${name}.${key}`);
+  for (const [name, definition] of tools) {
+    assert.equal(definition.parameters.type, "object", name);
+    assertSchemaNode(definition.parameters, name);
+  }
 });
 
 test("terminal tools expose output options and the environment profile, and ignore undeclared arguments", async (t) => {
   const { tools, post } = await pluginFixture(t);
   for (const name of ["remote_terminal_send", "remote_terminal_read", "remote_terminal_batch", "remote_quick_command_run"]) {
-    assert.equal(tools.get(name).parameters.stripAnsi.type, "boolean", `${name} stripAnsi`);
-    assert.equal(tools.get(name).parameters.headTailChars.type, "number", `${name} headTailChars`);
+    assert.equal(tools.get(name).parameters.properties.stripAnsi.type, "boolean", `${name} stripAnsi`);
+    assert.equal(tools.get(name).parameters.properties.headTailChars.type, "number", `${name} headTailChars`);
   }
   const create = tools.get("remote_environment_create");
-  assert.equal(create.parameters.cliProfile.type, "object");
-  assert.equal(create.parameters.terminal.properties.rows.type, "number");
+  assert.equal(create.parameters.properties.cliProfile.type, "object");
+  assert.equal(create.parameters.properties.terminal.properties.rows.type, "number");
   const exec = { agent: { id: "tool-agent" } };
   const created = await create.execute({ name: "dev", host: "10.1.1.1", username: "admin", cliProfile: { autoQuitMore: true, autoSigint: true }, terminal: { rows: 50 } }, exec);
   assert.deepEqual(created.environment.cliProfile, { autoQuitMore: true });
@@ -136,8 +140,8 @@ test("the terminal tools never answer a (y/n) prompt and tell callers that still
   await new Promise((resolve) => setTimeout(resolve, 20));
   const exec = { agent: { id: "tool-agent" } };
   for (const name of ["remote_terminal_send", "remote_terminal_batch", "remote_quick_command_run", "remote_terminal_script"]) {
-    assert.equal(Object.hasOwn(tools.get(name).parameters, "autoConfirm"), false, `${name} must not offer autoConfirm`);
-    assert.equal(Object.hasOwn(tools.get(name).parameters, "confirmPattern"), false, `${name} must not offer confirmPattern`);
+    assert.equal(Object.hasOwn(tools.get(name).parameters.properties, "autoConfirm"), false, `${name} must not offer autoConfirm`);
+    assert.equal(Object.hasOwn(tools.get(name).parameters.properties, "confirmPattern"), false, `${name} must not offer confirmPattern`);
   }
   terminals[0].output.emit("data", Buffer.from("Erase everything?(y/n)"));
   const sent = await tools.get("remote_terminal_send").execute({ session: "local-cmd", text: "wipe", autoConfirm: true, confirmPattern: "\\(y/n\\)", quietMs: 30, timeoutSeconds: 2 }, exec);

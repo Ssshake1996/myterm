@@ -20,41 +20,52 @@ export function browserRunSource({ flowId, steps }) {
   if (hasSteps) return steps;
   throw browserError("BROWSER_RUN_SOURCE_REQUIRED", "Provide 1–40 inline steps, or a saved flow.id from remote_browser_list. Blank flowId and empty steps do not specify an operation. Nothing was dispatched");
 }
-export function browserTarget(value) {
-  if (!value || !kinds.has(value.kind) || !text(value.value) || !value.value.trim()) throw browserError("BROWSER_STEP_INVALID", "A target needs kind (css/xpath/role/label/text/placeholder) and value");
-  if (value.frame !== undefined && (!text(value.frame) || !value.frame.trim())) throw browserError("BROWSER_STEP_INVALID", "frame must be a CSS iframe selector");
-  if (value.name !== undefined && !text(value.name)) throw browserError("BROWSER_STEP_INVALID", "Target name is too long");
-  return { kind: value.kind, value: value.value, ...(value.name !== undefined ? { name: value.name } : {}), ...(value.frame ? { frame: value.frame } : {}) };
+const stepInvalid = (path, message) => browserError("BROWSER_STEP_INVALID", `${path}: ${message}. Nothing was dispatched`);
+const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
+export function browserTarget(value, path = "target") {
+  if (!record(value)) throw stepInvalid(path, "Provide a locator object with kind and value");
+  if (!kinds.has(value.kind)) throw stepInvalid(`${path}.kind`, "Use css/xpath/role/label/text/placeholder");
+  if (!text(value.value) || !value.value.trim()) throw stepInvalid(`${path}.value`, "Provide nonblank locator text up to 4000 characters");
+  if (value.frame != null && !text(value.frame)) throw stepInvalid(`${path}.frame`, "Use a CSS iframe selector or omit/null/blank for the main page");
+  if (value.name != null && !text(value.name)) throw stepInvalid(`${path}.name`, "Use exact accessible text up to 4000 characters, or omit/null");
+  return { kind: value.kind, value: value.value, ...(value.name != null ? { name: value.name } : {}), ...(value.frame?.trim() ? { frame: value.frame } : {}) };
 }
 export function browserSteps(steps) {
-  if (!Array.isArray(steps) || !steps.length || steps.length > 40) throw browserError("BROWSER_STEP_INVALID", "A flow needs 1–40 steps");
-  return steps.map(step => {
-    if (!step || !actions.has(step.action)) throw browserError("BROWSER_STEP_INVALID", "Unsupported action; JavaScript execution is not a flow action");
+  if (!Array.isArray(steps) || !steps.length || steps.length > 40) throw stepInvalid("steps", "Provide an array of 1–40 action objects");
+  return steps.map((step, index) => {
+    const path = `steps[${index}]`;
+    if (!record(step)) throw stepInvalid(path, "Provide an action object");
+    if (!actions.has(step.action)) throw stepInvalid(`${path}.action`, "Use goto/click/fill/press/select/check/uncheck/scroll/wait/read/assert; JavaScript is not supported");
     const result = { action: step.action };
-    if (step.action === "goto") result.url = browserUrl(step.url);
-    else result.target = browserTarget(step.target);
-    if (step.value !== undefined) {
-      if (!text(step.value, 16000)) throw browserError("BROWSER_STEP_INVALID", "Step value must be text up to 16000 characters");
+    if (step.action === "goto") {
+      try { result.url = browserUrl(step.url); } catch (error) { error.message = `${path}.url: ${error.message}. Nothing was dispatched`; throw error; }
+    } else result.target = browserTarget(step.target, `${path}.target`);
+    if (step.value != null) {
+      if (!text(step.value, 16000)) throw stepInvalid(`${path}.value`, "Use text up to 16000 characters");
       result.value = step.value;
     }
-    if (["fill", "press", "select"].includes(step.action) && step.value === undefined && !step.secretRef) throw browserError("BROWSER_STEP_INVALID", "This action needs a value");
-    if (step.secretRef !== undefined) {
-      if (step.action !== "fill" || !text(step.secretRef, 160) || step.value !== undefined) throw browserError("BROWSER_STEP_INVALID", "Use a credential reference only for fill, without a literal value");
+    if (step.secretRef != null) {
+      if (step.action !== "fill" || !text(step.secretRef, 160) || !step.secretRef.trim() || result.value !== undefined) throw stepInvalid(`${path}.secretRef`, "Use a nonblank saved credential reference only for fill, without a literal value");
       result.secretRef = step.secretRef;
     }
-    if (step.expect !== undefined) {
-      result.expect = { target: browserTarget(step.expect.target) };
-      if (step.expect.text !== undefined) {
-        if (!text(step.expect.text, 4000)) throw browserError("BROWSER_STEP_INVALID", "Expected text is too long");
+    if (["fill", "press", "select"].includes(step.action) && result.value === undefined && !result.secretRef) throw stepInvalid(`${path}.value`, "This action needs text; fill may instead use the site's secretRef");
+    if (step.expect != null) {
+      if (!record(step.expect)) throw stepInvalid(`${path}.expect`, "Provide an expectation object or omit/null");
+      result.expect = { target: browserTarget(step.expect.target, `${path}.expect.target`) };
+      if (step.expect.text != null) {
+        if (!text(step.expect.text, 4000)) throw stepInvalid(`${path}.expect.text`, "Use text up to 4000 characters");
         result.expect.text = step.expect.text;
       }
+      if (step.expect.state != null && !["visible", "hidden"].includes(step.expect.state)) throw stepInvalid(`${path}.expect.state`, "Use visible/hidden or omit/null");
       if (step.expect.state === "hidden") result.expect.state = "hidden";
     }
-    if (step.timeoutMs !== undefined) {
-      if (!Number.isInteger(step.timeoutMs) || step.timeoutMs < 100 || step.timeoutMs > 30000) throw browserError("BROWSER_STEP_INVALID", "timeoutMs must be 100–30000");
+    if (step.timeoutMs != null) {
+      if (!Number.isInteger(step.timeoutMs) || step.timeoutMs < 100 || step.timeoutMs > 30000) throw stepInvalid(`${path}.timeoutMs`, "Use an integer from 100 to 30000 or omit/null");
       result.timeoutMs = step.timeoutMs;
     }
+    if (step.expectPopup != null && typeof step.expectPopup !== "boolean") throw stepInvalid(`${path}.expectPopup`, "Use a boolean or omit/null");
     if (step.expectPopup === true && step.action === "click") result.expectPopup = true;
+    if (step.state != null && !["visible", "hidden"].includes(step.state)) throw stepInvalid(`${path}.state`, "Use visible/hidden or omit/null");
     if (step.state === "hidden" && step.action === "wait") result.state = "hidden";
     return result;
   });

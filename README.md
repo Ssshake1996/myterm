@@ -2,6 +2,15 @@
 
 `@dsh/remote-ops` 是面向 DeepSeek Harness 的 SSH 远程运维插件。本仓库已完成产品边界切换，不再包含 myterm 桌面应用、Tauri 宿主或第二套 Agent 内核。
 
+## 参数 Schema 与空值兼容（v0.5.2）
+
+本版本修复插件工具参数未转换为标准 JSON Schema，以及网页步骤可选空值导致 `BROWSER_STEP_INVALID` 的问题。工具定义、运行时校验及随包 `remote-ops-browser` skill 一起更新，所有改动随 tgz 分发，不需要修改 Agent 或 DSH 内核。
+
+- 插件全部工具按 DSH 契约提供标准参数 Schema；网页动作和定位器有枚举，按动作声明必填字段。`goto` 需要 `url`，其他步骤需要结构化 `target`，包括 `read`；整页观察可直接使用 `remote_browser_read`。
+- 网页可选字段的 `null` 按未提供处理；`target.frame` 为空白时使用主页面。清空输入所需的 `value: ""` 保留；`fill`、`press`、`select` 缺少实际值仍会拒绝，密码继续只使用保存网站的引用。
+- 错误指出字段路径，如 `steps[1].target.frame`；整次步骤先完成校验再派发，第二步无效也不会执行第一步。空值与省略归一化后使用同一请求仍去重，不自动重试或猜测定位器。
+- 门禁新增完整 Schema 校验；真实 DSH 验收检查实际模型请求中的工具定义和页面执行结果。升级后停止旧 DSH 进程、重启并刷新网页，确认 `v0.5.2`；随包 skill 自动注册，无需手工复制。
+
 ## 网页操作参数修复（v0.5.1）
 
 本版本修复 Agent 调用网页操作时，空 `flowId` 覆盖有效 `steps`、持续出现 `BROWSER_FLOW_NOT_FOUND` 的问题。修复、校验、工具说明和 `remote-ops-browser` skill 都随插件 tgz 分发，**不需要修改 Agent、DSH 内核或另行复制 skill**。
@@ -60,11 +69,11 @@
 从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.5.1.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.5.2.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下执行安装命令；`--profile web` 必须与实际启动的 profile 一致。安装完成后完全停止原 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops 标题显示 `v0.5.1`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下执行安装命令；`--profile web` 必须与实际启动的 profile 一致。安装完成后完全停止原 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops 标题显示 `v0.5.2`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
 
 在 DSH Web 左侧底部点击 `Remote Ops` 打开右侧 Sidebar，主对话不被替换。入口使用官方 `sidebar.footer.action` 操作位和 `sidebarRight.openTab`，不再注册切换主工作区的 `sidebar.panellist` / `main`。已在 DSH `0.2.0-rc.2` 实测；其他宿主版本尚未实测。若未出现入口，先核对安装 profile、DSH 版本及已安装插件版本，并确认旧 DSH 进程已退出；无需手工复制 bundle patch。窄屏下右栏可能按宿主规则展开为全屏，收起即可返回原对话。
 
@@ -106,14 +115,14 @@ SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.5.1
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.5.2
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.5.1            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.5.1 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.5.2            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.5.2 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后轮询 Release，比较 GitHub 报告的安装包摘要与本地摘要。

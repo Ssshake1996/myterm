@@ -27,6 +27,10 @@ For ordinary actions, pass an actual `steps` array to `remote_browser_run` and o
 
 Adapt the locator and request ID to the observed page and intended operation; this is a schema example, not a command to run unchanged. XPath targets use `{"kind":"xpath","value":"//*[@id='search']"}`.
 
+Supported actions are `goto`, `click`, `fill`, `press`, `select`, `check`, `uncheck`, `scroll`, `wait`, `read`, and `assert`. Every step except `goto` needs a structured `target`, including `read`. To observe the whole page directly, call `remote_browser_read` without `target`. Use `goto` with `url` for navigation and `fill` with `value` for text entry; do not substitute action names or pass an XPath string as the target object. A non-null `expect` needs its own `target`.
+
+Prefer omitting unused options. Optional null values mean absent; null/blank `target.frame` selects the main page. An empty `value` string clears a field and must be preserved. `fill`, `press` and `select` still need a text value; only `fill` may instead supply the site's `secretRef`, without a literal value. Validation reports paths such as `steps[1].target.frame` (the second step). Correct that field before retrying; malformed steps reject the entire run before any action is dispatched.
+
 For a saved flow, obtain its real `flow.id` and `siteId` from `remote_browser_list`. Open that saved `siteId`, then use its browser with `flowId`; omit `steps` or use `[]`. A direct-URL browser has a temporary site identity even at the same URL and cannot run another site's saved flow. Do not silently switch sites to recover an error.
 
 Empty, null or whitespace `flowId` is absent. A nonblank ID plus nonempty steps is a conflict. `BROWSER_RUN_SOURCE_REQUIRED`, `BROWSER_RUN_SOURCE_CONFLICT`, `BROWSER_FLOW_ID_INVALID`, `BROWSER_STEP_INVALID`, `BROWSER_FLOW_NOT_FOUND` and `BROWSER_FLOW_SITE_MISMATCH` reject the call before dispatching any action. Inspect the returned error and current catalog, correct the arguments, and do not repeat the unchanged invalid call. A source rejection does not reserve the request ID.

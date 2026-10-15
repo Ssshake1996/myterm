@@ -6,6 +6,15 @@
 
 客户端兼容 DSH 0.2.0-rc.2 的 `Regular` 图标导出，并回退支持旧版按尺寸命名的图标。v0.2.23 修复图标导出变化导致的 Remote Ops 面板空白；启动失败提示改由 DSH `shell.overlay` 宿主插槽承载，不再向页面 body 创建全局浮层。
 
+## 参数 Schema 与空值兼容（v0.5.2）
+
+本版本修复插件工具参数未转换为标准 JSON Schema，以及网页步骤可选空值导致 `BROWSER_STEP_INVALID` 的问题。工具定义、运行时校验及随包 `remote-ops-browser` skill 一起更新，所有改动随 tgz 分发，不需要修改 Agent 或 DSH 内核。
+
+- 插件全部工具按 DSH 契约提供标准参数 Schema；网页动作和定位器有枚举，按动作声明必填字段。`goto` 需要 `url`，其他步骤需要结构化 `target`，包括 `read`；整页观察可直接使用 `remote_browser_read`。
+- 网页可选字段的 `null` 按未提供处理；`target.frame` 为空白时使用主页面。清空输入所需的 `value: ""` 保留；`fill`、`press`、`select` 缺少实际值仍会拒绝，密码继续只使用保存网站的引用。
+- 错误指出字段路径，如 `steps[1].target.frame`；整次步骤先完成校验再派发，第二步无效也不会执行第一步。空值与省略归一化后使用同一请求仍去重，不自动重试或猜测定位器。
+- 门禁新增完整 Schema 校验；真实 DSH 验收检查实际模型请求中的工具定义和页面执行结果。升级后停止旧 DSH 进程、重启并刷新网页，确认 `v0.5.2`；随包 skill 自动注册，无需手工复制。
+
 ## 网页操作参数修复（v0.5.1）
 
 本版本修复 Agent 调用网页操作时，空 `flowId` 覆盖有效 `steps`、持续出现 `BROWSER_FLOW_NOT_FOUND` 的问题。修复、校验、工具说明和 `remote-ops-browser` skill 都随插件 tgz 分发，**不需要修改 Agent、DSH 内核或另行复制 skill**。
@@ -63,11 +72,11 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.5.1.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.5.2.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops 标题显示 `v0.5.1`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops 标题显示 `v0.5.2`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
 
 如果使用已经发布到 registry 的包，则包名为：
 

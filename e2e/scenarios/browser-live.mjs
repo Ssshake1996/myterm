@@ -28,9 +28,11 @@ export const liveBrowserScenario={id:'web-live',title:'网址直开、实时画�
   });
   await t.step('Agent 执行期间，用户可在实时画面中点击并输入中文',async()=>{
     await api({action:'navigate',browserId:browser.id,url:`${info.website.url}/manual`});
-    await tool('remote_browser_run',{requestId:'live-blank-flow',flowId:' \t ',steps:[{action:'fill',target:{kind:'xpath',value:"//*[@id='entry']"},value:'空流程 ID 已执行',expect:{target:{kind:'css',value:'#echo'},text:'空流程 ID 已执行'}}]});
+    await tool('remote_browser_run',{requestId:'live-blank-flow',flowId:' \t ',pageId:null,variables:null,steps:[{action:'fill',target:{kind:'xpath',value:"//*[@id='entry']",frame:null,name:null},value:'空流程 ID 已执行',secretRef:null,timeoutMs:null,expectPopup:null,expect:{target:{kind:'css',value:'#echo',frame:''},text:'空流程 ID 已执行',state:null}}]});
     const blankJob=await until(async()=>{const job=(await snapshot()).sessions.find(v=>v.id===browser.id)?.job;return job&&!['running','stopping'].includes(job.status)&&job;});
     assert.equal(blankJob.status,'completed',JSON.stringify(blankJob.error));
+    const equivalent=await tool('remote_browser_run',{requestId:'live-blank-flow',steps:[{action:'fill',target:{kind:'xpath',value:"//*[@id='entry']"},value:'空流程 ID 已执行',expect:{target:{kind:'css',value:'#echo'},text:'空流程 ID 已执行'}}]});
+    assert.equal(equivalent.id,blankJob.id,'null and omitted options must keep the same accepted job');
     assert.match((await tool('remote_browser_read',{})).page.text,/空流程 ID 已执行/);
     await tool('remote_browser_run',{requestId:'live-human-during-agent',steps:[{action:'wait',target:{kind:'css',value:'#echo'},expect:{target:{kind:'css',value:'#echo'},text:'中文'}}]});
     const image=p.getByAltText('网页实时画面',{exact:true});

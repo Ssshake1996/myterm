@@ -373,7 +373,7 @@ test("registered terminal tools can read the same local CMD as the UI", async (t
     await rm(root, { recursive: true, force: true });
   });
   const exec = { agent: { id: "tool-owner" } };
-  for (const name of ["remote_sftp_upload", "remote_sftp_download"]) assert.equal(registered.get(name).parameters.overwrite.type, "boolean");
+  for (const name of ["remote_sftp_upload", "remote_sftp_download"]) assert.equal(registered.get(name).parameters.properties.overwrite.type, "boolean");
   await registered.get("remote_environment_list").execute({}, exec);
   ctx.terminals[0].output.emit("data", Buffer.from("shared CMD"));
   const output = await registered.get("remote_terminal_read").execute({ session: "local-cmd" }, exec);

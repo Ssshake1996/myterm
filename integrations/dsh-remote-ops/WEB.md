@@ -1,6 +1,6 @@
 # Shared web workspace
 
-Remote Ops 0.5.1 provides a browser in the native DSH right Sidebar. Type a URL to begin; saved sites and flows are optional. DSH owns the Agent and conversation. The plugin provides one browser session that both the user and Agent can operate.
+Remote Ops 0.5.2 provides a browser in the native DSH right Sidebar. Type a URL to begin; saved sites and flows are optional. DSH owns the Agent and conversation. The plugin provides one browser session that both the user and Agent can operate.
 
 ## First use
 
@@ -43,6 +43,14 @@ Omit `flowId` for inline operations. For compatibility, null/empty/whitespace-on
 These source/validation errors occur before this call dispatches an action; do not repeat unchanged invalid arguments. This differs from an `unknown` job result after an effect, which must still be inspected and never blindly replayed. The fix, updated tool metadata and `remote-ops-browser` skill are inside the plugin package; Agent implementation and DSH core are unchanged.
 
 The plugin exposes its bundled skill globally through the native DSH skill registry (verified on 0.2.0-rc.2). The Agent can discover its summary and load instructions with the existing `skill` tool; `/remote-ops-browser` also invokes it explicitly. No Agent configuration or global skill file copying is needed. User/project skills keep their normal precedence, and unloading the plugin removes this provider. If the host has no skill service, browser operations and parameter validation still work independently.
+
+## Step fields and validation (v0.5.2)
+
+Tool definitions are standard object JSON Schemas, including nested required arrays and supported action/locator enums. `goto` requires `url`. Every other step, including `read`, requires `target`; observing the whole page directly uses `remote_browser_read` without a target. A non-null `expect` requires its own target.
+
+Unused optional fields should be omitted; null means absent. `target.frame` may also be blank to select the main page. An explicit empty role name remains exact. Empty fill `value` clears a field; it is not discarded. `fill`, `press` and `select` need text; only `fill` may use the site's `secretRef` instead of a literal value. Required fields, unsupported actions, malformed selectors and non-null values of the wrong type are still rejected.
+
+`BROWSER_STEP_INVALID` identifies a path such as `steps[1].target.frame` (the second step), expected format, and that nothing was dispatched. All steps are validated before the job starts, so an invalid later step cannot partially execute a run. Error messages do not echo field values. Optional nulls and omissions normalize before hashing requests; equivalent retries keep the existing job. Runtime failures/unknown effects still require inspection rather than replay.
 
 ## Optional saved sites, login and flows
 

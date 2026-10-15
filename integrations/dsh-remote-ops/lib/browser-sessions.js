@@ -118,6 +118,8 @@ export class BrowserSessions {
   }
   async run(owner, id, source, { requestId = randomUUID(), mode = "run", variables = {}, pageId } = {}) {
     await this.ready;
+    variables ??= {};
+    pageId ??= undefined;
     const record = this.session(owner, id);
     id=record.id;
     if (record.closed||record.switching) throw browserError("BROWSER_CLOSED", "Open a new browser; nothing was replayed");
