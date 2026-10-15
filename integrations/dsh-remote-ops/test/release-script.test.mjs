@@ -228,11 +228,16 @@ test("a published package that differs from the local one fails immediately", as
   assert.equal(calls.length, 1, "a mismatch is not retried");
 });
 
-test('release verification waits until the Windows bundle is published too', async () => {
-  const name='dsh-remote-ops-v1.2.3-windows-x64.zip';
-  const {impl,calls}=scripted([{body:releaseJson()},{body:releaseJson({assets:[...releaseJson().assets,{name}]})}]);
-  const result=await wait(impl,{requiredAssets:[name]});
-  assert.equal(calls.length,2);assert.ok(result.assets.includes(name));
+test('release accepts the tgz and checksum without requiring a Windows bundle', async () => {
+  const {impl,calls}=scripted([{body:releaseJson()}]);
+  const result=await wait(impl);
+  assert.equal(calls.length,1);assert.deepEqual(result.assets,releaseJson().assets.map(asset=>asset.name));
+  const workflow=readFileSync(join(repositoryRoot,'.github','workflows','release.yml'),'utf8');
+  assert.match(workflow,/needs: \[package, windows\]/);
+  assert.match(workflow,/dist-release\/\*\.tgz[\s\S]*dist-release\/SHA256SUMS-\*\.txt/);
+  assert.doesNotMatch(workflow,/build-dsh-remote-ops-windows|dist-release\/\*\.zip/);
+  const shared=readFileSync(join(repositoryRoot,'scripts','release-dsh-remote-ops.mjs'),'utf8');
+  assert.doesNotMatch(shared,/windows-x64\.zip/);
 });
 
 test("a missing GitHub digest is reported as unverified and a release that never appears times out with the reason", async () => {

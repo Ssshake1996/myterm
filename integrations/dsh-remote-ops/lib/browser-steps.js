@@ -11,19 +11,46 @@ export const displayUrl = value => {
 const text = (value, max = 4000) => typeof value === "string" && value.length <= max;
 const kinds = new Set(["css", "xpath", "role", "label", "text", "placeholder"]);
 const actions = new Set(["goto", "click", "fill", "press", "select", "check", "uncheck", "scroll", "wait", "read", "assert"]);
+const stepInvalid = (path, message) => browserError("BROWSER_STEP_INVALID", `${path}: ${message}. Nothing was dispatched`);
+const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
+function decodeJson(value, path, max) {
+  if (!text(value, max)) throw stepInvalid(path, "Encoded JSON exceeds the supported size");
+  try { return JSON.parse(value); } catch { throw stepInvalid(path, "Use valid JSON, or supply the array/object directly"); }
+}
+function stepsInput(value) {
+  if (typeof value === "string") value = decodeJson(value, "steps", 1048576);
+  if (record(value)) {
+    if (Object.hasOwn(value, "action")) return [value];
+    if (Object.keys(value).length === 1 && Array.isArray(value.steps)) return value.steps;
+  }
+  if (!Array.isArray(value)) throw stepInvalid("steps", "Provide an action array, a single action object, or {steps: [...]} (JSON strings are accepted)");
+  return value;
+}
+function fields(value, allowed, path) {
+  if (Object.keys(value).some(key => !allowed.includes(key))) throw stepInvalid(path, "Contains unsupported fields; use the published tool Schema");
+}
 export function browserRunSource({ flowId, steps }) {
   if (flowId != null && typeof flowId !== "string") throw browserError("BROWSER_FLOW_ID_INVALID", "flowId must be a saved flow.id from remote_browser_list; omit it for inline steps. Nothing was dispatched");
-  if (steps != null && !Array.isArray(steps)) throw browserError("BROWSER_STEP_INVALID", "steps must be an array of action objects, not a JSON string or object. Nothing was dispatched");
+  if (steps != null) steps = stepsInput(steps);
   const id = flowId?.trim(), hasSteps = Array.isArray(steps) && steps.length > 0;
   if (id && hasSteps) throw browserError("BROWSER_RUN_SOURCE_CONFLICT", "Provide either a nonblank flowId or inline steps, not both. Omit flowId for ordinary webpage actions. Nothing was dispatched");
   if (id) return id;
   if (hasSteps) return steps;
   throw browserError("BROWSER_RUN_SOURCE_REQUIRED", "Provide 1–40 inline steps, or a saved flow.id from remote_browser_list. Blank flowId and empty steps do not specify an operation. Nothing was dispatched");
 }
-const stepInvalid = (path, message) => browserError("BROWSER_STEP_INVALID", `${path}: ${message}. Nothing was dispatched`);
-const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
 export function browserTarget(value, path = "target") {
-  if (!record(value)) throw stepInvalid(path, "Provide a locator object with kind and value");
+  if (typeof value === "string") {
+    const selector = value.trim();
+    if (selector.startsWith("{")) value = decodeJson(selector, path, 32768);
+    else {
+      if (!text(selector) || !selector) throw stepInvalid(path, "Provide nonblank CSS/XPath text up to 4000 characters");
+      const prefix = /^(css|xpath)=/.exec(selector);
+      if (/^(role|label|text|placeholder)=/.test(selector)) throw stepInvalid(path, "Use {kind, value, name?} for accessible locators; selector strings support CSS/XPath");
+      value = { kind: prefix?.[1] ?? (/^(?:\(*\.?\/)/.test(selector) ? "xpath" : "css"), value: prefix ? selector.slice(prefix[0].length) : selector };
+    }
+  }
+  if (!record(value)) throw stepInvalid(path, 'Missing/invalid target. Call remote_browser_read without target to inspect the page, then supply {kind:"css",value:"#id"}, {kind:"xpath",value:"//..."}, or a CSS/XPath selector string from that page; never infer a click target from requestId');
+  fields(value, ["kind", "value", "name", "frame"], path);
   if (!kinds.has(value.kind)) throw stepInvalid(`${path}.kind`, "Use css/xpath/role/label/text/placeholder");
   if (!text(value.value) || !value.value.trim()) throw stepInvalid(`${path}.value`, "Provide nonblank locator text up to 4000 characters");
   if (value.frame != null && !text(value.frame)) throw stepInvalid(`${path}.frame`, "Use a CSS iframe selector or omit/null/blank for the main page");
@@ -31,10 +58,12 @@ export function browserTarget(value, path = "target") {
   return { kind: value.kind, value: value.value, ...(value.name != null ? { name: value.name } : {}), ...(value.frame?.trim() ? { frame: value.frame } : {}) };
 }
 export function browserSteps(steps) {
+  steps = stepsInput(steps);
   if (!Array.isArray(steps) || !steps.length || steps.length > 40) throw stepInvalid("steps", "Provide an array of 1–40 action objects");
   return steps.map((step, index) => {
     const path = `steps[${index}]`;
     if (!record(step)) throw stepInvalid(path, "Provide an action object");
+    fields(step, ["action", "target", "url", "value", "secretRef", "timeoutMs", "expectPopup", "state", "expect"], path);
     if (!actions.has(step.action)) throw stepInvalid(`${path}.action`, "Use goto/click/fill/press/select/check/uncheck/scroll/wait/read/assert; JavaScript is not supported");
     const result = { action: step.action };
     if (step.action === "goto") {
@@ -51,6 +80,7 @@ export function browserSteps(steps) {
     if (["fill", "press", "select"].includes(step.action) && result.value === undefined && !result.secretRef) throw stepInvalid(`${path}.value`, "This action needs text; fill may instead use the site's secretRef");
     if (step.expect != null) {
       if (!record(step.expect)) throw stepInvalid(`${path}.expect`, "Provide an expectation object or omit/null");
+      fields(step.expect, ["target", "text", "state"], `${path}.expect`);
       result.expect = { target: browserTarget(step.expect.target, `${path}.expect.target`) };
       if (step.expect.text != null) {
         if (!text(step.expect.text, 4000)) throw stepInvalid(`${path}.expect.text`, "Use text up to 4000 characters");

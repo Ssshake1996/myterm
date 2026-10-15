@@ -5,23 +5,16 @@ operations. The repository has been cut over to the plugin boundary: it no
 longer contains the myterm desktop application, a Tauri host, or a second
 Agent kernel.
 
-## Windows 11 x64 integrated bundle (v0.5.3)
+## Browser arguments and on-demand runtime (v0.5.4)
 
-Cold-session browser opens after DSH restart now resume the existing owner through the optional host sessionController service, without sending a model prompt or changing Agent code.
+Future Releases contain only the plugin `tgz` and its `SHA256SUMS`; no new `windows-x64.zip` is built. Historical v0.5.3 assets remain available. The plugin has no browser binaries; npm dependencies require network access, and the Agent can install matching Chromium through plugin tools when needed.
 
-Releases include the regular tgz and `dsh-remote-ops-v0.5.3-windows-x64.zip`. The ZIP carries Chromium 156.0.8078.4 (revision 1248), Headless Shell, FFmpeg and Winldd matching Playwright 1.64.0. Plugin npm dependencies still install online through DSH; this is not a completely offline installer. A working DSH, Node.js 22+, pnpm and access to the configured npm registry are required.
+- Independent windows follow the Windows user's default HTTP(S) browser on the DSH host, supporting installed Chrome / Edge with an isolated plugin profile. Embedded mode still defaults to matching Chromium. Each mode has its own engine preference; the previous embedded preference is retained. Explicit saved-site or tool browser choices take precedence. Unsupported/unavailable defaults report an error instead of silently opening Edge. A remote DSH host's default is separate from the client viewing DSH.
+- Prefer an action array for `steps`. Single action objects, a sole `{steps:[...]}` envelope and JSON-encoded versions are accepted. Prefer `{kind,value,name?,frame?}` locator objects for `target`; JSON-encoded locator objects and CSS/XPath strings (`css=#id`, `xpath=//button`, `#id`, `//button`) are accepted. All steps normalize and validate before dispatch. Equivalent requests deduplicate under the same `requestId`; missing targets are not guessed and arbitrary JavaScript is unsupported.
+- For missing Chromium, call `remote_browser_runtime` with `action: "status"`, then `action: "install"` if needed. Poll `status` until the required mode is ready before opening a page. The plugin's installed Playwright CLI downloads its matching Chromium and Headless Shell. The settings button uses the same installer. Network access is required; configure `HTTPS_PROXY`, `PLAYWRIGHT_DOWNLOAD_HOST` or `PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT` before starting DSH if needed. Complete matching runtimes are reused and login profiles/sites/flows retained.
+- `BROWSER_STEP_INVALID` identifies the field, accepted format and no-dispatch status. Correct the argument instead of repeating an unchanged invalid call; preflight rejection does not reserve the request ID. Fixes, Schemas, tool metadata and the bundled skill travel with the tgz, without Agent/core changes. Restart DSH and refresh its webpage after upgrading; verify v0.5.4.
 
-Extract the ZIP and run from its directory:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Profile web
-# Match the DSH_HOME of the running DSH when using a custom directory:
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Profile web -DshHome 'D:\DSH data'
-```
-
-The installer verifies every payload file with SHA256, installs the local plugin tgz through DSH, places the browser runtime, and launches both display modes for interaction checks. A test window opens briefly. Matching runtime files are reused; previous versions remain available for rollback. Browser files live in `$DSH_HOME/remote-ops/browser/runtimes/playwright-<version>-win32-x64`, separate from login profiles, sites, flows and preferences. The tgz is retained in `remote-ops/packages`, so the extracted download can be moved after installation.
-
-Browser settings report embedded and window readiness separately, with installation progress and failure details. `BROWSER_RUNTIME_MISSING` is recoverable by rerunning the matching bundle installer or clicking **安装 / 检查 Chromium** with network access. Standard Playwright `HTTPS_PROXY`, `PLAYWRIGHT_DOWNLOAD_HOST` and `PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT` variables can be set before starting DSH. Agent code is unchanged; the bundled skill supplies recovery guidance. Restart DSH, refresh the page and confirm v0.5.3; see the release notes for tested environments and limitations.
+Validation: 321 tests plus smoke, 12 browser E2E scenarios and 20 real DSH acceptance groups passed, with additional system-default process, restart/shared-input and v0.5.3 upgrade checks. See [v0.5.4 acceptance](docs/testing/dsh-remote-ops-v0.5.4-acceptance.md). The other user device and real intranet sites remain unverified.
 
 ## Parameter Schemas and optional nulls (v0.5.2)
 
@@ -86,7 +79,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.5.3.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.5.4.tgz
 dsh web
 ```
 
@@ -130,15 +123,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.5.3
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.5.4
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.5.3
-node scripts/release-dsh-remote-ops.mjs 0.5.3 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.5.4
+node scripts/release-dsh-remote-ops.mjs 0.5.4 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

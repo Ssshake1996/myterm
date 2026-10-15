@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { BrowserSessions } from "./browser-sessions.js";
 import { browserError, browserSteps, browserTarget, browserUrl } from "./browser-steps.js";
 import { BrowserView, browserInput } from "./browser-view.js";
+import { windowsDefaultBrowser } from './browser-default.js';
 import { browserInstallerCli, browserRuntimeMetadata, browserRuntimeDirectory, inspectBrowserRuntime, writeBrowserRuntimeManifest } from './browser-runtime.js';
 
 const identifier = value => typeof value === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
@@ -15,7 +16,8 @@ export class BrowserWorkspace extends BrowserSessions {
     this.sites = []; this.flows = []; this.sessions = new Map(); this.openings = new Map(); this.receipts = new Map();
     this.writes = Promise.resolve(); this.mutations = Promise.resolve(); this.disposed = false;
     this.ready = this.load(); void this.ready.catch(() => {});
-    this.active = new Map(); this.ownerSignals = new Map(); this.preferences = { display: 'embedded', browser: 'chromium', viewport: 'panel' };
+    this.active = new Map(); this.ownerSignals = new Map(); this.preferences = { display: 'embedded', browser: 'chromium', windowBrowser: process.platform === 'win32' ? 'system' : 'chromium', viewport: 'panel' };
+    this.systemBrowser = windowsDefaultBrowser;
   }
   async load() {
     await mkdir(this.root, { recursive: true });
@@ -28,14 +30,14 @@ export class BrowserWorkspace extends BrowserSessions {
   }
   validatePreferences(input) {
     const value={...this.preferences,...input};
-    if(!['embedded','window'].includes(value.display)||!['chromium','msedge','chrome'].includes(value.browser)||!['panel','desktop'].includes(value.viewport??'panel'))throw browserError('BROWSER_DISPLAY_INVALID','Choose an embedded/window display, Chromium/Edge/Chrome and a panel/desktop viewport');
-    return {display:value.display,browser:value.browser,viewport:value.viewport??'panel'};
+    if(!['embedded','window'].includes(value.display)||!['chromium','msedge','chrome'].includes(value.browser)||!['system','chromium','msedge','chrome'].includes(value.windowBrowser)||!['panel','desktop'].includes(value.viewport??'panel'))throw browserError('BROWSER_DISPLAY_INVALID','Choose an embedded/window display, a supported browser and a panel/desktop viewport');
+    return {display:value.display,browser:value.browser,windowBrowser:value.windowBrowser,viewport:value.viewport??'panel'};
   }
   savePreferences(input) { return this.mutate(async()=>{await this.ready;const value=this.validatePreferences(input);await this.persist('preferences.json',value);this.preferences=value;return value;}); }
   async openUrl(owner,value,options={}) {
     await this.ready;const url=browserUrl(value),origin=new URL(url).origin;
-    const site={id:'url-'+createHash('sha256').update(origin).digest('hex').slice(0,24),name:new URL(url).host,url,browser:options.browser??this.preferences.browser,slowMo:80,allowedOrigins:[origin],temporary:true};
-    const display=options.display??this.preferences.display;this.validatePreferences({display,browser:site.browser});
+    const site={id:'url-'+createHash('sha256').update(origin).digest('hex').slice(0,24),name:new URL(url).host,url,browser:options.browser??'default',slowMo:80,allowedOrigins:[origin],temporary:true};
+    const display=options.display??this.preferences.display;this.validatePreferences({display});
     const existing=[...this.sessions.values()].find(r=>r.owner===owner&&!r.closed&&r.site.id===site.id);
     const opened=await this.open(owner,site.id,{site,display});
     if(existing&&existing.pages.get(existing.activePageId)?.url()!==url)return this.navigate(owner,opened.id,'goto',url);
@@ -88,8 +90,8 @@ export class BrowserWorkspace extends BrowserSessions {
     if (!this.sites.some(site => site.id === id) && this.sites.length >= 100) throw browserError("BROWSER_SITE_LIMIT", "At most 100 sites are supported");
     const previous = this.sites.find(site => site.id === id);
     if ([...this.sessions.values()].some(record => !record.closed && record.site.id === id)) throw browserError("BROWSER_SITE_ACTIVE", "Close this site's browser before changing its configuration");
-    const site = { id, name: input.name.trim(), url: browserUrl(input.url), browser: input.browser ?? "chromium", slowMo: Number(input.slowMo ?? 150), username: String(input.username ?? "").slice(0, 300) };
-    if (!["chromium", "msedge", "chrome"].includes(site.browser) || !Number.isInteger(site.slowMo) || site.slowMo < 0 || site.slowMo > 1500) throw browserError("BROWSER_SITE_INVALID", "Choose Chromium/Edge/Chrome and a speed delay of 0–1500 ms");
+    const site = { id, name: input.name.trim(), url: browserUrl(input.url), browser: input.browser ?? "default", slowMo: Number(input.slowMo ?? 150), username: String(input.username ?? "").slice(0, 300) };
+    if (!["default", "system", "chromium", "msedge", "chrome"].includes(site.browser) || !Number.isInteger(site.slowMo) || site.slowMo < 0 || site.slowMo > 1500) throw browserError("BROWSER_SITE_INVALID", "Choose the default browser, Chromium/Edge/Chrome and a speed delay of 0–1500 ms");
     if (input.allowedOrigins !== undefined && !Array.isArray(input.allowedOrigins)) throw browserError("BROWSER_SITE_INVALID", "allowedOrigins must be a list of HTTP(S) origins");
     site.allowedOrigins = [...new Set([new URL(site.url).origin, ...(input.allowedOrigins ?? []).map(value => new URL(browserUrl(value)).origin)])].slice(0, 10);
     if (input.login) {
@@ -173,16 +175,23 @@ export class BrowserWorkspace extends BrowserSessions {
     const destination = join(this.profile(record.owner, record.site.id), "remote-ops-session.json"), temporary = `${destination}.${randomUUID()}.tmp`;
     await writeFile(temporary, JSON.stringify({ cookies: state.cookies }), { mode: 0o600 }); await rename(temporary, destination);
   }
-  async launch(site, owner, display = 'window') {
-    const profile = this.profile(owner, site.id);
-    const options = { headless: display === 'embedded', slowMo: site.slowMo, viewport: display === 'embedded' ? {width:1024,height:768} : null, ...(site.browser !== "chromium" ? { channel: site.browser } : {}) };
-    if (this.launchContext) return this.launchContext(profile, options);
-    const { chromium } = await this.library();
-    if (site.browser === 'chromium') {
+  async launchOptions(site, display) {
+    const selected = !site.browser || site.browser === 'default' ? (display === 'window' ? this.preferences.windowBrowser : this.preferences.browser) : site.browser;
+    if (!['system', 'chromium', 'chrome', 'msedge'].includes(selected)) throw browserError('BROWSER_DISPLAY_INVALID', 'Choose a supported browser');
+    const resolved = selected === 'system' ? await this.systemBrowser(new URL(site.url).protocol) : { browser: selected };
+    const options = { headless: display === 'embedded', slowMo: site.slowMo, viewport: display === 'embedded' ? {width:1024,height:768} : null, ...(resolved.executablePath ? { executablePath: resolved.executablePath } : resolved.browser !== 'chromium' ? { channel: resolved.browser } : {}) };
+    if (resolved.browser === 'chromium' && !this.launchContext) {
+      const { chromium } = await this.library();
       const runtime = await inspectBrowserRuntime({ root: this.root, chromium }), mode = runtime.modes[display];
-      if (!mode?.ready) throw browserError('BROWSER_RUNTIME_MISSING', `${display === 'embedded' ? 'Headless Shell for the plugin view' : 'Chromium for an independent window'} is missing or mismatched. Run the Windows bundle installer, install/check Chromium in browser settings (network required), or select installed Edge/Chrome.`);
+      if (!mode?.ready) throw browserError('BROWSER_RUNTIME_MISSING', `${display === 'embedded' ? 'Headless Shell for the plugin view' : 'Chromium for an independent window'} is missing or mismatched. Use remote_browser_runtime action=install (network required), poll action=status until the required mode is ready, or select installed Chrome/Edge in browser settings.`);
       options.executablePath = mode.executable;
     }
+    return options;
+  }
+  async launch(site, owner, display = 'window', preparedOptions) {
+    const profile = this.profile(owner, site.id), options = preparedOptions ?? await this.launchOptions(site, display);
+    if (this.launchContext) return this.launchContext(profile, options);
+    const { chromium } = await this.library();
     try {
       const context = await chromium.launchPersistentContext(profile, options); context.setDefaultTimeout(10000);
       try { const saved = JSON.parse(await readFile(join(profile, "remote-ops-session.json"), "utf8")); if (Array.isArray(saved.cookies)) await context.addCookies(saved.cookies); } catch { /* An expired/unusable session is recovered by signing in again in the visible browser. */ }

@@ -30,6 +30,8 @@ async function fixture(t) {
     };
     launches.push({profile,options,context});await context.newPage();return context;
   }});await w.ready;
+  // Unit fixtures must not depend on CI's current user's Windows associations.
+  w.systemBrowser=async()=>({browser:'chrome',executablePath:'C:\\Fixture\\chrome.exe'});
   t.after(async()=>{await w.dispose();await rm(root,{recursive:true,force:true});});
   return {w,root,launches,inputs};
 }
@@ -85,6 +87,31 @@ test('display preferences persist and legacy saved-site opens remain visible',as
   const site=await w.saveSite({name:'Legacy',url:'https://old.test/'});
   await w.open('a',site.id);assert.equal(launches[1].options.headless,false);
   await assert.rejects(w.savePreferences({display:'invalid'}),/BROWSER_DISPLAY_INVALID/);
+});
+
+test('independent windows inherit the system browser while embedded mode and explicit engines stay separate',async t=>{
+  const {w,launches}=await fixture(t);let queries=0;
+  w.systemBrowser=async protocol=>{queries++;assert.equal(protocol,'https:');return {browser:'chrome',executablePath:'C:\\Chrome\\chrome.exe'};};
+  await w.savePreferences({browser:'msedge',windowBrowser:'system'});
+  const one=await w.openUrl('a','https://example.test/');assert.equal(launches[0].options.channel,'msedge');
+  await w.changeDisplay('a',one.id,'window');assert.equal(queries,1);assert.equal(launches[1].options.channel,undefined);assert.equal(launches[1].options.executablePath,'C:\\Chrome\\chrome.exe');
+  assert.equal(w.snapshot('a').preferences.windowBrowser,'system');
+  await w.openUrl('a','https://override.test/',{display:'window',browser:'msedge'});assert.equal(launches[2].options.channel,'msedge');assert.equal(queries,1);
+  const site=await w.saveSite({name:'Default',url:'https://saved.test/'});assert.equal(site.browser,'default');
+  await w.open('b',site.id,{display:'window',browser:'chrome'});assert.equal(launches[3].options.channel,'chrome');
+});
+
+test('opening an existing origin with another explicit engine reports the mismatch without losing the page',async t=>{
+  const {w,launches}=await fixture(t),one=await w.openUrl('a','https://example.test/',{browser:'msedge'});
+  await assert.rejects(w.openUrl('a','https://example.test/next',{browser:'chrome'}),/BROWSER_ENGINE_CHANGED/);
+  assert.equal(launches.length,1);assert.equal(w.session('a',one.id).closed,false);assert.equal(w.session('a',one.id).pages.values().next().value.url(),'https://example.test/');
+});
+
+test('an unsupported system default rejects a display switch before closing the live embedded page',async t=>{
+  const {w,launches}=await fixture(t),one=await w.openUrl('a','https://example.test/');
+  await w.savePreferences({windowBrowser:'system'});w.systemBrowser=async()=>{throw new Error('BROWSER_DEFAULT_UNSUPPORTED');};
+  await assert.rejects(w.changeDisplay('a',one.id,'window'),/BROWSER_DEFAULT_UNSUPPORTED/);
+  const record=w.session('a',one.id);assert.equal(record.closed,false);assert.equal(record.switching,false);assert.equal(record.display,'embedded');assert.equal(record.context,launches[0].context);
 });
 test('live frames require the same conversation, while human input needs no takeover even during an Agent action',async t=>{
   const {w,inputs}=await fixture(t), one=await w.openUrl('a','https://example.test/');

@@ -23,6 +23,7 @@ test("all plugin tools expose standard object JSON Schemas, including nested req
 test("browser schemas validate complete URL, login, observation and control arguments", () => {
   const examples = {
     remote_browser_list: {},
+    remote_browser_runtime: { action: "install" },
     remote_browser_open: { url: "https://example.test/", display: "embedded", browser: "chrome" },
     remote_browser_login: { requestId: "login-1" },
     remote_browser_read: { target: { kind: "xpath", value: "//*[@id='result']", frame: null } },
@@ -34,6 +35,29 @@ test("browser schemas validate complete URL, login, observation and control argu
   }
   assert.equal(ajv.compile(tools.get("remote_browser_open").parameters)({ url: "https://example.test/", browser: "guess" }), false);
   assert.equal(ajv.compile(tools.get("remote_browser_control").parameters)({ action: "pause" }), false);
+});
+
+test("browser schemas expose the supported JSON and selector compatibility forms", () => {
+  const validate = ajv.compile(tools.get("remote_browser_run").parameters);
+  const step = { action: "click", target: "xpath=//button" };
+  for (const steps of [[step], step, { steps: [step] }, JSON.stringify([step])]) assert.equal(validate({ requestId: "compat", steps }), true, JSON.stringify(validate.errors));
+  assert.equal(validate({ requestId: "bad", steps: { steps: [step], flowId: "ignored" } }), false);
+  const read = ajv.compile(tools.get("remote_browser_read").parameters);
+  assert.equal(read({ target: "#entry" }), true);
+  // DSH's Schema subset cannot express string lengths; runtime preflight enforces them.
+  assert.equal(read({ target: "" }), true);
+});
+
+test("browser Schemas stay within the real DSH host's supported JSON Schema subset", () => {
+  const allowed=new Set(['type','oneOf','properties','required','additionalProperties','items','enum','const','description']);
+  const inspect=schema=>{
+    assert.ok(Object.keys(schema).every(key=>allowed.has(key)),JSON.stringify(Object.keys(schema)));
+    for(const value of Object.values(schema.properties??{}))inspect(value);
+    for(const value of schema.oneOf??[])inspect(value);
+    if(schema.items)inspect(schema.items);
+    if(schema.additionalProperties&&typeof schema.additionalProperties==='object')inspect(schema.additionalProperties);
+  };
+  for(const [name,tool] of tools)if(name.startsWith('remote_browser_'))inspect(tool.parameters);
 });
 
 test("browser run schema expresses supported actions, locators and conditional required fields", () => {

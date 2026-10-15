@@ -47,7 +47,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: remote-ops-package
-          path: dist-release/*.tgz
+          path: |
+            dist-release/*.tgz
+            dist-release/SHA256SUMS-*.txt
           if-no-files-found: error
   windows:
     needs: package
@@ -61,26 +63,6 @@ jobs:
           cache-dependency-path: integrations/dsh-remote-ops/package-lock.json
       - run: npm ci --prefix integrations/dsh-remote-ops
       - run: npm run check --prefix integrations/dsh-remote-ops
-      - uses: actions/download-artifact@v4
-        with:
-          name: remote-ops-package
-          path: dist-release
-      - name: Build and verify the Windows x64 bundle
-        shell: pwsh
-        run: |
-          node scripts/build-dsh-remote-ops-windows.mjs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $stage = Get-ChildItem -LiteralPath dist-release -Directory -Filter '.windows-*' | Select-Object -First 1
-          node (Join-Path $stage.FullName 'install.mjs') --verify-only
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: remote-ops-windows
-          path: |
-            dist-release/*.zip
-            dist-release/SHA256SUMS-*.txt
-          if-no-files-found: error
-          compression-level: 0
   release:
     needs: [package, windows]
     runs-on: ubuntu-latest
@@ -91,8 +73,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: remote-ops-*
-          merge-multiple: true
+          name: remote-ops-package
           path: dist-release
       - name: Create or update the GitHub Release
         run: |
@@ -105,4 +86,4 @@ jobs:
           else
             gh release create "$TAG" --verify-tag --title "$title" --notes-file "$notes"
           fi
-          gh release upload "$TAG" dist-release/*.tgz dist-release/*.zip dist-release/SHA256SUMS-*.txt --clobber
+          gh release upload "$TAG" dist-release/*.tgz dist-release/SHA256SUMS-*.txt --clobber

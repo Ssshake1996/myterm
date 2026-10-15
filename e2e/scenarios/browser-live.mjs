@@ -11,6 +11,8 @@ export const liveBrowserScenario={id:'web-live',title:'网址直开、实时画�
   await t.step('直接输入网址并打开插件内网页，无需保存网站',async()=>{
     await p.getByRole('button',{name:'Remote Ops',exact:true}).click();await p.getByRole('tab',{name:'网页',exact:true}).click();
     await p.getByText('浏览器设置与高级功能',{exact:true}).click();await p.getByLabel('浏览器引擎',{exact:true}).selectOption('chrome');
+    await p.getByLabel('独立窗口浏览器',{exact:true}).selectOption('chrome');
+    assert.equal((await snapshot()).preferences.windowBrowser,'chrome');
     await p.getByRole('textbox',{name:'网页地址',exact:true}).fill(`${info.website.url}/login`);
     await p.getByRole('button',{name:'打开网页',exact:true}).click();
     await p.getByAltText('网页实时画面',{exact:true}).waitFor();

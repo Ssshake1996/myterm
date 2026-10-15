@@ -7,6 +7,7 @@ import { EventEmitter } from 'node:events';
 import { browserRuntimeMetadata, browserRuntimeDirectory, inspectBrowserRuntime, writeBrowserRuntimeManifest } from '../lib/browser-runtime.js';
 import { BrowserWorkspace } from '../lib/browser-workspace.js';
 import { registerSessionActivation, RemoteOpsState } from '../lib/index.js';
+import { registerBrowserTools } from '../lib/browser-tools.js';
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'remote-ops-runtime-')), metadata = browserRuntimeMetadata();
@@ -16,6 +17,19 @@ async function fixture(t) {
   const managed = browserRuntimeDirectory(root, metadata);
   return { root, metadata, cache, managed, chromium, put, inspect: () => inspectBrowserRuntime({ root, chromium, metadata }) };
 }
+
+test('browser runtime tool installs only on request, exposes progress and needs no open browser', async () => {
+  const tools = new Map(); let installs = 0;
+  const workspace = { preferences: { browser: 'chrome' }, runtime: async () => ({ chromium: installs > 0, install: { status: installs ? 'completed' : 'idle' } }), install: async () => { installs++; } };
+  registerBrowserTools({ tools: { register: tool => tools.set(tool.name, tool) }, systemPrompt: { section() {} } }, { browser: workspace });
+  const tool = tools.get('remote_browser_runtime'), exec = { agent: { id: 'owner' } };
+  assert.ok(tool, 'plugin must expose on-demand runtime installation without changing Agent');
+  assert.equal((await tool.execute({ action: 'status' }, exec)).chromium, false); assert.equal(installs, 0);
+  assert.equal((await tool.execute({ action: 'install' }, exec)).install.status, 'completed'); assert.equal(installs, 1);
+  assert.equal(workspace.preferences.browser, 'chrome');
+  await assert.rejects(tool.execute({ action: 'guess' }, exec), /BROWSER_RUNTIME_ACTION_INVALID/);
+  assert.equal(installs, 1);
+});
 
 test('runtime metadata pins both Chromium variants to the installed Playwright version', () => {
   const m = browserRuntimeMetadata({ platform: 'win32', arch: 'x64' });

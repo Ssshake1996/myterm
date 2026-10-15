@@ -44,11 +44,13 @@ export class BrowserSessions {
     if (this.disposed) throw browserError("BROWSER_DISPOSED", "The plugin is unloading");
     const key = `${owner}:${siteId}`;
     if (this.openings.has(key)) return this.openings.get(key);
-    const existing = [...this.sessions.values()].find(record => !record.closed && record.owner === owner && record.site.id === siteId);
-    if (existing) { this.active?.set(owner,existing.id);if(options.display&&existing.display!==options.display)await this.changeDisplay(owner,existing.id,options.display);await existing.pages.get(existing.activePageId)?.bringToFront(); return this.publicSession(existing); }
-    const site = options.site ?? this.sites.find(item => item.id === siteId);
+    const savedSite = options.site ?? this.sites.find(item => item.id === siteId);
+    const site = options.browser != null && savedSite ? { ...savedSite, browser: options.browser } : savedSite;
     if (!site) throw browserError("BROWSER_SITE_NOT_FOUND", "Save a web site first");
-    if(options.display)this.validatePreferences({display:options.display,browser:site.browser});
+    const existing = [...this.sessions.values()].find(record => !record.closed && record.owner === owner && record.site.id === siteId);
+    if (existing && (options.browser != null || options.site) && existing.site.browser !== site.browser) throw browserError('BROWSER_ENGINE_CHANGED', 'This site is already open with another browser setting. Close that browser explicitly before reopening with the requested engine; its current page was preserved.');
+    if (existing) { this.active?.set(owner,existing.id);if(options.display&&existing.display!==options.display)await this.changeDisplay(owner,existing.id,options.display);await existing.pages.get(existing.activePageId)?.bringToFront(); return this.publicSession(existing); }
+    if(options.display)this.validatePreferences({display:options.display});
     const active = [...this.sessions.values()].filter(record => !record.closed);
     if (active.filter(record => record.owner === owner).length + [...this.openings.keys()].filter(key => key.startsWith(`${owner}:`)).length >= 3 || active.length + this.openings.size >= 8) throw browserError("BROWSER_SESSION_LIMIT", "Maximum 3 browsers per conversation, 8 per plugin");
     const opening = (async () => {
@@ -100,10 +102,13 @@ export class BrowserSessions {
     if(r.closed)throw browserError('BROWSER_CLOSED','This browser was closed');
     if(r.display===display)return this.publicSession(r);
     r.switching=true;
+    let launchOptions;
+    try { launchOptions=await this.launchOptions(r.site,display); }
+    catch(error) { r.switching=false;throw error; }
     const urls=[...r.pages].map(([id,page])=>[id,page.url()]),selected=r.activePageId;
     try {
       await r.inputQueue;await this.saveStorage(r);await r.view?.stop();await r.context.close();
-      const context=await this.launch(r.site,owner,display);r.context=context;r.pages=new Map();r.secretTargets=[];r.closed=false;
+      const context=await this.launch(r.site,owner,display,launchOptions);r.context=context;r.pages=new Map();r.secretTargets=[];r.closed=false;
       const initial=context.pages();
       for(let n=1;n<initial.length;n++)await initial[n].close();
       for(let n=0;n<urls.length;n++) {

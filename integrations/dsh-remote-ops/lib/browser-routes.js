@@ -30,7 +30,7 @@ export function registerBrowserRoutes(ctx, state) {
         case "flow.save": result = await workspace.saveFlow(body.flow); break;
         case "flow.delete": result = await workspace.deleteFlow(body.flowId); break;
         case "runtime.install": result = await workspace.install(); break;
-        case "open": result = await workspace.open(owner, body.siteId,{display:body.display??workspace.preferences.display}); break;
+        case "open": result = await workspace.open(owner, body.siteId,{display:body.display??workspace.preferences.display,browser:body.browser}); break;
         case "run": result = workspace.publicJob(workspace.session(owner, body.browserId), await workspace.run(owner, body.browserId, browserRunSource(body), { requestId: body.requestId, mode: body.mode, variables: body.variables, pageId: body.pageId })); break;
         case "login": {
           const job = await workspace.login(owner, body.browserId, { requestId: body.requestId });

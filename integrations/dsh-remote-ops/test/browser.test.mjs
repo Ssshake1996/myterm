@@ -174,11 +174,69 @@ test("nonblank browser flow IDs and inline steps conflict before either source e
 
 test("invalid browser run field types are diagnosed before dispatch without exposing their contents", async t => {
   const { workspace: w, site, writes } = await fixture(t), session = await w.open("owner", site.id);
-  for (const entry of ["tool", "http"]) for (const fields of [{ steps: JSON.stringify([click("test-secret")]) }, { steps: {} }, { steps: 4 }, { flowId: 3 }, { flowId: {} }]) {
+  for (const entry of ["tool", "http"]) for (const fields of [{ steps: '["test-secret"' }, { steps: {} }, { steps: 4 }, { flowId: 3 }, { flowId: {} }]) {
     const code = Object.hasOwn(fields, "steps") ? "BROWSER_STEP_INVALID" : "BROWSER_FLOW_ID_INVALID";
     await assert.rejects(browserRunEntry(w, entry)({ browserId: session.id, requestId: entry, ...fields }), error => error.code === code && !error.message.includes("test-secret"));
   }
   assert.deepEqual(writes, []); assert.equal(w.receipts.size, 0);
+});
+
+test("encoded steps and selector targets execute through tools and HTTP and deduplicate canonical retries", async t => {
+  const { workspace: w, site, writes } = await fixture(t), session = await w.open("owner", site.id);
+  for (const entry of ["tool", "http"]) {
+    const run = browserRunEntry(w, entry);
+    const canonical = [{ action: "fill", target: { kind: "css", value: "#entry" }, value: "" }, click("#go")];
+    const compatible = [{ ...canonical[0], target: "css=#entry" }, { action: "click", target: "#go" }];
+    const first = await run({ requestId: entry + "-encoded", steps: JSON.stringify(compatible) });
+    await w.session("owner", session.id).job.done;
+    assert.equal(w.session("owner", session.id).job.status, "completed");
+    assert.equal((await run({ requestId: entry + "-encoded", steps: canonical })).id, first.id);
+    for (const [n, steps] of [click("object"), { steps: [click("envelope")] }, JSON.stringify({ steps: [{ action: "click", target: "xpath=//button" }] })].entries()) {
+      await run({ requestId: entry + "-compat-" + n, steps }); await w.session("owner", session.id).job.done;
+      assert.equal(w.session("owner", session.id).job.status, "completed");
+    }
+  }
+  assert.deepEqual(writes, ["", "#go", "object", "envelope", "//button", "", "#go", "object", "envelope", "//button"]);
+});
+
+test("string locators normalize deterministically, retaining XPath and expectation checks", () => {
+  for (const value of ["//input[@id='entry']", ".//input", "(//input)[1]", "xpath=//input"]) assert.equal(browserTarget(value).kind, "xpath");
+  assert.deepEqual(browserTarget("css=#entry"), { kind: "css", value: "#entry" });
+  assert.deepEqual(browserTarget('{"kind":"role","value":"button","name":"Go"}'), { kind: "role", value: "button", name: "Go" });
+  assert.deepEqual(browserSteps([{ action: "click", target: "#go", expect: { target: "xpath=//p", text: "OK" } }])[0].expect.target, { kind: "xpath", value: "//p" });
+});
+
+test("browser read accepts dictionary and string locators and rejects an invalid supplied target", async t => {
+  const {workspace:w,site}=await fixture(t);await w.open('owner',site.id);
+  const tools=new Map();registerBrowserTools({tools:{register:tool=>tools.set(tool.name,tool)},systemPrompt:{section(){}}},{browser:w});
+  const read=args=>tools.get('remote_browser_read').execute(args,{agent:{id:'owner'}});
+  for(const target of [{kind:'css',value:'#entry'},'#entry','xpath=//input',JSON.stringify({kind:'css',value:'#entry'})])assert.equal((await read({target})).target.unique,true);
+  assert.ok((await read({target:null})).page);
+  for(const target of ['',false,[],{}])await assert.rejects(read({target}),{code:'BROWSER_STEP_INVALID'});
+});
+
+test("malformed compatibility inputs reject the entire run before effects or request reservation", async t => {
+  const { workspace: w, site, writes } = await fixture(t), session = await w.open("owner", site.id);
+  const bad = ["null", "4", '"double encoded"', "[", " ", "x".repeat(1048577),
+    { steps: [click("must-not-leak")], flowId: "ignored" },
+    JSON.stringify([click("MUST_NOT_EXECUTE"), { action: "click", target: "" }]),
+    JSON.stringify([click("MUST_NOT_EXECUTE"), { action: "click", target: { xpath: "//button" } }]),
+    JSON.stringify([{ action: "click", target: "#go", script: "must-not-leak" }])];
+  for (const entry of ["tool", "http"]) for (const [n, steps] of bad.entries()) await assert.rejects(browserRunEntry(w, entry)({ requestId: entry + n, steps }), error => error.code === "BROWSER_STEP_INVALID" && /Nothing was dispatched/.test(error.message) && !error.message.includes("must-not-leak"));
+  assert.deepEqual(writes, []); assert.equal(w.receipts.size, 0); assert.equal(w.session("owner", session.id).job, undefined);
+  assert.throws(() => browserRunSource({ flowId: "saved", steps: JSON.stringify([click("go")]) }), { code: "BROWSER_RUN_SOURCE_CONFLICT" });
+});
+
+test("reported click-only JSON input gives a recoverable target path and never guesses a click", async t => {
+  const { workspace: w, site, writes } = await fixture(t), session = await w.open("owner", site.id);
+  for (const entry of ["tool", "http"]) {
+    const run=browserRunEntry(w,entry), requestId="click-details-3-"+entry;
+    await assert.rejects(run({requestId,steps:'[{"action": "click"}]'}),error=>error.code==='BROWSER_STEP_INVALID'&&/steps\[0\]\.target/.test(error.message)&&/remote_browser_read/.test(error.message));
+    assert.deepEqual(writes,entry==='tool'?[]:['#details']);
+    const fixed=await run({requestId,steps:'[{"action":"click","target":"#details"}]'});
+    await w.session('owner',session.id).job.done; assert.equal(fixed.count,1);
+  }
+  assert.deepEqual(writes,['#details','#details']);
 });
 
 test("browser run without a nonempty flow ID or steps array reports the missing source", async t => {
