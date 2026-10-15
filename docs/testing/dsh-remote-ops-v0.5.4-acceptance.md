@@ -28,8 +28,16 @@
 
 原始证据保存在本地忽略目录 `output/browser054-*`，包括失败重现、门禁、宿主请求 Schema、20 组结果、截图、系统进程核对、重启和升级记录。截图已检查。
 
+## 正式包复验
+
+正式 [v0.5.4 Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.5.4) 的附件恰为 tgz 与 SHA256 文件；无新增 Windows ZIP。下载后的包摘要与本地验收包、Linux CI 产物及 GitHub digest 一致，51 个包内文件逐个与发布源码及安装内容一致，含随包 skill，不含浏览器二进制。
+
+正式 tgz 在独立 DSH_HOME 新装后，20 组真实 DSH 验收再次全部通过、console/page/HTTP 错误为 0；再次从空缓存联网安装运行时，核对 Windows 默认 Chrome 进程与登录保留。正式包升级复验也通过。重启复验确认旧对话、登录及人工/Agent 共享输入正常。
+
+发布提交和 Tag：`6909ec8cc6a56f63d3eed52712ef99ced57fc0f5`。发布工作流 [38696881730](https://github.com/Ssshake1996/myterm/actions/runs/38696881730) 的 Linux、Windows、Release 均通过；主分支 [插件 CI 38696933093](https://github.com/Ssshake1996/myterm/actions/runs/38696933093) 与 [浏览器 E2E 38696933663](https://github.com/Ssshake1996/myterm/actions/runs/38696933663) 均通过。历史 v0.5.3 ZIP 仍保留。
+
 ## 发布与边界
 
-发布工作流保留 Linux/Windows 门禁，只上传 tgz 与对应 SHA256 文件。历史 v0.5.3 ZIP 不删除。候选最终 tgz SHA256：`651845ee0f4bc9976aa924b01ecbe0349601364bdb8e1d56e95e443e2cfff90b`。
+发布工作流保留 Linux/Windows 门禁，只上传 tgz 与对应 SHA256 文件。历史 v0.5.3 ZIP 不删除。正式 tgz SHA256：`651845ee0f4bc9976aa924b01ecbe0349601364bdb8e1d56e95e443e2cfff90b`。
 
 未验证用户另一台电脑、真实内网站点/模型、其他 DSH 版本。Windows 系统默认引擎支持已安装 Chrome/Edge；其他默认浏览器或关联读取失败明确报错，不自动替换。CSS/XPath 参数完成结构校验后，具体选择器语法、页面加载和唯一匹配仍由浏览器执行时检查。展示模式切换会重载页面，未提交表单不恢复。SSH 参数空格问题继续暂缓。

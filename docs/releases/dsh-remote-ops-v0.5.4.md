@@ -16,3 +16,5 @@ dsh plugin --profile web add .\dsh-remote-ops-v0.5.4.tgz
 完成后重启 DSH 并刷新网页，确认 v0.5.4。需要专用 Chromium 时可在主对话让 Agent 按需安装，或使用设置中的“安装 / 检查 Chromium”。下载依赖网络，代理/镜像环境变量应在启动 DSH 前设置；独立窗口需要同一交互桌面。支持 DSH 0.2.0-rc.2；其他宿主版本、用户另一台电脑及实际内网站点需在对应环境验证。
 
 验证：321 项测试及 smoke、12 个浏览器 E2E 场景、20 组真实 DSH 验收通过，另完成 Windows 默认浏览器真实进程核对、DSH 重启共享输入和正式 v0.5.3 升级验证。详情见 [v0.5.4 验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.5.4-acceptance.md)。
+
+正式包复验完成：Release 仅含 tgz 和校验文件，SHA256、发布源码和 51 个安装文件一致；正式 tgz 新装后 20 组真实 DSH 验收再次通过，重启和升级复验通过。Linux、Windows 发布门禁及主分支浏览器 E2E 均通过。
