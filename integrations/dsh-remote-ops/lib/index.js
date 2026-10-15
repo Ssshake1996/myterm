@@ -20,6 +20,7 @@ export { RemoteOpsState } from "./state/index.js";
 
 export function apply(ctx) {
   const state = new RemoteOpsState(ctx);
+  registerSessionActivation(ctx, state);
   state.browser = new BrowserWorkspace({ root: join(state.base, "browser"), credentials: ctx.credentials });
   ctx.effect(() => async () => {
     state.disposed = true;
@@ -39,4 +40,14 @@ export function apply(ctx) {
   registerBrowserRoutes(ctx, state);
   registerBrowserTools(ctx, state);
   registerBrowserSkill(ctx);
+}
+
+export function registerSessionActivation(ctx, state) {
+  ctx.inject?.(['sessionController'], ready => {
+    ready.effect(() => {
+      const controller = ready.sessionController;
+      state.sessionController = controller;
+      return () => { if (state.sessionController === controller) state.sessionController = undefined; };
+    }, 'dsh-remote-ops session activation');
+  });
 }

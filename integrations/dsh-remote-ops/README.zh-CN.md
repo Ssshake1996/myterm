@@ -6,6 +6,24 @@
 
 客户端兼容 DSH 0.2.0-rc.2 的 `Regular` 图标导出，并回退支持旧版按尺寸命名的图标。v0.2.23 修复图标导出变化导致的 Remote Ops 面板空白；启动失败提示改由 DSH `shell.overlay` 宿主插槽承载，不再向页面 body 创建全局浮层。
 
+## Windows 11 x64 联网整合包（v0.5.3）
+
+同时修复 DSH 重启后旧对话未激活时打开网页失败：插件通过可选的宿主 sessionController 服务恢复原有会话，无需先发送消息，不修改 Agent。
+
+Release 同时提供普通 tgz 和 `dsh-remote-ops-v0.5.3-windows-x64.zip`。整合包携带与 Playwright 1.64.0 匹配的 Chromium 156.0.8078.4（revision 1248）、Headless Shell、FFmpeg 和 Winldd；插件 npm 依赖仍通过 DSH 正常联网安装，不要求完全断网可用。需要可运行的 DSH、Node.js 22+、pnpm 及所配置 npm 源的访问权限。
+
+下载校验后解压 ZIP，在其目录用 PowerShell 执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Profile web
+# 自定义目录时，与实际运行 DSH 的 DSH_HOME 保持一致：
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Profile web -DshHome 'D:\DSH data'
+```
+
+脚本先核验完整文件清单与 SHA256，再安装本地插件 tgz、放置浏览器，并实际启动插件内/独立窗口两种浏览器检查（独立测试窗口会短暂打开）。运行时保存在 `$DSH_HOME/remote-ops/browser/runtimes/playwright-<版本>-win32-x64`，与登录 profile、网站、流程及偏好分开。匹配版本复用，旧版本目录保留；tgz 保存到稳定的 `remote-ops/packages`，安装后可以移走解压目录。
+
+浏览器设置分别显示两种模式是否就绪，并显示安装输出与失败原因。缺少匹配浏览器时返回 `BROWSER_RUNTIME_MISSING`；可重跑整合包安装脚本，或点击“安装 / 检查 Chromium”联网补齐。支持启动 DSH 前设置 Playwright 的 `HTTPS_PROXY`、`PLAYWRIGHT_DOWNLOAD_HOST`、`PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT`。未修改 Agent；随包 skill 自动提供排查指南。完成后重启 DSH 并刷新网页，确认 v0.5.3。真实验收环境和限制见发布说明。
+
 ## 参数 Schema 与空值兼容（v0.5.2）
 
 本版本修复插件工具参数未转换为标准 JSON Schema，以及网页步骤可选空值导致 `BROWSER_STEP_INVALID` 的问题。工具定义、运行时校验及随包 `remote-ops-browser` skill 一起更新，所有改动随 tgz 分发，不需要修改 Agent 或 DSH 内核。
@@ -13,7 +31,7 @@
 - 插件全部工具按 DSH 契约提供标准参数 Schema；网页动作和定位器有枚举，按动作声明必填字段。`goto` 需要 `url`，其他步骤需要结构化 `target`，包括 `read`；整页观察可直接使用 `remote_browser_read`。
 - 网页可选字段的 `null` 按未提供处理；`target.frame` 为空白时使用主页面。清空输入所需的 `value: ""` 保留；`fill`、`press`、`select` 缺少实际值仍会拒绝，密码继续只使用保存网站的引用。
 - 错误指出字段路径，如 `steps[1].target.frame`；整次步骤先完成校验再派发，第二步无效也不会执行第一步。空值与省略归一化后使用同一请求仍去重，不自动重试或猜测定位器。
-- 门禁新增完整 Schema 校验；真实 DSH 验收检查实际模型请求中的工具定义和页面执行结果。升级后停止旧 DSH 进程、重启并刷新网页，确认 `v0.5.2`；随包 skill 自动注册，无需手工复制。
+- 门禁新增完整 Schema 校验；真实 DSH 验收检查实际模型请求中的工具定义和页面执行结果。升级后停止旧 DSH 进程、重启并刷新网页，确认 `v0.5.3`；随包 skill 自动注册，无需手工复制。
 
 ## 网页操作参数修复（v0.5.1）
 
@@ -72,7 +90,7 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.5.2.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.5.3.tgz
 dsh web
 ```
 

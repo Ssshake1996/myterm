@@ -9,6 +9,8 @@ Use the installed `remote_browser_*` tools. The user and Agent share the same li
 
 ## Open and observe
 
+The Windows x64 integrated bundle includes matching Chromium and Headless Shell; plugin npm dependencies still install over the network. Browser settings report readiness separately for the plugin view and independent window. If `BROWSER_RUNTIME_MISSING` occurs, ask the user to run the matching bundle installer or use **安装 / 检查 Chromium** in browser settings with network access, then verify the required mode is ready. Installed Chrome/Edge remain explicit user choices. Do not repeat the same open call, invent a browser path, download a different Chromium revision, or modify Agent/global browser settings to work around a missing runtime.
+
 Call `remote_browser_list` to discover browsers, saved sites and flows. Open an HTTP(S) `url` with `remote_browser_open`; saving a site or flow first is optional. Omit `browserId` to use this conversation's selected browser, or use an ID actually returned by the plugin. Read the current page with `remote_browser_read` before dependent actions, including after human input. Its optional `target` tests a locator. Prefer role with accessible name, label, text or placeholder; CSS and XPath are supported. A locator must match exactly one element.
 
 ## Choose the operation source

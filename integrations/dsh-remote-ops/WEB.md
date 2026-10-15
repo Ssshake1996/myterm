@@ -2,6 +2,26 @@
 
 Remote Ops 0.5.2 provides a browser in the native DSH right Sidebar. Type a URL to begin; saved sites and flows are optional. DSH owns the Agent and conversation. The plugin provides one browser session that both the user and Agent can operate.
 
+
+## Windows 11 x64 integrated bundle (v0.5.3)
+
+Cold-session browser opens after DSH restart now resume the existing owner through the optional host sessionController service, without sending a model prompt or changing Agent code.
+
+Releases include the regular tgz and `dsh-remote-ops-v0.5.3-windows-x64.zip`. The ZIP carries Chromium 156.0.8078.4 (revision 1248), Headless Shell, FFmpeg and Winldd matching Playwright 1.64.0. Plugin npm dependencies still install online through DSH; this is not a completely offline installer. A working DSH, Node.js 22+, pnpm and access to the configured npm registry are required.
+
+Extract the ZIP and run from its directory:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Profile web
+# Match the DSH_HOME of the running DSH when using a custom directory:
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Profile web -DshHome 'D:\DSH data'
+```
+
+The installer verifies every payload file with SHA256, installs the local plugin tgz through DSH, places the browser runtime, and launches both display modes for interaction checks. A test window opens briefly. Matching runtime files are reused; previous versions remain available for rollback. Browser files live in `$DSH_HOME/remote-ops/browser/runtimes/playwright-<version>-win32-x64`, separate from login profiles, sites, flows and preferences. The tgz is retained in `remote-ops/packages`, so the extracted download can be moved after installation.
+
+Browser settings report embedded and window readiness separately, with installation progress and failure details. `BROWSER_RUNTIME_MISSING` is recoverable by rerunning the matching bundle installer or clicking **安装 / 检查 Chromium** with network access. Standard Playwright `HTTPS_PROXY`, `PLAYWRIGHT_DOWNLOAD_HOST` and `PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT` variables can be set before starting DSH. Agent code is unchanged; the bundled skill supplies recovery guidance. Restart DSH, refresh the page and confirm v0.5.3; see the release notes for tested environments and limitations.
+
+
 ## First use
 
 1. Select or create a DSH conversation and open **Remote Ops → 网页**.

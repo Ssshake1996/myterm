@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  package:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -44,13 +44,65 @@ jobs:
           [ "$packed" = "$artifact" ] || mv "dist-release/$packed" "dist-release/$artifact"
           (cd dist-release && sha256sum "$artifact" > "SHA256SUMS-dsh-remote-ops-v${{ steps.meta.outputs.version }}.txt")
           cat dist-release/SHA256SUMS-*.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remote-ops-package
+          path: dist-release/*.tgz
+          if-no-files-found: error
+  windows:
+    needs: package
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: integrations/dsh-remote-ops/package-lock.json
+      - run: npm ci --prefix integrations/dsh-remote-ops
+      - run: npm run check --prefix integrations/dsh-remote-ops
+      - uses: actions/download-artifact@v4
+        with:
+          name: remote-ops-package
+          path: dist-release
+      - name: Build and verify the Windows x64 bundle
+        shell: pwsh
+        run: |
+          node scripts/build-dsh-remote-ops-windows.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $stage = Get-ChildItem -LiteralPath dist-release -Directory -Filter '.windows-*' | Select-Object -First 1
+          node (Join-Path $stage.FullName 'install.mjs') --verify-only
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remote-ops-windows
+          path: |
+            dist-release/*.zip
+            dist-release/SHA256SUMS-*.txt
+          if-no-files-found: error
+          compression-level: 0
+  release:
+    needs: [package, windows]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: remote-ops-*
+          merge-multiple: true
+          path: dist-release
       - name: Create or update the GitHub Release
         run: |
-          title="dsh-remote-ops v${{ steps.meta.outputs.version }}"
-          notes="${{ steps.meta.outputs.notes }}"
+          version="${TAG#dsh-remote-ops-v}"
+          title="dsh-remote-ops v${version}"
+          notes="docs/releases/dsh-remote-ops-v${version}.md"
+          (cd dist-release && sha256sum --check "SHA256SUMS-dsh-remote-ops-v${version}.txt")
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "$title" --notes-file "$notes"
           else
             gh release create "$TAG" --verify-tag --title "$title" --notes-file "$notes"
           fi
-          gh release upload "$TAG" dist-release/*.tgz dist-release/SHA256SUMS-*.txt --clobber
+          gh release upload "$TAG" dist-release/*.tgz dist-release/*.zip dist-release/SHA256SUMS-*.txt --clobber

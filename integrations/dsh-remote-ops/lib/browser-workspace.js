@@ -1,13 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile, rename, access } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { createRequire } from "node:module";
+import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
+import { join } from "node:path";
 import { BrowserSessions } from "./browser-sessions.js";
 import { browserError, browserSteps, browserTarget, browserUrl } from "./browser-steps.js";
 import { BrowserView, browserInput } from "./browser-view.js";
+import { browserInstallerCli, browserRuntimeMetadata, browserRuntimeDirectory, inspectBrowserRuntime, writeBrowserRuntimeManifest } from './browser-runtime.js';
 
 const identifier = value => typeof value === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
-export const browserInstallerCli = () => join(dirname(createRequire(import.meta.url).resolve("playwright-core/package.json")), "cli.js");
+export { browserInstallerCli } from './browser-runtime.js';
 export class BrowserWorkspace extends BrowserSessions {
   constructor({ root, credentials, launchContext } = {}) {
     super();
@@ -134,24 +134,36 @@ export class BrowserWorkspace extends BrowserSessions {
   async runtime() {
     try {
       const { chromium } = await this.library();
-      const executable = chromium.executablePath();
-      const available = await access(executable).then(() => true, () => false);
-      return { chromium: available, install: this.installation ?? { status: "idle" } };
+      return { ...await inspectBrowserRuntime({ root: this.root, chromium }), install: this.installation ?? { status: "idle" } };
     } catch { return { chromium: false, install: { status: "unavailable", error: "Install the plugin's playwright-core dependency" } }; }
   }
   install() { return this.mutate(() => this.installUnlocked()); }
   async installUnlocked() {
     if (this.disposed) throw browserError("BROWSER_DISPOSED", "The plugin is unloading");
     if (this.installation?.status === "installing") return this.installation;
+    const current = await this.runtime();
+    if (this.disposed) throw browserError('BROWSER_DISPOSED', 'The plugin is unloading');
+    if (current.chromium) return this.installation = { status: 'completed', output: 'Chromium and Headless Shell are already ready; existing files were reused.' };
     const { spawn } = await import("node:child_process");
     const cli = browserInstallerCli();
-    this.installation = { status: "installing", output: "" };
-    const processHandle = spawn(process.execPath, [cli, "install", "chromium"], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const metadata = browserRuntimeMetadata(), directory = browserRuntimeDirectory(this.root, metadata);
+    await mkdir(directory, { recursive: true });
+    const installation = this.installation = { status: "installing", output: "" };
+    const processHandle = (this.spawnInstaller ?? spawn)(process.execPath, [cli, "install", "chromium"], { env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: directory }, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     this.installer = processHandle;
-    const output = data => { this.installation.output = (this.installation.output + data.toString()).slice(-3000); };
+    const output = data => { installation.output = (installation.output + data.toString()).slice(-3000); };
     processHandle.stdout.on("data", output); processHandle.stderr.on("data", output);
-    processHandle.once("error", error => { this.installation = { status: "failed", error: error.message }; });
-    processHandle.once("close", code => { if (this.installation.status === "installing") this.installation.status = code === 0 ? "completed" : "failed"; this.installer = undefined; });
+    processHandle.once("error", error => { installation.status = 'failed'; installation.error = error.message; });
+    processHandle.once("close", async code => {
+      try {
+        if (this.disposed) { installation.status = 'cancelled'; return; }
+        if (installation.status !== 'installing') return;
+        if (code !== 0) throw new Error(`Chromium download failed (${code ?? 'terminated'}). Check the network/proxy and retry installation.`);
+        await writeBrowserRuntimeManifest(directory, metadata);
+        installation.status = 'completed';
+      } catch (error) { installation.status = 'failed'; installation.error = error.message; }
+      finally { if (this.installer === processHandle) this.installer = undefined; }
+    });
     return this.installation;
   }
   profile(owner, siteId) { return join(this.root, "profiles", createHash("sha256").update(owner).digest("hex").slice(0, 24), siteId); }
@@ -166,6 +178,11 @@ export class BrowserWorkspace extends BrowserSessions {
     const options = { headless: display === 'embedded', slowMo: site.slowMo, viewport: display === 'embedded' ? {width:1024,height:768} : null, ...(site.browser !== "chromium" ? { channel: site.browser } : {}) };
     if (this.launchContext) return this.launchContext(profile, options);
     const { chromium } = await this.library();
+    if (site.browser === 'chromium') {
+      const runtime = await inspectBrowserRuntime({ root: this.root, chromium }), mode = runtime.modes[display];
+      if (!mode?.ready) throw browserError('BROWSER_RUNTIME_MISSING', `${display === 'embedded' ? 'Headless Shell for the plugin view' : 'Chromium for an independent window'} is missing or mismatched. Run the Windows bundle installer, install/check Chromium in browser settings (network required), or select installed Edge/Chrome.`);
+      options.executablePath = mode.executable;
+    }
     try {
       const context = await chromium.launchPersistentContext(profile, options); context.setDefaultTimeout(10000);
       try { const saved = JSON.parse(await readFile(join(profile, "remote-ops-session.json"), "utf8")); if (Array.isArray(saved.cookies)) await context.addCookies(saved.cookies); } catch { /* An expired/unusable session is recovered by signing in again in the visible browser. */ }

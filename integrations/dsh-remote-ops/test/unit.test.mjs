@@ -407,10 +407,10 @@ test("manual session activation resumes the existing host owner without a model 
   const { state, ctx } = await terminalFixture(t);
   const owner = { id: "cold-session" };
   ctx.agents = { get: () => undefined };
-  ctx.sessionController = { resolveAgent: async (id) => { assert.equal(id, owner.id); return { agent: owner }; } };
+  state.sessionController = { resolveAgent: async (id) => { assert.equal(id, owner.id); return { agent: owner }; } };
   assert.equal(await state.resolveOwner(owner.id), owner);
   await assert.rejects(state.resolveOwner(undefined), { code: "REMOTE_SESSION_REQUIRED" });
-  ctx.sessionController = undefined;
+  state.sessionController = undefined;
   await assert.rejects(state.resolveOwner(owner.id), { code: "REMOTE_OWNER_UNAVAILABLE" });
 });
 
@@ -448,7 +448,7 @@ test("takeover can stop the backend wait when Harness wraps its public operation
 test("host activation errors preserve the original error cause", async t => {
   const { state } = await terminalFixture(t);
   const cause = Object.assign(new Error("original host stack"), { code: "HOST_TEST" });
-  state.ctx.sessionController = { resolveAgent: async () => ({ error: cause }) };
+  state.sessionController = { resolveAgent: async () => ({ error: cause }) };
   await assert.rejects(state.resolveOwner("cold"), error => error.code === "HOST_TEST" && error.cause === cause);
 });
 

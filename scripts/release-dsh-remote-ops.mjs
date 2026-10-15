@@ -94,7 +94,7 @@ function execute(command, args, { cwd, capture = false, allowFailure = false } =
 const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 
 // Polls the GitHub Release created by the tag workflow until both assets exist, then compares the tarball digest.
-export async function waitForRelease({ repository, version, expectedSha256, token, timeoutMs, intervalMs = 10_000, fetchImpl = fetch, log = () => {} }) {
+export async function waitForRelease({ repository, version, expectedSha256, requiredAssets = [], token, timeoutMs, intervalMs = 10_000, fetchImpl = fetch, log = () => {} }) {
   const tag = tagName(version);
   const headers = { Accept: "application/vnd.github+json", "User-Agent": "dsh-remote-ops-release-script", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   const deadline = Date.now() + timeoutMs;
@@ -110,7 +110,7 @@ export async function waitForRelease({ repository, version, expectedSha256, toke
         const archive = assets.find((asset) => asset.name === artifactName(version));
         const sums = assets.find((asset) => asset.name === checksumName(version));
         if (release.draft) lastProblem = "release is still a draft";
-        else if (!archive || !sums) lastProblem = `assets incomplete (${assets.map((asset) => asset.name).join(", ") || "none"})`;
+        else if (!archive || !sums || requiredAssets.some(name => !assets.some(asset => asset.name === name))) lastProblem = `assets incomplete (${assets.map((asset) => asset.name).join(", ") || "none"})`;
         else {
           const digest = typeof archive.digest === "string" ? archive.digest.replace(/^sha256:/, "") : undefined;
           if (digest && digest !== expectedSha256) throw Object.assign(new Error(`RELEASE_DIGEST_MISMATCH: published ${digest} but the local package is ${expectedSha256}`), { fatal: true });
@@ -148,7 +148,7 @@ export async function runRelease(options, { root = resolve(dirname(fileURLToPath
   if (branch === "HEAD") throw new Error("HEAD is detached; check out a branch or pass --branch <name>");
   if (!options.dryRun) {
     const foreign = git(["diff", "--cached", "--name-only"], { capture: true }).stdout.split("\n").filter(Boolean);
-    const releasePaths = ["integrations/dsh-remote-ops/", "scripts/release-dsh-remote-ops.", `docs/releases/dsh-remote-ops-v${version}.md`];
+    const releasePaths = ["integrations/dsh-remote-ops/", "scripts/release-dsh-remote-ops.", "scripts/build-dsh-remote-ops-windows.mjs", "scripts/windows-bundle/", ".github/workflows/release.yml", `docs/releases/dsh-remote-ops-v${version}.md`];
     const outside = foreign.filter((file) => !ROOT_READMES.includes(file) && !releasePaths.some((prefix) => file.startsWith(prefix)));
     if (outside.length) throw new Error(`The index already contains changes outside the release set; commit or reset them first:\n- ${outside.join("\n- ")}`);
   }
@@ -173,7 +173,7 @@ export async function runRelease(options, { root = resolve(dirname(fileURLToPath
   }
 
   git(["diff", "--check"]);
-  const releaseSet = [...ROOT_READMES, "integrations/dsh-remote-ops", "scripts/release-dsh-remote-ops.ps1", "scripts/release-dsh-remote-ops.mjs", `docs/releases/dsh-remote-ops-v${version}.md`].filter((path) => existsSync(join(root, path)));
+  const releaseSet = [...ROOT_READMES, "integrations/dsh-remote-ops", "scripts/release-dsh-remote-ops.ps1", "scripts/release-dsh-remote-ops.mjs", "scripts/build-dsh-remote-ops-windows.mjs", "scripts/windows-bundle", ".github/workflows/release.yml", `docs/releases/dsh-remote-ops-v${version}.md`].filter((path) => existsSync(join(root, path)));
   git(["add", "--", ...releaseSet]);
   git(["diff", "--cached", "--check"]);
   const staged = git(["diff", "--cached", "--quiet"], { allowFailure: true }).status !== 0;
@@ -206,7 +206,8 @@ export async function runRelease(options, { root = resolve(dirname(fileURLToPath
   }
   const loaded = await import(`${pathToFileURL(join(plugin, "lib", "version.js")).href}?release=${Date.now()}`);
   log("== Waiting for the GitHub Release (published by the tag workflow) ==");
-  const release = await waitForRelease({ repository: loaded.RELEASE_REPOSITORY, version, expectedSha256: digest, token: githubToken(), timeoutMs: options.waitMinutes * 60_000, intervalMs, fetchImpl, log });
+  const requiredAssets = existsSync(join(root, 'scripts', 'build-dsh-remote-ops-windows.mjs')) ? [`dsh-remote-ops-v${version}-windows-x64.zip`] : [];
+  const release = await waitForRelease({ repository: loaded.RELEASE_REPOSITORY, version, expectedSha256: digest, requiredAssets, token: githubToken(), timeoutMs: options.waitMinutes * 60_000, intervalMs, fetchImpl, log });
   log(`Release: ${release.url}${release.digestVerified ? " (asset digest verified)" : " (asset digest not reported by GitHub)"}`);
   return { version, tag, digest, artifactPath, pushed: true, release };
 }

@@ -28,6 +28,12 @@ const environmentAdvancedFields = loadClientFunction("environmentAdvancedFields"
 const terminalSizeSelect = loadClientFunction("terminalSizeSelect", "\n    // end environment form helpers", "TERMINAL_SIZE_PRESETS", { h: uiNode });
 const terminalInputEnabled = loadClientFunction("terminalInputEnabled", "\n    function RemoteOpsPanel");
 const terminalInputCompositionValue = loadClientFunction("terminalInputCompositionValue", "\n    function RemoteOpsPanel");
+const browserRuntimeSummary = loadClientFunction('browserRuntimeSummary', '\n    function BrowserWorkspacePanel');
+
+test('browser readiness distinguishes embedded and window modes', () => {
+  assert.equal(browserRuntimeSummary({modes:{window:{ready:true},embedded:{ready:false}}}), '插件内：需安装 · 独立窗口：已就绪');
+  assert.equal(browserRuntimeSummary({modes:{window:{ready:true},embedded:{ready:true}},browserVersion:'156.0.8078.4'}), '插件内：已就绪 · 独立窗口：已就绪 · Chromium 156.0.8078.4');
+});
 
 // Export names from DSH ui-primitives 0.2.0-rc.2 and the older Web host.
 const iconExports = [

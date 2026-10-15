@@ -228,6 +228,13 @@ test("a published package that differs from the local one fails immediately", as
   assert.equal(calls.length, 1, "a mismatch is not retried");
 });
 
+test('release verification waits until the Windows bundle is published too', async () => {
+  const name='dsh-remote-ops-v1.2.3-windows-x64.zip';
+  const {impl,calls}=scripted([{body:releaseJson()},{body:releaseJson({assets:[...releaseJson().assets,{name}]})}]);
+  const result=await wait(impl,{requiredAssets:[name]});
+  assert.equal(calls.length,2);assert.ok(result.assets.includes(name));
+});
+
 test("a missing GitHub digest is reported as unverified and a release that never appears times out with the reason", async () => {
   const unverified = scripted([{ body: releaseJson({ assets: [{ name: "dsh-remote-ops-v1.2.3.tgz" }, { name: "SHA256SUMS-dsh-remote-ops-v1.2.3.txt" }] }) }]);
   assert.equal((await wait(unverified.impl)).digestVerified, false);
