@@ -19,7 +19,7 @@
 | --- | --- | --- |
 | 完整门禁 | `npm run check --prefix integrations/dsh-remote-ops`，Windows / Node 24.11.1 | 172 后端、103 前端、11 契约测试及 smoke 全通过 |
 | UI 静态契约 | `check_dsh_ui_contract.mjs integrations/dsh-remote-ops` | 14 通过、0 错误；预期警告为 DSH 包没有 Codex manifest |
-| 浏览器回归 | `node e2e/runner/index.mjs --output output/browser051-e2e-final`，Chrome 154.0.8037.99 | 12/12；真实插件 + 仿宿主 + 假 SSH/SFTP + 本地测试网站 |
+| 浏览器回归 | `node e2e/runner/index.mjs --output output/browser051-e2e-release`，Chrome 154.0.8037.99 | 12/12；真实插件 + 仿宿主 + 假 SSH/SFTP + 本地测试网站 |
 | 候选包真实宿主 | 隔离 DSH 0.2.0-rc.2 Web profile，实际 Chrome，1280×900 / 390×844 | 以下 12 组流程全部通过；无 pageerror、console 或非 favicon HTTP 错误 |
 | 原生 skill 生命周期 | 实际 Cordis 与 DSH skill 服务，安装包 provider | 可发现和加载；用户 skill 保持优先级；卸载 provider 后定义与缓存目录均移除 |
 
@@ -44,7 +44,14 @@
 
 ## 发布包复验
 
-候选包验收已完成。发布正式 GitHub 资产后，另行下载校验 SHA256、逐文件对照源码和安装目录，再用另一个新的隔离 profile 复跑上述真实宿主流程，并核对 v0.5.0 升级后的保存配置；结果在发布后补记。
+正式 [v0.5.1 Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.5.1) 已发布，tag 指向源码提交 `9cec73fe93e0ed32ef8d9d29e086a04af8f4d81f`；[GitHub Actions 发布门禁](https://github.com/Ssshake1996/myterm/actions/runs/38669646494)（Linux / Node 22）通过。
+
+- 重新下载正式 `dsh-remote-ops-v0.5.1.tgz` 与校验文件，SHA256 为 `0e9419dd308dd5b8d9cbdf30e254919472c18085847ccbe216950b1e0ebd13eb`，与本地发布包、校验文件及 GitHub 资产 digest 一致。
+- 正式 tgz 共 47 个文件，逐文件与源码、新装 profile 和升级 profile 的安装目录比对，全部相同；包括 `lib/browser-skill.js` 及 `skills/remote-ops-browser/SKILL.md`。
+- 用正式资产新建另一隔离 DSH 0.2.0-rc.2 profile，复跑上述 12 组真实宿主流程全部通过；页头显示 `v0.5.1`，1280px / 390px 截图已检查，无 pageerror、console 或非 favicon HTTP 错误。
+- 正式安装目录的 provider 经真实 Cordis / DSH skill 服务再次验证：发现、加载、用户 skill 优先级与卸载清理通过。
+- 将已安装正式 v0.5.0 的独立 profile 升级到该正式资产：`sites.json`、`flows.json`、`preferences.json` 的 SHA256 升级前后和新版加载后均不变，原网站/流程 ID 与浏览器/显示偏好保持。
+- 验收仅使用独立测试 profile，没有改动日常 DSH profile、Agent 实现或用户的全局 skill 文件。测试浏览器、DSH 与本地模型/网站服务已关闭。
 
 ## 限制
 
