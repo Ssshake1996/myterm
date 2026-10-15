@@ -1,7 +1,11 @@
 # Shared web workspace
 
-Remote Ops 0.5.4 provides a browser in the native DSH right Sidebar. Type a URL to begin; saved sites and flows are optional. DSH owns the Agent and conversation. The plugin provides one browser session that both the user and Agent can operate.
+Remote Ops 0.6.0 provides a browser in the native DSH right Sidebar. Type a URL to begin; saved sites and flows are optional. DSH owns the Agent and conversation. The plugin provides one browser session that both the user and Agent can operate.
 
+
+## Page-first controls (v0.6.0)
+
+Use **网页设置** to open engines, installation, saved sites and flows; **返回网页** returns to the same page and address draft. **操作记录** shows the active job's step results. **画面设置** below the live image contains viewport controls. These views do not pause or cancel browser work. Switching an open browser's display mode first asks for confirmation; **取消** leaves it untouched, while **切换显示** reloads it and can discard unsent form data. Comfortable/compact density and the installed version are in the plugin's **更多设置** menu.
 
 ## Browser arguments and on-demand runtime (v0.5.4)
 
@@ -10,12 +14,12 @@ Future Releases contain only the plugin `tgz` and its `SHA256SUMS`; no new `wind
 - Independent windows follow the Windows user's default HTTP(S) browser on the DSH host, supporting installed Chrome / Edge with an isolated plugin profile. Embedded mode still defaults to matching Chromium. Each mode has its own engine preference; the previous embedded preference is retained. Explicit saved-site or tool browser choices take precedence. Unsupported/unavailable defaults report an error instead of silently opening Edge. A remote DSH host's default is separate from the client viewing DSH.
 - Prefer an action array for `steps`. Single action objects, a sole `{steps:[...]}` envelope and JSON-encoded versions are accepted. Prefer `{kind,value,name?,frame?}` locator objects for `target`; JSON-encoded locator objects and CSS/XPath strings (`css=#id`, `xpath=//button`, `#id`, `//button`) are accepted. All steps normalize and validate before dispatch. Equivalent requests deduplicate under the same `requestId`; missing targets are not guessed and arbitrary JavaScript is unsupported.
 - For missing Chromium, call `remote_browser_runtime` with `action: "status"`, then `action: "install"` if needed. Poll `status` until the required mode is ready before opening a page. The plugin's installed Playwright CLI downloads its matching Chromium and Headless Shell. The settings button uses the same installer. Network access is required; configure `HTTPS_PROXY`, `PLAYWRIGHT_DOWNLOAD_HOST` or `PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT` before starting DSH if needed. Complete matching runtimes are reused and login profiles/sites/flows retained.
-- `BROWSER_STEP_INVALID` identifies the field, accepted format and no-dispatch status. Correct the argument instead of repeating an unchanged invalid call; preflight rejection does not reserve the request ID. Fixes, Schemas, tool metadata and the bundled skill travel with the tgz, without Agent/core changes. Restart DSH and refresh its webpage after upgrading; verify v0.5.4.
+- `BROWSER_STEP_INVALID` identifies the field, accepted format and no-dispatch status. Correct the argument instead of repeating an unchanged invalid call; preflight rejection does not reserve the request ID. Fixes, Schemas, tool metadata and the bundled skill travel with the tgz, without Agent/core changes. Restart DSH and refresh its webpage after upgrading; verify the current version in **更多设置**.
 
 ## First use
 
 1. Select or create a DSH conversation and open **Remote Ops → 网页**.
-2. In **浏览器设置与高级功能**, install the dedicated Chromium or select installed Edge / Chrome. Engine changes apply to newly opened browsers.
+2. In **网页设置**, install the dedicated Chromium or select installed Edge / Chrome. Engine changes apply to newly opened browsers.
 3. Choose **插件内** or **独立窗口** under **显示**, enter an HTTP(S) URL and press Enter. A schemeless address gets `https://`. Independent windows require DSH and the user on the same interactive desktop. Embedded mode streams the dedicated browser into the DSH webpage; it does not iframe the target website.
 4. Ask the Agent in the main conversation to operate the current page. The Agent can omit `browserId` to use this conversation's selected browser. You can also click, scroll, type, paste text and sign in directly, including while the conversation runs. There is no takeover/handback or input ownership. Use **Ctrl+Esc** to return keyboard focus to the plugin address field; choose **桌面视口 → 原始大小** for a larger scrollable desktop view. The default **跟随面板** viewport follows the available panel size without reloading the page; the website may respond to resize events. Independent windows use their own viewport.
 5. Use native DSH conversation cancellation to stop the Agent. There are no takeover, pause or stop buttons in the browser or terminal panels, and no dedicated Agent task-control tools. Cancellation prevents subsequent browser steps after the current action settles. A dispatched click or request may already have taken effect; website server jobs do not roll back. A pending terminal send attempts Ctrl+C on cancellation; already returned commands and remote background processes may continue. Inspect actual results before claiming completion or process exit.
@@ -64,7 +68,7 @@ Unused optional fields should be omitted; null means absent. `target.frame` may 
 
 ## Optional saved sites, login and flows
 
-Expand **浏览器设置与高级功能 → 收藏网站与流程** to save sites, configure automatic login, test locators or build reusable flows. Passwords go to the local Harness credentials service; site JSON contains a generated reference. Close a saved site's browsers before editing its configuration. Add credential origins explicitly for an SSO page or cross-origin frame. CAPTCHA/MFA remain manual in the same browser.
+Expand **网页设置 → 收藏网站与流程** to save sites, configure automatic login, test locators or build reusable flows. Passwords go to the local Harness credentials service; site JSON contains a generated reference. Close a saved site's browsers before editing its configuration. Add credential origins explicitly for an SSO page or cross-origin frame. CAPTCHA/MFA remain manual in the same browser.
 
 Prefer role plus exact accessible name, label, text or placeholder locators. CSS and XPath are also supported. `frame` is an optional CSS iframe selector. Each action requires exactly one match. `expectPopup` selects a newly opened page. Native confirm/prompt dialogs wait for an explicit Agent response and are never automatically accepted; prompt text entry is not supported.
 
@@ -107,4 +111,4 @@ This release supports mouse clicks, wheel scrolling, keyboard input, Chinese tex
 
 切换终端/SFTP、收起右栏及刷新 DSH 不取消后台网页任务。切换显示方式会重新载入网页并保留 Cookie，未提交内容不会恢复。取消对话会停止后续步骤，不能撤销已发出的业务请求或保证远程进程退出；`unknown` 需检查实际网页，不会自动重试。登录凭据和专用浏览器 profile 只保存在 DSH 本机。
 
-工作区入口为顶部“终端 / 网页 / 文件”，环境与诊断在辅助入口中。默认“跟随面板”视口，也可选择 1024×768“桌面视口”。改变视口不会主动重载；切换“插件内 / 独立窗口”会重载并可能丢失未提交内容。设置和收藏/流程合并在“浏览器设置与高级功能”中。
+工作区入口为顶部“终端 / 网页 / 文件”，环境与诊断在辅助入口中。默认“跟随面板”视口，也可选择 1024×768“桌面视口”。改变视口不会主动重载；切换“插件内 / 独立窗口”会重载并可能丢失未提交内容。设置和收藏/流程合并在“网页设置”中。

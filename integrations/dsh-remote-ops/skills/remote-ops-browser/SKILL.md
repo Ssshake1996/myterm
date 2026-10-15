@@ -7,6 +7,10 @@ description: Browse and operate visible webpages through the Remote Ops plugin i
 
 Use the installed `remote_browser_*` tools. The user and Agent share the same live page in the plugin or an independent window, including during a conversation. There is no takeover, pause or resume tool. Native DSH conversation cancellation stops future steps; an action already dispatched may have taken effect. Do not close a browser merely because a task ends.
 
+## Visible workspace
+
+In v0.6.0, enter a URL in **网页** to browse. **网页设置** contains engines, runtime installation and saved sites/flows; **返回网页** preserves the live page and URL draft. **操作记录** opens step results, and **画面设置** below the live image controls its viewport. Module/settings changes do not cancel running jobs. Changing display mode on an open page asks for confirmation because it reloads the page; unsent forms can be lost. Cancel leaves the current page intact. The plugin version and comfortable/compact density are under **更多设置**. These UI changes do not alter tool parameters or require Agent configuration changes.
+
 ## Open and observe
 
 Release v0.5.4 and later provide only tgz and SHA256; browsers install on demand with network access. Call `remote_browser_runtime` with `action: "status"` to inspect matching Chromium/Headless Shell readiness. When the chosen engine needs missing Chromium (including `BROWSER_RUNTIME_MISSING`), call it with `action: "install"`, then poll `status` with reasonable intervals until the required `modes.embedded.ready` or `modes.window.ready` is true. A job/installation marked `installing` is not success; stop on `failed` and report its error/network or proxy requirement. The plugin uses its installed Playwright CLI and matching revision. A complete existing runtime is reused. Do not repeat open calls during installation, invent paths, download another revision, change Agent settings or replace the user's browser choice. The settings button uses the same installer.

@@ -18,7 +18,7 @@ export const websiteScenario = {
     await t.step("网页表单保存自动登录配置并按显示偏好打开浏览器", async () => {
       await page.getByRole("button", { name: "Remote Ops", exact: true }).click();
       await page.getByRole("tab", { name: "网页", exact: true }).click();
-      await page.getByText('浏览器设置与高级功能',{exact:true}).click();
+      await page.getByRole('button',{name:'网页设置',exact:true}).click();
       await page.getByText('收藏网站与流程',{exact:true}).click();
       await page.getByRole("button", { name: "新增网站", exact: true }).click();
       await page.getByLabel("网站名称", { exact: true }).fill("Local console");
@@ -100,7 +100,6 @@ export const websiteScenario = {
     });
     await t.step("390 像素下网页操作可滚动且无横向溢出", async () => {
       await page.getByRole("button", { name: "显示浏览器", exact: true }).first().waitFor();
-      const library=page.getByText('收藏网站与流程',{exact:true});if(await library.locator('..').getAttribute('open')!==null)await library.click();
       await page.setViewportSize({ width: 390, height: 844 });
       const overflow = await page.locator(".dsh-remote-ops__webBrowser").evaluate(node => ({ horizontal: node.scrollWidth - node.clientWidth, vertical: node.scrollHeight > node.clientHeight }));
       assert.ok(overflow.horizontal <= 1, JSON.stringify(overflow));
@@ -109,10 +108,11 @@ export const websiteScenario = {
       await page.reload(); await page.locator("html[data-e2e-ready=true]").waitFor();
       await page.getByRole("button", { name: "Remote Ops", exact: true }).click();
       await page.getByRole("tab", { name: "网页", exact: true }).click();
-      await page.getByText('浏览器设置与高级功能',{exact:true}).click();
+      await page.getByRole('button',{name:'网页设置',exact:true}).click();
       await page.getByText('收藏网站与流程',{exact:true}).click();
       await page.getByRole("button", { name: "编辑网站", exact: true }).waitFor();
       assert.equal(await page.getByLabel("选择网站", { exact: true }).inputValue(), browser.siteId);
+      await page.getByRole("button",{name:"返回网页",exact:true}).click();
       await page.getByRole("button", { name: "显示浏览器", exact: true }).first().waitFor();
     });
   },

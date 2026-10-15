@@ -10,9 +10,10 @@ export const liveBrowserScenario={id:'web-live',title:'网址直开、实时画�
   let browser;
   await t.step('直接输入网址并打开插件内网页，无需保存网站',async()=>{
     await p.getByRole('button',{name:'Remote Ops',exact:true}).click();await p.getByRole('tab',{name:'网页',exact:true}).click();
-    await p.getByText('浏览器设置与高级功能',{exact:true}).click();await p.getByLabel('浏览器引擎',{exact:true}).selectOption('chrome');
+    await p.getByRole('button',{name:'网页设置',exact:true}).click();await p.getByLabel('浏览器引擎',{exact:true}).selectOption('chrome');
     await p.getByLabel('独立窗口浏览器',{exact:true}).selectOption('chrome');
     assert.equal((await snapshot()).preferences.windowBrowser,'chrome');
+    await p.getByRole('button',{name:'返回网页',exact:true}).click();
     await p.getByRole('textbox',{name:'网页地址',exact:true}).fill(`${info.website.url}/login`);
     await p.getByRole('button',{name:'打开网页',exact:true}).click();
     await p.getByAltText('网页实时画面',{exact:true}).waitFor();
@@ -72,10 +73,10 @@ export const liveBrowserScenario={id:'web-live',title:'网址直开、实时画�
     await p.getByRole('tab',{name:'网页',exact:true}).click();await p.getByAltText('网页实时画面',{exact:true}).waitFor();
   });
   await t.step('空闲时切换独立窗口并保留当前网址，再返回插件内',async()=>{
-    await p.getByLabel('网页显示方式',{exact:true}).selectOption('window');
+    await p.getByLabel('网页显示方式',{exact:true}).selectOption('window');await p.getByRole('dialog',{name:'切换网页显示',exact:true}).getByRole('button',{name:'切换显示',exact:true}).click();
     await p.getByRole('button',{name:'显示浏览器',exact:true}).waitFor();
     let current=(await snapshot()).sessions.find(v=>v.id===browser.id);assert.equal(current.display,'window');assert.match(current.pages[0].url,/manual/);
-    await p.getByLabel('网页显示方式',{exact:true}).selectOption('embedded');await p.getByAltText('网页实时画面',{exact:true}).waitFor();
+    await p.getByLabel('网页显示方式',{exact:true}).selectOption('embedded');await p.getByRole('dialog',{name:'切换网页显示',exact:true}).getByRole('button',{name:'切换显示',exact:true}).click();await p.getByAltText('网页实时画面',{exact:true}).waitFor();
     assert.equal((await snapshot()).sessions.find(v=>v.id===browser.id).display,'embedded');
   });
   await t.step('390px 布局无横向溢出，网页状态与画面可见',async()=>{

@@ -275,3 +275,6 @@ export const scenarios = [workspaceUiScenario,liveBrowserScenario,
 ];
 import { liveBrowserScenario } from './browser-live.mjs';
 import { workspaceUiScenario } from './workspace-ui.mjs';
+
+import { visualRefreshScenario } from './visual-refresh.mjs';
+scenarios.push(visualRefreshScenario);
