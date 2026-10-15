@@ -28,7 +28,20 @@
 
 重启验收最初暴露插件对未声明 sessionController 的访问错误；修复为可选的宿主服务注入，并覆盖服务缺失、卸载、替换及原错误因果链。另修复旧安装进程的迟到回调覆盖重试状态，以及卸载期间启动下载的竞争条件。修复后的完整门禁和真实 DSH 流程均重跑通过。
 
-候选功能验收先使用解压整合包安装；上述宿主服务修复经新的 tgz 正常安装后复验。正式发布资产的完整 ZIP / 新 profile / 重启复验将在发布后补录，不能把候选包结果等同于正式资产复验。
+候选功能验收先使用解压整合包安装；上述宿主服务修复经新的 tgz 正常安装后复验。以下独立复验针对 GitHub 正式发布资产。
+
+## 正式发布资产复验
+
+[v0.5.3 Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.5.3) 已发布，tag 指向源码提交 `11fe783f9193281e97364463a0ac0ae70b810f06`；[发布流水线](https://github.com/Ssshake1996/myterm/actions/runs/38681288436) 的 Linux 门禁、Windows 门禁/整合包构建和发布均成功。
+
+- 重新下载正式 ZIP、tgz 与 SHA256SUMS；文件摘要与校验文件及 GitHub digest 完全一致。tgz SHA256 为 `984a985889335b0550de1115bffc586caf8cf91ac94f9360aa8f34c6de354b1e`；ZIP SHA256 为 `619b3a08e8e849b4672d6653ec293c63ffb9b535634942c9247c39740f6aed72`，大小 332,921,729 字节。
+- tgz 的 50 个文件逐一匹配发布 tag 与新装 profile；ZIP 内的插件包与单独发布的 tgz 一致。ZIP 共 612 个清单内文件，全部 SHA256 通过，包括安装器、运行时、资源及许可证；安装器文本与 tag 源码一致（兼容 Windows 行尾）。
+- 使用正式 ZIP 的 PowerShell 入口在新的隔离 profile 安装，实际点击检查两种浏览器模式通过。相同脚本重跑明确复用已有浏览器；移走解压目录后重启仍可使用，稳定 tgz 引用有效。
+- 正式包真实 DSH Web 的 19 组验收再次全通过；实际模型请求中的 37 个插件 Schema 通过宿主校验器与 Ajv，无 pageerror、console 或非 favicon HTTP 错误。随包 skill 的原生加载、用户优先级及卸载清理再次通过。
+- 正式包重启复验通过：旧对话无需先发消息即可打开网页，登录 Cookie 保留，人工输入能由该对话的原生 Agent 工具读到；没有自动重建浏览器或恢复旧 job。1280px、390px、深色及运行时设置截图已检查；另外等待 390px 实际视口和实时帧尺寸收敛后检查，无横向溢出。
+- 实际 Chromium 文件版本和 Headless Shell 的浏览器协议版本均确认是 156.0.8078.4；DSH 测试进程使用空的全局浏览器路径，两种模式均选择 managed 文件。
+- 在另一新 profile 先安装正式 v0.5.2，再通过正式 v0.5.3 ZIP 升级；三个配置文件的 SHA256 在升级前后及新版 BrowserWorkspace 加载后均不变，站点/流程 ID 和偏好保持一致。
+- 所有本次测试浏览器、DSH 与本地模型/网站服务已关闭，3091/3092 端口释放。没有修改日常 DSH profile、Agent 实现、用户全局 skill 或 Chrome/Edge 安装。
 
 ## 验证边界
 

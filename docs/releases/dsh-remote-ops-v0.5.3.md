@@ -17,3 +17,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Profile web
 自定义 DSH_HOME 时添加 `-DshHome '实际目录'`，必须与运行 DSH 的同一用户和 profile 一致。依赖安装要求可运行的 DSH、Node.js 22+、pnpm 及 npm 源访问权限。安装检查会短暂打开测试窗口；脚本不停止正在运行的 DSH，完成后重启 DSH 并刷新网页，确认 v0.5.3。也可正常安装小包：`dsh plugin --profile web add .\dsh-remote-ops-v0.5.3.tgz`，然后在浏览器设置联网准备 Chromium 或选择本机 Chrome/Edge。
 
 发布验收记录见 `docs/testing/dsh-remote-ops-v0.5.3-acceptance.md`。实际用户电脑、内网站点和其他 DSH 版本的兼容性需在相应环境验证；本版本不包含暂缓的 SSH 命令参数空格问题。
+
+验证完成：312 个测试及 smoke、12 个浏览器 E2E 场景通过；正式 ZIP 在本机 Windows 11 x64 / DSH 0.2.0-rc.2 完成新装、19 组真实宿主验收、安装复用、重启登录保留及正式 v0.5.2 升级复验。正式资产的 SHA256、完整清单、发布源码和安装内容已核对。模型与网站为本地测试服务，尚未验证用户另一台内网电脑和实际内网站点。详细记录：[v0.5.3 验收](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.5.3-acceptance.md)。
