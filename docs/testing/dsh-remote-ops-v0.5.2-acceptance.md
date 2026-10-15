@@ -16,7 +16,7 @@
 | 完整发布门禁 | Windows / Node 24.11.1，`npm run check --prefix integrations/dsh-remote-ops` | 180 后端、103 前端、11 契约及 smoke 全通过 |
 | 标准参数协议 | 实际 Cordis / DSH tools 服务及 Ajv | 37/37 工具 Schema 通过，其中网页 6 个 |
 | UI 静态契约 | `check_dsh_ui_contract.mjs integrations/dsh-remote-ops` | 14 通过、0 错误，预期警告为 DSH 包没有 Codex manifest |
-| 浏览器回归 | `node e2e/runner/index.mjs --output output/browser052-e2e`，Chrome 154.0.8037.99 | 12/12；真实插件/客户端 + 仿宿主 + 假 SSH/SFTP + 本地网页 |
+| 浏览器回归 | `node e2e/runner/index.mjs --output output/browser052-e2e-release`，Chrome 154.0.8037.99 | 发布源码提交 eb6afb5 的 12/12 场景通过；真实插件/客户端 + 仿宿主 + 假 SSH/SFTP + 本地网页 |
 | 候选包真实宿主 | 新隔离 DSH 0.2.0-rc.2 Web profile，实际 Chrome，1280×900 / 390×844 | 以下 16 组通过，无 pageerror、console 或非 favicon HTTP 错误 |
 | 随包 skill | skill-creator 校验、实际 DSH skill 服务 | 示例符合导出 Schema；可发现/加载、用户优先级和卸载 provider 后移除定义/缓存均通过 |
 
@@ -43,7 +43,14 @@
 
 ## 正式发布包复验
 
-候选验证完成；发布后将下载正式 GitHub 资产，核对 SHA256、逐文件源码/安装目录一致性，在新 profile 复跑 16 组宿主流程，并检查正式 v0.5.1 升级后的配置保留，结果另行补记。
+正式 [v0.5.2 Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.5.2) 已发布，tag 指向源码提交 `eb6afb55823ef7729cea26a8d894954bf6d7404d`；[GitHub Actions 发布门禁](https://github.com/Ssshake1996/myterm/actions/runs/38674698392)（Linux / Node 22）通过。
+
+- 从 GitHub 重新下载正式 tgz 与校验文件，SHA256 为 `afdf424f11f80a0687a780c66795a04743ceb1509f0005bb42b6115498fee58e`，与本地发布包、校验文件及 GitHub 资产 digest 一致。
+- 正式包 49 个文件与源码、新装 profile、升级 profile 的安装目录逐文件一致，包括两个 Schema 模块和新版随包 skill；新的运行 profile 没有安装 Ajv。
+- 新的隔离 DSH 0.2.0-rc.2 profile 安装正式包后，复跑上述 16 组全部通过；实际模型请求中的 37 个 Schema 全部通过 DSH 校验器及 Ajv 校验。1280px 与 390px 截图已检查，页头显示 v0.5.2，Schema 构造的步骤结果为 5，界面完成状态为 3/3。
+- 正式包原生 skill 发现、加载、用户优先级及 provider 卸载清理再次通过；无 pageerror、console 或非 favicon HTTP 错误。
+- 已安装正式 v0.5.1 的另一独立 profile 升级至该正式资产后，`sites.json`、`flows.json`、`preferences.json` 的 SHA256 在升级前后及新版加载后均不变；网站/流程 ID 与浏览器/显示偏好保留。
+- 验收仅使用隔离 profile，没有修改日常 DSH profile、Agent 实现或用户全局 skill 文件。所有测试浏览器、DSH 与本地模型/网站服务已关闭，3091/3092 测试端口已释放。
 
 ## 验证限制
 
