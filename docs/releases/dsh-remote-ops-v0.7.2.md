@@ -9,3 +9,5 @@ Recognition uses the visible text after VT cursor edits, preserving backspaces, 
 README and the bundled terminal-log skill describe the behavior. No Agent/core changes. Target host: DSH 0.2.0-rc.2. Install into the same DSH profile, fully restart DSH and refresh the browser. Export needed in-memory terminal logs before restarting.
 
 Release assets remain **tgz and SHA256 only**. Validation evidence: `docs/testing/dsh-remote-ops-v0.7.2-acceptance.md`.
+
+Validation completed: 348 regression tests plus smoke, 15/15 local browser scenarios, 15/15 Linux browser CI scenarios, and Linux/Windows release gates. The downloaded official tgz passed all six real DSH acceptance steps with four native Agent/tool calls. Its SHA256 matches the candidate, checksum file and GitHub asset digest. No Agent/core changes.
