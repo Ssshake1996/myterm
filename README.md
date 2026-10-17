@@ -2,6 +2,13 @@
 
 `@dsh/remote-ops` 是面向 DeepSeek Harness 的 SSH 远程运维插件。本仓库已完成产品边界切换，不再包含 myterm 桌面应用、Tauri 宿主或第二套 Agent 内核。
 
+## Agent 环境管理补齐（v0.6.1）
+
+- 新增 `remote_environment_update`：按已有环境 ID 或名称修改名称、地址、端口、用户、分组、凭据引用、编码及 CLI/终端预设。只修改明确提供的非 null 字段，保留内部 ID 和其他配置；重复名称、非法值和未声明字段在写入前拒绝。
+- 新增随包 `remote-ops-environments` skill，和浏览器 skill 一起通过 DSH 原生服务自动注册；可自动加载或使用 `/remote-ops-environments`。安装同一 tgz 即可使用，不修改 Agent，不覆盖用户 skill 文件。
+- 更新保存配置不会中断或改变现有 SSH 连接，新配置用于新连接。`passwordRef: "configured"` 仅为显示标记，更新时省略该字段即可保留凭据；新密码仍通过环境表单写入凭据服务。
+- 前端环境管理与 Agent 使用同一份持久化数据。升级方式不变，仅发布 tgz 和 SHA256 校验文件。接口及安装说明见 [插件 README](integrations/dsh-remote-ops/README.zh-CN.md)。
+
 ## 界面与交互更新（v0.6.0）
 
 - 终端、网页、文件及环境、快捷命令、诊断采用统一的字号、间距、控件和深浅色层次。顶部保留工作区标签，版本、更新、诊断和“界面密度”收进“更多设置”；舒适/紧凑密度在本浏览器中保存。
@@ -92,11 +99,11 @@
 从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.6.0.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.6.1.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下执行安装命令；`--profile web` 必须与实际启动的 profile 一致。安装完成后完全停止原 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“更多设置”显示 `v0.6.0`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下执行安装命令；`--profile web` 必须与实际启动的 profile 一致。安装完成后完全停止原 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“更多设置”显示 `v0.6.1`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
 
 在 DSH Web 左侧底部点击 `Remote Ops` 打开右侧 Sidebar，主对话不被替换。入口使用官方 `sidebar.footer.action` 操作位和 `sidebarRight.openTab`，不再注册切换主工作区的 `sidebar.panellist` / `main`。已在 DSH `0.2.0-rc.2` 实测；其他宿主版本尚未实测。若未出现入口，先核对安装 profile、DSH 版本及已安装插件版本，并确认旧 DSH 进程已退出；无需手工复制 bundle patch。窄屏下右栏可能按宿主规则展开为全屏，收起即可返回原对话。
 
@@ -138,14 +145,14 @@ SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.6.0
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.6.1
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.6.0            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.6.0 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.6.1            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.6.1 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后轮询 Release，比较 GitHub 报告的安装包摘要与本地摘要。

@@ -80,8 +80,10 @@ function registerWithFallback(ctx, state, build) {
   }
 }
 
-function registerTool(ctx, definition) {
-  ctx.tools.register({ ...definition, parameters: toolParameters(definition.parameters), execute: async (...args) => toLosslessJson(await definition.execute(...args)), output });
+function registerTool(ctx, { strictParameters = false, ...definition }) {
+  const parameters = toolParameters(definition.parameters);
+  if (strictParameters) parameters.additionalProperties = false;
+  ctx.tools.register({ ...definition, parameters, execute: async (...args) => toLosslessJson(await definition.execute(...args)), output });
 }
 
 export function registerTools(ctx, state) {
@@ -135,6 +137,30 @@ export function registerTools(ctx, state) {
       const saved = await state.saveEnvironment(value);
       state.event(owner(exec), "environment.create", { environment: value.name });
       return { saved: true, environment: saved };
+    },
+  }));
+  registerWithFallback(ctx, state, (withNested) => ({
+    name: "remote_environment_update",
+    description: "Update one saved SSH environment by its exact existing id (preferred) or name. Only supplied non-null fields change; the internal id stays fixed. Omit passwordRef to retain its credential; never send the list's 'configured' marker. Empty passwordRef/privateKeyPath clears that setting. A supplied cliProfile/terminal object replaces that section; {} resets it. Existing connections stay open with their original settings; open a new connection to use updated defaults. Saving does not test connectivity.",
+    strictParameters: true,
+    parameters: {
+      environment: stringParam("Existing environment id (preferred) or exact name", true),
+      ...Object.fromEntries(Object.entries({
+        name: stringParam("New non-empty display name"),
+        host: stringParam("New non-empty SSH host"),
+        username: stringParam("New non-empty SSH username"),
+        group: stringParam("New non-empty environment group; created if absent"),
+        port: numberParam("SSH port, integer 1-65535; use 22 for the standard port"),
+        privateKeyPath: stringParam("Private key path on the DSH host; empty string clears it"),
+        passwordRef: stringParam("Existing Harness credential reference; empty string clears it. Never pass a password or the display marker configured"),
+        encoding: { type: "string", enum: ["utf-8", "gb18030", "big5", "windows-1252", "iso-8859-1"], description: "Terminal character encoding for new connections" },
+        ...(withNested ? { cliProfile: CLI_PROFILE_SCHEMA, terminal: TERMINAL_SIZE_SCHEMA } : {}),
+      }).map(([key, schema]) => [key, { description: "Omitted or null keeps the saved value. " + (schema.description ?? ""), oneOf: [schema, { type: "null" }] }])),
+    },
+    execute: async ({ environment, ...changes }, exec) => {
+      const saved = await state.updateEnvironment(environment, changes);
+      state.event(owner(exec), "environment.update", { environment: saved.name });
+      return { saved: true, environment: { ...saved, passwordRef: saved.passwordRef ? "configured" : undefined }, connectionEffect: "new-connections-only" };
     },
   }));
   registerTool(ctx, {

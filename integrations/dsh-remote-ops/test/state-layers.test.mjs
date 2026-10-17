@@ -22,7 +22,7 @@ const methodHomes = () => {
 // The methods the tools, routes, terminal flows and tests call. Removing or renaming one is an API change.
 const PUBLIC_METHODS = [
   "load", "readJson",
-  "groupDir", "envFile", "saveGroup", "normalizeEnvironment", "groupList", "createGroup", "renameGroup", "deleteGroup", "saveEnvironment", "allEnvironments", "findEnvironment", "findEnvironmentBySessionName", "deleteEnvironment",
+  "groupDir", "envFile", "saveGroup", "normalizeEnvironment", "groupList", "createGroup", "renameGroup", "deleteGroup", "saveEnvironment", "updateEnvironment", "allEnvironments", "findEnvironment", "findEnvironmentBySessionName", "deleteEnvironment",
   "quickGroupDir", "quickFile", "saveQuickGroup", "quickGroupList", "createQuickGroup", "renameQuickGroup", "deleteQuickGroup", "saveQuickCommand", "moveQuickCommand", "deleteQuickCommand", "dispatchQuick",
   "checkForUpdate", "upgrade",
   "localSnapshot", "catalog", "connectionSnapshot", "snapshot", "controlSnapshot", "toolReceipt", "recordToolReceipt", "event",

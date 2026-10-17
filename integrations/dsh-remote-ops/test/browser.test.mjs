@@ -8,12 +8,12 @@ import { BrowserWorkspace, browserInstallerCli } from "../lib/browser-workspace.
 import { execFileSync } from "node:child_process";
 import { registerBrowserRoutes } from "../lib/browser-routes.js";
 import { registerBrowserTools } from "../lib/browser-tools.js";
-import { registerBrowserSkill } from "../lib/browser-skill.js";
+import { registerBundledSkills } from "../lib/skills.js";
 import { browserRunSource, browserSteps, browserTarget } from "../lib/browser-steps.js";
 
 test("bundled browser skill exposes valid inline examples through the native provider", async () => {
   let provider;
-  registerBrowserSkill({ inject: (services, ready) => {
+  registerBundledSkills({ inject: (services, ready) => {
     assert.deepEqual(services, ["skills"]);
     ready({ skills: { registerProvider: create => { provider = create(); } } });
   } });
@@ -33,9 +33,9 @@ test("bundled browser skill exposes valid inline examples through the native pro
 });
 
 test("optional native skills service does not gate browser operations", () => {
-  assert.doesNotThrow(() => registerBrowserSkill({}));
+  assert.doesNotThrow(() => registerBundledSkills({}));
   let services;
-  assert.doesNotThrow(() => registerBrowserSkill({ inject: value => { services = value; } }));
+  assert.doesNotThrow(() => registerBundledSkills({ inject: value => { services = value; } }));
   assert.deepEqual(services, ["skills"]);
 });
 

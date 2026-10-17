@@ -3,6 +3,10 @@
 Standalone DeepSeek Harness plugin for remote Linux operations. It does not
 depend on or start the myterm desktop application.
 
+## Agent environment management (v0.6.1)
+
+`remote_environment_update` completes the Agent environment CRUD tools. The new bundled `remote-ops-environments` skill covers selecting targets, updates, groups, credentials and existing connections. Both it and `remote-ops-browser` register automatically through DSH's native skill provider; user/project skills retain precedence and uninstall removes the provider. No Agent/core changes or user skill-file writes are required. Releases contain only tgz and SHA256.
+
 ## Interface and interaction refresh (v0.6.0)
 
 - Terminal, web, files, environments, saved commands and diagnostics share consistent typography, spacing, controls and host-aware light/dark surfaces. Workspace tabs stay at the top; version, updates, diagnostics and comfortable/compact density live under **更多设置**. Density persists in this browser.
@@ -98,14 +102,14 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.6.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.6.1.tgz
 dsh web
 ```
 
 For an upgrade, install as the same user and with the same `DSH_HOME` used by
 DSH, and use its actual profile rather than assuming `web`. Fully stop the old
 DSH process after installation, restart it, refresh the browser, and confirm
-`v0.6.0` in Remote Ops **更多设置**. Saved environments and quick commands
+`v0.6.1` in Remote Ops **更多设置**. Saved environments and quick commands
 remain; terminal connections must be reopened.
 
 For a package obtained from a registry, the package name is:
@@ -163,12 +167,28 @@ key may be referenced by local path.
 
 ## Agent tools
 
-The plugin exposes environment list/create/update/delete, group management,
-terminal
+The plugin exposes `remote_environment_list`, `remote_environment_create`,
+`remote_environment_update` (added in v0.6.1), `remote_environment_delete`, group management, terminal
 open/send/read/signal/close, multi-target batch execution, quick-command list
 and run, SFTP operations, and diagnostics. The system-prompt contribution tells
 the model to send a complete command when it is known and to use incremental
 terminal feedback only when the current CLI state is genuinely uncertain.
+
+### Saved SSH environment management
+
+Use `/remote-ops-environments` or let the Agent discover the bundled skill. List environments first and use the returned internal `id` for updates/deletion. Creation requires `host` and `username`, generates the ID, and defaults the name to the host. Groups support `remote_environment_group_create`, `_rename` and `_delete`; only empty groups can be deleted.
+
+An update changes only supplied non-null fields. For example, call `remote_environment_update` with:
+
+```json
+{"environment":"actual-id-from-list","name":"storage-primary","group":"production"}
+```
+
+Supported fields: `name`, `host`, `username`, `group`, `port`, `privateKeyPath`, `passwordRef`, `encoding`, `cliProfile`, `terminal`. The ID stays fixed. Omission/null retains the old field; an entirely empty update rejects. Non-empty text is required for name/host/username/group. Port must be an integer 1–65535. Name conflicts, unknown fields, invalid nested options and the credential display marker `configured` reject before writing. Exact IDs take precedence over matching display names.
+
+`cliProfile` and `terminal` replace their entire respective sections when supplied; `{}` resets a section to defaults. Empty `passwordRef`/`privateKeyPath` strings clear that setting without deleting the stored credential or key file. These tools accept credential references, not literal passwords; new passwords can be entered in the environment form. Omit the masked `passwordRef: "configured"` returned by listing when retaining authentication.
+
+Saved changes apply to new SSH connections. Existing connections retain their captured name, address, authentication and CLI/terminal defaults; the tool does not disconnect or reconnect them. `saved: true` confirms persistence, not connectivity. Environment deletion removes the saved definition and closes connections owned by the calling conversation, leaving other conversations' already-open connections intact. A group move creates an absent target group and leaves the old group present.
 
 Use `session: "local-cmd"` for the plugin's shared visible local terminal,
 not the Harness built-in bash/pwsh tool. For SSH, reuse an explicit session

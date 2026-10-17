@@ -2,7 +2,9 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { normalizeCliProfile, normalizeTerminalSize } from "../cli-profile.js";
 import { SESSION_NAME_PREFIX } from "../constants.js";
-import { newEnvironmentId, normalizeGroupName, ownerId, sessionError } from "../common.js";
+import { newEnvironmentId, normalizeGroupName, ownerId, sessionError, validateEnvironment } from "../common.js";
+
+const UPDATE_FIELDS = new Set(["name", "host", "username", "group", "port", "privateKeyPath", "passwordRef", "encoding", "cliProfile", "terminal"]);
 
 export function sanitizeStoredEnvironment(item) {
   if (!item || typeof item !== "object") return item;
@@ -57,9 +59,30 @@ export const withEnvironments = (Base) => class EnvironmentsLayer extends Base {
     return this.findEnvironment(normalized.id);
   }
 
+  async updateEnvironment(idOrName, changes) {
+    await this.ready;
+    if (typeof idOrName !== "string" || !idOrName.trim()) throw sessionError("REMOTE_ENV_INVALID", "environment must be an existing environment id or name");
+    const previous = this.findEnvironment(idOrName.trim());
+    if (!previous) throw sessionError("REMOTE_ENV_NOT_FOUND", idOrName);
+    if (!changes || typeof changes !== "object" || Array.isArray(changes)) throw sessionError("REMOTE_ENV_INVALID", "changes must be an object");
+    for (const key of Object.keys(changes)) if (!UPDATE_FIELDS.has(key)) throw sessionError("REMOTE_ENV_INVALID", `Unsupported update field: ${key}`);
+    // Optional nulls are omission, not an instruction to erase persisted settings.
+    const patch = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined && value !== null));
+    if (!Object.keys(patch).length) throw sessionError("REMOTE_ENV_UPDATE_EMPTY", "Provide at least one field to update; omitted or null fields keep their saved values");
+    for (const key of ["name", "host", "username", "group"]) {
+      if (Object.hasOwn(patch, key) && (typeof patch[key] !== "string" || !patch[key].trim())) throw sessionError("REMOTE_ENV_INVALID", `${key} must be a non-empty string`);
+    }
+    if (patch.passwordRef === "configured") throw sessionError("REMOTE_ENV_INVALID", "passwordRef 'configured' is a display marker. Omit it to keep the current credential, use a real reference to replace it, or an empty string to clear it");
+    const value = this.normalizeEnvironment({ ...previous, ...patch, id: previous.id });
+    const validation = validateEnvironment(value);
+    if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", "));
+    // Saving replaces the definition; live connections keep the settings captured when they opened.
+    return this.saveEnvironment(value);
+  }
+
   allEnvironments() { return [...this.environments.entries()].flatMap(([group, values]) => values.map((value) => ({ ...value, group }))); }
 
-  findEnvironment(idOrName) { return this.allEnvironments().find((value) => value.id === idOrName || value.name === idOrName); }
+  findEnvironment(idOrName) { const values = this.allEnvironments(); return values.find(value => value.id === idOrName) ?? values.find(value => value.name === idOrName); }
 
   findEnvironmentBySessionName(name) {
     const value = String(name ?? "");

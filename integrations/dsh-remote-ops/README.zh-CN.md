@@ -6,6 +6,10 @@
 
 客户端兼容 DSH 0.2.0-rc.2 的 `Regular` 图标导出，并回退支持旧版按尺寸命名的图标。v0.2.23 修复图标导出变化导致的 Remote Ops 面板空白；启动失败提示改由 DSH `shell.overlay` 宿主插槽承载，不再向页面 body 创建全局浮层。
 
+## Agent 环境管理补齐（v0.6.1）
+
+新增 `remote_environment_update`，补齐 Agent 对 SSH 环境的增删改查。随包 `remote-ops-environments` skill 说明目标选择、更新、分组、凭据和已有连接行为，与 `remote-ops-browser` 一起通过 DSH 原生 skill 服务自动注册；支持自动发现和 `/remote-ops-environments` 调用，用户/项目 skill 优先级保持更高，卸载后移除注册。不修改 Agent 或 DSH 内核，不写入用户 skill 文件。Release 仍只包含 tgz 和 SHA256。
+
 ## 界面与交互更新（v0.6.0）
 
 - 终端、网页、文件及环境、快捷命令、诊断采用统一的字号、间距、控件和深浅色层次。顶部保留工作区标签，版本、更新、诊断和“界面密度”收进“更多设置”；舒适/紧凑密度在本浏览器中保存。
@@ -91,11 +95,11 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.6.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.6.1.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“更多设置”显示 `v0.6.0`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“更多设置”显示 `v0.6.1`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
 
 如果使用已经发布到 registry 的包，则包名为：
 
@@ -125,6 +129,22 @@ DSH Web 启动后，点击左侧底部 `Remote Ops` 打开原生右侧 Sidebar�
 - 文件传输使用流和背压，不再有 2 MiB 上传/下载限制。任务显示实际字节数、文件数、结果和取消；同名文件默认报错，可显式选择跳过/覆盖。工具的覆盖参数为 `overwrite: true`，默认不覆盖。
 - 同时最多 2 个传输任务，最多 20 个排队/运行任务，最近最多 50 条任务记录；不跨 DSH 重启恢复。取消清理未完成暂存文件，但已经完成的文件和目录不会回滚。符号链接和设备文件不递归跟随；目录限制深度 32、条目 10,000。覆盖已有远端文件需要服务端支持原子 rename 扩展。
 - 错误保留阶段、代码、原始消息与 cause 堆栈。诊断导出先预览，采用元数据白名单，不导出凭据、命令正文、主机地址或终端内容。
+
+## Agent 管理 SSH 环境
+
+- 查询：`remote_environment_list`；新增：`remote_environment_create`；修改：`remote_environment_update`；删除：`remote_environment_delete`。v0.6.0 及以前未明确提供修改工具，旧英文 README 将其列入 Agent 工具的描述不准确。
+- 先查询列表，修改/删除优先使用返回的内部 `id`。新增必填 `host`、`username`，ID 自动生成，省略名称时使用主机地址。分组使用 `remote_environment_group_create/rename/delete`；只能删除空分组。
+- 修改示例，参数传给 `remote_environment_update`：
+
+```json
+{"environment":"列表返回的实际ID","name":"生产存储","group":"生产环境"}
+```
+
+可修改 `name`、`host`、`username`、`group`、`port`、`privateKeyPath`、`passwordRef`、`encoding`、`cliProfile`、`terminal`。内部 ID 不变，省略或传 null 的字段保持原值；没有任何非 null 修改时拒绝。名称、地址、用户、分组必须是非空字符串，端口为 1–65535 整数。重名、非法嵌套设置、未声明字段和凭据显示标记 `configured` 在写入前拒绝。精确 ID 优先于相同的显示名称。
+
+提供 `cliProfile` 或 `terminal` 时替换整个对应区块，`{}` 重置该区块为默认值。`passwordRef`、`privateKeyPath` 传空字符串可清除该项，但不会删除凭据本体或密钥文件。工具不接收明文密码，新密码可在环境表单中输入并交给宿主凭据服务保存。列表中的 `passwordRef: "configured"` 仅表示已配置，保留认证时应省略该字段。
+
+修改配置不会断开、重连或切换现有 SSH 连接；已有连接继续使用打开时的名称、地址、认证及 CLI/终端预设，新配置用于新建连接。`saved: true` 仅代表保存成功，不代表连通性通过。删除环境会移除保存定义并关闭当前调用对话拥有的连接，不关闭其他对话已打开的连接。迁移分组会自动创建不存在的目标分组，原分组保留。
 
 ## Agent 与终端同步
 

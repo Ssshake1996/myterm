@@ -5,6 +5,13 @@ operations. The repository has been cut over to the plugin boundary: it no
 longer contains the myterm desktop application, a Tauri host, or a second
 Agent kernel.
 
+## Agent environment management (v0.6.1)
+
+- Adds `remote_environment_update` for an existing environment ID or name. It changes only supplied non-null fields, preserving identity, credentials and omitted configuration. Invalid fields and duplicate names reject before writing.
+- Bundles `remote-ops-environments` alongside the browser skill through DSH's native skill provider, with automatic discovery and `/remote-ops-environments` invocation. Install the same tgz; no Agent changes or manual skill copying.
+- Existing SSH connections keep their original settings and stay open. New connections use the updated definition. The list's `passwordRef: "configured"` is a display marker; omit it to preserve credentials. Store new passwords through the environment form.
+- Agent and frontend share persisted environments. Releases remain tgz plus SHA256 only. See the [plugin README](integrations/dsh-remote-ops/README.md) for the API and installation contract.
+
 ## Interface and interaction refresh (v0.6.0)
 
 - Terminal, web, files, environments, saved commands and diagnostics share consistent typography, spacing, controls and host-aware light/dark surfaces. Workspace tabs stay at the top; version, updates, diagnostics and comfortable/compact density live under **更多设置**. Density persists in this browser.
@@ -91,11 +98,11 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.6.0.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.6.1.tgz
 dsh web
 ```
 
-For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.6.0` in Remote Ops **更多设置**. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
+For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.6.1` in Remote Ops **更多设置**. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
 
 Click `Remote Ops` at the bottom of the left sidebar to open the native right Sidebar while preserving the main conversation. It uses the official `sidebar.footer.action` seat and `sidebarRight.openTab`; it no longer registers a `sidebar.panellist` / `main` replacement. Tested on DSH `0.2.0-rc.2`; other host versions remain untested. If the entry is missing, check the installation profile, host/plugin versions and whether the old process exited. On narrow screens DSH may present its right Sidebar full screen; collapsing it returns to the original conversation.
 
@@ -135,15 +142,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.6.0
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.6.1
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.6.0
-node scripts/release-dsh-remote-ops.mjs 0.6.0 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.6.1
+node scripts/release-dsh-remote-ops.mjs 0.6.1 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and
