@@ -10,6 +10,8 @@ Nine new tests cover partial updates and persistence, ID/name disambiguation, re
 
 The DSH UI contract checker passed 14 checks with its expected non-Codex-manifest warning. The new skill passed `quick_validate.py` in UTF-8 mode. Version consistency and whitespace checks passed.
 
+The main-branch [browser CI](https://github.com/Ssshake1996/myterm/actions/runs/38991219099) passed all **13/13 scenarios** after the final implementation. Those scenarios use the real plugin and a simulated host, separate from the native DSH checks below.
+
 ## Candidate on real DSH
 
 Installed the checksum-verified official v0.6.0 tgz through `dsh plugin --profile web add` into isolated `output/environment061-home`, saved a baseline SSH definition through that version's implementation, then installed the candidate v0.6.1 tgz through the same CLI. The saved baseline file hash was unchanged after upgrade and acceptance: `5fa78b575a8d6ec50cfd9d37290b55b19ca54a6c01f2b23297a9a47c3cdc3ede`.
@@ -25,12 +27,20 @@ The installed package passed these native tool/UI checks:
 5. Invalid port and the masked `configured` credential marker produce `REMOTE_ENV_INVALID`; the saved definition is unchanged.
 6. Native deletion removes only the disposable test environment/groups and closes both calling-conversation SSH connections. The prior-version baseline definition remains byte-for-byte unchanged.
 7. The left launcher opens/reuses the native right tab and retains an unsent conversation draft. Environment management remains usable at 390px width. The browser console reports no errors. Screenshots were visually inspected.
+8. After removing the candidate through the official plugin CLI and restarting the isolated host, the Remote Ops launcher and both slash-menu skills disappear. The host handles its previously open tab using its standard unavailable-view message. Saved environment data remains available for reinstallation.
 
 Evidence is local under `output/environment061-candidate-*`, including native provider results, SSH events and assertion output. These files and test host authentication data are ignored and must not be published.
 
 ## Release and official package
 
-Pending publication and installation of the downloaded official asset. This section will be completed with the release commit, assets, checksums, CI and installed-package result.
+- Implementation/tag commit: `4e2ac33dd7a1bdd0490acc2673bed023264b47a5`; tag: `dsh-remote-ops-v0.6.1`.
+- [Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.6.1) is published with exactly two uploaded assets: `dsh-remote-ops-v0.6.1.tgz` (166,208 bytes) and `SHA256SUMS-dsh-remote-ops-v0.6.1.txt` (92 bytes). No Windows ZIP.
+- Downloaded official tgz, published checksum, GitHub asset digest and locally tested candidate all match SHA256 `6444579f2ae0ff88c0c11760423cc63c7cec6ee8442501a88631e9e301603519`.
+- [Release workflow](https://github.com/Ssshake1996/myterm/actions/runs/38991221761) passed Linux package/check, Windows check and publication. [Main CI](https://github.com/Ssshake1996/myterm/actions/runs/38991219102) and the 13/13 browser CI linked above passed.
+- Installed the downloaded official asset using DSH's plugin CLI into the same isolated profile after the removal check, restarted real DSH and repeated all four native tool phases: **23 native calls, PASS**. The environment skill loaded, IDs/null-preserved fields remained correct, old SSH used A, new SSH used B, invalid patches were rejected and deletion closed both test connections. Prior-version data was still byte-for-byte unchanged.
+- The official installed UI showed v0.6.1, synchronized the Agent's environment changes and retained both slash-menu skill entries. No browser console errors were recorded. Evidence: `output/environment061-official-acceptance.json`, `output/environment061-official-proof.json`, provider/install logs and `output/environment061-official-release.json`.
+
+The first official-package test prompt was typed while the terminal panel was mounting; only its first character reached the conversation while the remaining text went to the terminal's unsubmitted input. This produced no environment tool call. The harness then filled and verified the complete conversation prompt after the panel was ready and ran all planned assertions without product changes. The initial entry and provider evidence are retained; this is not a claim that asynchronous terminal focus behavior was changed.
 
 ## Limits
 
