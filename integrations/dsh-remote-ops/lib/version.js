@@ -1,3 +1,3 @@
 export const PLUGIN_NAME = "dsh-remote-ops";
-export const PLUGIN_VERSION = "0.6.1";
+export const PLUGIN_VERSION = "0.7.0";
 export const RELEASE_REPOSITORY = "Ssshake1996/myterm";

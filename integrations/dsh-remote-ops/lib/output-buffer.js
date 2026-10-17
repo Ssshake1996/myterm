@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import { MAX_SCROLLBACK_BYTES, RETAINED_SCROLLBACK_BYTES, UI_SCROLLBACK_CHARS } from "./constants.js";
+import { observeAgentEcho } from "./terminal-echo.js";
 
 export class TerminalOutputBuffer {
   constructor(maxBytes = MAX_SCROLLBACK_BYTES, retainedBytes = RETAINED_SCROLLBACK_BYTES) {
@@ -12,6 +13,9 @@ export class TerminalOutputBuffer {
     this.revision = 0;
     this.streamId = randomUUID();
     this.waiters = new Set();
+    this.createdAt = new Date().toISOString();
+    this.updatedAt = this.createdAt;
+    this.commandAnnotations = [];
   }
 
   get length() { return this.value.length; }
@@ -24,6 +28,7 @@ export class TerminalOutputBuffer {
     this.value += text;
     this.byteLength += Buffer.byteLength(text, "utf8");
     this.revision += 1;
+    this.updatedAt = new Date().toISOString();
     if (this.byteLength > this.maxBytes) {
       const encoded = Buffer.from(this.value, "utf8");
       let byteStart = Math.max(0, encoded.length - this.retainedBytes);
@@ -33,6 +38,7 @@ export class TerminalOutputBuffer {
       this.value = retained;
       this.byteLength = Buffer.byteLength(retained, "utf8");
     }
+    observeAgentEcho(this);
     this.notify();
   }
 

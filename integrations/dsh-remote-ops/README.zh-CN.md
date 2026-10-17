@@ -6,6 +6,15 @@
 
 客户端兼容 DSH 0.2.0-rc.2 的 `Regular` 图标导出，并回退支持旧版按尺寸命名的图标。v0.2.23 修复图标导出变化导致的 Remote Ops 面板空白；启动失败提示改由 DSH `shell.overlay` 宿主插槽承载，不再向页面 body 创建全局浮层。
 
+## 终端高亮与日志接口（v0.7.0）
+
+- Agent 提交后实际回显的单行命令使用强调色，普通回显保留常见 ANSI 配色；错误、警告及成功前缀适度高亮。“终端显示设置”可关闭语义高亮。显示处理不改变发给设备的字节；隐藏输入、分次原始按键及无法可靠匹配的回显不标成命令。关键词颜色不代表已验证执行成功，全屏程序不添加语义高亮。
+- 终端工具栏“导出终端日志”支持当前终端 UTF-8 TXT，以及本会话全部日志 ZIP；包含仍保留的已关闭 SSH 记录和共享本地终端。ZIP 每个终端一个文件，附 `manifest.json` 标明来源、时间和保留范围。
+- 新增 `remote_terminal_logs`、`remote_terminal_log_read`、`remote_terminal_log_export`。Agent 可列出日志、按原始游标分页读取，再直接调用插件打包接口获得下载链接和 SHA256；打包不需要先读完日志或在终端执行压缩命令。Web 对话返回当前已验证 DSH 地址的完整下载链接；无法获得浏览器地址时仍可从终端工具栏导出，不猜测地址。
+- 随包 `remote-ops-terminal-logs` skill 由 DSH 原生服务自动发现，也可用 `/remote-ops-terminal-logs` 加载。安装同一 tgz 即包含接口和指南，不修改 Agent 或用户 skill 文件。
+- 日志仅保留于本次 DSH 进程：每个终端最多 4 MiB，超限保留末尾 3 MiB；已关闭记录共享 16 MiB / 32 条上限。接口显式返回截断及淘汰情况，重启后不恢复。只采集设备回显，不额外记录隐藏输入；程序主动打印的敏感内容仍可能包含在日志中。
+- 单包最多 32 条记录 / 32 MiB 原始输出；下载缓存最多 10 包 / 32 MiB，链接有效期最长一小时，缓存淘汰或重启会提前失效。导出冻结当前记录；后续输出需重新导出。终端文本保留进度刷新内容，不等于全屏界面录像；独立命令和网页操作记录不在此接口范围。
+
 ## Agent 环境管理补齐（v0.6.1）
 
 新增 `remote_environment_update`，补齐 Agent 对 SSH 环境的增删改查。随包 `remote-ops-environments` skill 说明目标选择、更新、分组、凭据和已有连接行为，与 `remote-ops-browser` 一起通过 DSH 原生 skill 服务自动注册；支持自动发现和 `/remote-ops-environments` 调用，用户/项目 skill 优先级保持更高，卸载后移除注册。不修改 Agent 或 DSH 内核，不写入用户 skill 文件。Release 仍只包含 tgz 和 SHA256。
@@ -77,7 +86,7 @@
 - 支持完整命令下发、直接终端键盘输入和信号控制；终端支持 Tab 补齐、方向键、退格、Enter、Ctrl+C 等按键。
 - 插件启动后默认提供本地 CMD，工作目录为 `$DSH_HOME/remote-ops`；可直接运行 `ssh`、网络检查及其他本地命令，不要求先初始化 Agent。
 - 保存环境建立的 SSH 会话断开后自动回到本地 CMD；本地 CMD 中启动的 `ssh` 退出后自然返回同一提示符。
-- 终端会请求 UTF-8 locale，并清洗 ANSI 控制序列；环境字节流支持 UTF-8、GB18030、Big5 等编码配置。
+- 终端会请求 UTF-8 locale，界面保留常见 ANSI 配色并处理 VT 控制序列；环境字节流支持 UTF-8、GB18030、Big5 等编码配置。
 - 前端使用轻量 VT 屏幕模型还原 ConPTY 清屏、光标定位、行覆盖和滚屏，避免屏幕快照产生大段空白；终端高度严格受容器约束，纵向滚动条始终完整可用。
 - 终端输出通过游标增量和长轮询传输，键盘输入串行合并发送；空闲时不再反复传输完整状态或持续产生高频终端请求。
 - 支持多个目标顺序协同执行，并返回每个目标的结果。
@@ -95,11 +104,11 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.6.1.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.7.0.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“更多设置”显示 `v0.6.1`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“更多设置”显示 `v0.7.0`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
 
 如果使用已经发布到 registry 的包，则包名为：
 

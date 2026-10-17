@@ -94,6 +94,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
       if (!session) throw new Error("SSH backend did not return a session");
       const record = { sessionId: spawned.sessionId, ownerId: id, owner, environment, session };
       this.sessions.set(record.sessionId, record);
+      this.trackTerminalLog(owner, record.sessionId, session, environment);
       session.onClose = (info) => this.recordDisconnect(record, info);
       this.event(owner, "ssh.open", { sessionId: record.sessionId, environment: environment.name });
       return record;
@@ -167,6 +168,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
     if (!session) throw new Error("SSH backend did not return a session");
     const record = { sessionId: spawned.sessionId, ownerId: id, owner, environment, session, direct: true };
     this.sessions.set(record.sessionId, record);
+    this.trackTerminalLog(owner, record.sessionId, session, environment);
     session.onClose = (info) => this.recordDisconnect(record, info);
     this.event(owner, "ssh.open.direct", { sessionId: record.sessionId, environment: environment.name });
     return record;

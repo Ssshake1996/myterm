@@ -39,6 +39,7 @@ export const withTerminalIo = (Base) => class TerminalIoLayer extends Base {
       control: this.controlSnapshot(session),
       toolReceipt: this.toolReceipt(owner, session),
       completion: "unknown",
+      commandAnnotations: session.outputBuffer.commandAnnotations ?? [],
       format: "terminal-stream",
       ...readPage(session.outputBuffer, replaced ? undefined : offset, maxChars, pageOptions),
       ...(replaced ? { reset: true, truncated: true } : {}),
@@ -69,6 +70,7 @@ export const withTerminalIo = (Base) => class TerminalIoLayer extends Base {
 
   claimInput(session, actor, streamId) {
     if (streamId && streamId !== session.outputBuffer.streamId) throw sessionError("TERMINAL_STREAM_CHANGED", "Terminal was replaced; review the new output before typing");
+    session.outputBuffer.pendingEcho = undefined;
     // Human and Agent use the same input stream. A running conversation does
     // not lock the terminal; stream identity still prevents writes to a replacement.
     session.outputBuffer.notify();

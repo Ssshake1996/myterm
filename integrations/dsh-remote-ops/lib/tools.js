@@ -241,6 +241,24 @@ export function registerTools(ctx, state) {
     execute: async (args, exec) => state.readTerminal(owner(exec), args.session, { ...pick(args, ["cursor", "streamId", "waitMs", "maxChars", "offset", "count", "stripAnsi", "headTailChars"]), signal: exec.signal }),
   });
   registerTool(ctx, {
+    name: "remote_terminal_logs",
+    description: "List retained terminal logs for this conversation plus the shared local terminal, including recently closed terminals. Returns logId, streamId, raw offset range and retention/truncation metadata. Logs are bounded process memory and do not survive a DSH restart. Use the bundled remote-ops-terminal-logs skill for reading or export.",
+    parameters: {},
+    execute: async (_args, exec) => state.listTerminalLogs(owner(exec)),
+  });
+  registerTool(ctx, {
+    name: "remote_terminal_log_read",
+    description: "Read a page of retained terminal output without typing or executing anything. Omit cursor to start at the earliest retained output; continue with nextOffset and streamId while hasMore. Text is cleaned, but cursor counts raw UTF-16 stream positions. Read gap/truncated metadata. Never reconstruct missing history by re-running commands.",
+    parameters: { logId: stringParam("Exact logId from remote_terminal_logs", true), cursor: numberParam("Raw nextOffset; starts at earliest retained output when omitted"), streamId: stringParam("Stream identity returned by list/read"), maxChars: numberParam("Raw page size 2-65536; default 16384") },
+    execute: async (args, exec) => state.readTerminalLog(owner(exec), args),
+  });
+  registerTool(ctx, {
+    name: "remote_terminal_log_export",
+    description: "Package retained logs through the plugin, without copying screen text or running archive commands in a terminal. Pass logIds as an array, or all=true for this conversation's logs plus shared local history. txt requires one log; zip includes one TXT per log and manifest.json. Returns an absolute downloadUrl when a trusted DSH browser origin is available, otherwise null (use the terminal export menu); downloadPath is for same-host API clients. At most 32 logs / 32 MiB raw output. The download expires after one hour, earlier cache eviction or host restart. Return the real downloadUrl and SHA256; disclose truncation/evicted logs.",
+    parameters: { logIds: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 32, uniqueItems: true, description: "Exact IDs from remote_terminal_logs; omit when all=true" }, all: boolParam("Explicitly export all currently available logs in this conversation"), format: { type: "string", enum: ["txt", "zip"], description: "Default txt for one log, zip for multiple logs" } },
+    execute: async (args, exec) => state.exportTerminalLogs(owner(exec), args),
+  });
+  registerTool(ctx, {
     name: "remote_terminal_signal",
     description: "Interrupt the foreground process in a visible SSH terminal or local-cmd.",
     parameters: {

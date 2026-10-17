@@ -37,6 +37,7 @@ export const withLocalTerminal = (Base) => class LocalTerminalLayer extends Base
       if (!this.disposed) setTimeout(() => { void this.ensureLocalSession().catch((error) => { this.localError = summarizeError(error); }); }, 200);
     };
     this.localSession = session;
+    this.trackTerminalLog(undefined, LOCAL_SESSION_ID, session, environment);
     this.localError = "";
     return session;
   }

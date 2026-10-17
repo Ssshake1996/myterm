@@ -8,6 +8,7 @@ import { BrowserWorkspace } from "./browser-workspace.js";
 import { registerBrowserRoutes } from "./browser-routes.js";
 import { registerBrowserTools } from "./browser-tools.js";
 import { registerBundledSkills } from "./skills.js";
+import { registerLogRoutes } from "./log-routes.js";
 
 export const name = PLUGIN_NAME;
 export const inject = ["connection", "systemPrompt", "tools", "terminals", "agents", "credentials", "subprocess"];
@@ -32,11 +33,14 @@ export function apply(ctx) {
     await state.localSession?.close("dsh-remote-ops disposed").catch(() => {});
     for (const record of state.sessions.values()) await ctx.terminals.kill(record.owner, record.sessionId, "dsh-remote-ops disposed").catch(() => {});
     state.sessions.clear();
+    state.terminalLogs?.clear();
+    state.logExports?.clear();
   }, "dsh-remote-ops cleanup");
   registerWorkspaceRoutes(ctx, state);
   ctx.effect(() => ctx.terminals.registerBackend({ type: "ssh", spawn: (spec) => state.spawnBackend(spec) }), "dsh-remote-ops SSH backend");
   registerTools(ctx, state);
   registerRoutes(ctx, state);
+  registerLogRoutes(ctx, state);
   registerBrowserRoutes(ctx, state);
   registerBrowserTools(ctx, state);
   registerBundledSkills(ctx);

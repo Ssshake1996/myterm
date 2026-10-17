@@ -169,7 +169,7 @@ test("alternate-screen applications restore the shell and respect scroll regions
 
 test("terminal preferences clamp invalid values and paste previews stay pinned to the original target", () => {
   const prefs = loadClientFunction("terminalPreferences", "\n    const pasteSubmission");
-  assert.deepEqual(JSON.parse(JSON.stringify(prefs({fontSize:100,wrap:false,quickHeight:-5}))), {fontSize:22,wrap:false,quickHeight:92});
+  assert.deepEqual(JSON.parse(JSON.stringify(prefs({fontSize:100,wrap:false,quickHeight:-5}))), {fontSize:22,wrap:false,quickHeight:92,highlight:true});
   const paste = loadClientFunction("pasteSubmission", "\n    const outputMatches");
   assert.equal(paste({session:"one",owner:"a",text:"echo one\r\necho two"},"a").text,"echo one\recho two");
   assert.throws(() => paste({session:"one",owner:"a",text:"x"},"b"), /PASTE_TARGET_CHANGED/);

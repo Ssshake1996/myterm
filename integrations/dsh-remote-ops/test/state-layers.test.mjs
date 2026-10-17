@@ -31,6 +31,7 @@ const PUBLIC_METHODS = [
   "terminalOutput", "readTerminal", "claimInput", "control", "send", "input", "signal",
   "execute", "cancelCommand", "startCommand", "commandJob", "commandJobsFor",
   "listLocalFiles", "connectFiles", "listFiles", "sftp",
+  "trackTerminalLog", "pruneTerminalLogs", "listTerminalLogs", "readTerminalLog", "exportTerminalLogs", "pruneLogExports", "getLogExport",
 ];
 
 test("RemoteOpsState keeps its complete method inventory", () => {

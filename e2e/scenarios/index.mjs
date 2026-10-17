@@ -278,3 +278,5 @@ import { workspaceUiScenario } from './workspace-ui.mjs';
 
 import { visualRefreshScenario } from './visual-refresh.mjs';
 scenarios.push(visualRefreshScenario);
+import { terminalLogsScenario } from './terminal-logs.mjs';
+scenarios.push(terminalLogsScenario);

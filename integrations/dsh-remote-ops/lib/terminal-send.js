@@ -6,6 +6,7 @@ import {
 } from "./cli-assist.js";
 import { readPage, renderOutput } from "./output-render.js";
 import { AdoptedTerminalSession } from "./terminal-sessions.js";
+import { expectAgentEcho } from "./terminal-echo.js";
 
 async function resolveSendTarget(state, owner, target, args) {
   if (!target && !args.environment) throw sessionError("REMOTE_SESSION_REQUIRED", "Pass session (SSH session id or local-cmd), or environment when opening on demand");
@@ -52,9 +53,10 @@ export async function performSend(state, owner, target, args) {
   const timeoutMs = Math.max(1, Math.min(300_000, (Number(args.timeoutSeconds ?? 30) || 30) * 1000));
   const deadline = Date.now() + timeoutMs;
   const runSend = async (request) => {
+    if (args.actor !== "manual") expectAgentEcho(session.outputBuffer, request.text, request.submit);
     const operation = target === LOCAL_SESSION_ID ? session.startSend(request) : state.ctx.terminals.startSend(owner, record.sessionId, request);
     session.pendingSend = operation;
-    try { return await operation.done; } finally { if (session.pendingSend === operation) session.pendingSend = undefined; session.outputBuffer.notify(); }
+    try { return await operation.done; } finally { session.outputBuffer.pendingEcho = undefined; if (session.pendingSend === operation) session.pendingSend = undefined; session.outputBuffer.notify(); }
   };
   let result = await runSend({ text: submittedText, submit, quietMs, timeoutMs, signal: args.signal });
 

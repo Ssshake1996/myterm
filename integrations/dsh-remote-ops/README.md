@@ -3,6 +3,15 @@
 Standalone DeepSeek Harness plugin for remote Linux operations. It does not
 depend on or start the myterm desktop application.
 
+## Terminal highlighting and log APIs (v0.7.0)
+
+- Echoed single-line Agent submissions use an accent color; ordinary output retains common ANSI colors. Error, warning and success prefixes receive restrained emphasis. Disable semantic highlighting in terminal display settings. Styling never changes terminal bytes; hidden input, raw keystrokes and unmatched echoes are not labeled as commands. Prefix colors are not verified exit-status evidence, and full-screen programs receive no semantic highlighting.
+- The terminal log menu exports the current terminal as UTF-8 TXT, or all available conversation logs as ZIP, including retained closed SSH records and the shared local terminal. Each ZIP contains separate transcripts and a `manifest.json` with source, time and coverage metadata.
+- `remote_terminal_logs`, `remote_terminal_log_read` and `remote_terminal_log_export` provide discovery, raw-cursor pagination and packaging. The export tool returns SHA256 and an absolute download link for the observed trusted DSH browser origin (or null when unavailable; use the toolbar); the Agent need not copy screen text, read every page or run archive commands.
+- The bundled `remote-ops-terminal-logs` skill is automatically discoverable through DSH, with `/remote-ops-terminal-logs` also available. The tgz carries both tools and instructions; no Agent/core or user skill-file changes.
+- Retention is process memory: 4 MiB per terminal, trimmed to the latest 3 MiB on overflow; closed records share a 16 MiB / 32-record limit. APIs disclose truncation and evictions. History does not survive restart. Hidden/raw input is not logged separately, but secrets printed by programs can still be present.
+- A package accepts at most 32 logs / 32 MiB raw output. Download cache is limited to 10 packages / 32 MiB; links expire after one hour, earlier eviction or host restart. Exports freeze current buffers; later output needs a new export. Progress frames are retained as lines, not a replay of a full-screen application. Independent commands and browser activity are separate records.
+
 ## Agent environment management (v0.6.1)
 
 `remote_environment_update` completes the Agent environment CRUD tools. The new bundled `remote-ops-environments` skill covers selecting targets, updates, groups, credentials and existing connections. Both it and `remote-ops-browser` register automatically through DSH's native skill provider; user/project skills retain precedence and uninstall removes the provider. No Agent/core changes or user skill-file writes are required. Releases contain only tgz and SHA256.
@@ -73,7 +82,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 - Owner-scoped SSH sessions backed by the Harness `ctx.terminals` service.
 - A local CMD terminal starts with the plugin at `$DSH_HOME/remote-ops`, before an Agent is initialized. It accepts ordinary local commands and interactive `ssh`; saved-environment SSH sessions fall back to this terminal after disconnecting.
 - Complete command submission, direct terminal keyboard input, signals, and retained output; Tab completion, arrows, backspace, Enter, and Ctrl+C are forwarded as terminal keys.
-- SSH sessions request a UTF-8 locale and the UI removes ANSI control sequences; the backend accepts UTF-8, GB18030, Big5, and related terminal encodings.
+- SSH sessions request a UTF-8 locale and the UI renders common ANSI colors and VT controls; the backend accepts UTF-8, GB18030, Big5, and related terminal encodings.
 - A lightweight VT screen model applies ConPTY clear, cursor, line-rewrite, and scroll operations, avoiding blank screen snapshots while keeping the final line reachable through a stable scrollbar.
 - Cursor-based output deltas use long polling and serialized batched keyboard writes, so idle terminals no longer transfer complete snapshots or generate frequent empty requests.
 - Sequential multi-target execution for observe-then-continue workflows.
@@ -102,14 +111,14 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.6.1.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.7.0.tgz
 dsh web
 ```
 
 For an upgrade, install as the same user and with the same `DSH_HOME` used by
 DSH, and use its actual profile rather than assuming `web`. Fully stop the old
 DSH process after installation, restart it, refresh the browser, and confirm
-`v0.6.1` in Remote Ops **更多设置**. Saved environments and quick commands
+`v0.7.0` in Remote Ops **更多设置**. Saved environments and quick commands
 remain; terminal connections must be reopened.
 
 For a package obtained from a registry, the package name is:

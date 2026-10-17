@@ -248,6 +248,12 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__menu>div{min-width:240px;max-width:calc(100cqw - 24px);padding:8px}
       .dsh-remote-ops__envMeta{font-size:12px}.dsh-remote-ops__envName{font-weight:500}
       .dsh-remote-ops__output{padding:16px;line-height:1.65}
+      .dsh-remote-ops__output [data-terminal-role=agent-command]{color:var(--ro-accent)!important;font-weight:650;background:color-mix(in srgb,var(--ro-accent) 9%,transparent);border-radius:2px}
+      .dsh-remote-ops__output [data-tone=error]{color:var(--dsw-alias-state-error-primary,#c44848)}
+      .dsh-remote-ops__output [data-tone=warning]{color:var(--dsw-alias-state-warning-primary,#986d16)}
+      .dsh-remote-ops__output [data-tone=success]{color:var(--dsw-alias-state-success-primary,#27845a)}
+      .dsh-remote-ops__logMenu{margin-left:0!important}.dsh-remote-ops__logMenu>div{width:220px}.dsh-remote-ops__logMenu button{text-align:start;width:100%}
+      .dsh-remote-ops__terminalLegend{color:var(--ro-accent);font-size:11px;white-space:nowrap}.dsh-remote-ops__terminalLegend::before{content:"";display:inline-block;width:6px;height:6px;margin-right:5px;border-radius:2px;background:currentColor}
       .dsh-remote-ops__quickLibraryRow{padding:12px 0}.dsh-remote-ops__diagnosticEvents>details{padding:14px 0}
       .dsh-remote-ops__web :is(label,.dsh-remote-ops__webField){text-align:left;justify-content:flex-start}
       .dsh-remote-ops__web :is(input,select,textarea){font:inherit}
@@ -288,13 +294,72 @@ window.__ModuleLoader__.load({
     `;
     const failureMessage = (value, status) => [value.title, `HTTP ${status}`, value.code, value.stage, value.error, value.details ?? value.stack, value.cleanupError].filter(Boolean).join("\n");
     async function request(path, init) { const response = await fetch(path, init); const text = await response.text(); let value = {}; try { value = text ? JSON.parse(text) : {}; } catch { throw new Error(`HTTP ${response.status}: ${text}`); } if (!response.ok) { const error = Object.assign(new Error(value.error ?? `HTTP ${response.status}`), value); error.message = failureMessage(value, response.status); throw error; } return value; }
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.6.1", update: { currentVersion: "0.5.2", latestVersion: "0.5.2", updateAvailable: false } };
-    const terminalScreenModel = (value, rows = 40, columns = 160) => {
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.7.0", update: { currentVersion: "0.7.0", latestVersion: "0.7.0", updateAvailable: false } };
+    const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
+      let rendition = {};
+      const palette = ["#263445", "#cc4545", "#27845a", "#947000", "#3779c5", "#9b54b4", "#12858a", "#b5bdc9", "#667588", "#ee6868", "#46b980", "#d5ae42", "#6aabef", "#c58bdd", "#45bac1", "#e8edf4"];
+      const ansiColor = code => code < 16 ? `var(--ro-ansi-${code},${palette[code]})` : code < 232 ? (() => { const index = code - 16, level = [0, 95, 135, 175, 215, 255]; return `rgb(${level[Math.floor(index / 36)]},${level[Math.floor(index / 6) % 6]},${level[index % 6]})`; })() : `rgb(${8 + (code - 232) * 10},${8 + (code - 232) * 10},${8 + (code - 232) * 10})`;
+      const sgr = parameters => {
+        const values = parameters.split(";").map(value => Number(value || 0));
+        rendition = { ...rendition };
+        for (let at = 0; at < values.length; at++) {
+          const code = values[at];
+          if (code === 0) rendition = {};
+          else if (code === 1) rendition.fontWeight = 700;
+          else if (code === 22) delete rendition.fontWeight;
+          else if (code === 3) rendition.fontStyle = "italic";
+          else if (code === 23) delete rendition.fontStyle;
+          else if (code === 4) rendition.textDecoration = "underline";
+          else if (code === 24) delete rendition.textDecoration;
+          else if (code >= 30 && code <= 37 || code >= 90 && code <= 97) rendition.color = ansiColor(code >= 90 ? code - 82 : code - 30);
+          else if (code >= 40 && code <= 47 || code >= 100 && code <= 107) rendition.backgroundColor = ansiColor(code >= 100 ? code - 92 : code - 40);
+          else if (code === 39) delete rendition.color;
+          else if (code === 49) delete rendition.backgroundColor;
+          else if (code === 38 || code === 48) {
+            const key = code === 38 ? "color" : "backgroundColor";
+            if (values[at + 1] === 5 && values[at + 2] >= 0 && values[at + 2] <= 255) { rendition[key] = ansiColor(values[at + 2]); at += 2; }
+            else if (values[at + 1] === 2 && values.slice(at + 2, at + 5).length === 3 && values.slice(at + 2, at + 5).every(value => value >= 0 && value <= 255)) { rendition[key] = `rgb(${values.slice(at + 2, at + 5).join(",")})`; at += 4; }
+          }
+        }
+      };
+      const annotations = options.commandAnnotations ?? [];
+      let annotationIndex = 0;
+      const roleAt = index => {
+        const offset = (options.startOffset ?? 0) + index;
+        while (annotationIndex < annotations.length && annotations[annotationIndex].endOffset <= offset) annotationIndex++;
+        const item = annotations[annotationIndex];
+        return options.highlight !== false && item && item.startOffset <= offset && item.endOffset > offset ? "agent-command" : undefined;
+      };
+      const addRun = (runs, text, style, role) => {
+        const last = runs[runs.length - 1];
+        if (last && last.style === style && last.role === role) last.text += text;
+        else runs.push({ text, style, role });
+      };
+      const trimRuns = runs => {
+        while (runs.length) { const last = runs[runs.length - 1]; last.text = last.text.replace(/\s+$/u, ""); if (last.text) break; runs.pop(); }
+        return runs;
+      };
       // Append-only ASCII logs (including SGR colour codes) need no per-cell emulator.
       // Cursor motion, alternate screens, Unicode and incomplete sequences use the VT path.
       const plain = source.replace(/\x1b\[[0-9;]*m/g, "");
       if (Number.isInteger(columns) && columns > 0 && !/[^\x20-\x7e\r\n]/.test(plain) && !/\r(?!\n)|(?<!\r)\n/.test(plain)) {
+        if (options.decorate && (source !== plain || annotations.length)) {
+          const runs = [[]]; let column = 0;
+          for (const token of source.matchAll(/\x1b\[([0-9;]*)m|[^\x1b]+/gu)) {
+            if (token[1] !== undefined) { sgr(token[1]); continue; }
+            for (let at = 0; at < token[0].length; at++) {
+              const char = token[0][at];
+              if (char === "\r") { at++; runs.push([]); column = 0; continue; }
+              if (column >= columns) { runs.push([]); column = 0; }
+              addRun(runs[runs.length - 1], char, rendition, roleAt(token.index + at)); column++;
+            }
+          }
+          runs.forEach(trimRuns);
+          let first = 0; while (first < runs.length - 1 && !runs[first].length) first++;
+          const visibleRuns = runs.slice(first);
+          return { text: visibleRuns.map(line => line.map(run => run.text).join("")).join("\n"), runs: visibleRuns, alternateScreen: false, cursorVisible: true, cursor: { row: visibleRuns.length - 1, column } };
+        }
         const lines = [];
         let cursorColumn = 0;
         for (const line of plain.split("\r\n")) {
@@ -315,20 +380,21 @@ window.__ModuleLoader__.load({
       let column = 0;
       let savedRow = 0;
       let savedColumn = 0;
-      const lineText = (line) => line.join("").replace(/\s+$/g, "");
+      const cellText = cell => typeof cell === "object" ? cell.text : cell;
+      const lineText = (line) => line.map(cellText).join("").replace(/\s+$/g, "");
       const fillTo = (line, target) => { while (line.length < target) line.push(" "); };
       const lineFeed = () => {
         if (row !== scrollBottom) { row = Math.min(rows - 1, row + 1); return; }
         const removed = screen.splice(scrollTop, 1)[0];
-        if (!normalScreen && scrollTop === 0 && scrollBottom === rows - 1) scrollback.push(lineText(removed));
+        if (!normalScreen && scrollTop === 0 && scrollBottom === rows - 1) scrollback.push(removed);
         screen.splice(scrollBottom, 0, []);
       };
-      const put = (character) => {
+      const put = (character, origin) => {
         if (/\p{Mark}/u.test(character)) {
           const line = screen[row];
           let previous = column - 1;
           if (line[previous] === "") previous -= 1;
-          if (previous >= 0) line[previous] = (line[previous] || " ") + character;
+          if (previous >= 0) { if (typeof line[previous] === "object") line[previous].text += character; else line[previous] = (line[previous] || " ") + character; }
           return;
         }
         const point = character.codePointAt(0);
@@ -338,7 +404,7 @@ window.__ModuleLoader__.load({
         fillTo(line, column);
         if (line[column] === "" && column > 0) line[column - 1] = " ";
         if (line[column + width] === "") line[column + width] = " ";
-        line[column] = character;
+        line[column] = options.decorate ? { text: character, style: rendition, role: normalScreen ? undefined : roleAt(origin) } : character;
         if (width === 2) line[column + 1] = "";
         column += width;
       };
@@ -378,7 +444,8 @@ window.__ModuleLoader__.load({
           }
           return;
         }
-        if (final === "r") { scrollTop = Math.max(0, Math.min(rows - 1, (values[0] || 1) - 1)); scrollBottom = Math.max(scrollTop, Math.min(rows - 1, (values[1] || rows) - 1)); row = 0; column = 0; }
+        if (final === "m") { if (options.decorate) sgr(parameters); }
+        else if (final === "r") { scrollTop = Math.max(0, Math.min(rows - 1, (values[0] || 1) - 1)); scrollBottom = Math.max(scrollTop, Math.min(rows - 1, (values[1] || rows) - 1)); row = 0; column = 0; }
         else if (final === "L" && row >= scrollTop && row <= scrollBottom) { const n = Math.min(amount, scrollBottom - row + 1); screen.splice(row, 0, ...Array.from({ length: n }, () => [])); screen.splice(scrollBottom + 1, n); }
         else if (final === "M" && row >= scrollTop && row <= scrollBottom) { const n = Math.min(amount, scrollBottom - row + 1); screen.splice(row, n); screen.splice(scrollBottom - n + 1, 0, ...Array.from({ length: n }, () => [])); }
         else if (final === "H" || final === "f") { row = Math.max(0, Math.min(rows - 1, (values[0] || 1) - 1)); column = Math.max(0, Math.min(columns - 1, (values[1] || 1) - 1)); }
@@ -433,11 +500,12 @@ window.__ModuleLoader__.load({
         if (code === 0x09) { column = Math.min(columns - 1, column + (8 - (column % 8))); index += 1; continue; }
         if (code < 0x20 || code === 0x7f) { index += 1; continue; }
         const character = String.fromCodePoint(source.codePointAt(index));
-        put(character);
+        put(character, index);
         index += character.length;
       }
 
-      const allLines = [...scrollback, ...screen.map(lineText)];
+      const cells = [...scrollback, ...screen];
+      const allLines = cells.map(lineText);
       const cursorLine = scrollback.length + row;
       let firstLine = 0;
       while (!normalScreen && firstLine < allLines.length - 1 && allLines[firstLine] === "") firstLine += 1;
@@ -450,10 +518,34 @@ window.__ModuleLoader__.load({
       if (!lines.length) lines.push("");
       const visibleCursorRow = Math.max(0, cursorLine - firstLine);
       const text = lines.map((line) => line.replace(/\s+$/g, "")).join("\n");
-      const cursorColumn = screen[row].slice(0, column).join("").length + Math.max(0, column - screen[row].length);
-      return { text, alternateScreen: Boolean(normalScreen), cursorVisible, cursor: { row: visibleCursorRow, column: cursorColumn } };
+      const cursorColumn = screen[row].slice(0, column).map(cellText).join("").length + Math.max(0, column - screen[row].length);
+      const runs = options.decorate ? cells.slice(firstLine, firstLine + lines.length).map(line => {
+        const parts = []; for (const cell of line) { if (cell === "") continue; addRun(parts, cellText(cell), cell?.style, cell?.role); } return trimRuns(parts);
+      }) : undefined;
+      return { text, ...(runs ? { runs } : {}), alternateScreen: Boolean(normalScreen), cursorVisible, cursor: { row: visibleCursorRow, column: cursorColumn } };
     };
     const terminalVisibleText = (value, rows = 40, columns = 160) => terminalScreenModel(value, rows, columns).text;
+    const terminalLineTone = (line, grid, enabled = true) => {
+      if (grid || !enabled) return undefined;
+      if (/^\s*(?:\[(?:error|fatal|fail(?:ed|ure)?)\]|(?:%\s*)?(?:error|fatal|fail(?:ed|ure)?)(?=[:\s])|错误[：:]|失败[：:])/iu.test(line)) return "error";
+      if (/^\s*(?:\[warn(?:ing)?\]|(?:%\s*)?warn(?:ing)?(?=[:\s])|警告[：:])/iu.test(line)) return "warning";
+      if (/^\s*(?:\[(?:ok|success|passed)\]|(?:success|passed)(?=[:\s])|成功[：:])/iu.test(line)) return "success";
+      return undefined;
+    };
+    const terminalStyledLine = (runs, line, cursor, showCursor, grid = false) => {
+      const parts = [], items = runs?.length ? runs : [{ text: line }]; let offset = 0, placed = false;
+      const span = (run, text, key) => h("span", { key, style: run.style, "data-terminal-role": grid ? undefined : run.role }, text);
+      for (const [index, run] of items.entries()) {
+        const end = offset + run.text.length;
+        if (showCursor && !placed && cursor >= offset && cursor <= end) {
+          const at = cursor - offset;
+          parts.push(span(run, run.text.slice(0, at), `before-${index}`), h("span", { key: "cursor", className: "dsh-remote-ops__inputCursor", "aria-hidden": true }), span(run, run.text.slice(at), `after-${index}`)); placed = true;
+        } else parts.push(span(run, run.text, `run-${index}`));
+        offset = end;
+      }
+      if (showCursor && !placed) parts.push(" ".repeat(Math.max(0, cursor - offset)), h("span", { key: "cursor", className: "dsh-remote-ops__inputCursor", "aria-hidden": true }));
+      return parts;
+    };
     const parseSshCommand = (value) => { const text = String(value ?? "").trim(); if (!/^ssh(?:\s|$)/i.test(text)) return undefined; const tokens = text.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.slice(1).map((item) => item.replace(/^("|')|("|')$/g, "")) ?? []; let hostToken = ""; let username = ""; let port = 22; let privateKeyPath = ""; const takesValue = new Set(["-p", "-i", "-l", "-F", "-J", "-o", "-b", "-D", "-L", "-R", "-W", "-S", "-B", "-c", "-m", "-w"]); for (let index = 0; index < tokens.length; index += 1) { const token = tokens[index]; if (token === "--") { hostToken = tokens[index + 1] ?? ""; break; } if (token === "-p") { port = Number(tokens[++index]); continue; } if (token.startsWith("-p") && token.length > 2) { port = Number(token.slice(2)); continue; } if (token === "-i") { privateKeyPath = tokens[++index] ?? ""; continue; } if (token.startsWith("-i") && token.length > 2) { privateKeyPath = token.slice(2); continue; } if (token === "-l") { username = tokens[++index] ?? ""; continue; } if (token.startsWith("-l") && token.length > 2) { username = token.slice(2); continue; } if (token.startsWith("-")) { if (takesValue.has(token)) index += 1; continue; } if (!hostToken) hostToken = token; } if (!hostToken) return { error: "SSH 命令缺少主机地址，请使用 ssh [user@]host。" }; const at = hostToken.lastIndexOf("@"); if (at >= 0) { username = hostToken.slice(0, at) || username; hostToken = hostToken.slice(at + 1); } const host = hostToken.replace(/^\[|\]$/g, ""); if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return { error: "SSH 命令中的主机或端口无效。" }; return { host, username, port, privateKeyPath }; };
 
     const environmentProfileValues = (environment) => ({
@@ -546,6 +638,7 @@ window.__ModuleLoader__.load({
       fontSize: Math.max(11, Math.min(22, Number(value.fontSize) || 13)),
       wrap: value.wrap !== false,
       quickHeight: Math.max(92, Math.min(4096, Number(value.quickHeight) || 190)),
+      highlight: value.highlight !== false,
     });
     const pasteSubmission = (draft, owner) => {
       if (draft.owner !== owner || !draft.session) throw new Error("PASTE_TARGET_CHANGED: 当前会话已改变，请重新选择目标");
@@ -1360,7 +1453,7 @@ window.__ModuleLoader__.load({
       const activeTerminalFrame = activeTerminalId ? terminalFrames[activeFrameKey] : undefined;
       const terminalReady = terminalInputEnabled(snapshot) && !activeSession?.disconnected && Boolean(activeTerminalFrame?.streamId) && outputConnection === "connected" && reviewStream !== activeFrameKey;
       const frameRows = activeTerminalFrame?.size?.rows || 40, frameCols = activeTerminalFrame?.size?.cols || 160;
-      const terminalScreen = useMemo(() => terminalScreenModel(activeTerminalFrame?.raw ?? "", frameRows, frameCols), [activeTerminalFrame?.raw, frameRows, frameCols]);
+      const terminalScreen = useMemo(() => terminalScreenModel(activeTerminalFrame?.raw ?? "", frameRows, frameCols, { decorate: true, highlight: preferences.highlight, commandAnnotations: activeTerminalFrame?.commandAnnotations, startOffset: (activeTerminalFrame?.nextOffset ?? 0) - (activeTerminalFrame?.raw?.length ?? 0) }), [activeTerminalFrame?.raw, activeTerminalFrame?.commandAnnotations, activeTerminalFrame?.nextOffset, frameRows, frameCols, preferences.highlight]);
       const terminalOutput = terminalScreen.text;
       const matches = useMemo(() => outputMatches(terminalOutput, outputSearch), [terminalOutput, outputSearch]);
       const matchedLines = useMemo(() => new Set(matches), [matches]);
@@ -1371,10 +1464,8 @@ window.__ModuleLoader__.load({
         outputRef.current?.querySelector(`[data-line="${matches[next]}"]`)?.scrollIntoView({ block: "center" });
       };
       const terminalOutputView = terminalOutput ? terminalOutput.split("\n").map((line, index, lines) => {
-        const props = { key: `line-${index}`, "data-line": index, "data-match": matchedLines.has(index) };
-        if (index !== terminalScreen.cursor.row || !terminalScreen.cursorVisible || !terminalReady) return h("span", props, line, index < lines.length - 1 ? "\n" : null);
-        const before = line.slice(0, terminalScreen.cursor.column).padEnd(terminalScreen.cursor.column, " ");
-        return h("span", props, before, h("span", { className: "dsh-remote-ops__inputCursor", "aria-hidden": true }), line.slice(terminalScreen.cursor.column), index < lines.length - 1 ? "\n" : null);
+        const props = { key: `line-${index}`, "data-line": index, "data-match": matchedLines.has(index), "data-tone": terminalLineTone(line, terminalUsesGrid(terminalScreen), preferences.highlight) };
+        return h("span", props, terminalStyledLine(terminalScreen.runs?.[index], line, terminalScreen.cursor.column, index === terminalScreen.cursor.row && terminalScreen.cursorVisible && terminalReady, terminalUsesGrid(terminalScreen)), index < lines.length - 1 ? "\n" : null);
       }) : "等待终端输出…";
       useEffect(() => { if (!terminalReady) return undefined; const frame = window.requestAnimationFrame(() => { if (module === "terminal" && !document.activeElement?.closest?.('[role="dialog"],input,textarea,[role="tab"]')) terminalInputRef.current?.focus({ preventScroll: true }); }); return () => window.cancelAnimationFrame(frame); }, [activeTerminalId, terminalReady]);
       useEffect(() => {
@@ -1399,7 +1490,7 @@ window.__ModuleLoader__.load({
               attempt = 0;
               if (previous?.streamId && previous.streamId !== value.streamId) setReviewStream(activeFrameKey);
               if (value.text && !stickToBottom.current) setUnreadOutput(true);
-              const changed = value.reset || Boolean(value.text) || previous?.status?.kind !== value.status?.kind || previous?.activity !== value.activity || JSON.stringify(previous?.control) !== JSON.stringify(value.control) || JSON.stringify(previous?.toolReceipt) !== JSON.stringify(value.toolReceipt);
+              const changed = value.reset || Boolean(value.text) || previous?.status?.kind !== value.status?.kind || previous?.activity !== value.activity || JSON.stringify(previous?.control) !== JSON.stringify(value.control) || JSON.stringify(previous?.toolReceipt) !== JSON.stringify(value.toolReceipt) || JSON.stringify(previous?.commandAnnotations) !== JSON.stringify(value.commandAnnotations);
               if (changed || !previous) {
                 const next = mergeTerminalFrame(terminalFramesRef.current[activeFrameKey], value);
                 const frames = { ...terminalFramesRef.current, [activeFrameKey]: next };
@@ -1512,6 +1603,29 @@ window.__ModuleLoader__.load({
         const value = await action({ action: "close", session: session.sessionId });
         if (value?.closed) dismissTab(session.sessionId);
       };
+      const [logExporting, setLogExporting] = useState(false);
+      const exportLogs = async all => {
+        if (logExporting) return;
+        const owner = sessionId, revision = viewRevision.current;
+        const current = () => viewOwner.current === owner && viewRevision.current === revision;
+        setLogExporting(true);
+        try {
+          const call = body => request("/api/dsh-remote-ops/logs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, sessionId: owner }) });
+          let selection = { all: true, format: "zip" };
+          if (!all) {
+            const catalog = await call({ action: "list" });
+            const log = catalog.logs.find(item => item.sessionId === activeTerminalId && (!activeTerminalFrame?.streamId || item.streamId === activeTerminalFrame.streamId));
+            if (!log) throw new Error("TERMINAL_LOG_NOT_FOUND: 此终端的记录已不可用，请刷新后重试。");
+            selection = { logIds: [log.logId], format: "txt" };
+          }
+          if (!current()) return;
+          const result = await call({ action: "export", ...selection });
+          if (!current()) return;
+          const link = document.createElement("a"); link.href = result.downloadPath; link.download = result.filename; link.click();
+          setError(""); setActionNotice(`已生成 ${result.manifest.logs.length} 份终端日志${result.manifest.logs.some(item => item.truncated) || result.manifest.evictedLogs ? " · 部分历史已截断，详见文件说明" : ""}`);
+        } catch (cause) { if (current()) setError(cause.message); }
+        finally { setLogExporting(false); }
+      };
       const reconnect = async () => {
         if (!activeEnvironment || !await askPanel(`重新连接“${activeSession.name}”？不会重发任何命令。`)) return;
         const previous = activeSession.sessionId;
@@ -1593,10 +1707,15 @@ window.__ModuleLoader__.load({
           h("button", { title: "搜索输出", "aria-label": "搜索输出", "aria-expanded": searchOpen, onClick: () => setSearchOpen(value => !value) }, h(IconSearchOutline16)),
           h("button", { title: "独立执行命令", disabled: !sessionId || !activeSession || activeSession.disconnected, onClick: () => setCommandTarget({ ...activeSession }) }, h(IconPlayOutline16), " 独立命令"),
           h("button", { title: "复制选区或当前输出", "aria-label": "复制输出", onClick: () => { const selection = window.getSelection(); const text = outputRef.current?.contains(selection?.anchorNode) ? selection.toString() : ""; void writeClipboard(text || terminalOutput).catch(cause => setError(`CLIPBOARD_WRITE: ${cause.message}`)); } }, h(IconCopyOutline16)),
+          h("details", { className: "dsh-remote-ops__terminalLook dsh-remote-ops__logMenu" }, h("summary", { "aria-label": "导出终端日志", title: "导出终端日志" }, h(IconDownloadOutline16)), h("div", null,
+            h("button", { disabled: logExporting || !activeSession, onClick: event => { event.currentTarget.closest("details").open = false; void exportLogs(false); } }, "导出当前终端 TXT"),
+            h("button", { disabled: logExporting, onClick: event => { event.currentTarget.closest("details").open = false; void exportLogs(true); } }, "一键打包本会话全部日志"),
+            h("small", null, "包含仍保留的已关闭终端；范围见导出清单。"))),
           h("details", { className: "dsh-remote-ops__terminalLook" }, h("summary", { "aria-label": "终端显示设置", title: "字号、换行与终端大小" }, h(IconSettingsOutline16)), h("div", null,
           h("label", null, "字号", h("input", { type: "number", min: 11, max: 22, "aria-label": "终端字号", value: preferences.fontSize, onChange: event => setPreferences(current => terminalPreferences({ ...current, fontSize: event.target.value })) })),
           !localActive && activeSession && !activeSession.disconnected ? terminalSizeSelect(activeTerminalFrame?.size, busy, (size) => void action({ action: "resize", session: activeTerminalId, ...size })) : null,
           h("label", null, h("input", { type: "checkbox", checked: preferences.wrap, onChange: event => setPreferences(current => ({ ...current, wrap: event.target.checked })) }), "换行"),
+          h("label", null, h("input", { type: "checkbox", checked: preferences.highlight, onChange: event => setPreferences(current => ({ ...current, highlight: event.target.checked })) }), "命令与关键状态高亮"),
           h("span", null, "共享输入"))),
         )
         ),
@@ -1610,6 +1729,7 @@ window.__ModuleLoader__.load({
           unreadOutput ? h("button", { className: "dsh-remote-ops__newOutput", onClick: jumpToLatest, title: "回到最新输出" }, "↓ 新输出") : null,
         ) : h("div", { className: "dsh-remote-ops__screen dsh-remote-ops__screenEmpty", onClick: () => terminalInputRef.current?.focus() }, h("div", { className: "dsh-remote-ops__empty" }, h("div", null, h("div", { style: { fontSize: "22px", marginBottom: "8px" } }, "›_"), h("div", null, terminalReady ? "输入 ssh [user@]host 并按 Enter 连接，或从环境抽屉选择环境。" : "等待本地 CMD 启动…"), pendingSshInput ? h("pre", { className: "dsh-remote-ops__pendingCommand" }, pendingSshInput) : null)), terminalInputCapture, h("div", { className: "dsh-remote-ops__screenHint" }, terminalReady ? "输入 SSH 命令 · Enter 连接" : "等待本地 CMD 启动…")),
         h("div", { className: "dsh-remote-ops__terminalStatus", role: "status" },
+          logExporting ? h("span", null, "正在打包日志…") : preferences.highlight ? h("span", { className: "dsh-remote-ops__terminalLegend", title: "强调色标记与 Agent 下发文本一致的命令回显；不会显示隐藏输入" }, "Agent 命令") : null,
           h("span", { "data-state": outputConnection }, activeSession ? activeSession.disconnected ? "已断开" : outputConnection === "connected" ? "实时输出" : outputConnection === "retrying" ? "输出重连中" : "同步中" : "未连接"),
           h("span", { className: "dsh-remote-ops__muted" }, "共享输入"),
           h("details", { className: "dsh-remote-ops__statusDetails" }, h("summary", null, "状态详情"), h("div", null,
