@@ -34,7 +34,18 @@ Candidate package: `output/playwright/dsh-remote-ops-0.7.1.tgz`, SHA256 `a40c050
 
 ## Release verification
 
-Official asset verification and installation results will be appended after publication. Candidate acceptance alone does not establish official-package acceptance.
+- Implementation/tag commit: `143590d0d92e6cff1741e7dfd0f8b07e092e4cd3`; tag: `dsh-remote-ops-v0.7.1`.
+- [Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.7.1) contains exactly `dsh-remote-ops-v0.7.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.7.1.txt`. No Windows ZIP.
+- Candidate tgz, release-script tgz, downloaded official tgz, published checksum and GitHub asset digest all match SHA256 `a40c0504ea6047a14d37b90be7ddf20532efc6c72812c464bd1d73757952ae56`.
+- [Release workflow](https://github.com/Ssshake1996/myterm/actions/runs/39016056498) passed Linux package/check, Windows check and publication. [Main CI](https://github.com/Ssshake1996/myterm/actions/runs/39016054334) and [tag CI](https://github.com/Ssshake1996/myterm/actions/runs/39016056539) also passed.
+- Installed the downloaded official asset through DSH's plugin CLI in the same isolated profile. Installation left the native credential file unchanged. Restarted the host and fixtures, then repeated all **six native acceptance steps and 10 native tool calls: PASS**. The SSH server accepted both the pre-existing and subsequently edited passwords, tool results remained masked, and there were no browser console errors. The official narrow-screen screenshot was also inspected.
+- Official evidence: `output/playwright/password071-official-acceptance.json`, `password071-official-proof.json`, official screenshots, `output/password071-official-install-proof.json`, `output/password071-release.json` and `output/password071-official-assets.json`. Isolated test processes were stopped after verification; runtime data and evidence remain ignored.
+
+### Outstanding browser CI performance check
+
+[Browser CI on the release commit](https://github.com/Ssshake1996/myterm/actions/runs/39016054308) passed **14/15 scenarios** on both attempts. The environment-password scenario passed all six steps on both. The existing workspace scenario failed only its large-directory switching performance assertion: p95 **294ms**, then **250.5ms**, against the unchanged requirement of less than 250ms. Its preceding functional steps passed. The second attempt used the identical commit and test threshold.
+
+The same assertion had also failed on [the v0.7.0 baseline documentation commit](https://github.com/Ssshake1996/myterm/actions/runs/39005642595), at **274.1ms**. The local Windows full suite passed 15/15, but that does not establish a pass for this Linux CI performance requirement. Its cause has not been established or corrected in this password-viewing change. Retained logs: `output/password071-browser-ci-failure.log`, `output/password071-browser-ci-attempt2.log` and `output/password071-previous-browser-ci-failure.log`.
 
 ## Limits
 

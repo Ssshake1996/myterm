@@ -9,3 +9,5 @@ The dedicated UI route accepts an exact saved environment ID, uses the authentic
 Target host: DSH 0.2.0-rc.2. Install in the same DSH profile, fully restart DSH and refresh the browser. Saved environment definitions and credential references are retained. Running terminals/browser sessions and in-memory terminal logs do not survive a DSH restart; export needed logs first.
 
 Release assets remain **tgz and SHA256 only**. Validation evidence: `docs/testing/dsh-remote-ops-v0.7.1-acceptance.md`.
+
+Post-publication validation: the downloaded official package passed all six real DSH acceptance steps and ten native tool calls. Linux/Windows release checks and 345 local tests passed; the local browser suite passed 15/15. Browser CI passed the new password scenario, but remains 14/15 because an existing large-directory switching performance check exceeded 250ms (294ms, then 250.5ms). The same check also failed on the v0.7.0 baseline; it remains unresolved. Full evidence is in the [acceptance report](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.7.1-acceptance.md).
