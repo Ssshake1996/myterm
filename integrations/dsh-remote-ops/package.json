@@ -1,6 +1,6 @@
 {
   "name": "@dsh/remote-ops",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": false,
   "type": "module",
   "description": "DeepSeek Harness plugin for SSH terminals, SFTP and visible Playwright web operations",
@@ -36,6 +36,7 @@
     "README.md",
     "README.zh-CN.md",
     "WEB.md",
+    "THIRD_PARTY_NOTICES.md",
     "cordis.patch.yml",
     "locale/en.json",
     "locale/zh.json",

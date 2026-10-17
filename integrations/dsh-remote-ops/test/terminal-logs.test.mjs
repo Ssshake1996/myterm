@@ -14,7 +14,7 @@ import { registerBundledSkills } from "../lib/skills.js";
 
 const source = await readFile(new URL("../lib/client.js", import.meta.url), "utf8");
 const context = {};
-vm.runInNewContext(source.slice(source.indexOf("    const terminalScreenModel ="), source.indexOf("    const parseSshCommand =")).replace("const terminalScreenModel", "globalThis.model").replace("const terminalVisibleText = (value, rows = 40, columns = 160) => terminalScreenModel", "const terminalVisibleText = (value, rows = 40, columns = 160) => model").replace("const terminalLineTone", "globalThis.tone"), context);
+vm.runInNewContext(source.slice(source.indexOf("    const terminalScreenModel ="), source.indexOf("    const parseSshCommand =")).replace("const terminalScreenModel", "globalThis.model").replace("const terminalVisibleText = (value, rows = 40, columns = 160) => terminalScreenModel", "const terminalVisibleText = (value, rows = 40, columns = 160) => model").replace("const terminalLineTone", "globalThis.tone").replace("const terminalSemanticRuns", "globalThis.semantic"), context);
 const model = context.model;
 const roles = screen => screen.runs?.flat().filter(run => run.role).map(run => run.text).join("") ?? "";
 const sshLog = (state, owner = OWNER, id = "ssh-one", text = "device> echo one\r\none\r\n") => {
@@ -85,6 +85,49 @@ test("keyword highlighting is conservative and disabled on full-screen programs"
   assert.equal(context.tone("[OK] connected", false), "success");
   for (const text of ["0 errors", "failure_count=0", "echo ERROR: test"]) assert.equal(context.tone(text, false), undefined);
   assert.equal(context.tone("ERROR: screen", true), undefined);
+});
+
+test("visible CMD and common shell prompts highlight manual/raw commands after ConPTY edits, without adding input", () => {
+  const raw = "\x1b[?25l\x1b[2J\x1b[HC:\\ops>dix\x1b[1;10Hr\r\noutput\r\nC:\\ops>\x1b[?25h";
+  const screen = model(raw, 40, 160, { decorate: true });
+  const runs = screen.text.split("\n").map((line, index) => context.semantic(screen.runs[index], line, false));
+  assert.equal(roles({ runs }), "dir");
+  assert.equal(runs.map(line => line.map(run => run.text).join("")).join("\n"), screen.text);
+  for (const prompt of ["C:\\ops>", "PS C:\\ops> ", "user@host:~$ ", "[root@host ~]# "]) {
+    const line = prompt + "echo one  two";
+    const decorated = context.semantic(undefined, line, false);
+    assert.equal(decorated.filter(run => run.role).map(run => run.text).join("").trim(), "echo one  two");
+    assert.equal(decorated.map(run => run.text).join(""), line);
+    assert.equal(context.semantic(undefined, prompt, false), undefined);
+  }
+  for (const line of ["Password: ", "Enter passphrase: ", "echo dir", "0 errors", "2026/10/17 not a listing", "value> 1"]) assert.equal(context.semantic(undefined, line, false), undefined);
+});
+
+test("standard dir rows color only the names, including Chinese names, spaces, numeric names and links", () => {
+  for (const [line, name, role] of [
+    ["2026/10/17  18:27    <DIR>          项目 文件", "项目 文件", "directory"],
+    ["10/17/2026  06:27 PM    <DIR>          reports", "reports", "directory"],
+    ["17.10.2026  18:27             1,024 123 report.txt", "123 report.txt", "file"],
+    ["2026/10/17  下午 06:27            0 空文件.txt", "空文件.txt", "file"],
+    ["2026/10/17  18:27    <JUNCTION>     junction [C:\\target]", "junction [C:\\target]", "directory"],
+    ["2026/10/17  18:27    <SYMLINK>      link.txt [target.txt]", "link.txt [target.txt]", "file"],
+  ]) {
+    const runs = context.semantic(undefined, line, false);
+    assert.equal(runs.map(run => run.text).join(""), line);
+    assert.equal(runs.filter(run => run.role).map(run => run.text).join(""), name);
+    assert.equal(runs.at(-1).role, role);
+  }
+  for (const line of ["               1 File(s)             26 bytes", "               6 Dir(s)  1,000 bytes free", "README.md", "a <DIR> b", "ERROR: 2026/10/17 18:27 1 log"]) assert.equal(context.semantic(undefined, line, false), undefined);
+});
+
+test("semantic decorations preserve ANSI runs and Agent markers, and respect disabled/full-screen display", () => {
+  const line = "C:\\ops>dir", runs = [{ text: "C:\\ops>", style: {} }, { text: "dir", style: { color: "red" }, role: "agent-command" }];
+  const shown = context.semantic(runs, line, false);
+  assert.equal(shown.at(-1).role, "agent-command"); assert.equal(shown.at(-1).style.color, "red");
+  assert.equal(context.semantic(runs, line, true), runs); assert.equal(context.semantic(runs, line, false, false), runs);
+  const listing = "2026/10/17  18:27    <DIR>          folder";
+  const colored = [{ text: listing.slice(0, -6) }, { text: "folder", style: { color: "green" } }];
+  assert.equal(context.semantic(colored, listing, false).at(-1).style.color, "green");
 });
 
 test("logs list and read use retained data without executing, include closed terminals and isolate other owners", async t => {

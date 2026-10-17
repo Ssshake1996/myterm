@@ -23,6 +23,44 @@ export const terminalLogsScenario = { id: 'terminal-logs', title: '终端命令�
     await p.getByLabel('命令与关键状态高亮',{exact:true}).check();await p.getByLabel('终端显示设置',{exact:true}).click();
     await t.shot('命令与错误高亮');
   });
+  await t.step('手动输入与 Agent 原始输入均高亮，dir 的目录和文件名不同色', async () => {
+    const input=p.getByLabel('终端输入',{exact:true});await input.focus();await p.keyboard.type('dix',{delay:40});await p.keyboard.press('Backspace');await p.keyboard.type('r');await p.keyboard.press('Enter');
+    await p.locator('[data-terminal-role="command"]').filter({hasText:/^dir$/}).waitFor();
+    const folder=p.locator('[data-terminal-role="directory"]').filter({hasText:'color-folder'}),file=p.locator('[data-terminal-role="file"]').filter({hasText:'color-file.txt'});
+    await folder.waitFor();await file.waitFor();assert.equal(await folder.innerText(),'color-folder');assert.equal(await file.innerText(),'color-file.txt');
+    assert.notEqual(await folder.evaluate(n=>getComputedStyle(n).color),await file.evaluate(n=>getComputedStyle(n).color));
+    await tool('remote_terminal_input',{session:'local-cmd',text:'echo RAW_COLOR072\r'});
+    await p.locator('[data-terminal-role="command"]').filter({hasText:'echo RAW_COLOR072'}).waitFor();
+    const before=await p.getByLabel('终端输出',{exact:true}).innerText();
+    await p.getByLabel('终端显示设置',{exact:true}).click();await p.getByLabel('命令与关键状态高亮',{exact:true}).uncheck();
+    assert.equal(await p.locator('[data-terminal-role]').count(),0);assert.equal(await p.getByLabel('终端输出',{exact:true}).innerText(),before);
+    await p.getByLabel('命令与关键状态高亮',{exact:true}).check();await p.getByLabel('终端显示设置',{exact:true}).click();
+    await t.shot('人工命令和目录文件配色');
+  });
+  await t.step('终端深浅配色跟随宿主，语义文字对比度至少 4.5:1', async () => {
+    const previous=await p.evaluate(()=>document.documentElement.style.colorScheme),backgrounds=[];
+    try {
+      for(const scheme of ['light','dark']) {
+        await p.evaluate(value=>{document.documentElement.style.colorScheme=value;},scheme);
+        const palette=await p.getByLabel('终端输出',{exact:true}).evaluate(output=>{
+          const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const ctx=canvas.getContext('2d');
+          const rgba=value=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=value;ctx.fillRect(0,0,1,1);return [...ctx.getImageData(0,0,1,1).data];};
+          const luminance=rgb=>rgb.slice(0,3).reduce((sum,c,i)=>{const x=c/255;return sum+(x<=.04045?x/12.92:((x+.055)/1.055)**2.4)*[.2126,.7152,.0722][i];},0);
+          const background=rgba(getComputedStyle(output).backgroundColor);
+          const selectors=['[data-terminal-role="command"]','[data-terminal-role="agent-command"]','[data-terminal-role="directory"]','[data-terminal-role="file"]','[data-tone="error"]'];
+          const ratios=selectors.map(selector=>{
+            const style=getComputedStyle(output.querySelector(selector)),overlay=rgba(style.backgroundColor),alpha=overlay[3]/255;
+            const bg=background.map((c,i)=>i<3?overlay[i]*alpha+c*(1-alpha):255),fg=rgba(style.color),one=luminance(fg),two=luminance(bg);
+            return {selector,ratio:(Math.max(one,two)+.05)/(Math.min(one,two)+.05)};
+          });
+          return {background,ratios};
+        });
+        for(const entry of palette.ratios) assert.ok(entry.ratio>=4.5,`${scheme} ${entry.selector}: ${entry.ratio}`);
+        backgrounds.push(palette.background);await t.shot(`终端配色-${scheme}`);
+      }
+      assert.notDeepEqual(backgrounds[0],backgrounds[1]);
+    } finally {await p.evaluate(value=>{document.documentElement.style.colorScheme=value;},previous);}
+  });
   await t.step('工具读取与界面单终端下载一致', async () => {
     const logs=await tool('remote_terminal_logs'),log=logs.logs.find(item=>item.sessionId==='local-cmd');
     const read=await tool('remote_terminal_log_read',{logId:log.logId});assert.match(read.text,/LOG070/);

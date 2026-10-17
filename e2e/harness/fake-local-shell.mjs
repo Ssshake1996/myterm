@@ -23,6 +23,7 @@ export function createFakeLocalShell({ rows = 40, cols = 160, onInput } = {}) {
     if (command === "exit") { emit("\r\nlogout\r\n"); return finish({ exitCode: 0, signal: null }); }
     const echo = /^echo\s+(.*)$/.exec(command);
     if (echo) return emit(`\r\n${echo[1]}\r\n${LOCAL_PROMPT}`);
+    if (command === "dir") return emit(`\r\n Directory of C:\\fixture\r\n\r\n2026/10/17  18:27    <DIR>          color-folder\r\n2026/10/17  18:27                26 color-file.txt\r\n               1 File(s)             26 bytes\r\n${LOCAL_PROMPT}`);
     const flood = /^(?:seq|flood)\s+(\d+)$/.exec(command);
     if (flood) {
       const count = Math.min(5000, Number(flood[1]));

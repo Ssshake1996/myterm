@@ -2,6 +2,14 @@
 
 `@dsh/remote-ops` 是面向 DeepSeek Harness 的 SSH 远程运维插件。本仓库已完成产品边界切换，不再包含 myterm 桌面应用、Tauri 宿主或第二套 Agent 内核。
 
+## 本地 CMD 命令和目录配色（v0.7.2）
+
+终端采用参考 [Catppuccin](https://catppuccin.com/palette/) 的 Latte / Mocha 配色，跟随 DSH 深浅主题：命令紫色、目录青色、文件蓝色，浅色强调色适当加深以保证文字对比度。插件外围继续使用宿主样式。
+
+默认本地 CMD 中，用户手动输入、Agent 完整命令及原始按键方式输入的命令，在实际回显后统一使用强调色、字重和淡背景。识别在终端光标重绘之后进行，编辑、退格和历史回显可保持可读；不会为了着色额外执行命令或显示隐藏输入。
+
+标准 `dir` 列表的目录名使用青绿色、文件名使用蓝色，日期、大小和统计信息保留原样；原有 ANSI 颜色继续保留。支持常见 CMD、PowerShell 和带 `user@host` 的 Shell 提示符。自定义提示符、`dir /b` 等缺少类型信息的格式不猜测分类。全屏程序不添加这些语义颜色，“终端显示设置”可统一关闭；复制、搜索和日志导出的文字不因配色改变。安装后即可生效，不需要修改 Agent 或命令。
+
 ## 环境密码按需查看（v0.7.1）
 
 环境编辑页的 SSH 密码旁新增眼睛按钮。默认遮蔽，点击后读取当前生效的已保存密码；再次点击隐藏，关闭编辑页或抽屉后清除读取结果。新输入的密码也可显示核对。
@@ -10,7 +18,7 @@
 
 ## 终端高亮与日志接口（v0.7.0）
 
-- Agent 提交后实际回显的单行命令使用强调色，普通回显保留常见 ANSI 配色；错误、警告及成功前缀适度高亮。“终端显示设置”可关闭语义高亮。显示处理不改变发给设备的字节；隐藏输入、分次原始按键及无法可靠匹配的回显不标成命令。关键词颜色不代表已验证执行成功，全屏程序不添加语义高亮。
+- Agent 提交后实际回显的单行命令使用强调色，普通回显保留常见 ANSI 配色；错误、警告及成功前缀适度高亮。“终端显示设置”可关闭语义高亮。显示处理不改变发给设备的字节；隐藏输入不会被补写进终端；v0.7.2 补充了常见提示符后的手动与原始按键回显高亮。关键词颜色不代表已验证执行成功，全屏程序不添加语义高亮。
 - 终端工具栏“导出终端日志”支持当前终端 UTF-8 TXT，以及本会话全部日志 ZIP；包含仍保留的已关闭 SSH 记录和共享本地终端。ZIP 每个终端一个文件，附 `manifest.json` 标明来源、时间和保留范围。
 - 新增 `remote_terminal_logs`、`remote_terminal_log_read`、`remote_terminal_log_export`。Agent 可列出日志、按原始游标分页读取，再直接调用插件打包接口获得下载链接和 SHA256；打包不需要先读完日志或在终端执行压缩命令。Web 对话返回当前已验证 DSH 地址的完整下载链接；无法获得浏览器地址时仍可从终端工具栏导出，不猜测地址。
 - 随包 `remote-ops-terminal-logs` skill 由 DSH 原生服务自动发现，也可用 `/remote-ops-terminal-logs` 加载。安装同一 tgz 即包含接口和指南，不修改 Agent 或用户 skill 文件。
@@ -114,11 +122,11 @@
 从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.7.1.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.7.2.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下执行安装命令；`--profile web` 必须与实际启动的 profile 一致。安装完成后完全停止原 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“更多设置”显示 `v0.7.1`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下执行安装命令；`--profile web` 必须与实际启动的 profile 一致。安装完成后完全停止原 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“更多设置”显示 `v0.7.2`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
 
 在 DSH Web 左侧底部点击 `Remote Ops` 打开右侧 Sidebar，主对话不被替换。入口使用官方 `sidebar.footer.action` 操作位和 `sidebarRight.openTab`，不再注册切换主工作区的 `sidebar.panellist` / `main`。已在 DSH `0.2.0-rc.2` 实测；其他宿主版本尚未实测。若未出现入口，先核对安装 profile、DSH 版本及已安装插件版本，并确认旧 DSH 进程已退出；无需手工复制 bundle patch。窄屏下右栏可能按宿主规则展开为全屏，收起即可返回原对话。
 
@@ -160,14 +168,14 @@ SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.7.1
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.7.2
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.7.1            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.7.1 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.7.2            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.7.2 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后轮询 Release，比较 GitHub 报告的安装包摘要与本地摘要。

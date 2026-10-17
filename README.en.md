@@ -5,6 +5,14 @@ operations. The repository has been cut over to the plugin boundary: it no
 longer contains the myterm desktop application, a Tauri host, or a second
 Agent kernel.
 
+## Local CMD commands and directory colors (v0.7.2)
+
+The terminal uses a [Catppuccin](https://catppuccin.com/palette/)-inspired Latte / Mocha palette following the DSH light/dark theme: purple commands, teal directories and blue files. Light accents are darkened for readable text contrast. Surrounding plugin controls retain the host styling.
+
+Commands echoed after a standard prompt now use the same accent, weight and subtle background whether typed manually, sent as a complete Agent command or entered through raw keys. Recognition runs after terminal cursor redraws, so visible edits/backspaces remain readable. No extra command is executed and hidden input is never added to the display.
+
+Standard `dir` rows show directory names in teal and file names in blue, leaving timestamps, sizes and totals unchanged. Existing ANSI colors are retained. Common CMD, PowerShell and `user@host` Shell prompts are recognized; custom prompts and formats without type information, such as `dir /b`, are not guessed. Full-screen applications do not receive these semantic colors. Terminal display settings can disable them; copied, searched and exported text stays unchanged. No Agent or command changes are required.
+
 ## Reveal environment passwords on demand (v0.7.1)
 
 The SSH password field in the environment editor now has an eye button. It stays masked by default and resolves the currently effective saved credential only on request. Hiding the password or closing the editor/drawer clears the revealed value. Newly typed passwords can also be shown for checking.
@@ -13,7 +21,7 @@ Viewing alone never changes the credential: saving other fields preserves it; ty
 
 ## Terminal highlighting and log APIs (v0.7.0)
 
-- Echoed single-line Agent submissions use an accent color; ordinary output retains common ANSI colors. Error, warning and success prefixes receive restrained emphasis. Disable semantic highlighting in terminal display settings. Styling never changes terminal bytes; hidden input, raw keystrokes and unmatched echoes are not labeled as commands. Prefix colors are not verified exit-status evidence, and full-screen programs receive no semantic highlighting.
+- Echoed single-line Agent submissions use an accent color; ordinary output retains common ANSI colors. Error, warning and success prefixes receive restrained emphasis. Disable semantic highlighting in terminal display settings. Styling never changes terminal bytes; hidden input is never added; v0.7.2 additionally highlights manual/raw input echoed after common prompts. Prefix colors are not verified exit-status evidence, and full-screen programs receive no semantic highlighting.
 - The terminal log menu exports the current terminal as UTF-8 TXT, or all available conversation logs as ZIP, including retained closed SSH records and the shared local terminal. Each ZIP contains separate transcripts and a `manifest.json` with source, time and coverage metadata.
 - `remote_terminal_logs`, `remote_terminal_log_read` and `remote_terminal_log_export` provide discovery, raw-cursor pagination and packaging. The export tool returns SHA256 and an absolute download link for the observed trusted DSH browser origin (or null when unavailable; use the toolbar); the Agent need not copy screen text, read every page or run archive commands.
 - The bundled `remote-ops-terminal-logs` skill is automatically discoverable through DSH, with `/remote-ops-terminal-logs` also available. The tgz carries both tools and instructions; no Agent/core or user skill-file changes.
@@ -113,11 +121,11 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.7.1.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.7.2.tgz
 dsh web
 ```
 
-For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.7.1` in Remote Ops **更多设置**. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
+For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.7.2` in Remote Ops **更多设置**. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
 
 Click `Remote Ops` at the bottom of the left sidebar to open the native right Sidebar while preserving the main conversation. It uses the official `sidebar.footer.action` seat and `sidebarRight.openTab`; it no longer registers a `sidebar.panellist` / `main` replacement. Tested on DSH `0.2.0-rc.2`; other host versions remain untested. If the entry is missing, check the installation profile, host/plugin versions and whether the old process exited. On narrow screens DSH may present its right Sidebar full screen; collapsing it returns to the original conversation.
 
@@ -157,15 +165,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.7.1
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.7.2
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.7.1
-node scripts/release-dsh-remote-ops.mjs 0.7.1 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.7.2
+node scripts/release-dsh-remote-ops.mjs 0.7.2 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

@@ -247,11 +247,14 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__density select{width:auto}
       .dsh-remote-ops__menu>div{min-width:240px;max-width:calc(100cqw - 24px);padding:8px}
       .dsh-remote-ops__envMeta{font-size:12px}.dsh-remote-ops__envName{font-weight:500}
-      .dsh-remote-ops__output{padding:16px;line-height:1.65}
-      .dsh-remote-ops__output [data-terminal-role=agent-command]{color:var(--ro-accent)!important;font-weight:650;background:color-mix(in srgb,var(--ro-accent) 9%,transparent);border-radius:2px}
-      .dsh-remote-ops__output [data-tone=error]{color:var(--dsw-alias-state-error-primary,#c44848)}
-      .dsh-remote-ops__output [data-tone=warning]{color:var(--dsw-alias-state-warning-primary,#986d16)}
-      .dsh-remote-ops__output [data-tone=success]{color:var(--dsw-alias-state-success-primary,#27845a)}
+      /* Catppuccin Latte / Mocha, with darker light-theme accents for text contrast. See THIRD_PARTY_NOTICES.md. */
+      .dsh-remote-ops__output{--ro-terminal-command:light-dark(#7e3bd6,#cba6f7);--ro-terminal-directory:light-dark(#287482,#94e2d5);--ro-terminal-file:light-dark(#1e5cd6,#89b4fa);padding:16px;line-height:1.65;background:light-dark(#eff1f5,#1e1e2e);color:light-dark(#4c4f69,#cdd6f4)}
+      .dsh-remote-ops__output :is([data-terminal-role=agent-command],[data-terminal-role=command]){color:var(--ro-terminal-command)!important;font-weight:650;background:color-mix(in srgb,var(--ro-terminal-command) 8%,transparent);border-radius:2px}
+      .dsh-remote-ops__output [data-terminal-role=directory]{color:var(--ro-terminal-directory);font-weight:650}
+      .dsh-remote-ops__output [data-terminal-role=file]{color:var(--ro-terminal-file)}
+      .dsh-remote-ops__output [data-tone=error]{color:light-dark(#d20f39,#f38ba8)}
+      .dsh-remote-ops__output [data-tone=warning]{color:light-dark(#875e28,#f9e2af)}
+      .dsh-remote-ops__output [data-tone=success]{color:light-dark(#3c7333,#a6e3a1)}
       .dsh-remote-ops__logMenu{margin-left:0!important}.dsh-remote-ops__logMenu>div{width:220px}.dsh-remote-ops__logMenu button{text-align:start;width:100%}
       .dsh-remote-ops__terminalLegend{color:var(--ro-accent);font-size:11px;white-space:nowrap}.dsh-remote-ops__terminalLegend::before{content:"";display:inline-block;width:6px;height:6px;margin-right:5px;border-radius:2px;background:currentColor}
       .dsh-remote-ops__quickLibraryRow{padding:12px 0}.dsh-remote-ops__diagnosticEvents>details{padding:14px 0}
@@ -295,7 +298,7 @@ window.__ModuleLoader__.load({
     `;
     const failureMessage = (value, status) => [value.title, `HTTP ${status}`, value.code, value.stage, value.error, value.details ?? value.stack, value.cleanupError].filter(Boolean).join("\n");
     async function request(path, init) { const response = await fetch(path, init); const text = await response.text(); let value = {}; try { value = text ? JSON.parse(text) : {}; } catch { throw new Error(`HTTP ${response.status}: ${text}`); } if (!response.ok) { const error = Object.assign(new Error(value.error ?? `HTTP ${response.status}`), value); error.message = failureMessage(value, response.status); throw error; } return value; }
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.7.1", update: { currentVersion: "0.7.1", latestVersion: "0.7.1", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.7.2", update: { currentVersion: "0.7.2", latestVersion: "0.7.2", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -532,6 +535,24 @@ window.__ModuleLoader__.load({
       if (/^\s*(?:\[warn(?:ing)?\]|(?:%\s*)?warn(?:ing)?(?=[:\s])|警告[：:])/iu.test(line)) return "warning";
       if (/^\s*(?:\[(?:ok|success|passed)\]|(?:success|passed)(?=[:\s])|成功[：:])/iu.test(line)) return "success";
       return undefined;
+    };
+    // Interpret only text already echoed on screen, after VT cursor edits. This
+    // also covers manual/raw input without copying hidden input into the display.
+    const terminalSemanticRuns = (runs, line, grid, enabled = true) => {
+      if (grid || !enabled) return runs;
+      const prompt = /^(?:(?:PS )?[A-Za-z]:\\[^>\r\n]*>|[^\s@]+@[^\s#$>]+(?:[ \t][^\r\n#$>]*)?[#$>] |\[[^\]\r\n]+@[^\]\r\n]+\][#$] )/u.exec(line);
+      const entry = !prompt && /^(\s*\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}\s+(?:(?:上午|下午)\s*)?\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:AM|PM|上午|下午))?\s+)(<DIR>|<JUNCTION>|<SYMLINKD>|<SYMLINK>|\d[\d,.\u00a0]*)(\s+)(\S.*)$/iu.exec(line);
+      const start = prompt ? prompt[0].length : entry ? entry[1].length + entry[2].length + entry[3].length : -1;
+      if (start < 0 || !line.slice(start).trim()) return runs;
+      const role = prompt ? "command" : /^<(?:DIR|JUNCTION|SYMLINKD)>$/iu.test(entry[2]) ? "directory" : "file";
+      const result = []; let offset = 0;
+      for (const run of runs?.length ? runs : [{ text: line }]) {
+        const end = offset + run.text.length, split = Math.max(0, Math.min(run.text.length, start - offset));
+        if (split) result.push({ ...run, text: run.text.slice(0, split) });
+        if (split < run.text.length) result.push({ ...run, text: run.text.slice(split), role: run.role ?? role });
+        offset = end;
+      }
+      return result;
     };
     const terminalStyledLine = (runs, line, cursor, showCursor, grid = false) => {
       const parts = [], items = runs?.length ? runs : [{ text: line }]; let offset = 0, placed = false;
@@ -1501,7 +1522,8 @@ window.__ModuleLoader__.load({
       };
       const terminalOutputView = terminalOutput ? terminalOutput.split("\n").map((line, index, lines) => {
         const props = { key: `line-${index}`, "data-line": index, "data-match": matchedLines.has(index), "data-tone": terminalLineTone(line, terminalUsesGrid(terminalScreen), preferences.highlight) };
-        return h("span", props, terminalStyledLine(terminalScreen.runs?.[index], line, terminalScreen.cursor.column, index === terminalScreen.cursor.row && terminalScreen.cursorVisible && terminalReady, terminalUsesGrid(terminalScreen)), index < lines.length - 1 ? "\n" : null);
+        const runs = terminalSemanticRuns(terminalScreen.runs?.[index], line, terminalUsesGrid(terminalScreen), preferences.highlight);
+        return h("span", props, terminalStyledLine(runs, line, terminalScreen.cursor.column, index === terminalScreen.cursor.row && terminalScreen.cursorVisible && terminalReady, terminalUsesGrid(terminalScreen)), index < lines.length - 1 ? "\n" : null);
       }) : "等待终端输出…";
       useEffect(() => { if (!terminalReady) return undefined; const frame = window.requestAnimationFrame(() => { if (module === "terminal" && !document.activeElement?.closest?.('[role="dialog"],input,textarea,[role="tab"]')) terminalInputRef.current?.focus({ preventScroll: true }); }); return () => window.cancelAnimationFrame(frame); }, [activeTerminalId, terminalReady]);
       useEffect(() => {
@@ -1765,7 +1787,7 @@ window.__ModuleLoader__.load({
           unreadOutput ? h("button", { className: "dsh-remote-ops__newOutput", onClick: jumpToLatest, title: "回到最新输出" }, "↓ 新输出") : null,
         ) : h("div", { className: "dsh-remote-ops__screen dsh-remote-ops__screenEmpty", onClick: () => terminalInputRef.current?.focus() }, h("div", { className: "dsh-remote-ops__empty" }, h("div", null, h("div", { style: { fontSize: "22px", marginBottom: "8px" } }, "›_"), h("div", null, terminalReady ? "输入 ssh [user@]host 并按 Enter 连接，或从环境抽屉选择环境。" : "等待本地 CMD 启动…"), pendingSshInput ? h("pre", { className: "dsh-remote-ops__pendingCommand" }, pendingSshInput) : null)), terminalInputCapture, h("div", { className: "dsh-remote-ops__screenHint" }, terminalReady ? "输入 SSH 命令 · Enter 连接" : "等待本地 CMD 启动…")),
         h("div", { className: "dsh-remote-ops__terminalStatus", role: "status" },
-          logExporting ? h("span", null, "正在打包日志…") : preferences.highlight ? h("span", { className: "dsh-remote-ops__terminalLegend", title: "强调色标记与 Agent 下发文本一致的命令回显；不会显示隐藏输入" }, "Agent 命令") : null,
+          logExporting ? h("span", null, "正在打包日志…") : preferences.highlight ? h("span", { className: "dsh-remote-ops__terminalLegend", title: "高亮已回显的 Agent 命令及常见提示符后的输入；标准 dir 列表中的目录名和文件名分别着色" }, "命令 · 目录 · 文件") : null,
           h("span", { "data-state": outputConnection }, activeSession ? activeSession.disconnected ? "已断开" : outputConnection === "connected" ? "实时输出" : outputConnection === "retrying" ? "输出重连中" : "同步中" : "未连接"),
           h("span", { className: "dsh-remote-ops__muted" }, "共享输入"),
           h("details", { className: "dsh-remote-ops__statusDetails" }, h("summary", null, "状态详情"), h("div", null,

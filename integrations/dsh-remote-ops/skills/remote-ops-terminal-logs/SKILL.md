@@ -33,6 +33,7 @@ Return the real absolute `downloadUrl` as a Markdown download link, with the fil
 
 ## Interpret the record accurately
 
+- Terminal colors are display-only. Agent sends and visible manual/raw input after common CMD, PowerShell and `user@host` prompts receive command emphasis. Standard Windows `dir` rows distinguish directory and file names; custom prompts and bare listings may stay unclassified. The Catppuccin-inspired palette follows the host light/dark theme: purple commands, teal directories and blue files. Do not rewrite commands, issue extra listing commands or infer completion/file identity from these colors. Copying and log export preserve text without the semantic styling; disabling highlighting is a user display preference.
 - Logs contain terminal output received by the plugin. Raw keyboard/password input is not added; input echoed by the device is already part of that output. Commands/secrets printed by a program can still appear in the transcript. Review before sharing outside the user's intended destination.
 - The retention is in process memory: at most 4 MiB per terminal, trimmed to 3 MiB on overflow. Closed logs share a 16 MiB / 32-record limit. A restart removes the history. The API reports the actual retained range; never call a truncated export a complete audit trail.
 - Each package accepts at most 32 logs / 32 MiB of raw output. If the requested selection is larger, split the listed IDs into smaller packages. An export freezes the current buffers; later output requires a new export.
