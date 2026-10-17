@@ -31,7 +31,12 @@ The first native run completed all 15 tool calls and returned a valid HTTP ZIP, 
 
 ## Release verification
 
-The release workflow must pass Linux and Windows checks, publish exactly the tgz and SHA256 files, and preserve the tested candidate digest. The downloaded official package is then installed in an isolated real DSH profile for native tool/download verification. Final publication evidence will be appended after those steps complete.
+- Implementation/tag commit: `3b54e2257bb43dcae7a99d08925336db7191f474`; tag: `dsh-remote-ops-v0.7.0`.
+- [Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.7.0) contains exactly `dsh-remote-ops-v0.7.0.tgz` and `SHA256SUMS-dsh-remote-ops-v0.7.0.txt`. No Windows ZIP.
+- Candidate tgz, downloaded official tgz, published checksum and GitHub asset digest all match SHA256 `c38ca5f841c5c590cf3b2661facb3ce39b63934cef7b4abb4c1acfd5e9020ff5`.
+- [Release workflow](https://github.com/Ssshake1996/myterm/actions/runs/39005302924) passed Linux package/check, Windows check and publication. [Main CI](https://github.com/Ssshake1996/myterm/actions/runs/39005301135) and [browser CI](https://github.com/Ssshake1996/myterm/actions/runs/39005301123) also passed.
+- Installed the downloaded official asset through DSH's plugin CLI in the existing isolated profile, restarted the host/fixtures, and repeated the complete **15-call native Agent/tool flow plus all seven UI/download acceptance steps: PASS**. Downloaded ZIP again passes independent Python CRC/extraction checks. No browser console errors were reported. Existing environment files were byte-for-byte unchanged by installation; original environment IDs and connection fields also remain unchanged after the official native run.
+- Official evidence: `output/playwright/terminal070-official-acceptance.json`, `terminal070-official-proof.json`, the official ZIP/screenshots, `output/terminal070-release.json` and `output/terminal070-official-assets.json`. Isolated test processes were stopped after verification; runtime data and evidence remain ignored.
 
 ## Limits
 
