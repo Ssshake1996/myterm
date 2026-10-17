@@ -56,6 +56,61 @@ test("action route keeps owner-free actions available without a Harness session"
   assert.equal(invalid.body.code, "REMOTE_ENV_INVALID");
 });
 
+const passwordRoute = routes => {
+  const route = routes.get("/api/dsh-remote-ops/environment-password");
+  assert.ok(route, "the environment form needs a dedicated authenticated reveal route");
+  assert.deepEqual(route.methods, ["POST"]);
+  return async body => route.fetch(new Request("http://localhost/api/dsh-remote-ops/environment-password", { method: "POST", body: JSON.stringify(body) }));
+};
+
+test("password reveal resolves only the selected saved environment, is uncached and does not rewrite credentials", async t => {
+  const { ctx, routes, tools, post } = await pluginFixture(t);
+  let current = "fixture-original", reads = 0, writes = 0;
+  ctx.credentials = { resolve: async ref => { assert.equal(ref, "DEVICE_PASSWORD"); reads++; return { value: current }; }, set: async () => { writes++; } };
+  const saved = await post({ action: "environment.save", environment: { id: "reveal-one", name: "device", host: "host", username: "admin", passwordRef: "DEVICE_PASSWORD" } });
+  assert.equal(saved.status, 200);
+  const read = passwordRoute(routes);
+  assert.equal(reads, 0);
+  const first = await read({ environment: "reveal-one" });
+  assert.equal(first.status, 200); assert.equal(first.headers.get("Cache-Control"), "no-store");
+  assert.deepEqual(await first.json(), { password: "fixture-original" });
+  current = "fixture-rotated";
+  assert.deepEqual(await (await read({ environment: "reveal-one" })).json(), { password: current });
+  assert.equal(reads, 2); assert.equal(writes, 0);
+  assert.ok(![...tools.keys()].some(name => /password|credential.*read/u.test(name)), "there must be no Agent password-reveal tool");
+  const listed = await tools.get("remote_environment_list").execute({}, { agent: { id: "test-agent" } });
+  assert.equal(listed.environments[0].passwordRef, "configured"); assert.ok(!JSON.stringify(listed).includes(current));
+  const catalog = await routes.get("/api/dsh-remote-ops/state").fetch(new Request("http://localhost/api/dsh-remote-ops/state"));
+  assert.ok(!(await catalog.text()).includes(current)); assert.equal(reads, 2);
+  await post({ action: "environment.save", environment: { id: "reveal-one", name: "renamed", host: "host", username: "admin" } });
+  assert.equal(writes, 0); assert.deepEqual(await (await read({ environment: "reveal-one" })).json(), { password: current });
+});
+
+test("password reveal rejects credential references, names and malformed selections before resolving", async t => {
+  const { ctx, routes, post } = await pluginFixture(t);
+  ctx.credentials.resolve = async () => assert.fail("invalid selection must not resolve any credential");
+  await post({ action: "environment.save", environment: { id: "env-id", name: "device-name", host: "host", username: "admin", passwordRef: "DEVICE_PASSWORD" } });
+  const read = passwordRoute(routes);
+  for (const body of [null, [], {}, { environment: 3 }, { environment: "" }, { environment: "env-id", passwordRef: "OTHER_SECRET" }, { passwordRef: "OTHER_SECRET" }]) assert.equal((await read(body)).status, 400);
+  for (const environment of ["device-name", "OTHER_SECRET", "missing"]) assert.equal((await read({ environment })).status, 404);
+});
+
+test("missing or unavailable passwords report actionable messages without leaking provider error details", async t => {
+  const { ctx, routes, post } = await pluginFixture(t);
+  await post({ action: "environment.save", environment: { id: "no-ref", host: "key-only", username: "admin" } });
+  await post({ action: "environment.save", environment: { id: "has-ref", host: "password", username: "admin", passwordRef: "DEVICE_PASSWORD" } });
+  const read = passwordRoute(routes);
+  assert.equal((await (await read({ environment: "no-ref" })).json()).code, "REMOTE_PASSWORD_NOT_CONFIGURED");
+  ctx.credentials.resolve = async () => undefined;
+  assert.equal((await (await read({ environment: "has-ref" })).json()).code, "REMOTE_PASSWORD_NOT_FOUND");
+  ctx.credentials.resolve = async () => { throw new Error("PROVIDER_PRIVATE_DETAIL fixture-sensitive-value"); };
+  const failure = await read({ environment: "has-ref" });
+  assert.equal(failure.status, 503); assert.equal(failure.headers.get("Cache-Control"), "no-store");
+  const text = await failure.text(); assert.match(text, /REMOTE_PASSWORD_UNAVAILABLE/); assert.ok(!text.includes("PRIVATE_DETAIL")); assert.ok(!text.includes("sensitive-value"));
+  ctx.credentials = {};
+  assert.equal((await read({ environment: "has-ref" })).status, 503);
+});
+
 test("action route rejects unknown actions and owner-required actions without an owner", async (t) => {
   const { post } = await pluginFixture(t, new Map([["live", { id: "live" }]]));
   const unknown = await post({ sessionId: "live", action: "no-such-action" });

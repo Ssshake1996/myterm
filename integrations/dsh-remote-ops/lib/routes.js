@@ -43,6 +43,30 @@ const ACTIONS = {
 };
 
 export function registerRoutes(ctx, state) {
+  // UI-only reveal: Connection authenticates this route. Accept an exact saved
+  // environment ID, never an arbitrary credential reference, and do not log values.
+  registerRoute(ctx, "dsh-remote-ops environment password", {
+    path: "/api/dsh-remote-ops/environment-password", methods: ["POST"], requestBody: "buffered",
+    fetch: async request => {
+      const headers = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
+      const failure = (status, code, error) => Response.json({ code, error }, { status, headers });
+      let body;
+      try { body = await request.json(); } catch { return failure(400, "REMOTE_ENV_INVALID", "请选择一个已保存的环境。"); }
+      if (!body || Array.isArray(body) || typeof body.environment !== "string" || !body.environment || Object.keys(body).some(key => key !== "environment")) return failure(400, "REMOTE_ENV_INVALID", "请选择一个已保存的环境。");
+      try {
+        await state.ready;
+        const environment = state.allEnvironments().find(item => item.id === body.environment);
+        if (!environment) return failure(404, "REMOTE_ENV_NOT_FOUND", "环境已不存在，请刷新环境列表。");
+        if (!environment.passwordRef) return failure(404, "REMOTE_PASSWORD_NOT_CONFIGURED", "此环境未配置密码，可输入新密码后保存。");
+        const password = await state.resolvePassword(environment);
+        if (typeof password !== "string" || !password) return failure(404, "REMOTE_PASSWORD_NOT_FOUND", "未找到此环境的密码，可重新输入后保存。");
+        return Response.json({ password }, { headers });
+      } catch {
+        // Provider exceptions can contain secret material; keep them out of UI/diagnostics.
+        return failure(503, "REMOTE_PASSWORD_UNAVAILABLE", "暂时无法读取密码，请重试；也可重新输入密码后保存。");
+      }
+    },
+  });
   registerRoute(ctx, "dsh-remote-ops state route", {
     path: "/api/dsh-remote-ops/state",
     methods: ["GET"],

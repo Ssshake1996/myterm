@@ -25,7 +25,7 @@ async function createDeviceEnvironment(t, name) {
     await t.page.getByLabel("主机地址").fill(info.device.host);
     await t.page.getByLabel("用户名").fill(info.device.username);
     await t.page.getByLabel("端口").fill(String(info.device.port));
-    await t.page.getByLabel("SSH 密码").fill("e2e-device-pass");
+    await t.page.getByLabel("SSH 密码", { exact: true }).fill("e2e-device-pass");
     await t.page.getByRole("button", { name: "保存" }).click();
     await t.page.getByText(name).waitFor();
   });
@@ -280,3 +280,5 @@ import { visualRefreshScenario } from './visual-refresh.mjs';
 scenarios.push(visualRefreshScenario);
 import { terminalLogsScenario } from './terminal-logs.mjs';
 scenarios.push(terminalLogsScenario);
+import { environmentPasswordScenario } from './environment-password.mjs';
+scenarios.push(environmentPasswordScenario);

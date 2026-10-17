@@ -3,6 +3,12 @@
 Standalone DeepSeek Harness plugin for remote Linux operations. It does not
 depend on or start the myterm desktop application.
 
+## Reveal environment passwords on demand (v0.7.1)
+
+The SSH password field in the environment editor now has an eye button. It stays masked by default and resolves the currently effective saved credential only on request. Hiding the password or closing the editor/drawer clears the revealed value. Newly typed passwords can also be shown for checking.
+
+Viewing alone never changes the credential: saving other fields preserves it; typing a replacement updates it. Missing configuration, missing credentials and unavailable providers have clear retry/re-entry messages. Revealed values are not written to browser storage, environment listings, diagnostic records or Agent tool results. No Agent password-reading tool or Agent modification is introduced. The bundled environment-management skill describes the user-facing path.
+
 ## Terminal highlighting and log APIs (v0.7.0)
 
 - Echoed single-line Agent submissions use an accent color; ordinary output retains common ANSI colors. Error, warning and success prefixes receive restrained emphasis. Disable semantic highlighting in terminal display settings. Styling never changes terminal bytes; hidden input, raw keystrokes and unmatched echoes are not labeled as commands. Prefix colors are not verified exit-status evidence, and full-screen programs receive no semantic highlighting.
@@ -111,14 +117,14 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.7.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.7.1.tgz
 dsh web
 ```
 
 For an upgrade, install as the same user and with the same `DSH_HOME` used by
 DSH, and use its actual profile rather than assuming `web`. Fully stop the old
 DSH process after installation, restart it, refresh the browser, and confirm
-`v0.7.0` in Remote Ops **更多设置**. Saved environments and quick commands
+`v0.7.1` in Remote Ops **更多设置**. Saved environments and quick commands
 remain; terminal connections must be reopened.
 
 For a package obtained from a registry, the package name is:

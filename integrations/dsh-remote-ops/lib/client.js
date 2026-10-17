@@ -289,12 +289,13 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__fileUpload>label:focus-within{outline:2px solid var(--ro-accent);outline-offset:2px}.dsh-remote-ops__fileUpload>label:has(input:disabled){opacity:.5;cursor:default}
       .dsh-remote-ops__uploadProgress{flex-basis:100%;width:100%;height:4px;accent-color:var(--ro-brand);border:0}
       @container(max-width:420px){.dsh-remote-ops__webPagesBar>button{min-width:24px}.dsh-remote-ops__webContext{padding:4px 8px;gap:3px}.dsh-remote-ops__webContext>select{width:88px}.dsh-remote-ops__webPages button{max-width:140px}}
+      .dsh-remote-ops__passwordField{display:flex;flex-direction:column;gap:5px;min-width:0}.dsh-remote-ops__passwordRow{display:flex;gap:6px;align-items:stretch}.dsh-remote-ops__passwordRow input{flex:1;min-width:0;width:0}.dsh-remote-ops__passwordToggle{flex:none;display:flex;align-items:center;justify-content:center;min-width:34px;padding:6px!important}
       @media(pointer:coarse){.dsh-remote-ops button,.dsh-remote-ops summary{min-height:40px}.dsh-remote-ops input:not([type=checkbox]),.dsh-remote-ops textarea{font-size:16px}}
       @media(prefers-reduced-motion:reduce){.dsh-remote-ops *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
     `;
     const failureMessage = (value, status) => [value.title, `HTTP ${status}`, value.code, value.stage, value.error, value.details ?? value.stack, value.cleanupError].filter(Boolean).join("\n");
     async function request(path, init) { const response = await fetch(path, init); const text = await response.text(); let value = {}; try { value = text ? JSON.parse(text) : {}; } catch { throw new Error(`HTTP ${response.status}: ${text}`); } if (!response.ok) { const error = Object.assign(new Error(value.error ?? `HTTP ${response.status}`), value); error.message = failureMessage(value, response.status); throw error; } return value; }
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.7.0", update: { currentVersion: "0.7.0", latestVersion: "0.7.0", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.7.1", update: { currentVersion: "0.7.1", latestVersion: "0.7.1", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -1346,6 +1347,41 @@ window.__ModuleLoader__.load({
             session.screenshotAt ? h("details", null, h("summary", null, `最近截图 · ${new Date(session.screenshotAt).toLocaleTimeString()}`), h("img", { alt: "当前网页截图，输入框及已知密码已遮罩", src: `/api/dsh-remote-ops/browser/screenshot?sessionId=${encodeURIComponent(sessionId)}&browserId=${encodeURIComponent(session.id)}&v=${encodeURIComponent(session.screenshotAt)}` })) : null,
             session.history.length > 1 ? h("details", null, h("summary", null, "近期运行"), session.history.slice(0, -1).reverse().map(item => h("p", { key: item.id }, `${browserStatus[item.status]} · ${item.index}/${item.count} · ${new Date(item.startedAt).toLocaleTimeString()}`))) : null)) : null);
     }
+    function EnvironmentPasswordField({ id, environmentId, configured, value, onChange }) {
+      const [visible, setVisible] = useState(false), [saved, setSaved] = useState("");
+      const [loading, setLoading] = useState(false), [error, setError] = useState("");
+      const pending = useRef();
+      const cancel = () => { pending.current?.abort(); pending.current = undefined; };
+      useEffect(() => () => cancel(), []);
+      const toggle = async () => {
+        if (visible || pending.current) { cancel(); setSaved(""); setVisible(false); setLoading(false); setError(""); return; }
+        setError("");
+        if (value || !configured || !environmentId) { setVisible(true); return; }
+        const controller = new AbortController(); pending.current = controller; setLoading(true);
+        try {
+          const result = await request("/api/dsh-remote-ops/environment-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ environment: environmentId }), signal: controller.signal });
+          if (pending.current !== controller) return;
+          setSaved(result.password); setVisible(true);
+        } catch (cause) {
+          if (pending.current !== controller) return;
+          const messages = { REMOTE_ENV_NOT_FOUND: "环境已不存在，请刷新环境列表。", REMOTE_PASSWORD_NOT_CONFIGURED: "此环境未配置密码，可输入新密码后保存。", REMOTE_PASSWORD_NOT_FOUND: "未找到此环境的密码，可重新输入后保存。" };
+          setError(messages[cause.code] ?? "暂时无法读取密码，请重试；也可重新输入密码后保存。");
+        } finally { if (pending.current === controller) { pending.current = undefined; setLoading(false); } }
+      };
+      const label = loading ? "取消读取 SSH 密码" : visible ? "隐藏 SSH 密码" : "显示 SSH 密码";
+      return h("div", { className: "dsh-remote-ops__passwordField" },
+        h("label", { htmlFor: id }, "SSH 密码"),
+        h("div", { className: "dsh-remote-ops__passwordRow", "aria-busy": loading },
+          h("input", { id, type: visible ? "text" : "password", autoComplete: "new-password", spellCheck: false, autoCapitalize: "off", value: value || saved, "aria-describedby": error ? id + "-error" : undefined,
+            onChange: event => { cancel(); setLoading(false); setSaved(""); setError(""); onChange(event.target.value); }, placeholder: configured ? "留空保持原密码" : "输入 SSH 登录密码" }),
+          h("button", { type: "button", className: "dsh-remote-ops__passwordToggle", "aria-label": label, title: label, "aria-pressed": visible, onClick: toggle },
+            h("svg", { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+              h("path", { d: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" }), h("circle", { cx: 12, cy: 12, r: 3 }), visible || loading ? h("path", { d: "m3 3 18 18" }) : null)),
+        ),
+        loading ? h("span", { className: "dsh-remote-ops__formNote", role: "status" }, "正在读取密码…") : null,
+        error ? h("span", { id: id + "-error", className: "dsh-remote-ops__dangerAction", role: "alert" }, error) : null,
+      );
+    }
     function RemoteOpsPanel({ sessionId }) {
       const browserUpload = useSyncExternalStore(browserUploads.subscribe, () => browserUploads.get(sessionId));
       const [restoredView] = useState(() => workspaceView(sessionId));
@@ -1665,7 +1701,7 @@ window.__ModuleLoader__.load({
           h("label", { style: { width: "72px" } }, "端口", h("input", { value: environmentForm.port, onChange: (event) => updateEnvironmentForm("port", event.target.value), inputMode: "numeric" })),
         ),
         h("label", null, "环境分组", h("input", { value: environmentForm.group, onChange: (event) => updateEnvironmentForm("group", event.target.value), placeholder: "default" })),
-        h("label", null, "SSH 密码", h("input", { type: "password", autoComplete: "new-password", value: environmentForm.password, onChange: (event) => updateEnvironmentForm("password", event.target.value), placeholder: environmentForm.credentialConfigured ? "留空保持原密码" : "输入 SSH 登录密码" })),
+        h(EnvironmentPasswordField, { key: environmentForm.id || "new", id: "remote-ops-password-" + encodeURIComponent(sessionId ?? "local"), environmentId: environmentForm.id, configured: environmentForm.credentialConfigured, value: environmentForm.password, onChange: value => updateEnvironmentForm("password", value) }),
         h("label", null, "私钥路径", h("input", { value: environmentForm.privateKeyPath, onChange: (event) => updateEnvironmentForm("privateKeyPath", event.target.value), placeholder: "可选，本机路径" })),
         environmentAdvancedFields(environmentForm, updateEnvironmentForm),
         h("div", { className: "dsh-remote-ops__formNote" }, `${environmentForm.credentialConfigured ? "凭据已配置；密码留空保持原密码，输入新密码会更新凭据。" : "输入 SSH 密码后由系统自动保存到 Harness credentials；凭据引用由系统管理。"} 名称留空时使用主机地址。`),
