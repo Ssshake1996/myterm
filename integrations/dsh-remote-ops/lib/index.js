@@ -9,6 +9,9 @@ import { registerBrowserRoutes } from "./browser-routes.js";
 import { registerBrowserTools } from "./browser-tools.js";
 import { registerBundledSkills } from "./skills.js";
 import { registerLogRoutes } from "./log-routes.js";
+import { ApiWorkspace } from "./api-workspace.js";
+import { registerApiTools } from "./api-tools.js";
+import { registerApiRoutes } from "./api-routes.js";
 
 export const name = PLUGIN_NAME;
 export const inject = ["connection", "systemPrompt", "tools", "terminals", "agents", "credentials", "subprocess"];
@@ -23,8 +26,10 @@ export function apply(ctx) {
   const state = new RemoteOpsState(ctx);
   registerSessionActivation(ctx, state);
   state.browser = new BrowserWorkspace({ root: join(state.base, "browser"), credentials: ctx.credentials });
+  state.api = new ApiWorkspace({ root: join(state.base, "api"), credentials: ctx.credentials });
   ctx.effect(() => async () => {
     state.disposed = true;
+    await state.api.dispose();
     await state.browser.dispose();
     for (const job of state.commands.values()) job.controller.abort();
     await Promise.allSettled([...state.commands.values()].map((job) => job.done));
@@ -43,6 +48,8 @@ export function apply(ctx) {
   registerLogRoutes(ctx, state);
   registerBrowserRoutes(ctx, state);
   registerBrowserTools(ctx, state);
+  registerApiTools(ctx, state);
+  registerApiRoutes(ctx, state);
   registerBundledSkills(ctx);
 }
 

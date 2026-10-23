@@ -298,7 +298,7 @@ window.__ModuleLoader__.load({
     `;
     const failureMessage = (value, status) => [value.title, `HTTP ${status}`, value.code, value.stage, value.error, value.details ?? value.stack, value.cleanupError].filter(Boolean).join("\n");
     async function request(path, init) { const response = await fetch(path, init); const text = await response.text(); let value = {}; try { value = text ? JSON.parse(text) : {}; } catch { throw new Error(`HTTP ${response.status}: ${text}`); } if (!response.ok) { const error = Object.assign(new Error(value.error ?? `HTTP ${response.status}`), value); error.message = failureMessage(value, response.status); throw error; } return value; }
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.7.2", update: { currentVersion: "0.7.2", latestVersion: "0.7.2", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.8.0", update: { currentVersion: "0.8.0", latestVersion: "0.8.0", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -725,7 +725,7 @@ window.__ModuleLoader__.load({
     const workspaceViews = new Map(), fileViews = new Map(), commandDrafts = new Map();
     const workspaceView = owner => {
       if (workspaceViews.has(owner)) return workspaceViews.get(owner);
-      try { const saved = JSON.parse(sessionStorage.getItem("remote-ops.view." + owner) || "{}"); return { module: ["terminal", "browser", "sftp"].includes(saved.module) ? saved.module : "terminal", activeSessionId: typeof saved.activeSessionId === "string" ? saved.activeSessionId.slice(0, 200) : "", search: typeof saved.search === "string" ? saved.search.slice(0, 120) : "" }; }
+      try { const saved = JSON.parse(sessionStorage.getItem("remote-ops.view." + owner) || "{}"); return { module: ["terminal", "browser", "sftp", "api"].includes(saved.module) ? saved.module : "terminal", activeSessionId: typeof saved.activeSessionId === "string" ? saved.activeSessionId.slice(0, 200) : "", search: typeof saved.search === "string" ? saved.search.slice(0, 120) : "" }; }
       catch { return { module: "terminal", activeSessionId: "", search: "" }; }
     };
     const rememberWorkspace = (owner, value) => {
@@ -1403,6 +1403,8 @@ window.__ModuleLoader__.load({
         error ? h("span", { id: id + "-error", className: "dsh-remote-ops__dangerAction", role: "alert" }, error) : null,
       );
     }
+
+    function ApiIcon({size=16}) { return h("svg",{width:size,height:size,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.6,"aria-hidden":true},h("path",{d:"m8 5-6 7 6 7m8-14 6 7-6 7m-3-16-2 18"})); }
     function RemoteOpsPanel({ sessionId }) {
       const browserUpload = useSyncExternalStore(browserUploads.subscribe, () => browserUploads.get(sessionId));
       const [restoredView] = useState(() => workspaceView(sessionId));
@@ -1735,6 +1737,7 @@ window.__ModuleLoader__.load({
       const envDrawer = drawer ? h("aside", { className: "dsh-remote-ops__drawer" },
         h("div", { className: "dsh-remote-ops__drawerHead" },
           h("strong", null, "环境"),
+          h("button", { className: "dsh-remote-ops__tiny", onClick: () => { setModule("api"); setDrawer(false); } }, "API 环境"),
           h("button", { className: "dsh-remote-ops__tiny", onClick: addGroup }, "+ 分组"),
           h("button", { className: "dsh-remote-ops__tiny", onClick: () => openEnvironmentForm() }, "+ 环境"),
           h("button", { className: "dsh-remote-ops__drawerClose", "aria-label": "关闭环境", title: "关闭环境", onClick: () => setDrawer(false) }, "×"),
@@ -1807,7 +1810,7 @@ window.__ModuleLoader__.load({
       const pasteView = pasteDraft ? modal("确认终端输入", () => setPasteDraft(null), h(React.Fragment, null, h("strong", null, `目标：${pasteDraft.name}`), h("small", null, pasteDraft.session), h("textarea", { autoFocus: true, "aria-label": "待发送内容", spellCheck: false, value: pasteDraft.text, onChange: event => setPasteDraft(current => ({ ...current, text: event.target.value })) }), /[\r\n]/.test(pasteDraft.text) ? h("strong", { className: "dsh-remote-ops__dangerAction" }, "包含换行，将提交命令") : null, h("div", { className: "dsh-remote-ops__formActions" }, h("button", { onClick: () => setPasteDraft(null) }, "取消"), h("button", { disabled: busy || !pasteDraft.text, onClick: () => void submitPaste() }, "发送到此终端")))) : null;
       const choicesView = connectionChoices ? modal("选择连接", () => setConnectionChoices(null), connectionChoices.map(item => h("button", { key: item.sessionId, onClick: () => { setActiveSessionId(item.sessionId); setModule("terminal"); setConnectionChoices(null); setDrawer(false); } }, `${item.name} · ${item.ownerId} · ${item.lastActivity ? new Date(item.lastActivity).toLocaleTimeString() : "暂无活动"}`))) : null;
       const diagnosticsView = diagnosticPreview !== null ? modal("诊断导出预览", () => setDiagnosticPreview(null), h(React.Fragment, null, h("pre", null, diagnosticPreview), h("button", { onClick: () => { const url = URL.createObjectURL(new Blob([diagnosticPreview], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = "remote-ops-diagnostics.json"; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); } }, h(IconDownloadOutline16), " 导出 JSON"))) : null;
-      const workspaces = [["terminal", "终端", RemoteOpsIcon], ["browser", "网页", BrowserIcon], ["sftp", "文件", IconFolderClose16]];
+      const workspaces = [["terminal", "终端", RemoteOpsIcon], ["browser", "网页", BrowserIcon], ["sftp", "文件", IconFolderClose16], ["api", "API", ApiIcon]];
       const uiKey = encodeURIComponent(sessionId ?? "local");
       const selectWorkspace = id => { if (id === "sftp") setFilesVisited(true); setModule(id); setDrawer(false); setDiagnosticsOpen(false); };
       return h("div", { className: "dsh-remote-ops", "data-density": density },
@@ -1826,10 +1829,89 @@ window.__ModuleLoader__.load({
         commandTarget ? h(CommandDialog, { key: sessionId + ":" + commandTarget.sessionId, sessionId, target: commandTarget, onClose: () => setCommandTarget(null) }) : null,
         h("nav", { className: "dsh-remote-ops__workspaceTabs", role: "tablist", "aria-label": "Remote Ops 工作区" }, workspaces.map(([id, label, Icon], index) => h("button", { key: id, type: "button", role: "tab", id: "remote-ops-tab-" + uiKey + "-" + id, "aria-label": label, "aria-selected": module === id, "aria-controls": "remote-ops-panel-" + uiKey, tabIndex: module === id ? 0 : -1, onClick: () => selectWorkspace(id), onKeyDown: event => { const next = { ArrowRight: (index + 1) % workspaces.length, ArrowLeft: (index + workspaces.length - 1) % workspaces.length, Home: 0, End: workspaces.length - 1 }[event.key]; if (next !== undefined) { event.preventDefault(); selectWorkspace(workspaces[next][0]); event.currentTarget.parentElement.children[next]?.focus(); } } }, h(Icon, { size: 16, "aria-hidden": true }), label))),
         h("div", { className: "dsh-remote-ops__workspace" }, h("main", { className: "dsh-remote-ops__main", id: "remote-ops-panel-" + uiKey, role: drawer || diagnosticsOpen ? undefined : "tabpanel", "aria-labelledby": drawer || diagnosticsOpen ? undefined : "remote-ops-tab-" + uiKey + "-" + module, "data-module": drawer ? "environments" : diagnosticsOpen ? "diagnostics" : module },
-          drawer ? h("div", { id: "remote-ops-environments-" + uiKey, className: "dsh-remote-ops__utilityView" }, envDrawer) : diagnosticsOpen ? aux : module === "browser" ? h(BrowserWorkspacePanel, { key: sessionId, sessionId }) : module === "terminal" ? terminal : null,
+          drawer ? h("div", { id: "remote-ops-environments-" + uiKey, className: "dsh-remote-ops__utilityView" }, envDrawer) : diagnosticsOpen ? aux : module === "browser" ? h(BrowserWorkspacePanel, { key: sessionId, sessionId }) : module === "api" ? h(ApiWorkspacePanel, { key: sessionId, sessionId, sshEnvironments:snapshot.environments }) : module === "terminal" ? terminal : null,
           h("div", { className: "dsh-remote-ops__fileHost", hidden: module !== "sftp" || drawer || diagnosticsOpen }, sftpWorkspace),
           quickPanel)));
     }
+    // BEGIN generated API client
+    // Inlined into the native plugin bundle by test/sync-api-client.mjs; no CDN or extra runtime.
+    const drafts = new Map();
+    const statusLabel = value => ({running:'执行中',completed:'已完成',http_error:'HTTP 错误',failed:'失败',unknown:'结果未知'}[value]??value);
+    function createApiPanel(React, request) {
+      const {createElement:h,useState,useEffect,useCallback,useRef}=React;
+      const style=`
+        .ro-api{display:flex;flex-direction:column;gap:14px;padding:16px;min-width:0;height:100%;overflow:auto;box-sizing:border-box}
+        .ro-api__bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.ro-api__bar>select{flex:1;min-width:120px}.ro-api select{border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:7px;background:var(--dsw-alias-bg-base,#fff);color:inherit;padding:7px;font:inherit;max-width:100%}
+        .ro-api h2{font-size:21px;font-weight:600;letter-spacing:-.5px;margin:12px 0 8px}.ro-api p{color:var(--dsw-alias-label-secondary,#667085);margin:6px 0;line-height:1.7;font-size:12px}.ro-api__eyebrow{font-size:11px;letter-spacing:1.2px;color:var(--dsw-alias-label-secondary,#667085)}
+        .ro-api__card{border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:10px;padding:12px;min-width:0}.ro-api header{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}.ro-api__endpoint{font:12px/1.6 ui-monospace,Consolas,monospace;overflow-wrap:anywhere;color:var(--dsw-alias-label-secondary,#667085)}
+        .ro-api__badge{font-size:11px;padding:3px 7px;border-radius:5px;background:var(--dsw-alias-bg-layer-1,#f2f4f7);white-space:nowrap}.ro-api__badge[data-state=completed]{color:light-dark(#176b49,#80d7ad)}.ro-api__badge[data-state=unknown],.ro-api__badge[data-state=http_error],.ro-api__badge[data-state=failed]{color:var(--dsw-alias-state-error-primary,#b42318)}
+        .ro-api .ro-api__primary{background:var(--ro-accent,#315cb5);color:white;border-color:transparent;padding:7px 13px}.ro-api__form{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}.ro-api label{display:flex;flex-direction:column;gap:5px;color:var(--dsw-alias-label-secondary,#667085);font-size:12px}.ro-api__wide{grid-column:1/-1}.ro-api textarea{resize:vertical;min-height:80px;font:12px/1.6 ui-monospace,Consolas,monospace}.ro-api__requestLine{display:flex;gap:7px}.ro-api__requestLine input{min-width:0;flex:1}.ro-api__requestLine select{flex:none;width:90px}
+        .ro-api__history{display:flex;flex-direction:column;gap:3px;max-height:260px;overflow:auto}.ro-api .ro-api__row{display:grid;grid-template-columns:48px minmax(0,1fr) auto;align-items:center;gap:7px;text-align:left;border:0;background:transparent;padding:9px 6px;border-radius:5px}.ro-api__row[aria-pressed=true]{outline:1px solid var(--ro-accent,#315cb5);outline-offset:-1px}.ro-api__row b{font-size:11px;color:var(--ro-accent,#315cb5)}.ro-api__row span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ro-api__row small{display:block;color:var(--dsw-alias-label-secondary,#667085);font-size:10px}
+        .ro-api pre{margin:6px 0 0;padding:12px;border-radius:7px;background:var(--dsw-alias-bg-layer-1,#f6f8fa);white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 ui-monospace,Consolas,monospace;max-height:360px;overflow:auto}.ro-api details>summary{cursor:pointer;color:var(--dsw-alias-label-secondary,#667085);padding:6px 0}.ro-api__error{padding:9px;border-left:3px solid var(--dsw-alias-state-error-primary,#b42318);color:var(--dsw-alias-state-error-primary,#b42318);overflow-wrap:anywhere}.ro-api__empty{padding:18px 0;color:var(--dsw-alias-label-secondary,#667085)}.ro-api__meta{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--dsw-alias-label-secondary,#667085)}
+      `;
+      return function ApiPanel({sessionId,sshEnvironments=[]}) {
+        const [draft,setDraft]=useState(()=>drafts.get(sessionId)??{environment:'',method:'GET',path:'',body:'',headers:'{}'});
+        const [data,setData]=useState({environments:[],sessions:[],records:[]});
+        const [error,setError]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true);
+        const [manage,setManage]=useState(false),[form,setForm]=useState(null),[password,setPassword]=useState('');
+        const [detailId,setDetailId]=useState(''),[detail,setDetail]=useState(null),alive=useRef(true);
+        const endpoint='/api/dsh-remote-ops/api',query='?sessionId='+encodeURIComponent(sessionId??'');
+        const patch=values=>setDraft(current=>({...current,...values}));
+        useEffect(()=>{drafts.set(sessionId,draft);if(drafts.size>50)drafts.delete(drafts.keys().next().value);},[sessionId,draft]);
+        const refresh=useCallback(async()=>{try{const next=await request(endpoint+query);if(alive.current){setData(next);setLoading(false);}}catch(err){if(alive.current){setError(err.message);setLoading(false);}}},[query]);
+        useEffect(()=>{alive.current=true;let timer;const tick=async()=>{await refresh();if(alive.current)timer=setTimeout(tick,1500);};void tick();return()=>{alive.current=false;clearTimeout(timer);};},[refresh]);
+        useEffect(()=>{if(!draft.environment&&data.environments.length)patch({environment:data.environments[0].id});},[data.environments,draft.environment]);
+        const detailRevision=JSON.stringify(data.records.find(r=>r.id===detailId));
+        useEffect(()=>{let cancelled=false;if(!detailId){setDetail(null);return;}request(endpoint+query+'&requestId='+encodeURIComponent(detailId)).then(value=>{if(!cancelled)setDetail(value);}).catch(err=>{if(!cancelled)setError(err.message);});return()=>{cancelled=true;};},[detailId,detailRevision,query]);
+        const selected=data.environments.find(env=>env.id===draft.environment),loggedIn=data.sessions.some(s=>s.environment===draft.environment);
+        const post=async body=>{setBusy(true);setError('');try{const value=await request(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,...body})});if(alive.current)await refresh();return value.result;}catch(err){if(alive.current)setError(err.message);return undefined;}finally{if(alive.current)setBusy(false);}};
+        const edit=env=>{
+          setError('');setPassword('');setManage(true);
+          setForm(env?{...env,headersText:JSON.stringify(env.headers,null,2),advancedText:JSON.stringify({headerRefs:env.headerRefs,caPem:env.caPem,auth:Object.fromEntries(Object.entries(env.auth).filter(([k])=>!['mode','username','passwordRef','loginPath','bodyFormat','tokenPointer','cookieName'].includes(k)))},null,2)}:{name:'',group:'default',baseUrl:'',sshEnvironmentId:'',timeoutMs:30000,auth:{mode:'token',username:'',passwordRef:'',loginPath:'login',bodyFormat:'json',tokenPointer:'/token',cookieName:''},headersText:'{}',advancedText:'{}'});
+        };
+        const field=(label,key,options={})=>h('label',{className:options.wide?'ro-api__wide':undefined},label,h('input',{...options,wide:undefined,'aria-label':label,value:form[key]??'',onChange:e=>setForm({...form,[key]:options.type==='number'?Number(e.target.value):e.target.value})}));
+        const authField=(label,key,placeholder)=>h('label',null,label,h('input',{'aria-label':label,value:form.auth[key]??'',placeholder,onChange:e=>setForm({...form,auth:{...form.auth,[key]:e.target.value}})}));
+        const button=(label,onClick,options={})=>h('button',{type:'button',onClick,...options},label);
+        const textArea=(label,value,onChange,rows)=>h('label',null,label,h('textarea',{'aria-label':label,value,onChange:e=>onChange(e.target.value),rows}));
+        const save=async event=>{event.preventDefault();try{
+          const {headersText,advancedText,...base}=form,advanced=JSON.parse(advancedText);
+          if(!advanced||typeof advanced!=='object'||Array.isArray(advanced)||Object.keys(advanced).some(k=>!['auth','headerRefs','caPem'].includes(k)))throw Error('高级配置仅支持 auth、headerRefs、caPem 对象字段');
+          const environment={...base,...advanced,headers:JSON.parse(headersText),auth:{...base.auth,...advanced.auth}};
+          const result=await post({action:'environment.save',environment,password});if(result&&alive.current){patch({environment:result.id});setForm(null);setPassword('');}
+        }catch(err){setError(err.message);}};
+        const execute=async kind=>{if(!selected)return;try{
+          const args={environment:selected.id,requestId:(kind==='login'?'login-':'request-')+crypto.randomUUID()};
+          if(kind!=='login'){args.method=draft.method;args.path=draft.path;args.headers=JSON.parse(draft.headers||'{}');if(draft.body.trim())args.body=JSON.parse(draft.body);}
+          const result=await post({action:kind,args});if(result&&alive.current){setDetailId(result.id);setDetail(result);}
+        }catch(err){setError('JSON 格式错误：'+err.message);}};
+        const exportRecords=async()=>{setBusy(true);try{
+          const records=await Promise.all(data.records.map(r=>request(endpoint+query+'&requestId='+encodeURIComponent(r.id))));
+          const url=URL.createObjectURL(new Blob([JSON.stringify({exportedAt:new Date().toISOString(),records},null,2)],{type:'application/json'}));
+          const link=document.createElement('a');link.href=url;link.download='remote-ops-api-records.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+        }catch(err){setError(err.message);}finally{if(alive.current)setBusy(false);}};
+        const badge=(state,label)=>h('span',{className:'ro-api__badge','data-state':state},label??statusLabel(state));
+        const formView=form?h('form',{className:'ro-api__card',onSubmit:save},
+          h('header',null,h('strong',null,form.id?'编辑 API 环境':'新建 API 环境'),button('取消',()=>{setForm(null);setPassword('');})),
+          h('div',{className:'ro-api__form'},field('API 环境名称','name',{required:true}),field('API 分组','group'),field('Base URL','baseUrl',{required:true,placeholder:'https://device.example/api/v1',wide:true}),
+            h('label',null,'关联 SSH 环境（可选）',h('select',{'aria-label':'关联 SSH 环境',value:form.sshEnvironmentId,onChange:e=>setForm({...form,sshEnvironmentId:e.target.value})},h('option',{value:''},'独立 API 环境'),sshEnvironments.map(env=>h('option',{key:env.id,value:env.id},env.name)))),field('超时（毫秒）','timeoutMs',{type:'number',min:100,max:120000}),
+            h('label',null,'认证方式',h('select',{'aria-label':'API 认证方式',value:form.auth.mode,onChange:e=>setForm({...form,auth:{...form.auth,mode:e.target.value}})},h('option',{value:'token'},'登录获取 Token'),h('option',{value:'cookie'},'登录获取 Cookie'),h('option',{value:'none'},'无需登录'))),
+            form.auth.mode!=='none'?h(React.Fragment,null,authField('登录路径','loginPath','login'),authField('API 用户名','username'),h('label',null,'API 密码',h('input',{type:'password',autoComplete:'new-password','aria-label':'API 密码',value:password,onChange:e=>setPassword(e.target.value),placeholder:form.auth.passwordRef?'已配置；留空保持':'保存到 DSH 凭据'})),authField('密码凭据引用（可选）','passwordRef','已有 DSH 凭据名'),h('label',null,'登录格式',h('select',{'aria-label':'登录格式',value:form.auth.bodyFormat,onChange:e=>setForm({...form,auth:{...form.auth,bodyFormat:e.target.value}})},h('option',{value:'json'},'JSON'),h('option',{value:'form'},'Form'))),form.auth.mode==='token'?authField('Token JSON Pointer','tokenPointer','/data/token'):authField('Session Cookie 名称','cookieName','sid')):null,
+            h('details',{className:'ro-api__wide'},h('summary',null,'请求头与高级登录配置'),textArea('API 公共请求头',form.headersText,value=>setForm({...form,headersText:value})),textArea('API 高级配置',form.advancedText,value=>setForm({...form,advancedText:value}),8),h('p',null,'支持 auth.usernameField / passwordField、tokenSource / tokenResponseHeader、headerName / prefix、successPointer / successValue、csrfCookie / csrfHeader，以及 headerRefs 和 caPem。'))),
+          h('p',null,'配置修改后需重新登录。密码留空保留；Token 与 Cookie 仅在当前对话、本次 DSH 进程中保存。'),h('button',{className:'ro-api__primary',type:'submit',disabled:busy},busy?'保存中…':'保存 API 环境')):null;
+        return h('section',{className:'ro-api','aria-label':'API 工作区'},h('style',null,style),
+          h('div',{className:'ro-api__bar'},h('select',{'aria-label':'API 环境',value:draft.environment,onChange:e=>patch({environment:e.target.value})},h('option',{value:''},'选择 API 环境'),data.environments.map(env=>h('option',{value:env.id,key:env.id},env.group+' / '+env.name))),button('管理环境',()=>{setManage(v=>!v);setForm(null);setPassword('');},{'aria-expanded':manage})),
+          error?h('div',{className:'ro-api__error',role:'alert'},error,button('刷新',()=>{setError('');void refresh();})):null,loading?h('div',{role:'status'},'正在读取 API 环境…'):null,
+          manage?h('div',null,h('div',{className:'ro-api__bar'},h('strong',null,'API 环境'),button('新建 API 环境',()=>edit()),selected?button('编辑所选环境',()=>edit(selected)):null),formView??(selected?h('details',null,h('summary',null,'删除所选环境'),h('p',null,'删除配置与登录会话，保留本次进程的执行记录和 DSH 凭据。'),button('确认删除 API 环境',async()=>{const result=await post({action:'environment.delete',environment:selected.id});if(result)patch({environment:''});},{disabled:busy})):null)):null,
+          !loading&&!data.environments.length&&!form?h('div',{className:'ro-api__empty'},h('div',{className:'ro-api__eyebrow'},'API WORKSPACE'),h('h2',null,'把接口操作，变成可见的过程。'),h('p',null,'保存地址与登录配置，Agent 和你在这里共享每次请求的状态与响应。'),button('新建 API 环境',()=>edit(),{className:'ro-api__primary'})):null,
+          selected&&!form?h(React.Fragment,null,h('div',{className:'ro-api__card'},h('header',null,h('strong',null,selected.name),badge(loggedIn?'completed':'idle',selected.auth.mode==='none'?'无需登录':loggedIn?'已登录':'未登录')),h('div',{className:'ro-api__endpoint'},selected.baseUrl),h('div',{className:'ro-api__meta'},h('span',null,'请求由 DSH 主机发送'),h('span',null,selected.timeoutMs/1000+'s 超时'),selected.sshEnvironmentId?h('span',null,'关联 SSH：'+(sshEnvironments.find(e=>e.id===selected.sshEnvironmentId)?.name??selected.sshEnvironmentId)):null),selected.auth.mode!=='none'?button(loggedIn?'重新登录':'登录此环境',()=>void execute('login'),{disabled:busy||!sessionId}):null),
+            h('div',{className:'ro-api__card'},h('header',null,h('strong',null,'发送请求')),h('div',{className:'ro-api__requestLine'},h('select',{'aria-label':'HTTP 方法',value:draft.method,onChange:e=>patch({method:e.target.value})},['GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS'].map(method=>h('option',{key:method},method))),h('input',{'aria-label':'API 请求路径',value:draft.path,onChange:e=>patch({path:e.target.value}),placeholder:'volumes?limit=20',spellCheck:false})),h('p',null,'路径始终基于上方 Base URL。'),h('details',null,h('summary',null,'请求头 / JSON 请求体'),textArea('API 请求头',draft.headers,value=>patch({headers:value})),textArea('API 请求体',draft.body,value=>patch({body:value}))),button(busy?'执行中…':'发送请求',()=>void execute('request'),{className:'ro-api__primary',disabled:busy||!draft.path||!sessionId||(selected.auth.mode!=='none'&&!loggedIn)}),!sessionId?h('p',null,'选择或新建对话后即可登录和执行。'):null)):null,
+          h('div',{className:'ro-api__card'},h('header',null,h('strong',null,'执行记录'),button('导出记录',()=>void exportRecords(),{disabled:busy||!data.records.length})),h('div',{className:'ro-api__history'},data.records.map(record=>button(h(React.Fragment,null,h('b',null,record.kind==='login'?'LOGIN':record.method),h('span',null,record.path,h('small',null,record.environmentName+' · '+new Date(record.startedAt).toLocaleTimeString())),badge(record.state,(record.httpStatus?record.httpStatus+' · ':'')+statusLabel(record.state))),()=>{if(detailId!==record.id)setDetail(null);setDetailId(record.id);},{key:record.id,className:'ro-api__row','aria-pressed':detailId===record.id}))),!data.records.length?h('div',{className:'ro-api__empty'},'Agent 或你发起请求后，登录和执行过程会出现在这里。'):null,h('p',null,'最近 100 条 · 当前对话 · DSH 重启后清空')),
+          detail?h('div',{className:'ro-api__card','aria-label':'API 响应详情'},h('header',null,h('strong',null,'响应详情'),badge(detail.state)),h('div',{className:'ro-api__meta'},h('span',null,detail.httpStatus?'HTTP '+detail.httpStatus:'尚无 HTTP 响应'),h('span',null,(detail.durationMs??0)+' ms'),h('span',null,detail.id)),detail.note?h('div',{className:'ro-api__error'},detail.state==='unknown'?'结果未知：设备可能已执行。请先查询设备状态，不要直接重复下发。':detail.note):null,detail.error?h('p',null,detail.error):null,detail.truncated?h('p',null,'响应已截断（128 KiB），请使用接口分页获取更多内容。'):null,h('pre',null,JSON.stringify(detail.response?.body??detail.response??{},null,2)),detail.response?.headers?h('details',null,h('summary',null,'响应头'),h('pre',null,JSON.stringify(detail.response.headers,null,2))):null,h('details',null,h('summary',null,'请求详情（已脱敏）'),h('pre',null,JSON.stringify({url:detail.url,method:detail.method,...detail.request},null,2)))):null);
+      };
+    }
+
+    const ApiWorkspacePanel = createApiPanel(React, request);
+    // END generated API client
     function BrowserIcon({ size = 16 }) { return h("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, "aria-hidden": true }, h("circle", { cx: 12, cy: 12, r: 9 }), h("path", { d: "M3 12h18M12 3a17 17 0 0 1 0 18 17 17 0 0 1 0-18" })); }
     function FileIcon() { return h("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, "aria-hidden": true }, h("path", { d: "M14 3H6v18h12V7zM14 3v5h4M8 12h8M8 16h8" })); }
 

@@ -1,9 +1,9 @@
 {
   "name": "@dsh/remote-ops",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "private": false,
   "type": "module",
-  "description": "DeepSeek Harness plugin for SSH terminals, SFTP and visible Playwright web operations",
+  "description": "DeepSeek Harness plugin for SSH, SFTP, visible web operations and saved RESTful API environments",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
@@ -33,6 +33,7 @@
     "skills/remote-ops-browser/SKILL.md",
     "skills/remote-ops-environments/SKILL.md",
     "skills/remote-ops-terminal-logs/SKILL.md",
+    "skills/remote-ops-api/SKILL.md",
     "README.md",
     "README.zh-CN.md",
     "WEB.md",
@@ -44,15 +45,16 @@
   ],
   "scripts": {
     "test": "npm run test:unit && npm run test:client && npm run test:contract && npm run test:smoke",
-    "test:unit": "node --test test/terminal-logs.test.mjs test/unit.test.mjs test/routes.test.mjs test/tool-schema.test.mjs test/environment-management.test.mjs test/cli-assist.test.mjs test/state-layers.test.mjs test/release-script.test.mjs test/ssh-session.test.mjs test/script.test.mjs test/output-render.test.mjs test/transfer.test.mjs test/diagnostics.test.mjs test/workspace.test.mjs test/commands.test.mjs test/browser.test.mjs test/browser-live.test.mjs test/browser-runtime.test.mjs test/browser-default.test.mjs test/agent-control.test.mjs",
+    "test:unit": "node --test test/api.test.mjs test/terminal-logs.test.mjs test/unit.test.mjs test/routes.test.mjs test/tool-schema.test.mjs test/environment-management.test.mjs test/cli-assist.test.mjs test/state-layers.test.mjs test/release-script.test.mjs test/ssh-session.test.mjs test/script.test.mjs test/output-render.test.mjs test/transfer.test.mjs test/diagnostics.test.mjs test/workspace.test.mjs test/commands.test.mjs test/browser.test.mjs test/browser-live.test.mjs test/browser-runtime.test.mjs test/browser-default.test.mjs test/agent-control.test.mjs",
     "test:client": "node --test test/client-behavior.test.mjs test/navigation.test.mjs test/interaction-regressions.test.mjs test/sftp-interactions.test.mjs test/workspace-ui.test.mjs",
     "test:contract": "node --test test/contract.test.mjs",
     "test:smoke": "node test/smoke.mjs",
-    "check": "node test/check-syntax.mjs && npm test"
+    "check": "node test/sync-api-client.mjs --check && node test/check-syntax.mjs && npm test"
   },
   "dependencies": {
     "playwright-core": "1.64.0",
-    "ssh2": "1.17.0"
+    "ssh2": "1.17.0",
+    "tough-cookie": "6.0.0"
   },
   "devDependencies": {
     "ajv": "8.17.1"

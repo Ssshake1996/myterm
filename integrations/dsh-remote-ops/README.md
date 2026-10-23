@@ -1,7 +1,17 @@
 # @dsh/remote-ops
 
-Standalone DeepSeek Harness plugin for remote Linux operations. It does not
+Standalone DeepSeek Harness plugin for SSH, web and RESTful API operations. It does not
 depend on or start the myterm desktop application.
+
+## Saved RESTful environments and execution workspace (v0.8.0)
+
+- The new **API** workspace saves base URLs, groups, common headers, timeout, private CA and login configuration. API targets work without SSH; an optional SSH environment ID links the same device without sharing credentials.
+- A single POST login sends username/password as JSON or form and extracts a Token through JSON Pointer or a response header, or stores scoped Cookies. Cookie-to-CSRF-header mapping is supported. Passwords use DSH credentials; configuration stores references. Login sessions are isolated by conversation and remain in memory only.
+- UI and Agent requests share visible login/request records, HTTP status, timing, redacted responses, errors and unknown outcomes. Export the current conversation's records as JSON. HTTP 2xx still requires checking the business response.
+- Bundled 'remote-ops-api' plus 'remote_api_environment_list/save/delete', 'remote_api_login', 'remote_api_request' and 'remote_api_records' are discovered on plugin installation. No Agent changes. List first, use exact returned IDs, log in, execute, then inspect receipts.
+- Requests originate on the DSH host. Both '/items' and 'items' preserve the base URL's path prefix. No automatic redirects, reauthentication or replay. After a timeout/cancellation with an unknown outcome, query device state before any retry.
+- Configuration persists in '$DSH_HOME/remote-ops/api/environments.json'; login state, records and duplicate-ID protection cover only this process's last 100 requests per conversation. Response preview: 128 KiB; request body: 1 MiB. Edits invalidate login; running requests keep their captured target. Switching tabs does not cancel requests.
+- This first version excludes multi-step SSO, CAPTCHA/MFA, automatic token refresh, binary downloads and file upload. Credentials and known authentication values are redacted; business payloads may still contain sensitive data. Release assets remain tgz and SHA256 only.
 
 ## Local CMD commands and directory colors (v0.7.2)
 
@@ -125,14 +135,14 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.7.2.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.8.0.tgz
 dsh web
 ```
 
 For an upgrade, install as the same user and with the same `DSH_HOME` used by
 DSH, and use its actual profile rather than assuming `web`. Fully stop the old
 DSH process after installation, restart it, refresh the browser, and confirm
-`v0.7.2` in Remote Ops **更多设置**. Saved environments and quick commands
+`v0.8.0` in Remote Ops **更多设置**. Saved environments and quick commands
 remain; terminal connections must be reopened.
 
 For a package obtained from a registry, the package name is:

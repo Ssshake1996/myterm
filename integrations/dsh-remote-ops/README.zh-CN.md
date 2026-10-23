@@ -6,6 +6,16 @@
 
 客户端兼容 DSH 0.2.0-rc.2 的 `Regular` 图标导出，并回退支持旧版按尺寸命名的图标。v0.2.23 修复图标导出变化导致的 Remote Ops 面板空白；启动失败提示改由 DSH `shell.overlay` 宿主插槽承载，不再向页面 body 创建全局浮层。
 
+## RESTful 环境与执行工作区（v0.8.0）
+
+- 新增 **API** 工作区：保存环境的 Base URL、分组、公共请求头、超时、私有 CA 和登录配置。API 环境独立于 SSH，可选关联同一设备的 SSH 环境；已有 SSH 数据无需迁移。
+- 支持一次 POST 账号密码登录，通过 JSON/form 提交，从响应 JSON Pointer 或响应头提取 Token，或保存符合域名、路径、Secure 和过期规则的 Cookie；支持 Cookie 到 CSRF 请求头的映射。密码写入 DSH 凭据服务，环境只保存引用。登录会话按对话隔离，仅保留于本次进程。
+- 手动与 Agent 请求共享可见记录：登录、方法、路径、HTTP 状态、耗时、脱敏响应、错误及结果未知状态；可一键导出当前对话记录。HTTP 2xx 不代表业务操作成功，仍需检查响应中的业务结果。
+- 随包新增 'remote-ops-api' skill 和 'remote_api_environment_list/save/delete'、'remote_api_login'、'remote_api_request'、'remote_api_records'。安装插件即由 DSH 发现，无需修改 Agent。先列环境、按返回 ID 登录和请求，再核对记录。
+- Base URL 的路径前缀会保留；'/items' 和 'items' 均基于该前缀。请求由 DSH 主机发送，不自动跟随重定向，不自动登录重试或重放业务请求。超时/中断后无法确定结果时先查询设备状态。
+- 配置持久化于 '$DSH_HOME/remote-ops/api/environments.json'；记录与去重仅覆盖当前对话、本次进程最近 100 次请求。响应预览最多 128 KiB，请求体最多 1 MiB。配置修改清除登录态，已发请求保持原目标；切换页签不取消请求。
+- 首版不包含多步 SSO、验证码/MFA、自动刷新 Token、二进制下载与文件上传。凭据和已知认证值会脱敏，业务响应仍应按其实际数据敏感性处理。发布仍只有 tgz 和 SHA256。
+
 ## 本地 CMD 命令和目录配色（v0.7.2）
 
 终端采用参考 [Catppuccin](https://catppuccin.com/palette/) 的 Latte / Mocha 配色，跟随 DSH 深浅主题：命令紫色、目录青色、文件蓝色，浅色强调色适当加深以保证文字对比度。插件外围继续使用宿主样式。
@@ -118,11 +128,11 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.7.2.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.8.0.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“更多设置”显示 `v0.7.2`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“更多设置”显示 `v0.8.0`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
 
 如果使用已经发布到 registry 的包，则包名为：
 

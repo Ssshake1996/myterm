@@ -5,6 +5,8 @@ description: Manage saved SSH connection environments and groups in the DSH Remo
 
 # Remote Ops environments
 
+For RESTful/API environments use **remote-ops-api** and `remote_api_environment_list/save/delete`. API environments require baseUrl, not SSH host/username fields. Their IDs are distinct; sshEnvironmentId links the API configuration to an existing SSH environment without sharing credentials. Use `remote_api_login/request/records` for visible API execution rather than terminal tools.
+
 Use the installed `remote_environment_*` tools for the user's requested configuration changes. The tools and this skill travel with the plugin; do not edit Agent settings, plugin JSON files or the credentials store directly. Saved environments are shared within this DSH home. SSH connections belong to conversations.
 
 ## Select an existing environment

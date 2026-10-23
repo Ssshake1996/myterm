@@ -1,4 +1,5 @@
 import { websiteScenario } from "./browser-workspace.mjs";
+import { apiScenario } from './api-workspace.mjs';
 const pause = (page, ms) => page.waitForTimeout(ms);
 
 async function openPanel(t) {
@@ -282,3 +283,4 @@ import { terminalLogsScenario } from './terminal-logs.mjs';
 scenarios.push(terminalLogsScenario);
 import { environmentPasswordScenario } from './environment-password.mjs';
 scenarios.push(environmentPasswordScenario);
+scenarios.push(apiScenario);

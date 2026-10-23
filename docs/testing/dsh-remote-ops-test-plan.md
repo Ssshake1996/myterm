@@ -11,6 +11,8 @@
 
 ## 固定命令
 
+RESTful 回归包含 `test/api.test.mjs` 和 `e2e/scenarios/api-workspace.mjs`：API 环境持久化/更新、凭据引用、Token/Cookie/CSRF、Schema 与 skill 示例、跨对话隔离、路径边界、重复 requestId、超时/取消/401 不重放，以及 UI 切页与导出。`api-client.js` 由 `node test/sync-api-client.mjs` 内联到原生客户端；完整门禁先检查源文件与随包客户端一致，禁止通过连接服务的虚拟路由动态 import 模块。
+
 在 `integrations/dsh-remote-ops` 目录执行：
 
 ```powershell

@@ -5,6 +5,16 @@ operations. The repository has been cut over to the plugin boundary: it no
 longer contains the myterm desktop application, a Tauri host, or a second
 Agent kernel.
 
+## Saved RESTful environments and execution workspace (v0.8.0)
+
+- The new **API** workspace saves base URLs, groups, common headers, timeout, private CA and login configuration. API targets work without SSH; an optional SSH environment ID links the same device without sharing credentials.
+- A single POST login sends username/password as JSON or form and extracts a Token through JSON Pointer or a response header, or stores scoped Cookies. Cookie-to-CSRF-header mapping is supported. Passwords use DSH credentials; configuration stores references. Login sessions are isolated by conversation and remain in memory only.
+- UI and Agent requests share visible login/request records, HTTP status, timing, redacted responses, errors and unknown outcomes. Export the current conversation's records as JSON. HTTP 2xx still requires checking the business response.
+- Bundled 'remote-ops-api' plus 'remote_api_environment_list/save/delete', 'remote_api_login', 'remote_api_request' and 'remote_api_records' are discovered on plugin installation. No Agent changes. List first, use exact returned IDs, log in, execute, then inspect receipts.
+- Requests originate on the DSH host. Both '/items' and 'items' preserve the base URL's path prefix. No automatic redirects, reauthentication or replay. After a timeout/cancellation with an unknown outcome, query device state before any retry.
+- Configuration persists in '$DSH_HOME/remote-ops/api/environments.json'; login state, records and duplicate-ID protection cover only this process's last 100 requests per conversation. Response preview: 128 KiB; request body: 1 MiB. Edits invalidate login; running requests keep their captured target. Switching tabs does not cancel requests.
+- This first version excludes multi-step SSO, CAPTCHA/MFA, automatic token refresh, binary downloads and file upload. Credentials and known authentication values are redacted; business payloads may still contain sensitive data. Release assets remain tgz and SHA256 only.
+
 ## Local CMD commands and directory colors (v0.7.2)
 
 The terminal uses a [Catppuccin](https://catppuccin.com/palette/)-inspired Latte / Mocha palette following the DSH light/dark theme: purple commands, teal directories and blue files. Light accents are darkened for readable text contrast. Surrounding plugin controls retain the host styling.
@@ -121,11 +131,11 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.7.2.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.8.0.tgz
 dsh web
 ```
 
-For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.7.2` in Remote Ops **更多设置**. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
+For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.8.0` in Remote Ops **更多设置**. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
 
 Click `Remote Ops` at the bottom of the left sidebar to open the native right Sidebar while preserving the main conversation. It uses the official `sidebar.footer.action` seat and `sidebarRight.openTab`; it no longer registers a `sidebar.panellist` / `main` replacement. Tested on DSH `0.2.0-rc.2`; other host versions remain untested. If the entry is missing, check the installation profile, host/plugin versions and whether the old process exited. On narrow screens DSH may present its right Sidebar full screen; collapsing it returns to the original conversation.
 
@@ -165,15 +175,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.7.2
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.8.0
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.7.2
-node scripts/release-dsh-remote-ops.mjs 0.7.2 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.8.0
+node scripts/release-dsh-remote-ops.mjs 0.8.0 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and
