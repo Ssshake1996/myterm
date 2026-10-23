@@ -12,4 +12,6 @@ Remote Ops 新增 API 工作区。保存 RESTful 环境后，用户和 Agent 可
 
 安装后完全退出旧 DSH，重启并刷新网页。现有 SSH、SFTP、网页及终端日志功能保留。只发布 tgz 和 SHA256 校验文件。
 
-验证状态：发布前执行完整回归、浏览器测试与真实 DSH 验收；详细证据见 docs/testing/dsh-remote-ops-v0.8.0-acceptance.md。
+验证：359 个回归用例及烟测通过，Linux/Windows 发布门禁通过；浏览器套件复测 16/16 通过。GitHub 正式 tgz 的 SHA256 已核对，并在真实 DSH 0.2.0-rc.2 安装后完成七项测试环境验收。工具调度使用原生 DSH 与确定性测试模型服务，未连接用户内网设备。
+
+完整验收记录及首次 CI 性能波动见 [验收说明](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.8.0-acceptance.md)。

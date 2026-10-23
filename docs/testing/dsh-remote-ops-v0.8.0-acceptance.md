@@ -4,7 +4,7 @@
 
 ## 自动回归
 
-- `npm run check --prefix integrations/dsh-remote-ops`：语法与 API 内联源同步检查；后端、客户端行为、契约及烟测。
+- `npm run check --prefix integrations/dsh-remote-ops`：语法与 API 内联源同步检查；244 个后端用例、104 个客户端行为用例、11 个契约用例及烟测全部通过。
 - 新增 API 后端用例：保存/更新/删除与重启恢复、账号密码写入凭据服务、JSON/form、响应体/响应头 Token、Cookie/CSRF、Schema 与 skill JSON 示例、会话隔离、超时/取消/401 不重试、重复 ID、跨域/路径拒绝、请求/响应大小与记录数量边界、并发环境更新、凭据脱敏。
 - `npm test --prefix e2e`：测试服务与报告生成回归。
 - 完整浏览器套件 16/16 场景通过，生产客户端与插件后端、仿宿主、隔离设备。新增 API 场景覆盖 UI 配置/登录、Agent 调用、记录导出、切页持续执行和窄屏恢复。原生打包修正后再次运行 API 场景通过。
@@ -26,10 +26,14 @@
 
 ## 正式发布安装复验
 
-待发布后下载 GitHub 官方 tgz、核对 SHA256，再使用相同原生流程复验；此节在验证完成后更新。
+- [GitHub Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.8.0) 仅包含 `dsh-remote-ops-v0.8.0.tgz` 与 `SHA256SUMS-dsh-remote-ops-v0.8.0.txt`。
+- 从 GitHub 下载正式附件，安装包 SHA256 与官方校验文件、GitHub digest、本地发布包一致：`7c5551d324c8b9a006462b844a16a9fb5f93f4a2655dfb46afb7dd58709e53a7`。
+- 正式包安装到隔离 DSH profile 后，重复上述七项原生流程全部通过，前端无页面异常。额外确认 DSH 重启后配置仍在、登录会话与历史记录已清空。
+- [Linux/Windows 发布门禁](https://github.com/Ssshake1996/myterm/actions/runs/39938245089) 均通过；主分支与标签的插件 CI 通过。
+- [GitHub 浏览器套件](https://github.com/Ssshake1996/myterm/actions/runs/39938241158) 首次为 15/16：已有 20 次模块切换性能用例 p95 为 303ms，超过原 250ms 门槛；新增 API 场景通过。相同代码、原门槛复测 16/16 通过。首次性能失败保留在运行历史中，不把一次复测通过解释为所有机器的性能保证。
 
 ## 验证边界
 
 已验证真实 DSH 的加载、原生工具/skill 注册、凭据服务、界面与取消行为。业务目标使用隔离测试服务，没有连接用户内网设备，也没有声称覆盖具体厂商的登录协议。真实厂商字段、业务成功判据和私有 CA 需要按设备 API 文档配置。多步 SSO/MFA/验证码不在本版范围。
 
-本机详细证据（不随安装包分发）：`output/api080-check-final2.log`、`output/e2e/api080-full/report.json`、`output/e2e/api080-final/report.json`、`output/playwright/api080-candidate3-acceptance.json` 与对应截图。
+本机详细证据（不随安装包分发）：`output/api080-release.log`、`output/e2e/api080-full/report.json`、`output/e2e/api080-final/report.json`、`output/playwright/api080-candidate3-acceptance.json`、`output/playwright/api080-official-acceptance.json` 与对应截图。
