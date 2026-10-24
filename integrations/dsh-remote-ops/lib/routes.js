@@ -115,7 +115,7 @@ export function registerRoutes(ctx, state) {
           else return Response.json({ error: "UPDATE_ACTION_INVALID", code: "UPDATE_ACTION_INVALID" }, { status: 400, headers: { "Cache-Control": "no-store" } });
         }
         return Response.json(value, { headers: { "Cache-Control": "no-store" } });
-      } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); }
+      } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code, requestFailure: error?.requestFailure }, { status: 400, headers: { "Cache-Control": "no-store" } }); }
     },
   });
   registerRoute(ctx, "dsh-remote-ops action route", {

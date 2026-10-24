@@ -10,10 +10,10 @@ export const layoutSimplificationScenario={id:'layout-simplification',title:'统
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
   try{
     await p.getByRole('button',{name:'Remote Ops',exact:true}).click();await p.getByLabel('终端输出',{exact:true}).waitFor();
-    await t.step('一个设置入口，终端工具栏只有搜索与操作；设置往返保留 DOM',async()=>{
+    await t.step('一个设置入口，搜索和单终端导出直接可用；设置往返保留 DOM',async()=>{
       assert.equal(await p.getByRole('button',{name:'设置',exact:true}).count(),1);
-      assert.equal(await p.locator('.dsh-remote-ops__terminalHead .dsh-remote-ops__toolbar>button').count(),1);
-      assert.equal(await p.locator('.dsh-remote-ops__terminalHead .dsh-remote-ops__toolbar>details').count(),1);
+      assert.equal(await p.getByRole('button',{name:'搜索输出',exact:true}).isVisible(),true);
+      assert.equal(await p.getByRole('button',{name:'导出当前终端 TXT',exact:true}).isVisible(),true);
       await p.getByLabel('终端输出',{exact:true}).evaluate(node=>{window.__layoutTerminal=node;});
       await p.getByRole('button',{name:'设置',exact:true}).click();
       assert.equal(await p.getByLabel('终端字号',{exact:true}).isVisible(),true);

@@ -16,6 +16,23 @@ export const terminalTabsScenario={id:'terminal-tabs',title:'CMD 与 SSH 统一�
     const control=await tab(localName).getAttribute('aria-controls');
     assert.equal(await p.locator('[id="'+control+'"]').getAttribute('role'),'tabpanel');
   });
+  await t.step('标签与常用按钮同一行，输出紧邻其下且日志无需展开菜单',async()=>{
+    const header=p.locator('.dsh-remote-ops__terminalHead');
+    const row=await header.boundingBox(),label=await tab(localName).boundingBox(),output=await p.locator('.dsh-remote-ops__screen').boundingBox();
+    assert.ok(row.height<=40,'terminal chrome must fit a single compact row');
+    assert.ok(label.y>=row.y&&label.y+label.height<=row.y+row.height+1,'session tab shares the action row');
+    assert.ok(output.y-row.y-row.height<=2,'no separate context or operation row above terminal output');
+    for(const name of ['搜索输出','导出当前终端 TXT']){
+      const button=p.getByRole('button',{name,exact:true});assert.equal(await button.isVisible(),true);
+      assert.equal(await button.evaluate(n=>n.closest('details')===null),true);
+    }
+    assert.equal(await p.getByRole('button',{name:'复制输出',exact:true}).count(),0);
+    const more=p.getByLabel('终端操作',{exact:true});assert.match(await more.innerText(),/更多/);
+    assert.equal(await p.getByRole('button',{name:'一键打包本会话全部日志',exact:true}).isVisible(),false);
+    await more.click();assert.equal(await p.getByRole('button',{name:'一键打包本会话全部日志',exact:true}).isVisible(),true);
+    assert.equal(await header.getByLabel('终端大小',{exact:true}).count(),0);await more.click();
+    assert.ok((await p.locator('.dsh-remote-ops__terminalStatus').innerText()).includes((await state()).sessions.find(s=>s.kind==='local').workingDirectory));
+  });
   const opened=[];
   await t.step('实际连接三个 SSH 终端，样式一致且切换显示对应输出',async()=>{
     await tool('remote_terminal_send',{session:'local-cmd',text:'echo LOCAL_TAB_OUTPUT',quietMs:100});
@@ -31,15 +48,21 @@ export const terminalTabsScenario={id:'terminal-tabs',title:'CMD 与 SSH 统一�
     await tab(localName).click();await until(async()=>/LOCAL_TAB_OUTPUT/.test(await p.getByLabel('终端输出',{exact:true}).innerText()));
     assert.doesNotMatch(await p.getByLabel('终端输出',{exact:true}).innerText(),/Array OS 1.2.3/);
     const styles=await sessions().getByRole('tab').evaluateAll(nodes=>nodes.map(n=>({font:getComputedStyle(n).fontSize,height:n.getBoundingClientRect().height,selected:n.getAttribute('aria-selected')})));
-    assert.equal(new Set(styles.map(s=>s.font)).size,1);assert.ok(styles.every(s=>s.height>=36));assert.equal(styles.filter(s=>s.selected==='true').length,1);
+    assert.equal(new Set(styles.map(s=>s.font)).size,1);assert.ok(styles.every(s=>s.height>=28&&s.height<=34));assert.equal(styles.filter(s=>s.selected==='true').length,1);
     await t.shot('统一的 CMD 和 SSH 标签');
   });
   await t.step('窄栏键盘切换滚动到所选标签，关闭连接仍需原有确认',async()=>{
+    await tab('验收环境').click();
     await p.setViewportSize({width:390,height:844});await p.emulateMedia({reducedMotion:'reduce'});
+    await until(()=>tab('验收环境').evaluate(n=>{const r=n.getBoundingClientRect(),b=n.closest('[role=tablist]').getBoundingClientRect();return r.left>=b.left-1&&r.right<=b.right+1;}));
     await tab(localName).focus();await p.keyboard.press('End');
     assert.equal(await tab('验收环境').getAttribute('aria-selected'),'true');assert.equal(await tab('验收环境').evaluate(n=>n===document.activeElement),true);
     await until(()=>tab('验收环境').evaluate(n=>{const r=n.getBoundingClientRect(),b=n.closest('[role=tablist]').getBoundingClientRect();return r.left>=b.left-1&&r.right<=b.right+1;}));
     assert.ok(await panel.evaluate(n=>n.scrollWidth<=n.clientWidth+1));
+    const header=await p.locator('.dsh-remote-ops__terminalHead').boundingBox();assert.ok(header.height<=40);
+    for(const name of ['搜索输出','导出当前终端 TXT']){
+      const bounds=await p.getByRole('button',{name,exact:true}).boundingBox();assert.ok(bounds.x>=header.x&&bounds.x+bounds.width<=header.x+header.width+1);
+    }
     await t.shot('窄栏的活动标签');
     await p.getByRole('button',{name:'释放验收环境',exact:true}).click();await p.getByRole('dialog').getByRole('button',{name:'取消',exact:true}).click();
     assert.equal((await state()).sessions.filter(s=>s.kind==='ssh').length,3);

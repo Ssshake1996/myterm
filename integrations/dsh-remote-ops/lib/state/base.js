@@ -10,6 +10,7 @@ import { sanitizeStoredEnvironment } from "./environments.js";
 export class StateBase {
   constructor(ctx) {
     this.ctx = ctx;
+    this.runtimeId = randomUUID();
     this.base = join(resolveRemoteHome(), ROOT);
     this.environmentRoot = join(this.base, "environments");
     this.quickRoot = join(this.base, "quick-commands");

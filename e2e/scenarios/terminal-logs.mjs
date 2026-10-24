@@ -64,7 +64,6 @@ export const terminalLogsScenario = { id: 'terminal-logs', title: '终端命令�
   await t.step('工具读取与界面单终端下载一致', async () => {
     const logs=await tool('remote_terminal_logs'),log=logs.logs.find(item=>item.sessionId==='local-cmd');
     const read=await tool('remote_terminal_log_read',{logId:log.logId});assert.match(read.text,/LOG070/);
-    await p.getByLabel('终端操作',{exact:true}).click();
     const download=p.waitForEvent('download');await p.getByRole('button',{name:'导出当前终端 TXT',exact:true}).click();
     const file=await download;assert.match(file.suggestedFilename(),/\.txt$/);
     const text=await readFile(await file.path(),'utf8');assert.match(text,/echo LOG070\nLOG070/);assert.ok(!text.includes('\x1b'));

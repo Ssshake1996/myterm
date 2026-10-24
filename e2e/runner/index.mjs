@@ -53,6 +53,8 @@ async function runScenario(browser, scenario, directory) {
       let action = "", code = "";
       try { action = response.request().postDataJSON()?.action ?? ""; } catch { /* GET/binary request. */ }
       try { code = (await response.json()).code ?? ""; } catch { /* Non-JSON error. */ }
+      const path = new URL(response.url()).pathname, method = response.request().method();
+      if (scenario.expectedHttp?.some(expected => expected.status === response.status() && expected.path === path && expected.method === method && (expected.action === undefined || expected.action === action) && (expected.code === undefined || expected.code === code))) return;
       // Preserve the action/code, never request bodies, credentials or page/command output.
       problems.push({ kind: "http", text: `${response.status()} ${response.url()} · ${action} ${code}`.trim() });
     })());

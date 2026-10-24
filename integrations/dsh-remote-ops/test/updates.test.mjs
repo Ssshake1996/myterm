@@ -12,6 +12,29 @@ import { withUpdates } from "../lib/state/updates.js";
 import { createUpdateManifest } from "../scripts/create-update-manifest.mjs";
 
 const next = PLUGIN_VERSION.split('.').map(Number); next[2]++; const nextVersion = next.join('.');
+
+test('update HTTP errors retain the failing stage, redirect target and bounded safe response',async()=>{
+  let calls=0;
+  await assert.rejects(fetchUpdateBytes('https://updates.example/start',{stage:'update-package',fetchImpl:async()=>++calls===1?new Response(null,{status:302,headers:{location:'https://updates.example/pkg.tgz?signature=private-signature'}}):new Response('Authorization: Bearer private-bearer\nCookie: sid=private-cookie\npassword=private-password\nNot Found '+ 'x'.repeat(10000),{status:404})}),error=>{
+    assert.equal(error.requestFailure.stage,'update-package');assert.equal(error.requestFailure.status,404);assert.match(error.requestFailure.url,/updates.example\/pkg.tgz/);assert.match(error.requestFailure.responseSummary,/Not Found/);assert.ok(error.requestFailure.responseSummary.length<=1200);assert.doesNotMatch(JSON.stringify(error.requestFailure),/private-signature|private-bearer|private-cookie|private-password/);return true;
+  });
+});
+
+test('manifest, checksum and archive failures identify their own request',async t=>{
+  for(const stage of ['update-manifest','update-checksum','update-package']) {
+    const fetchImpl=async address=>address.endsWith('latest.json')?(stage==='update-manifest'?new Response('Missing manifest',{status:404}):Response.json({schemaVersion:1,package:UPDATE_PACKAGE,version:nextVersion,asset:'pkg.tgz',checksum:'sums.txt'})):address.endsWith('.txt')?(stage==='update-checksum'?new Response('Missing checksum',{status:404}):new Response('a'.repeat(64)+`  dsh-remote-ops-v${nextVersion}.tgz`)):new Response('Missing package',{status:404});
+    await assert.rejects((async()=>{const release=await fetchLatestRelease({source:'custom',url:'https://updates.example/latest.json'},{fetchImpl});await downloadRelease(release,await rootFor(t),{fetchImpl});})(),error=>{assert.equal(error.requestFailure.stage,stage);assert.equal(error.requestFailure.status,404);return true;});
+  }
+});
+
+test('failed update diagnostics survive status reads and clear after saving a corrected source',async t=>{
+  const f=await feed(t),{state}=await stateFor(t,f);f.settings={source:'custom',url:new URL(f.base).origin+'/missing/'};
+  // Local server always supplies latest.json, so use a deterministic invalid JSON response.
+  f.raw='<html>missing version list</html>';
+  await assert.rejects(state.checkForUpdate(true),/UPDATE_METADATA_INVALID/);
+  const failure=await state.updateStatus();assert.equal(failure.requestFailure.stage,'update-manifest');assert.match(failure.requestFailure.url,/latest.json/);
+  await state.saveUpdateSettings({source:'github'});assert.equal((await state.updateStatus()).requestFailure,null);
+});
 function tarball(version = nextVersion, extra = {}) {
   const json = Buffer.from(JSON.stringify({ name: UPDATE_PACKAGE, version, dsh: { bundle: { patch: './cordis.patch.yml' } }, ...extra }));
   const header = Buffer.alloc(512); header.write('package/package.json'); header.write('0000644\0',100); header.write(json.length.toString(8).padStart(11,'0')+'\0',124); header[156]=48;

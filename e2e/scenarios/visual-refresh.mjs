@@ -7,13 +7,15 @@ export const visualRefreshScenario = { id: 'visual-refresh', title: '视觉工�
   const until=async read=>{for(let n=0;n<150;n++){if(await read())return;await new Promise(r=>setTimeout(r,100));}throw Error('visual workspace did not settle');};
   await p.getByRole('button',{name:'Remote Ops',exact:true}).click();
   await p.getByLabel('终端输出',{exact:true}).waitFor();
-  await t.step('单终端使用统一标签，操作与地址位于下方上下文行',async()=>{
+  await t.step('单终端使用紧凑标签与操作共同行',async()=>{
     assert.equal(await p.locator('.dsh-remote-ops__head').innerText().then(v=>/v\d+\.\d+/.test(v)),false);
     const localName=process.platform==='win32'?'本地 CMD':'本地 Shell';
     assert.equal(await p.getByRole('tablist',{name:'终端会话'}).getByRole('tab',{name:localName,exact:true}).isVisible(),true);
     const context=await p.locator('.dsh-remote-ops__terminalHead').boundingBox();
     const command=await p.getByLabel('终端操作',{exact:true}).boundingBox();
-    assert.ok(command.y>=context.y && command.y+command.height<=context.y+context.height+1,'terminal tools share its context row');
+    const label=await p.getByRole('tablist',{name:'终端会话'}).getByRole('tab',{name:localName,exact:true}).boundingBox();
+    assert.ok(context.height<=40&&label.y>=context.y&&label.y+label.height<=context.y+context.height+1);
+    assert.ok(command.y>=context.y && command.y+command.height<=context.y+context.height+1,'terminal tools share its tab row');
   });
   await t.step('密度设置在刷新后保留，恢复舒适密度',async()=>{
     await p.getByLabel('设置',{exact:true}).click();await p.getByRole('tablist',{name:'设置分类'}).getByRole('tab',{name:'通用',exact:true}).click();

@@ -15,7 +15,7 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
     try { settings = await this.loadUpdateSettings(); } catch (error) { settings = { source: "github", url: "" }; settingsError = error.message; }
     const bundles = await this.updateManager?.listBundles();
     const installedVersion = bundles?.find(bundle => bundle.name === UPDATE_PACKAGE)?.version ?? PLUGIN_VERSION;
-    return { ...this.release, settings, currentVersion: PLUGIN_VERSION, installedVersion, restartRequired: installedVersion !== PLUGIN_VERSION, phase: this.updatePhase ?? "idle", busy: Boolean(this.updatePromise || this.releaseCheckPromise || this.updateSettingsWrite), checkedAt: this.releaseCheckedAt ? new Date(this.releaseCheckedAt).toISOString() : null, canInstall: Boolean(this.updateManager), error: settingsError ?? this.updateError ?? null };
+    return { ...this.release, settings, currentVersion: PLUGIN_VERSION, installedVersion, restartRequired: installedVersion !== PLUGIN_VERSION, phase: this.updatePhase ?? "idle", busy: Boolean(this.updatePromise || this.releaseCheckPromise || this.updateSettingsWrite), checkedAt: this.releaseCheckedAt ? new Date(this.releaseCheckedAt).toISOString() : null, canInstall: Boolean(this.updateManager), error: settingsError ?? this.updateError ?? null, requestFailure: settingsError ? null : this.updateFailure ?? null };
   }
 
   async saveUpdateSettings(value) {
@@ -27,7 +27,7 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
       await writeUpdateSettings(this.base, settings);
       this.updateSettings = settings; this.updateSettingsPromise = Promise.resolve(settings);
       this.release = { currentVersion: PLUGIN_VERSION, latestVersion: PLUGIN_VERSION, updateAvailable: false };
-      this.releaseCheckedAt = 0; this.updateError = null; this.updatePhase = "idle";
+      this.releaseCheckedAt = 0; this.updateError = null; this.updateFailure = null; this.updatePhase = "idle";
     } finally { this.updateSettingsWrite = false; }
     return this.updateStatus();
   }
@@ -37,20 +37,20 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
     if (this.updateSettingsWrite) throw sessionError("UPDATE_BUSY", "正在保存更新设置");
     if (this.releaseCheckPromise) return this.releaseCheckPromise;
     if (!force && Date.now() - this.releaseCheckedAt < UPDATE_CACHE_MS) return this.release;
-    this.updatePhase = "checking"; this.updateError = null;
+    this.updatePhase = "checking"; this.updateError = null; this.updateFailure = null;
     this.updateDownloadAbort ??= new AbortController();
     this.releaseCheckPromise = (async () => {
       const settings = await this.loadUpdateSettings();
       const value = await fetchLatestRelease(settings, { signal: this.updateDownloadAbort.signal });
       this.release = value; this.releaseCheckedAt = Date.now(); this.updatePhase = "idle";
       return value;
-    })().catch(error => { this.updatePhase = "failed"; this.updateError = error.message; throw error; }).finally(() => { this.releaseCheckPromise = undefined; });
+    })().catch(error => { this.updatePhase = "failed"; this.updateError = error.message; this.updateFailure = error.requestFailure ?? null; throw error; }).finally(() => { this.releaseCheckPromise = undefined; });
     return this.releaseCheckPromise;
   }
 
   upgrade() {
     if (this.updatePromise) return this.updatePromise;
-    this.updatePromise = this.performUpgrade().then(value => ({ ...value, busy: false })).catch(error => { this.updatePhase = "failed"; this.updateError = error.message; throw error; }).finally(() => { this.updatePromise = undefined; });
+    this.updatePromise = this.performUpgrade().then(value => ({ ...value, busy: false })).catch(error => { this.updatePhase = "failed"; this.updateError = error.message; this.updateFailure = error.requestFailure ?? null; throw error; }).finally(() => { this.updatePromise = undefined; });
     return this.updatePromise;
   }
 
@@ -77,7 +77,7 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
     }
     const installed = (await manager.listBundles()).find(item => item.name === UPDATE_PACKAGE);
     if (installed?.version !== release.latestVersion) throw sessionError("UPDATE_INSTALL_UNVERIFIED", "安装返回成功，但磁盘版本不匹配，请检查 DSH 插件管理日志");
-    this.updatePhase = "ready"; this.updateError = null;
+    this.updatePhase = "ready"; this.updateError = null; this.updateFailure = null;
     return { ...await this.updateStatus(), updated: true, sha256: downloaded.sha256 };
   }
 };

@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+import {requestErrorsScenario} from './request-errors.mjs';
 import { websiteScenario } from "./browser-workspace.mjs";
 import { apiScenario } from './api-workspace.mjs';
 import { updateScenario } from './plugin-updates.mjs';
@@ -35,7 +37,7 @@ async function createDeviceEnvironment(t, name) {
   });
 }
 
-export const scenarios = [terminalTabsScenario,layoutSimplificationScenario,updateScenario,workspaceUiScenario,liveBrowserScenario,
+export const scenarios = [requestErrorsScenario,terminalTabsScenario,layoutSimplificationScenario,updateScenario,workspaceUiScenario,liveBrowserScenario,
   websiteScenario,
   {
     id: "sftp-narrow",
@@ -193,14 +195,19 @@ export const scenarios = [terminalTabsScenario,layoutSimplificationScenario,upda
         await t.page.getByLabel("终端输出").getByText("Welcome to Fake Array").waitFor();
       });
       await t.step("把 PTY 调到 200×50", async () => {
-        await t.page.getByLabel("终端操作",{exact:true}).click();
+        await t.page.getByRole("button",{name:"设置",exact:true}).click();
+        assert.match(await t.page.locator('.dsh-remote-ops__settingsBody:visible').innerText(),/尺寸阵列/);
         await t.page.getByLabel("终端大小").selectOption("50x200");
-        await t.page.getByLabel("终端操作",{exact:true}).click();
         const deadline = Date.now() + 5000;
         while (!(await t.info()).device.windows.some(item => item.rows === 50 && item.cols === 200)) {
           if (Date.now() >= deadline) throw new Error("PTY size did not reach 200x50");
           await pause(t.page, 50);
         }
+        await t.page.waitForFunction(()=>document.querySelector('[aria-label="终端大小"]').value==='50x200',null,{timeout:5000});
+        await t.page.getByRole("button",{name:"返回工作区",exact:true}).click();
+        await t.page.getByRole("button",{name:"设置",exact:true}).click();
+        assert.equal(await t.page.getByLabel("终端大小").inputValue(),'50x200');
+        await t.page.getByRole("button",{name:"返回工作区",exact:true}).click();
       });
       await t.step("设备断开后保留输出并给出重连，不重放命令", async () => {
         await typeInTerminal(t.page, "disconnect");

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { PLUGIN_NAME, PLUGIN_VERSION, RELEASE_REPOSITORY } from "./version.js";
 import { sessionError } from "./common.js";
+import { requestFailure } from "./http-diagnostics.js";
 
 export const UPDATE_CACHE_MS = 10 * 60 * 1000;
 export const UPDATE_PACKAGE = "@dsh/remote-ops";
@@ -56,14 +57,17 @@ export async function writeUpdateSettings(root, settings) {
 }
 
 // Custom sources stay on their configured origin, including redirect hops.
-export async function fetchUpdateBytes(address, { limit = 256 * 1024, timeoutMs = 12000, origin, signal, fetchImpl = fetch } = {}) {
+export async function fetchUpdateBytes(address, { limit = 256 * 1024, timeoutMs = 12000, origin, signal, stage = "update-manifest", fetchImpl = fetch } = {}) {
   const timeout = AbortSignal.timeout(timeoutMs);
   const combined = signal ? AbortSignal.any([timeout, signal]) : timeout;
   let url = httpUrl(address);
+  let status = null, responseSummary = "";
   try {
     for (let redirects = 0; redirects <= 5; redirects++) {
       if (origin && url.origin !== origin) throw fail("UPDATE_URL_INVALID", "内网更新文件及重定向必须位于配置地址的同一来源");
+      status = null;
       const response = await fetchImpl(url.href, { redirect: "manual", cache: "no-store", signal: combined, headers: { "User-Agent": PLUGIN_NAME, "Cache-Control": "no-cache" } });
+      status = response.status;
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         await response.body?.cancel();
         const location = response.headers.get("location");
@@ -75,7 +79,14 @@ export async function fetchUpdateBytes(address, { limit = 256 * 1024, timeoutMs 
         url = next;
         continue;
       }
-      if (!response.ok) { await response.body?.cancel(); throw fail("UPDATE_DOWNLOAD_FAILED", `更新源返回 HTTP ${response.status}`); }
+      if (!response.ok) {
+        // Read a bounded preview even when a proxy returns a large HTML error page.
+        const reader = response.body?.getReader(), parts = []; let size = 0;
+        try { while (reader && size < 8192) { const { value, done } = await reader.read(); if (done) break; const part = value.subarray(0, 8192 - size); parts.push(part); size += part.length; } }
+        finally { await reader?.cancel().catch(() => {}); }
+        responseSummary = Buffer.concat(parts).toString("utf8");
+        throw fail("UPDATE_DOWNLOAD_FAILED", `更新源返回 HTTP ${response.status}`);
+      }
       if (Number(response.headers.get("content-length")) > limit) { await response.body?.cancel(); throw fail("UPDATE_TOO_LARGE", "更新文件超过大小限制"); }
       const chunks = []; let size = 0;
       if (response.body) for await (const chunk of response.body) {
@@ -87,10 +98,11 @@ export async function fetchUpdateBytes(address, { limit = 256 * 1024, timeoutMs 
     }
     throw fail("UPDATE_DOWNLOAD_FAILED", "更新地址重定向次数过多");
   } catch (error) {
-    if (timeout.aborted) throw fail("UPDATE_CHECK_TIMEOUT", "访问更新源超时，请检查内网地址和网络连接");
-    if (signal?.aborted) throw fail("UPDATE_CANCELLED", "插件已关闭，更新下载已取消");
-    if (error.code?.startsWith("UPDATE_")) throw error;
-    throw fail("UPDATE_DOWNLOAD_FAILED", "无法访问更新源，请检查网络、地址及 DSH 主机的证书配置");
+    const failure = timeout.aborted ? fail("UPDATE_CHECK_TIMEOUT", "访问更新源超时，请检查内网地址和网络连接")
+      : signal?.aborted ? fail("UPDATE_CANCELLED", "插件已关闭，更新下载已取消")
+      : error.code?.startsWith("UPDATE_") ? error : fail("UPDATE_DOWNLOAD_FAILED", "无法访问更新源，请检查网络、地址及 DSH 主机的证书配置");
+    failure.requestFailure = requestFailure({ url: url.href, status, stage, responseSummary, cause: failure.message });
+    throw failure;
   }
 }
 
@@ -105,7 +117,9 @@ function assetUrl(value, base) {
 export async function fetchLatestRelease(settings = defaults, options = {}) {
   const config = normalizeUpdateSettings(settings), custom = config.source !== "github";
   const origin = config.source === "custom" ? new URL(config.url).origin : undefined;
-  const bytes = await fetchUpdateBytes(custom ? config.url : RELEASE_API, { ...options, origin });
+  const address = custom ? config.url : RELEASE_API;
+  const bytes = await fetchUpdateBytes(address, { ...options, origin, stage: "update-manifest" });
+  try {
   let payload;
   try { payload = JSON.parse(bytes.toString("utf8")); } catch { throw fail("UPDATE_METADATA_INVALID", "更新入口必须返回 JSON 版本清单"); }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw fail("UPDATE_METADATA_INVALID", "更新入口必须返回 JSON 对象");
@@ -124,6 +138,10 @@ export async function fetchLatestRelease(settings = defaults, options = {}) {
     asset = httpUrl(find(assetName)).href; checksum = httpUrl(find(checksumName)).href;
   }
   return { currentVersion: PLUGIN_VERSION, latestVersion: version, updateAvailable: compareVersions(version, PLUGIN_VERSION) > 0, assetUrl: asset, checksumUrl: checksum, assetName, source: config.source, origin };
+  } catch (error) {
+    error.requestFailure = requestFailure({ url: address, status: 200, stage: "update-manifest", responseSummary: bytes.toString("utf8"), cause: error.message });
+    throw error;
+  }
 }
 
 export function expectedChecksum(text, assetName) {
@@ -157,9 +175,9 @@ export function inspectUpdatePackage(bytes, version) {
 export async function downloadRelease(release, root, options = {}) {
   const { onPhase = () => {}, ...network } = options;
   const read = (location, extra) => fetchUpdateBytes(location, { ...network, origin: release.origin, ...extra });
-  const checksum = expectedChecksum((await read(release.checksumUrl, { limit: 64 * 1024 })).toString(), release.assetName);
+  const checksum = expectedChecksum((await read(release.checksumUrl, { limit: 64 * 1024, stage: "update-checksum" })).toString(), release.assetName);
   onPhase("downloading");
-  const bytes = await read(release.assetUrl, { limit: MAX_UPDATE_BYTES, timeoutMs: 120000 });
+  const bytes = await read(release.assetUrl, { limit: MAX_UPDATE_BYTES, timeoutMs: 120000, stage: "update-package" });
   onPhase("verifying");
   const digest = createHash("sha256").update(bytes).digest("hex");
   if (digest !== checksum) throw fail("UPDATE_CHECKSUM_MISMATCH", "SHA256 校验失败，未执行安装，请重新上传正确的安装包与校验文件");

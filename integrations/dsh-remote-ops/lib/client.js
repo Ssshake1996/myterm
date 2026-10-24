@@ -306,24 +306,123 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__quickDock[data-open=false] .dsh-remote-ops__quickHead{padding-block:2px}.dsh-remote-ops__quickDock[data-open=false] .dsh-remote-ops__quickIdentity small{display:none}.dsh-remote-ops__quickDock[data-open=false] .dsh-remote-ops__quickButtons{display:flex;flex:none;overflow-x:auto;padding:2px 10px 7px;max-height:44px;scrollbar-gutter:auto}.dsh-remote-ops__quickDock[data-open=false] .dsh-remote-ops__quickButtons>button{flex:none;max-width:180px;white-space:nowrap}.dsh-remote-ops__quickDock[data-open=false] .dsh-remote-ops__quickEmpty{padding:0;font-size:12px}
       .dsh-remote-ops__fileOptions{position:relative;flex:none}.dsh-remote-ops__fileOptions>summary{cursor:pointer;padding:6px}.dsh-remote-ops__fileOptions>div{position:absolute;top:100%;right:0;z-index:10;width:min(210px,calc(100cqw - 32px));background:var(--ro-bg);border:1px solid var(--ro-border);border-radius:7px;padding:10px;display:grid;gap:8px;box-shadow:0 5px 18px #0002}.dsh-remote-ops__sftpPaneHead{overflow:visible}.dsh-remote-ops__sftpPaneHead>select{min-width:80px;flex:1}
       .dsh-remote-ops__webLogBottom{flex:0 1 auto;max-height:35%;border-top:1px solid var(--ro-border);padding:8px 12px}.dsh-remote-ops__webBrowser>.dsh-remote-ops__webSettings{flex:1;overflow:auto}.dsh-remote-ops__headAction[aria-expanded=true]{color:var(--ro-accent);background:var(--ro-soft)!important}
-      .dsh-remote-ops__tabs{gap:6px;padding:8px 10px 0;min-height:48px;border:0;border-bottom:1px solid var(--ro-border);background:var(--ro-soft);scrollbar-width:thin;align-items:stretch}
-      .dsh-remote-ops__tab{flex:0 0 auto;min-width:110px;max-width:224px;align-items:center;border:1px solid var(--ro-border);border-bottom:3px solid transparent;border-radius:8px 8px 0 0;background:var(--ro-bg)}
+      .dsh-remote-ops__tabs{flex:1;min-width:0;gap:4px;padding:0;height:32px;min-height:0;border:0;background:transparent;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;align-items:stretch;flex-wrap:nowrap}
+      .dsh-remote-ops__tabs::-webkit-scrollbar{display:none}
+      .dsh-remote-ops__tab{flex:0 0 auto;min-width:96px;max-width:min(200px,100%);height:32px;box-sizing:border-box;align-items:center;border:1px solid var(--ro-border);border-bottom:2px solid transparent;border-radius:5px;background:var(--ro-bg)}
       .dsh-remote-ops__tab[data-active=true]{border-color:color-mix(in srgb,var(--ro-accent) 45%,var(--ro-border));border-bottom-color:var(--ro-accent);background:color-mix(in srgb,var(--ro-accent) 9%,var(--ro-bg))}
-      .dsh-remote-ops__tabs .dsh-remote-ops__tab>button[role=tab]{flex:1;min-width:0;min-height:38px;padding:7px 10px;border:0;border-radius:7px 7px 0 0;background:transparent;font-size:13px;font-weight:500;color:var(--ro-text);gap:7px}
+      .dsh-remote-ops__tabs .dsh-remote-ops__tab>button[role=tab]{flex:1;min-width:0;min-height:28px;height:28px;padding:2px 8px;border:0;border-radius:4px;background:transparent;font-size:12px;font-weight:500;color:var(--ro-text);gap:5px}
       .dsh-remote-ops__tabs .dsh-remote-ops__tab>button[aria-selected=true]{font-weight:650;color:var(--ro-accent)}
       .dsh-remote-ops__tabName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__tab svg{flex:none}.dsh-remote-ops__tabState{flex:none;font-size:10px;color:var(--ro-accent)}
-      .dsh-remote-ops__tabs .dsh-remote-ops__tabClose{min-width:30px;min-height:38px;padding:4px!important;border:0!important;border-radius:5px!important;background:transparent;color:var(--ro-muted)}
+      .dsh-remote-ops__tabs .dsh-remote-ops__tabClose{min-width:26px;min-height:28px;height:28px;padding:3px!important;border:0!important;border-radius:4px!important;background:transparent;color:var(--ro-muted)}
       .dsh-remote-ops__tabs .dsh-remote-ops__tabClose:hover{color:var(--dsw-alias-state-error-primary,#b42318);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#b42318) 9%,var(--ro-bg))}
-      .dsh-remote-ops__terminalHead{min-height:36px;padding-block:2px;background:var(--ro-bg)}
+      .dsh-remote-ops__terminalHead{min-height:36px;padding:2px 6px;gap:6px;flex-wrap:nowrap;box-sizing:border-box;background:var(--ro-soft)}
+      .dsh-remote-ops__terminalActions{gap:2px;align-items:center;flex-wrap:nowrap}
+      .dsh-remote-ops__terminalActions>button{width:30px;height:30px;min-height:30px;padding:5px}
+      .dsh-remote-ops__terminalActions .dsh-remote-ops__operationMenu>summary{min-height:30px;height:30px;box-sizing:border-box;padding:4px 6px;font-size:12px;white-space:nowrap}
+      .dsh-remote-ops__terminalStatus{flex-wrap:nowrap;white-space:nowrap}
+      .dsh-remote-ops__terminalLocation{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis}
+      .dsh-remote-ops__statusDetails>div{white-space:normal;overflow-wrap:anywhere}
+      @media(pointer:coarse){.dsh-remote-ops__tabs,.dsh-remote-ops__tab{height:42px}.dsh-remote-ops__tabs .dsh-remote-ops__tab>button[role=tab],.dsh-remote-ops__tabs .dsh-remote-ops__tabClose,.dsh-remote-ops__terminalActions>button,.dsh-remote-ops__terminalActions .dsh-remote-ops__operationMenu>summary{min-height:40px;height:40px}.dsh-remote-ops__terminalActions>button{width:40px}}
       .dsh-remote-ops .dsh-remote-ops__environmentBack{flex:none;min-height:36px;padding:6px 12px;border-color:transparent;background:var(--ro-brand);color:#fff;font-weight:600;gap:6px}
       .dsh-remote-ops .dsh-remote-ops__environmentBack:hover{background:color-mix(in srgb,var(--ro-brand) 88%,#000)}
       .dsh-remote-ops .dsh-remote-ops__environmentBack:focus-visible{outline:2px solid var(--ro-text);outline-offset:2px}
       .dsh-remote-ops__environmentHead{gap:12px}.dsh-remote-ops__environmentHead strong{text-align:right;color:var(--ro-muted)}
       @container(max-width:380px){.dsh-remote-ops__workspaceTabs>button>svg{display:none}.dsh-remote-ops__workspaceTabs{gap:6px;padding-inline:10px}.dsh-remote-ops__terminalIdentity{min-width:80px;gap:2px}.dsh-remote-ops__terminalIdentity small{flex-basis:100%}.dsh-remote-ops__settingsBody{padding:14px}.dsh-remote-ops__tools{flex-wrap:wrap}.dsh-remote-ops__tools>input{flex-basis:100%}}
     `;
+    // BEGIN generated HTTP diagnostics
+    // Shared by the server and the generated browser client. Never include request bodies or headers.
+    function safeRequestUrl(address, base = 'http://local.invalid/') {
+      try {
+        const url = new URL(String(address), base);
+        url.username = ''; url.password = ''; url.hash = '';
+        for (const key of [...new Set(url.searchParams.keys())]) url.searchParams.set(key, '[REDACTED]');
+        return url.href;
+      } catch { return '[无效地址]'; }
+    }
+
+    function safeDiagnosticText(value, limit = 1200) {
+      const sensitive = /password|passwd|secret|token|cookie|authorization|api[-_]?key|credential|signature/i;
+      const scrub = text => String(text)
+        .replace(/https?:\/\/[^\s<>"']+/gi, address => safeRequestUrl(address))
+        .replace(/((?:authorization|proxy-authorization|set-cookie|cookie)\s*:\s*)[^\r\n]+/gi, '$1[REDACTED]')
+        .replace(/\b(Bearer|Basic)\s+[^\s,;"'<>]+/gi, '$1 [REDACTED]')
+        .replace(/(["']?[\w-]*(?:password|passwd|secret|token|cookie|authorization|api[-_]?key|credential|signature)[\w-]*["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*(?:"|$)|'[^']*(?:'|$)|[^\s,;<>]+)/gi, '$1[REDACTED]');
+      const clean = (item, depth = 0) => {
+        if (depth > 12) return '[内容省略]';
+        if (typeof item === 'string') return scrub(item);
+        if (Array.isArray(item)) return item.slice(0, 50).map(child => clean(child, depth + 1));
+        if (item && typeof item === 'object') return Object.fromEntries(Object.entries(item).slice(0, 80).map(([key, child]) => [key, sensitive.test(key) ? '[REDACTED]' : clean(child, depth + 1)]));
+        return item;
+      };
+      let text = String(value ?? '');
+      try { text = JSON.stringify(clean(JSON.parse(text))); } catch { text = scrub(text); }
+      text = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<[^>]*>/g, ' ').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '').trim();
+      return text.length > limit ? text.slice(0, limit - 1) + '…' : text;
+    }
+
+    function requestFailure({ url, base, method = 'GET', status = null, stage = 'request', responseSummary = '', cause = '', at } = {}) {
+      return { url: safeRequestUrl(url, base), method: String(method).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 12) || 'GET', status: Number.isInteger(status) ? status : null, stage, responseSummary: safeDiagnosticText(responseSummary), cause: safeDiagnosticText(cause, 300), at: at ?? new Date().toISOString() };
+    }
+
+    function requestFailureTitle(failure) {
+      if (['update-manifest', 'update-checksum', 'update-package'].includes(failure?.stage)) return '插件更新失败';
+      return { 'state-refresh': '状态刷新失败', 'terminal-output': '终端输出刷新失败', 'update-status': '更新状态读取失败', 'update-settings': '更新来源保存失败', 'update-check': '更新检查失败', 'update-install': '插件更新失败' }[failure?.stage] ?? '请求失败';
+    }
+
+    function formatRequestFailure(value) {
+      const failure = requestFailure(value);
+      const stages = { 'state-refresh': '读取工作区状态', 'terminal-output': '读取终端输出', 'update-status': '读取本地更新状态', 'update-settings': '保存更新来源', 'update-check': '检查更新', 'update-install': '安装更新', 'update-manifest': '读取版本清单', 'update-checksum': '下载 SHA256 校验文件', 'update-package': '下载安装包' };
+      return [requestFailureTitle(failure), `请求：${failure.method} ${failure.url}`, failure.status === null ? '状态：未收到 HTTP 响应' : `状态：HTTP ${failure.status}`, `阶段：${stages[failure.stage] ?? '插件请求'}`, failure.cause && `原因：${failure.cause}`, `响应摘要：${failure.responseSummary || '响应为空'}`, `时间：${failure.at}`].filter(Boolean).join('\n');
+    }
+
+    function createRefreshNoticeGate(storage) {
+      const key = 'remote-ops.refresh-notices';
+      let runtime = '', seen = new Set();
+      try { const saved = JSON.parse(storage?.getItem(key) ?? 'null'); runtime = typeof saved?.runtime === 'string' ? saved.runtime : ''; seen = new Set(Array.isArray(saved?.seen) ? saved.seen.filter(item => typeof item === 'string').slice(-100) : []); } catch { /* Storage is optional. */ }
+      const save = () => { try { storage?.setItem(key, JSON.stringify({ runtime, seen: [...seen].slice(-100) })); } catch { /* Memory still suppresses duplicate notices. */ } };
+      return {
+        setRuntime(id) { if (!id || id === runtime) return; if (runtime) seen.clear(); runtime = id; save(); },
+        shouldNotify(error, manual = false) {
+          const failure = error?.requestFailure;
+          const signature = failure ? [failure.stage, failure.method, safeRequestUrl(failure.url), failure.status, error.code ?? ''].join('|') : String(error?.message ?? error);
+          if (!manual && seen.has(signature)) return false;
+          seen.add(signature); if (seen.size > 100) seen.delete(seen.values().next().value); save(); return true;
+        },
+      };
+    }
+
+    // END generated HTTP diagnostics
     const failureMessage = (value, status) => [value.title, `HTTP ${status}`, value.code, value.stage, value.error, value.details ?? value.stack, value.cleanupError].filter(Boolean).join("\n");
-    async function request(path, init) { const response = await fetch(path, init); const text = await response.text(); let value = {}; try { value = text ? JSON.parse(text) : {}; } catch { throw new Error(`HTTP ${response.status}: ${text}`); } if (!response.ok) { const error = Object.assign(new Error(value.error ?? `HTTP ${response.status}`), value); error.message = failureMessage(value, response.status); throw error; } return value; }
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.9.0", update: { currentVersion: "0.9.0", latestVersion: "0.9.0", updateAvailable: false } };
+    async function request(path, init) {
+      const base = window.location?.href, method = init?.method ?? "GET";
+      const pathname = String(path).split("?")[0];
+      let stage = pathname.endsWith("/state") ? "state-refresh" : pathname.endsWith("/terminal") ? "terminal-output" : "request";
+      if (pathname.endsWith("/update")) {
+        let action; try { action = JSON.parse(init?.body ?? "{}").action; } catch { /* The server validates request bodies. */ }
+        stage = { settings: "update-settings", check: "update-check", install: "update-install" }[action] ?? "update-status";
+      }
+      let response, text;
+      try { response = await fetch(path, init); text = await response.text(); }
+      catch (cause) {
+        if (cause?.name === "AbortError") throw cause;
+        const diagnostic = requestFailure({ url: path, base, method, stage, status: response?.status, cause: cause?.message ?? String(cause) });
+        throw Object.assign(new Error(formatRequestFailure(diagnostic)), { requestFailure: diagnostic });
+      }
+      let value = {}, invalidJson = false;
+      try { value = text ? JSON.parse(text) : {}; } catch { invalidJson = true; }
+      if (!response.ok || invalidJson) {
+        const transport = requestFailure({ url: path, base, method, stage, status: response.status, responseSummary: text, cause: invalidJson && response.ok ? "接口未返回有效 JSON" : "" });
+        const upstream = value?.requestFailure && typeof value.requestFailure === "object" ? requestFailure(value.requestFailure) : null;
+        const diagnostic = upstream ?? transport;
+        const error = Object.assign(new Error(), value && typeof value === "object" ? value : {}, { requestFailure: diagnostic });
+        error.message = formatRequestFailure(diagnostic) + (value?.code ? `\n错误代码：${safeDiagnosticText(value.code, 120)}` : "") + (upstream ? `\n插件接口：${transport.method} ${transport.url}（HTTP ${transport.status}）` : "");
+        throw error;
+      }
+      return value;
+    }
+    const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
+    const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.9.1", update: { currentVersion: "0.9.1", latestVersion: "0.9.1", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -1063,6 +1162,7 @@ window.__ModuleLoader__.load({
       const busy = pending || data?.busy;
       const dirty = data && ["source", ...(draft.source === "custom" ? ["url"] : [])].some(key => draft[key] !== data.settings[key]);
       const phases = { checking: "正在检查版本…", downloading: "正在下载安装包…", verifying: "正在校验安装包…", installing: "正在安装，请稍候…", ready: "安装完成，等待重启", failed: "更新未完成", idle: "" };
+      const updateError = error || (data?.error ? data.requestFailure ? formatRequestFailure(data.requestFailure) : `插件更新失败\n${safeDiagnosticText(data.error)}` : "");
       return h(embedded ? "section" : ModalDialog, embedded ? { className: "dsh-remote-ops__settingsBody", "aria-label": "插件更新" } : { title: "插件更新", onClose },
         h("p", { className: "dsh-remote-ops__muted" }, "手动检查并安装更新，重启 DSH 后生效。"),
         data ? h(React.Fragment, null,
@@ -1082,7 +1182,7 @@ window.__ModuleLoader__.load({
           busy ? h("p", { role: "status", "aria-live": "polite" }, phases[data.phase] || "正在处理…") : null
         ) : h("p", { role: "status" }, error ? "无法读取更新配置" : "正在读取更新配置…"),
         notice ? h("p", { role: "status" }, notice) : null,
-        error || data?.error ? h("p", { role: "alert", className: "dsh-remote-ops__dangerAction" }, error || data.error) : null,
+        updateError ? h("div", { role: "alert", className: "dsh-remote-ops__dangerAction", style: { overflowWrap: "anywhere" } }, requestErrorDetails(updateError)) : null,
       );
     }
     function QuestionDialog({ question, onDone }) {
@@ -1583,12 +1683,13 @@ window.__ModuleLoader__.load({
       useEffect(() => { rememberWorkspace(sessionId, { module, activeSessionId, search }); }, [sessionId, module, activeSessionId, search]);
       useEffect(() => { try { localStorage.setItem("remote-ops.preferences", JSON.stringify({ ...preferences, quickHeight })); } catch { /* Storage can be disabled by browser policy. */ } }, [preferences, quickHeight]);
       useEffect(() => { setPasteDraft(null); setConnectionChoices(null); setActiveSessionId(current => current); setReviewStream(null); setBusy(false); }, [sessionId]);
-      const refresh = useCallback(() => {
-        if (refreshRequest.current && refreshRequest.current.ownerKey === sessionId) return refreshRequest.current;
+      const refresh = useCallback((manual = false) => {
+        if (refreshRequest.current && refreshRequest.current.ownerKey === sessionId) { if (manual) refreshRequest.current.manual = true; return refreshRequest.current; }
         const task = (async () => {
           try {
             const value = await request(`/api/dsh-remote-ops/state${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""}`);
             if (viewOwner.current !== sessionId) return false;
+            refreshNotices.setRuntime(value.runtimeId);
             value.viewOwner = sessionId ?? "";
             value.tabs = mergeSessionTabs(knownTabs.current.owner === sessionId ? knownTabs.current.tabs : [], value.sessions);
             knownTabs.current = { owner: sessionId, tabs: value.tabs };
@@ -1598,13 +1699,16 @@ window.__ModuleLoader__.load({
               setSnapshot(value);
               if (value.update) setUpdate(value.update);
             }
+            setError(current => current.startsWith("状态刷新失败\n") ? "" : current);
+            setActionNotice(current => current === "刷新失败" ? "" : current);
             return true;
           } catch (cause) {
-            if (viewOwner.current === sessionId) setError(cause instanceof Error ? cause.message : String(cause));
+            if (viewOwner.current === sessionId && refreshNotices.shouldNotify(cause, task.manual)) setError(cause instanceof Error ? cause.message : String(cause));
             return false;
           }
         })();
         task.ownerKey = sessionId;
+        task.manual = manual;
         refreshRequest.current = task;
         void task.finally(() => { if (refreshRequest.current === task) refreshRequest.current = undefined; });
         return task;
@@ -1626,7 +1730,7 @@ window.__ModuleLoader__.load({
         } catch (cause) { if (isCurrent()) setError(cause.message); return undefined; }
         finally { if (isCurrent() && changesConnection) setBusy(false); }
       }, [sessionId, refresh]);
-      const refreshNow = useCallback(async () => { if (refreshBusy) return; setRefreshBusy(true); setActionNotice(""); const ok = await refresh(); setActionNotice(ok ? "已刷新" : "刷新失败"); setRefreshBusy(false); }, [refresh, refreshBusy]);
+      const refreshNow = useCallback(async () => { if (refreshBusy) return; setRefreshBusy(true); setActionNotice(""); const ok = await refresh(true); setActionNotice(ok ? "已刷新" : "刷新失败"); setRefreshBusy(false); }, [refresh, refreshBusy]);
       useEffect(() => { if (!selectedEnv && snapshot.environments[0]) setSelectedEnv(snapshot.environments[0].id); if (!activeSessionId && snapshot.sessions.length) setActiveSessionId((snapshot.sessions.find(item => item.kind !== "local") ?? snapshot.sessions[0]).sessionId); }, [activeSessionId, selectedEnv, snapshot]);
       useEffect(() => { try { localStorage.setItem("remote-ops.quick-open", String(quickOpen)); } catch { /* Browser storage is optional. */ } }, [quickOpen]);
       const action = useCallback(async (body) => {
@@ -1651,7 +1755,15 @@ window.__ModuleLoader__.load({
       const workspaceVisible = !drawer && !diagnosticsOpen && !settingsTab && pageVisible;
       const terminalTabsRef = useRef(null);
       useEffect(() => {
-        if (workspaceVisible && module === "terminal") terminalTabsRef.current?.querySelector('[aria-selected="true"]')?.parentElement?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        const strip = terminalTabsRef.current;
+        if (!workspaceVisible || module !== "terminal" || !strip) return;
+        const selected = strip.querySelector('[aria-selected="true"]')?.parentElement;
+        const reveal = () => selected?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+        reveal();
+        const observer = new ResizeObserver(reveal);
+        observer.observe(strip);
+        if (selected) observer.observe(selected);
+        return () => observer.disconnect();
       }, [activeTerminalId, tabs.length, workspaceVisible, module]);
       useEffect(() => {
         const next = terminalUnreadState(outputSeen.current, terminalUnread, snapshot.sessions, workspaceVisible && module === "terminal" ? activeTerminalId : "", terminalFrames, sessionId);
@@ -1706,7 +1818,7 @@ window.__ModuleLoader__.load({
               attempt = 0;
               if (previous?.streamId && previous.streamId !== value.streamId) setReviewStream(activeFrameKey);
               if (value.text && !stickToBottom.current) setUnreadOutput(true);
-              const changed = value.reset || Boolean(value.text) || previous?.status?.kind !== value.status?.kind || previous?.activity !== value.activity || JSON.stringify(previous?.control) !== JSON.stringify(value.control) || JSON.stringify(previous?.toolReceipt) !== JSON.stringify(value.toolReceipt) || JSON.stringify(previous?.commandAnnotations) !== JSON.stringify(value.commandAnnotations);
+              const changed = value.reset || Boolean(value.text) || previous?.status?.kind !== value.status?.kind || previous?.activity !== value.activity || previous?.size?.rows !== value.size?.rows || previous?.size?.cols !== value.size?.cols || JSON.stringify(previous?.control) !== JSON.stringify(value.control) || JSON.stringify(previous?.toolReceipt) !== JSON.stringify(value.toolReceipt) || JSON.stringify(previous?.commandAnnotations) !== JSON.stringify(value.commandAnnotations);
               if (changed || !previous) {
                 const next = mergeTerminalFrame(terminalFramesRef.current[activeFrameKey], value);
                 const frames = { ...terminalFramesRef.current, [activeFrameKey]: next };
@@ -1718,7 +1830,7 @@ window.__ModuleLoader__.load({
               if (cancelled || cause?.name === "AbortError") break;
               setOutputConnection("retrying");
               if (String(cause?.message).includes("TERMINAL_CURSOR_MISMATCH")) delete terminalFramesRef.current[activeFrameKey];
-              setError(cause instanceof Error ? cause.message : String(cause));
+              if (refreshNotices.shouldNotify(cause)) setError(cause instanceof Error ? cause.message : String(cause));
               void refresh();
               await new Promise((resolve) => window.setTimeout(resolve, retryDelay(attempt++)));
             }
@@ -1915,23 +2027,21 @@ window.__ModuleLoader__.load({
           h("button", { type: "button", role: "tab", id: terminalTabId(item.sessionId), "aria-label": item.name, "aria-selected": activeTerminalId === item.sessionId, "aria-controls": terminalPanelId, tabIndex: activeTerminalId === item.sessionId ? 0 : -1,
             title: item.name + (item.disconnected ? " · 已断开" : terminalUnread[item.sessionId] ? " · 新输出" : "") + " · " + item.sessionId,
             onClick: event => { selectTerminal(item); if (event.detail > 0) terminalInputRef.current?.focus({ preventScroll: true }); },
-            onKeyDown: event => { const next = { ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length, Home: 0, End: tabs.length - 1 }[event.key]; if (next !== undefined) { event.preventDefault(); selectTerminal(tabs[next]); terminalTabsRef.current?.querySelectorAll('[role="tab"]')[next]?.focus({ preventScroll: true }); } }
+            onKeyDown: event => { const next = { ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length, Home: 0, End: tabs.length - 1 }[event.key]; if (next !== undefined) { event.preventDefault(); selectTerminal(tabs[next]); const target = terminalTabsRef.current?.querySelectorAll('[role="tab"]')[next]; target?.focus({ preventScroll: true }); target?.parentElement?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" }); } }
           }, h(RemoteOpsIcon, { size: 15 }), h("span", { className: "dsh-remote-ops__tabName" }, item.name), item.disconnected || terminalUnread[item.sessionId] ? h("span", { className: "dsh-remote-ops__tabState", "aria-hidden": true }, item.disconnected ? "已断开" : "●") : null),
           item.kind === "ssh" ? h("button", { type: "button", className: "dsh-remote-ops__tabClose", title: item.disconnected ? "关闭记录" : "释放此连接", "aria-label": `释放${item.name}`, disabled: busy, onClick: event => { event.stopPropagation(); void releaseSession(item); } }, h(IconCloseOutline16, { "aria-hidden": true })) : null)));
+      const terminalLocation = localActive ? activeSession.workingDirectory : connectedEndpoint ? `${connectedEndpoint.username}@${connectedEndpoint.host}:${connectedEndpoint.port ?? 22}` : activeSession?.sessionId;
       const terminal = h("section", { className: "dsh-remote-ops__terminal", hidden: module !== "terminal" || drawer || diagnosticsOpen || !!settingsTab },
-        terminalTabs,
         h("div", { className: "dsh-remote-ops__terminalHead" },
-          h("div", { className: "dsh-remote-ops__terminalIdentity" }, h("small", { title: localActive ? activeSession.workingDirectory : connectedEndpoint ? `${connectedEndpoint.username}@${connectedEndpoint.host}:${connectedEndpoint.port ?? 22}` : "" }, localActive ? activeSession.workingDirectory : connectedEndpoint ? `${connectedEndpoint.username}@${connectedEndpoint.host}:${connectedEndpoint.port ?? 22}` : activeSession?.sessionId)),
-        h("div", { className: "dsh-remote-ops__toolbar" },
+          terminalTabs,
+        h("div", { className: "dsh-remote-ops__toolbar dsh-remote-ops__terminalActions" },
           h("button", { title: "搜索输出", "aria-label": "搜索输出", "aria-expanded": searchOpen, onClick: () => setSearchOpen(value => !value) }, h(IconSearchOutline16)),
+          h("button", { title: "导出当前终端 TXT", "aria-label": "导出当前终端 TXT", disabled: logExporting || !activeSession, onClick: () => void exportLogs(false) }, h(IconDownloadOutline16)),
           h("details", { className: "dsh-remote-ops__terminalLook dsh-remote-ops__operationMenu", onKeyDown: event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } } },
-            h("summary", { "aria-label": "终端操作" }, "操作", h(IconChevronDownOutline14)), h("div", null,
+            h("summary", { "aria-label": "终端操作", title: "更多终端操作" }, "更多", h(IconChevronDownOutline14)), h("div", null,
             h("button", { disabled: !sessionId || !activeSession || activeSession.disconnected, onClick: event => { const menu = event.currentTarget.closest("details"); menu.open = false; menu.querySelector("summary")?.focus(); setCommandTarget({ ...activeSession }); } }, "独立命令"),
-            h("button", { title: "复制选区或当前输出", "aria-label": "复制输出", onClick: event => { const selection = window.getSelection(); const text = outputRef.current?.contains(selection?.anchorNode) ? selection.toString() : ""; void writeClipboard(text || terminalOutput).catch(cause => setError(`CLIPBOARD_WRITE: ${cause.message}`)); event.currentTarget.closest("details").open = false; } }, "复制输出"),
-            h("button", { disabled: logExporting || !activeSession, onClick: event => { event.currentTarget.closest("details").open = false; void exportLogs(false); } }, "导出当前终端 TXT"),
             h("button", { disabled: logExporting, onClick: event => { event.currentTarget.closest("details").open = false; void exportLogs(true); } }, "一键打包本会话全部日志"),
             h("small", null, "包含仍保留的已关闭终端。"),
-          !localActive && activeSession && !activeSession.disconnected ? terminalSizeSelect(activeTerminalFrame?.size, busy, (size) => void action({ action: "resize", session: activeTerminalId, ...size })) : null,
             h("button", { onClick: event => { event.currentTarget.closest("details").open = false; const details = outputRef.current?.closest("section")?.querySelector(".dsh-remote-ops__statusDetails"); if (details) { details.open = true; details.querySelector("summary")?.focus(); } } }, "连接与输出详情")))
         )
         ),
@@ -1946,8 +2056,9 @@ window.__ModuleLoader__.load({
         h("div", { className: "dsh-remote-ops__terminalStatus", role: "status" },
           logExporting ? h("span", null, "正在打包日志…") : null,
           h("span", { "data-state": outputConnection }, activeSession ? activeSession.disconnected ? "已断开" : outputConnection === "connected" ? "实时输出" : outputConnection === "retrying" ? "输出重连中" : "同步中" : "未连接"),
-          h("span", { className: "dsh-remote-ops__muted" }, "你与 Agent 共享此终端"),
+          h("span", { className: "dsh-remote-ops__terminalLocation", title: terminalLocation }, terminalLocation),
           h("details", { className: "dsh-remote-ops__statusDetails" }, h("summary", null, "状态详情"), h("div", null,
+          h("span", null, "你与 Agent 共享此终端"),
           h("span", { title: "Agent 绑定状态，不代表 Agent 已读取当前输出" }, snapshot.bound ? "Agent 已绑定" : "Agent 未绑定"),
           h("span", { title: activeTerminalFrame?.toolReceipt ? JSON.stringify(activeTerminalFrame.toolReceipt) : "尚未产生此输出流的工具读取回执" }, activeTerminalFrame?.toolReceipt ? "工具已返回 · " + new Date(activeTerminalFrame.toolReceipt.at).toLocaleTimeString() + (activeTerminalFrame.toolReceipt.newOutput ? " · 有新输出" : "") : "工具未读取"),
           h("span", { className: "dsh-remote-ops__sessionIdentity", title: activeTerminalId }, activeTerminalId ? `${localActive ? "本地" : "SSH"} · ${activeTerminalId.slice(-12)}` : ""),
@@ -1989,7 +2100,11 @@ window.__ModuleLoader__.load({
       const settingsTerminal = h("div", settingsPanelProps("terminal"), h("div", {className:"dsh-remote-ops__settingsBody"},h("h3",null,"终端显示"),
           h("label", null, "字号", h("input", { type: "number", min: 11, max: 22, "aria-label": "终端字号", value: preferences.fontSize, onChange: event => setPreferences(current => terminalPreferences({ ...current, fontSize: event.target.value })) })),
           h("label", null, h("input", { type: "checkbox", checked: preferences.wrap, onChange: event => setPreferences(current => ({ ...current, wrap: event.target.checked })) }), "换行"),
-          h("label", null, h("input", { type: "checkbox", checked: preferences.highlight, onChange: event => setPreferences(current => ({ ...current, highlight: event.target.checked })) }), "命令与关键状态高亮"),h("p",{className:"dsh-remote-ops__muted"},"连接大小在终端的“操作”菜单中调整。")));
+          h("label", null, h("input", { type: "checkbox", checked: preferences.highlight, onChange: event => setPreferences(current => ({ ...current, highlight: event.target.checked })) }), "命令与关键状态高亮"),
+          !localActive && activeSession && !activeSession.disconnected ? h(React.Fragment, null,
+            h("h3", null, "当前 SSH 连接"), h("p", { className: "dsh-remote-ops__muted" }, activeSession.name + " · " + terminalLocation),
+            terminalSizeSelect(activeTerminalFrame?.size, busy, (size) => void action({ action: "resize", session: activeTerminalId, ...size })),
+            h("p", { className: "dsh-remote-ops__muted" }, "仅调整当前连接；已输出内容不会重排。")) : h("p", { className: "dsh-remote-ops__muted" }, "选中已连接的 SSH 终端后，可在此调整连接尺寸。")));
       const environmentsHead = drawer ? h("section", {className:"dsh-remote-ops__utilityHead",id:"remote-ops-environments-"+uiKey},
         h("div",{className:"dsh-remote-ops__drawerHead dsh-remote-ops__environmentHead"},h("button",{className:"dsh-remote-ops__environmentBack","aria-label":"返回工作区",onClick:returnToWorkspace},h(IconChevronLeftOutline14,{"aria-hidden":true}),"返回工作区"),h("strong",null,"环境管理")),
         h("div",{className:"dsh-remote-ops__subTabs",role:"tablist","aria-label":"环境类型"},["ssh","api"].map((kind,index)=>h("button",{key:kind,role:"tab",id:"environment-tab-"+uiKey+"-"+kind,"aria-selected":environmentKind===kind,"aria-controls":"environment-panel-"+uiKey+"-"+kind,tabIndex:environmentKind===kind?0:-1,onClick:()=>openEnvironments(kind),onKeyDown:event=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(event.key)){event.preventDefault();const next=event.key==="Home"?0:event.key==="End"?1:1-index;openEnvironments(next?"api":"ssh");event.currentTarget.parentElement.children[next]?.focus();}}},kind.toUpperCase())))) : null;
@@ -1999,7 +2114,7 @@ window.__ModuleLoader__.load({
           h("button", {className:"dsh-remote-ops__headAction","aria-label":"环境管理","aria-expanded":drawer,"aria-controls":"remote-ops-environments-"+uiKey,onClick:()=>drawer?setDrawer(false):openEnvironments()},h(IconPanelLeftOutline16,{"aria-hidden":true}),"环境"),
           h("button", {className:"dsh-remote-ops__headAction","aria-label":"设置","aria-expanded":!!settingsTab,onClick:()=>settingsTab?closeSettings():openSettings()},h(IconSettingsOutline16,{"aria-hidden":true}),"设置")),
         actionNotice ? h("div", { className: "dsh-remote-ops__notice", role: "status", "data-error": actionNotice.includes("失败") }, actionNotice) : null,
-        error ? h("div", { className: "dsh-remote-ops__error", role: "alert" }, h("div", { className: "dsh-remote-ops__errorBody" }, error.split("\n")[0], h("details", null, h("summary", null, "错误详情"), error), /AUTH|credential|password|认证/i.test(error) ? h("button", { onClick: () => { openEnvironments("ssh"); if (activeEnvironment) openEnvironmentForm(activeEnvironment); } }, "检查环境凭据") : /OWNER|SESSION_REQUIRED/.test(error) ? h("button", { disabled: !sessionId, onClick: () => void workspaceAction({ action: "activate" }) }, "绑定当前会话") : h("button", { onClick: () => void refreshNow() }, "刷新状态")), h("button", { className: "dsh-remote-ops__errorClose", "aria-label": "关闭错误", onClick: () => setError("") }, h(IconCloseOutline16))) : null,
+        error ? h("div", { className: "dsh-remote-ops__error", role: "alert" }, h("div", { className: "dsh-remote-ops__errorBody" }, requestErrorDetails(error), /AUTH|credential|password|认证/i.test(error) ? h("button", { onClick: () => { openEnvironments("ssh"); if (activeEnvironment) openEnvironmentForm(activeEnvironment); } }, "检查环境凭据") : /OWNER|SESSION_REQUIRED/.test(error) ? h("button", { disabled: !sessionId, onClick: () => void workspaceAction({ action: "activate" }) }, "绑定当前会话") : h("button", { onClick: () => void refreshNow() }, "刷新状态")), h("button", { className: "dsh-remote-ops__errorClose", "aria-label": "关闭错误", onClick: () => setError("") }, h(IconCloseOutline16))) : null,
         panelQuestion, pasteView, choicesView, diagnosticsView,
         commandTarget ? h(CommandDialog, { key: sessionId + ":" + commandTarget.sessionId, sessionId, target: commandTarget, onClose: () => setCommandTarget(null) }) : null,
         h("nav", { className: "dsh-remote-ops__workspaceTabs", role: "tablist", "aria-label": "Remote Ops 工作区" }, workspaces.map(([id, label, Icon], index) => h("button", { key: id, type: "button", role: "tab", id: "remote-ops-tab-" + uiKey + "-" + id, "aria-label": label, "aria-selected": module === id, "aria-controls": "remote-ops-panel-" + uiKey, tabIndex: module === id ? 0 : -1, onClick: () => selectWorkspace(id), onKeyDown: event => { const next = { ArrowRight: (index + 1) % workspaces.length, ArrowLeft: (index + workspaces.length - 1) % workspaces.length, Home: 0, End: workspaces.length - 1 }[event.key]; if (next !== undefined) { event.preventDefault(); selectWorkspace(workspaces[next][0]); event.currentTarget.parentElement.children[next]?.focus(); } } }, h(Icon, { size: 16, "aria-hidden": true }), label, tabBadges[id] ? h("span", {className:"dsh-remote-ops__tabBadge","data-tone":tabBadges[id].tone,title:tabBadges[id].description,"aria-label":tabBadges[id].description},tabBadges[id].label) : null))),

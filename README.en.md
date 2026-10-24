@@ -16,26 +16,36 @@
 
 [![Real DSH API workspace with a JSON response tree](docs/images/remote-ops/api.png)](docs/images/remote-ops/api.png)
 
-These screenshots show v0.9.0 installed in real DSH 0.2.0-rc.2; the installed package matches the official Release SHA256. A deterministic test provider drives real tools against isolated local SSH, web and API services.
+These screenshots show v0.9.1 installed in real DSH 0.2.0-rc.2; the installed package matches the official Release SHA256. A deterministic test provider drives real tools against isolated local SSH, web and API services.
 
-## v0.9.0 workspace layout
+## v0.9.1 compact terminals and request diagnostics
+
+- Session tabs, search and the current TXT download share one row, with approximately 32px desktop tabs. All-log ZIP export lives under **更多**; the bottom status bar shows the path, quick commands remain below, and **设置 → 终端** controls the active SSH size.
+- Error headings distinguish state refresh, terminal output refresh and plugin update failures. Expand **错误详情** for the request method, redacted URL, HTTP status, stage, timestamp and bounded response preview. Network failures explicitly say that no HTTP response was received.
+- Update failures identify the version manifest, SHA256 file or archive, including the actual failed URL. Upstream HTTP status and the plugin endpoint status are labeled separately.
+- The same background refresh failure is automatically announced once per DSH/plugin runtime. Dismissing it, switching workspaces or refreshing the page does not repeatedly reopen it. Background retries continue; explicit **刷新状态** still reports its result. Recovery clears the corresponding state error; a new backend runtime enables notifications again.
+- Diagnostics redact URL query values and common password, Token, Cookie and Authorization fields. They do not collect request bodies or headers.
+
+For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` or an update-source file, then check plugin loading, service routing or the release directory accordingly. Version checks remain manual.
+
+## Workspace layout
 
 - All four workspaces share one **设置** entry with general, terminal, browser and update categories. **环境** manages SSH and API environments together, retaining their separate forms and credentials.
-- Local CMD and SSH use one consistent terminal tab strip, with a filled background, border and bold text for the active tab. Arrow keys switch terminals. **返回工作区** (back to workspace) stays at the top left of both SSH and API environment management while scrolling, preserving the active terminal or request draft when returning. The terminal toolbar contains search and **操作** (actions). Quick commands start as a compact strip; expand it or open **命令库** to manage saved commands.
+- Local CMD and SSH use one consistent terminal tab strip, with a filled background, border and bold text for the active tab. Arrow keys switch terminals. **返回工作区** (back to workspace) stays at the top left of both SSH and API environment management while scrolling, preserving the active terminal or request draft when returning. The terminal row contains search, current TXT download and **更多** (more). Quick commands start as a compact strip; expand it or open **命令库** to manage saved commands.
 - Workspace tabs show unread terminal output, file transfers and browser execution. Viewing the corresponding terminal clears its unread indicator. Transfers show a percentage only when the total is known reliably.
 - API results have **响应 / 记录** tabs. Expand JSON nodes and click a field name to copy its JSON Pointer, with selectable text when clipboard access fails. HTTP status uses both color and text; 2xx also says **请检查业务结果**. Large trees render in batches and retain a raw view.
-- Workspace/settings switches preserve terminal, browser and API state. Background work continues while hidden browser views suspend frame requests. These changes belong to the current development branch and have not been released.
+- Workspace/settings switches preserve terminal, browser and API state. Background work continues while hidden browser views suspend frame requests.
 
 ## Manual intranet HTTP/HTTPS updates
 
-Current version: [v0.9.0](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.9.0). See the [installation and UI acceptance scope](docs/testing/dsh-remote-ops-v0.9.0-acceptance.md).
+Current version: [v0.9.1](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.9.1). See the [installation and UI acceptance scope](docs/testing/dsh-remote-ops-v0.9.1-acceptance.md).
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Once ongoing work finishes, fully restart DSH and refresh the browser to activate the installed version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.9.0.tgz` and `SHA256SUMS-dsh-remote-ops-v0.9.0.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.9.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.9.1.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.9.0.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.9.1.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -71,7 +81,7 @@ Viewing alone never changes the credential: saving other fields preserves it; ty
 
 ## Terminal logs
 
-- **终端 → 操作** exports the current terminal as UTF-8 TXT, or all available conversation logs as ZIP, including retained closed SSH records and the shared local terminal. Each ZIP contains separate transcripts and a `manifest.json` with source, time and coverage metadata.
+- The download button beside terminal tabs exports the current terminal as UTF-8 TXT. **更多 → 一键打包本会话全部日志** exports all available conversation logs as ZIP, including retained closed SSH records and the shared local terminal. Each ZIP contains separate transcripts and a `manifest.json` with source, time and coverage metadata.
 - `remote_terminal_logs`, `remote_terminal_log_read` and `remote_terminal_log_export` provide discovery, raw-cursor pagination and packaging. The export tool returns SHA256 and an absolute download link for the observed trusted DSH browser origin (or null when unavailable; use the toolbar); the Agent need not copy screen text, read every page or run archive commands.
 - The bundled `remote-ops-terminal-logs` skill is automatically discoverable through DSH, with `/remote-ops-terminal-logs` also available. The tgz carries both tools and instructions.
 - Retention is process memory: 4 MiB per terminal, trimmed to the latest 3 MiB on overflow; closed records share a 16 MiB / 32-record limit. APIs disclose truncation and evictions. History does not survive restart. Hidden/raw input is not logged separately, but secrets printed by programs can still be present.
@@ -107,7 +117,7 @@ Browsers run on the DSH host. Install Chromium on demand through the plugin tool
 
 - **终端 / 网页 / 文件 / API** workspace tabs support arrows and Home/End. Environment management opens inside the panel; **设置 → 通用** contains diagnostics and refresh, while **设置 → 更新** handles updates. The native DSH right Sidebar and the main conversation are preserved.
 - The module, selected terminal and environment filter recover per conversation after closing/reopening or refreshing. File path/sort/scroll/bookmarks keep their existing persistence. File filters, path drafts and reconciled selections survive module/panel switches within one webpage; a full reload fetches fresh entries and does not restore old selections.
-- **设置 → 终端** contains font size, wrapping and highlighting. **终端 → 操作** provides independent commands, output copying, TXT/ZIP exports and SSH terminal size. **状态详情** contains technical connection and output details. ASCII/SGR logs use a fast parser; cursor control, Unicode and full-screen programs retain the VT model.
+- **设置 → 终端** contains font size, wrapping, highlighting and the active SSH connection size. Search and current transcript export are directly beside the session tabs; **更多** contains independent commands and all-log ZIP export. The path and technical status sit in the bottom status bar. ASCII/SGR logs use a fast parser; cursor control, Unicode and full-screen programs retain the VT model.
 - Embedded pages default to a viewport following the panel, with an optional 1024×768 desktop viewport. Resizing does not deliberately navigate/reload; the website's responsive behavior can still change content. Independent windows use their own size. Page titles and close-current-tab are available; display switching warns that pages reload and unsaved inputs can be lost.
 - Files add filtering, select-all, Shift range selection and Enter for directories. Narrow panels switch between source A and target B, copy labels identify the destination, and finished transfer history is collapsed. Browser upload/download refers to the browser device, distinct from the DSH host.
 - UI independent commands run in the backend and survive closing the result view, switching modules and refreshing DSH Web. Reopening reads the current target's latest job/result. Completed results are memory-only, capped at 32 records and ten minutes; command drafts survive only within the current webpage. DSH restart does not restore/replay commands. A timeout/unknown remote exit never proves process termination.
@@ -147,11 +157,11 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.9.0.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.9.1.tgz
 dsh web
 ```
 
-For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.9.0` in Remote Ops **设置 → 通用**. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
+For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.9.1` in Remote Ops **设置 → 通用**. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
 
 Click `Remote Ops` at the bottom of the left sidebar to open the native right Sidebar while preserving the main conversation. Tested on DSH `0.2.0-rc.2`; other host versions remain untested. If the entry is missing, check the installation profile, host/plugin versions and whether the old process exited. On narrow screens DSH may present its right Sidebar full screen; collapsing it returns to the original conversation.
 
@@ -194,15 +204,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.9.0
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.9.1
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.9.0
-node scripts/release-dsh-remote-ops.mjs 0.9.0 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.9.1
+node scripts/release-dsh-remote-ops.mjs 0.9.1 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and
