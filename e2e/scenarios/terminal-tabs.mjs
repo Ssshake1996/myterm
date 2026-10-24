@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 export const terminalTabsScenario={id:'terminal-tabs',title:'CMD 与 SSH 统一标签、键盘切换和固定环境退出入口',async run(t){
   const p=t.page,info=await t.info(),panel=p.locator('.dsh-remote-ops');
+  const localName=process.platform==='win32'?'本地 CMD':'本地 Shell';
   const workspace=name=>p.getByRole('tablist',{name:'Remote Ops 工作区'}).getByRole('tab',{name,exact:true});
   const sessions=()=>p.getByRole('tablist',{name:'终端会话'});
   const tab=name=>sessions().getByRole('tab',{name,exact:true});
@@ -11,8 +12,8 @@ export const terminalTabsScenario={id:'terminal-tabs',title:'CMD 与 SSH 统一�
   await p.getByRole('button',{name:'Remote Ops',exact:true}).click();await p.getByLabel('终端输出',{exact:true}).waitFor();
   await t.step('本地 CMD 从单终端开始就使用同一标签栏',async()=>{
     assert.equal(await sessions().count(),1);
-    assert.equal(await tab('本地 CMD').getAttribute('aria-selected'),'true');
-    const control=await tab('本地 CMD').getAttribute('aria-controls');
+    assert.equal(await tab(localName).getAttribute('aria-selected'),'true');
+    const control=await tab(localName).getAttribute('aria-controls');
     assert.equal(await p.locator('[id="'+control+'"]').getAttribute('role'),'tabpanel');
   });
   const opened=[];
@@ -27,7 +28,7 @@ export const terminalTabsScenario={id:'terminal-tabs',title:'CMD 与 SSH 统一�
     }
     await tab('开发环境').click();await tool('remote_terminal_send',{session:opened[0].sessionId,text:'show version',quietMs:100});
     await until(async()=>/Array OS 1.2.3/.test(await p.getByLabel('终端输出',{exact:true}).innerText()));
-    await tab('本地 CMD').click();await until(async()=>/LOCAL_TAB_OUTPUT/.test(await p.getByLabel('终端输出',{exact:true}).innerText()));
+    await tab(localName).click();await until(async()=>/LOCAL_TAB_OUTPUT/.test(await p.getByLabel('终端输出',{exact:true}).innerText()));
     assert.doesNotMatch(await p.getByLabel('终端输出',{exact:true}).innerText(),/Array OS 1.2.3/);
     const styles=await sessions().getByRole('tab').evaluateAll(nodes=>nodes.map(n=>({font:getComputedStyle(n).fontSize,height:n.getBoundingClientRect().height,selected:n.getAttribute('aria-selected')})));
     assert.equal(new Set(styles.map(s=>s.font)).size,1);assert.ok(styles.every(s=>s.height>=36));assert.equal(styles.filter(s=>s.selected==='true').length,1);
@@ -35,7 +36,7 @@ export const terminalTabsScenario={id:'terminal-tabs',title:'CMD 与 SSH 统一�
   });
   await t.step('窄栏键盘切换滚动到所选标签，关闭连接仍需原有确认',async()=>{
     await p.setViewportSize({width:390,height:844});await p.emulateMedia({reducedMotion:'reduce'});
-    await tab('本地 CMD').focus();await p.keyboard.press('End');
+    await tab(localName).focus();await p.keyboard.press('End');
     assert.equal(await tab('验收环境').getAttribute('aria-selected'),'true');assert.equal(await tab('验收环境').evaluate(n=>n===document.activeElement),true);
     await until(()=>tab('验收环境').evaluate(n=>{const r=n.getBoundingClientRect(),b=n.closest('[role=tablist]').getBoundingClientRect();return r.left>=b.left-1&&r.right<=b.right+1;}));
     assert.ok(await panel.evaluate(n=>n.scrollWidth<=n.clientWidth+1));

@@ -9,7 +9,8 @@ export const visualRefreshScenario = { id: 'visual-refresh', title: '视觉工�
   await p.getByLabel('终端输出',{exact:true}).waitFor();
   await t.step('单终端使用统一标签，操作与地址位于下方上下文行',async()=>{
     assert.equal(await p.locator('.dsh-remote-ops__head').innerText().then(v=>/v\d+\.\d+/.test(v)),false);
-    assert.equal(await p.getByRole('tablist',{name:'终端会话'}).getByRole('tab',{name:'本地 CMD',exact:true}).isVisible(),true);
+    const localName=process.platform==='win32'?'本地 CMD':'本地 Shell';
+    assert.equal(await p.getByRole('tablist',{name:'终端会话'}).getByRole('tab',{name:localName,exact:true}).isVisible(),true);
     const context=await p.locator('.dsh-remote-ops__terminalHead').boundingBox();
     const command=await p.getByLabel('终端操作',{exact:true}).boundingBox();
     assert.ok(command.y>=context.y && command.y+command.height<=context.y+context.height+1,'terminal tools share its context row');
