@@ -36,4 +36,11 @@ README 三张截图取自上述候选包真实安装。没有验证其他 DSH �
 
 ## 正式发布复验
 
-发布前本地门禁和候选包验证已完成；正式 Release 附件、CI 与下载后复验将在发布完成后记录于本节。
+- 发布提交 `d4c5105c7ac218ed8bbf3a0b6694eaa7b1cbe452`。[Linux 插件 CI](https://github.com/Ssshake1996/myterm/actions/runs/40085051704) 通过。
+- [Linux 浏览器 CI](https://github.com/Ssshake1996/myterm/actions/runs/40085051645) 首轮 19/20：功能检查通过，20 次模块切换的 p95 为 260.3ms，超过原有 250ms 门槛。同一提交、相同门槛复跑 20/20，通过时 p95 为 212ms；没有为重试改代码或放宽门槛。Windows 本地该样本为 93ms。这些是对应测试运行的样本，不是所有机器的性能保证。
+- 发布流程的 Windows 首轮在既有 `routes.test.mjs` 测试失败：测试固定等待 20ms 后直接访问尚未创建的 `terminals[0].output`。实际路由会等待 `state.ready`；该测试在本次提交中未修改，本地和 Linux 已通过。保留首轮日志；同一提交复跑 Windows 检查通过，没有修改产品或降低断言。该固定等待仍是既有测试的时序脆弱点。
+- 发布标签 `dsh-remote-ops-v0.9.1` 指向上述提交。[发布流程](https://github.com/Ssshake1996/myterm/actions/runs/40085536037) 的 Linux 打包、Windows 检查和发布均通过。
+- [正式 Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.9.1) 仅包含 tgz 与 SHA256 校验文件。重新下载后校验通过，SHA256 与候选包一致，67 个包内文件均逐字节匹配仓库源码，包含 5 个随包 skill；README 截图对应同一包内容。
+- 正式 tgz 全新安装到隔离的真实 DSH，重新完成全部 7 组功能验收，`errors: []`。实际原生 skill 工具读取到新版“状态刷新失败”和每次运行仅提示一次的说明。证据：`output/playwright/release091-native-official-1792837870516-acceptance.json`。
+- 使用下载的正式附件建立本地 HTTP 更新源，重新完成全部 8 组升级与故障验收：官方 0.9.0 → 0.9.1 安装、网页重载、真实 DSH 重启、清单／校验文件／安装包 404 诊断，以及同一运行周期提示去重、手动刷新、实际同端口重启后重新提示。`pageErrors: []`、`unexpected404s: []`；故障注入以 `faultInjected` 单独标记。证据：`output/playwright/update091-native-official-1792837870515-evidence.json`。
+- 随包脚本对正式附件生成 `latest.json` 成功；该清单供用户部署内网源使用，没有增加 Release 附件。预览已更新为正式包真实界面，1440px／390px、五张图片、键盘标签切换及无横向溢出检查通过。
