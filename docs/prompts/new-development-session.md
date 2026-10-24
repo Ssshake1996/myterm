@@ -7,7 +7,7 @@
 
 项目根目录：F:\myterm
 代码仓库：https://github.com/Ssshake1996/myterm
-当前基线日期：2026-09-15
+当前基线日期：以最近提交和发布记录为准
 当前基线版本：以 `integrations/dsh-remote-ops/package.json` 和 `lib/version.js` 为准
 当前基线提交：以 `git log -1` 为准
 
@@ -22,9 +22,8 @@
 产品边界：
 
 - 本仓库只维护 DeepSeek Harness 的 dsh-remote-ops 插件。
-- 不要恢复或新建 myterm 桌面程序、Tauri 宿主、旧 Agent Loop、旧权限系统或第二套模型循环。
 - DeepSeek Harness 负责 Agent、Session、Goal、Skill、MCP、权限、模型和 Web UI。
-- 本插件只负责 SSH 环境、终端、SFTP、快捷命令、Multi-SSH 和远程诊断。
+- 本插件负责 SSH/API 环境、终端、SFTP、快捷命令、Multi-SSH、共享网页、执行记录、日志导出、更新源及远程诊断。
 
 开发规则：
 
@@ -53,10 +52,13 @@
 
 当前关键实现：
 
-- `integrations/dsh-remote-ops/lib/index.js`：Host 状态、SSH/SFTP、工具和路由。
-- `integrations/dsh-remote-ops/lib/client.js`：右侧 Sidebar、终端和快捷命令 UI。
+- `integrations/dsh-remote-ops/lib/index.js`：Host 服务装配与生命周期。
+- `integrations/dsh-remote-ops/lib/state/`：环境、终端、文件、日志及更新状态。
+- `integrations/dsh-remote-ops/lib/browser-*.js`、`api-*.js`：网页与 RESTful 工作区、工具和路由。
+- `integrations/dsh-remote-ops/lib/client.js`：原生右栏及四个工作区；`api-client.js` 为 API 界面源文件。
+- `integrations/dsh-remote-ops/skills/`：随包操作指南。
 - `integrations/dsh-remote-ops/test/`：所有回归测试。
-- `scripts/release-dsh-remote-ops.ps1`：测试、打包、提交、Tag、推送和 GitHub Release。
+- `scripts/release-dsh-remote-ops.mjs`：跨平台发布实现；同名 `.ps1` 为 PowerShell 入口。
 
 输出要求：
 

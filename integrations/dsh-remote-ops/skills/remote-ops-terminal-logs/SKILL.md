@@ -5,7 +5,7 @@ description: Read, collect or export Remote Ops SSH and local terminal logs, inc
 
 # Remote Ops terminal logs
 
-Use the plugin's log tools when the user asks for execution records, a terminal transcript or a multi-device log package. The tools do not send terminal input. No Agent configuration changes or external archive utility are needed.
+Use the plugin's log tools when the user asks for execution records, a terminal transcript or a multi-device log package. They read retained terminal output and package it directly through the plugin.
 
 ## Discover and read
 

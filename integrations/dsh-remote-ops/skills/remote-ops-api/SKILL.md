@@ -5,7 +5,7 @@ description: Manage saved Remote Ops RESTful/API environments, log in with a sto
 
 # Remote Ops API
 
-Use the plugin tools so the user sees the same login, request and response in **Remote Ops → API**. Requests originate on the DSH host. Do not replace these calls with curl or a browser unless the user asks for it or the API requires unsupported authentication.
+Use the plugin tools so the user sees the same login, request and response in **Remote Ops → API**. Requests originate on the DSH host. For a service with a different authentication contract, establish the login workflow before sending business requests.
 
 ## Fast path
 
@@ -42,11 +42,11 @@ The password must already exist in DSH credentials under the named reference. Ot
 
 Login is one POST; usernameField/passwordField are literal top-level body keys. tokenPointer and successPointer use **JSON Pointer** (`/data/token`, not `data.token` or XPath). For form login use bodyFormat=form. For a token in a response header use tokenSource=header and tokenResponseHeader. For Cookie use mode=cookie and preferably cookieName; Cookie domain/path/Secure/expiry rules apply. Optional csrfCookie and csrfHeader send a cookie value in a header. Optional successPointer + successValue checks a login business flag.
 
-For API keys or other secret headers use `headerRefs: {"X-Api-Key":"LAB_API_KEY"}`; headers only accept non-secret values. Do not override managed token/CSRF headers. TLS certificates are verified; caPem can contain a private CA certificate. No insecure-TLS switch is provided.
+For API keys or other secret headers use `headerRefs: {"X-Api-Key":"LAB_API_KEY"}`; headers only accept non-secret values. Preserve managed token/CSRF headers. TLS certificates are verified; use caPem for a private CA certificate.
 
 ## Request example
 
-Replace the environment ID with one actually returned by list. A leading `/` still preserves the base URL prefix: both `volumes` and `/volumes` resolve to `/api/v1/volumes` in the example. Absolute URLs, parent traversal and automatic redirects are unsupported.
+Replace the environment ID with one actually returned by list. Use a path within the saved base URL. A leading `/` preserves its prefix: both `volumes` and `/volumes` resolve to `/api/v1/volumes` in the example. A redirect is returned for inspection; verify the endpoint before another request.
 
 ```json
 {
@@ -57,7 +57,7 @@ Replace the environment ID with one actually returned by list. A leading `/` sti
 }
 ```
 
-`body` accepts an actual JSON object/array or literal text. Use an object for JSON, not a string containing serialized JSON. GET/HEAD cannot have a body. Request size limit 1 MiB; response preview 128 KiB with truncated=true when shortened. Use explicit API pagination to obtain more data. Binary downloads, streaming and file upload are outside this first version.
+`body` accepts an actual JSON object/array or literal text. Use an object for JSON, not a string containing serialized JSON. Omit body for GET/HEAD. Request size limit 1 MiB; response preview 128 KiB with truncated=true when shortened. Use explicit API pagination to obtain more data.
 
 ## Recovery and boundaries
 
@@ -69,4 +69,4 @@ Replace the environment ID with one actually returned by list. A leading `/` sti
 - Environment edits invalidate login sessions. Already running requests keep their captured target; their old login cannot populate the new configuration. UI selection never changes an Agent request's environment.
 - Login sessions and execution records are isolated by conversation and live only until DSH restarts. Configurations and credential references persist. Export JSON from the API pane before restart when records are needed.
 - Stopping the DSH conversation cancels waiting Agent requests; already dispatched requests cannot be rolled back. Closing/switching the plugin pane does not cancel requests. Humans and Agent may operate concurrently.
-- This version supports one login request returning Token/Cookie. MFA, CAPTCHA, browser SSO and multi-step token refresh require a different workflow. Do not invent login endpoints or field mappings: use the system's API documentation or a user-provided contract.
+- Login uses one POST returning Token/Cookie; renew an expired session with an explicit login. Obtain endpoints and field mappings from the system's API documentation or a user-provided contract.

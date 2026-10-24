@@ -1,20 +1,20 @@
 ---
 name: remote-ops-updates
-description: Configure and troubleshoot manual DSH Remote Ops plugin updates from an HTTP/HTTPS intranet address; prepare a latest.json release feed. Use for plugin update sources and release mirroring, not SSH device firmware or automatic background jobs.
+description: Configure and troubleshoot manual DSH Remote Ops plugin updates from an HTTP/HTTPS intranet address, and prepare a latest.json release feed for an internal mirror.
 ---
 
 # Remote Ops plugin updates
 
-This skill ships with the plugin. Do not edit Agent configuration. Updates are explicit user actions; opening Remote Ops or its update dialog does not contact the update source. There is no scheduled check, automatic restart or background updater service.
+Use the plugin's update dialog to configure the source and check for a newer version. Checks start when the user clicks a check button; the installed version takes effect after the user restarts DSH.
 
 ## User workflow
 
 Open **Remote Ops → 更多设置 → 检查更新**. Select a source, save it, then click **仅检查版本** or **检查并更新**. The latter checks the source and installs a newer stable version in the current DSH profile. An identical or older version is not installed. A version already installed but awaiting restart is not installed again.
 
-- **HTTP / HTTPS 地址**: enter a directory URL or its `latest.json` URL. The manifest, tgz, checksum and redirect hops must stay on the configured origin. No embedded credentials, query-token URLs or custom authentication headers in this version. Internal HTTPS certificates must be trusted by the DSH Node process; never disable TLS validation as a workaround.
-- GitHub Release remains the default source. Custom update sources accept HTTP/HTTPS only; local paths, file://, shared directories, FTP and SFTP are not update sources. Serve the release directory through an HTTP/HTTPS server first.
+- **HTTP / HTTPS 地址**: enter a directly readable directory URL or its `latest.json` URL, using the scheme, host and path. The server must allow direct downloads from the DSH host. The manifest, tgz, checksum and redirect hops must stay on the configured origin. Internal HTTPS certificates must be trusted by the DSH Node process; preserve TLS validation.
+- **GitHub Release** is the default source. For an internal mirror, serve the release directory through HTTP/HTTPS and save that address in the dialog.
 
-Dependencies use DSH's existing package-manager registry, proxy and build-approval configuration. The release directory is not an npm registry. The user must provide a reachable internal registry when public registries are inaccessible. Chromium is not in the update package; use **remote-ops-browser** for an explicitly requested matching browser installation.
+Dependencies use DSH's package-manager registry, proxy and build-approval configuration. Configure a reachable internal npm registry when public registries are inaccessible. Use **remote-ops-browser** when the task needs matching Chromium installed on demand.
 
 ## Prepare a release feed
 
@@ -26,7 +26,7 @@ node <plugin-root>/scripts/create-update-manifest.mjs <release-directory>/dsh-re
 
 The default output is `latest.json` beside the tgz. To keep versions in subdirectories, pass a second argument pointing to `latest.json` in a parent directory. That output directory must already exist. The script validates SHA256, package name, version and bundle metadata before writing the manifest atomically; it refuses a lower version than an existing manifest. Relative asset URLs allow the directory to be served at any HTTP/HTTPS address.
 
-Upload/copy the tgz and checksum first, then publish `latest.json` last. Never rewrite an already published version with different contents. Retain the previous release for manual recovery. GitHub Release continues to contain only tgz and SHA256; `latest.json` is generated for the internal mirror, not a third GitHub asset.
+Upload the tgz and checksum first, then publish `latest.json` last. Keep published version contents immutable and retain the previous release for manual recovery. GitHub Release provides the tgz and SHA256 pair; generate `latest.json` when deploying the internal mirror.
 
 ## Verify and diagnose
 

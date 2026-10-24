@@ -37,4 +37,4 @@ npm run e2e --prefix e2e -- --grep 窄屏
 - 环境密码按需显示/隐藏、关闭后清除、查看不改写、替换密码、慢请求取消及失败重试
 - 390 像素窄屏没有横向溢出
 
-测试宿主通过 `agent/pre-step` 绑定 canonical turn signal，取消端点模拟 DSH 的对话取消；不提供额外 Agent 接管/暂停/停止工具。原生停止按钮和主对话/右侧栏行为仍须另行在真实 DSH 验收。
+测试宿主通过 `agent/pre-step` 绑定 canonical turn signal，取消端点模拟 DSH 的对话取消。原生停止按钮和主对话/右侧栏行为须在真实 DSH 验收。

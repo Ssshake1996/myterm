@@ -1,16 +1,16 @@
 # dsh-remote-ops 开发交接说明
 
-> 基线日期：2026-10-12
-> 基线版本：`dsh-remote-ops v0.2.30`
+> 文档更新日期：2026-10-24
+> 当前发布版本：`dsh-remote-ops v0.8.2`；实际版本以 `package.json` 与 `lib/version.js` 为准
 > 基线提交：以 `git log -1` 为准  
 > 项目根目录：`F:\myterm`  
 > GitHub：`Ssshake1996/myterm`
 
-v0.2.30 修正左侧入口展开时的左对齐，与宿主原生入口的图标和文字缩进一致；收起时图标居中。点击继续通过官方 sidebar.footer.action / sidebarRight.openTab 打开原生右栏，保留主对话与草稿。四份 README 与 dsh-plugin-ui Skill v0.1.3 同步。真实宿主及安装包验收边界见 [v0.2.30](releases/dsh-remote-ops-v0.2.30.md)。
+当前产品用法见[根 README](../README.md)和[插件指南](../integrations/dsh-remote-ops/README.zh-CN.md)。v0.8.2 提供 HTTP/HTTPS 手动更新，正式包已完成真实 DSH 安装与重启验收；证据及验证范围见 [v0.8.2 验收记录](testing/dsh-remote-ops-v0.8.2-acceptance.md)。下文历史交接记录保留当时事实，当前行为以源码与当前指南为准。
 
 ## 1. 产品边界
 
-本仓库当前只维护 DeepSeek Harness 的 `@dsh/remote-ops` 插件，不再维护 myterm 桌面程序、Tauri 宿主、旧 Agent 内核或第二套模型循环。
+本仓库维护 DeepSeek Harness 的 `@dsh/remote-ops` 插件。
 
 DeepSeek Harness 负责：
 
@@ -25,12 +25,20 @@ Remote Ops 插件负责：
 - 完整命令、原始按键、信号和多 SSH 顺序协同。
 - SFTP 文件操作。
 - 快捷命令及其分组。
+- 可保存的 RESTful 环境、Token/Cookie 登录、请求与记录。
+- 插件内/独立窗口网页操作、浏览器运行时安装与网站/流程配置。
+- 终端高亮、日志读取与 TXT/ZIP 导出。
+- GitHub Release 与 HTTP/HTTPS 更新源配置及手动更新。
 - Agent 可调用的远程运维工具和诊断事件。
-- DSH Web 左侧底部入口打开原生右侧 Sidebar，保留主对话；不注册替换对话的主工作区。
+- DSH Web 左侧底部入口打开原生右侧 Sidebar，保留主对话。
 
-开发时不能把 Agent Loop、权限系统、MCP 调度或旧 myterm 代码重新引入插件。
+通过 DSH 的公开服务接入 Agent、权限、MCP 调度及插件生命周期。
 
-## 2. 当前版本状态
+## 2. 历史交接记录
+
+本节保留 v0.2.30 及以前的开发与验收事实。当前版本状态见本文顶部链接。
+
+v0.2.30 修正左侧入口展开时的左对齐，与宿主原生入口的图标和文字缩进一致；收起时图标居中。点击继续通过官方 sidebar.footer.action / sidebarRight.openTab 打开原生右栏，保留主对话与草稿。四份 README 与 dsh-plugin-ui Skill v0.1.3 同步。真实宿主及安装包验收边界见 [v0.2.30](releases/dsh-remote-ops-v0.2.30.md)。
 
 v0.2.30 验收包括真实 DSH 0.2.0-rc.2 展开入口几何对齐、收起图标居中与 Tooltip、同一主对话编辑器与草稿保留、唯一右栏标签页、关闭/重开、键盘及 390px 布局。E2E 单元 4 项、浏览器 9 场景通过，覆盖既有 SFTP 上传和刷新行为。完整门禁由发布脚本执行，验收证据与未重测边界见 [v0.2.30](releases/dsh-remote-ops-v0.2.30.md)。v0.2.29 的真实 SFTP 字节验证属于历史证据，不能当成本轮远端验收。
 
@@ -68,7 +76,7 @@ v0.2.21 已撤回的跨浏览器输入权锁、连接编号/备注保持撤回�
 ```text
 F:\myterm
 ├─ integrations/dsh-remote-ops/
-│  ├─ lib/index.js          # 插件入口：apply 装配与对外导出（约 30 行）
+│  ├─ lib/index.js          # 插件入口：apply 装配与对外导出
 │  ├─ lib/state/            # RemoteOpsState，按领域拆成可组合的层（每层 < 300 行）
 │  │  ├─ index.js           #   组合入口：StateBase + 各层 mixin，导出 RemoteOpsState
 │  │  ├─ base.js            #   构造函数、load、readJson（所有层共享的字段在此创建）
@@ -93,6 +101,12 @@ F:\myterm
 │  ├─ lib/commands.js       # 宿主 subprocess/SSH exec 非交互命令
 │  ├─ lib/workspace-routes.js # 连接/控制/文件 HTTP 契约
 │  ├─ lib/diagnostics.js    # 原始错误链与白名单导出
+│  ├─ lib/browser-*.js      # 浏览器工作区、运行时、工具、路由和参数校验
+│  ├─ lib/api-*.js          # RESTful 环境、登录、请求、记录和 UI
+│  ├─ lib/log-*.js          # 日志归档与下载路由
+│  ├─ lib/skills.js         # 五份随包 skill 的注册
+│  ├─ skills/              # 网页、SSH 环境、API、终端日志与更新指南
+│  ├─ scripts/create-update-manifest.mjs # 内网更新清单生成
 │  ├─ lib/version.js        # 插件名称、版本和仓库
 │  ├─ cordis.patch.yml      # DSH bundle patch
 │  ├─ package.json          # npm scripts 和运行依赖
@@ -113,7 +127,7 @@ F:\myterm
 └─ .github/workflows/ci.yml, release.yml # CI 门禁；推送 dsh-remote-ops-v* Tag 后发布 GitHub Release
 ```
 
-插件包通过 `package.json.files` 只发布运行时文件和 README，不把测试目录打进生产包；测试仍保留在源码仓库和 CI 中。
+插件包通过 `package.json.files` 收录运行时、README、网页指南、随包 skill、更新清单脚本与许可声明。测试保留在源码仓库和 CI 中。
 
 ## 4. 运行时架构
 
@@ -127,26 +141,27 @@ connection / systemPrompt / tools / terminals / agents / credentials / subproces
 
 核心对象：
 
-- `RemoteOpsState`（`lib/state/`）：环境、快捷命令、会话、事件、掉线记录和 Release 状态。它是由 `StateBase` 加九个领域层（mixin 工厂 `(Base) => class extends Base`）组合出的一个对象，方法原样分布在各层；没有任何层覆盖另一层的方法（`test/state-layers.test.mjs` 检查方法清单、唯一归属和每个文件不超过 300 行）。新增方法放进最相关的层，层太大就再拆，不要回到一个大文件。发送流程委托 `performSend`（`lib/terminal-send.js`）。
+- `RemoteOpsState`（`lib/state/`）：环境、快捷命令、会话、事件、日志和更新状态，由 `StateBase` 与领域层（mixin 工厂 `(Base) => class extends Base`）组合。方法按职责归属各层，具体组合见 `state/index.js`；`test/state-layers.test.mjs` 检查唯一归属和文件大小。发送流程委托 `performSend`（`lib/terminal-send.js`）。
+- `BrowserWorkspace` 与 `ApiWorkspace`：网页与 API 环境、执行和会话生命周期；由插件入口装配。
 - `TerminalOutputBuffer`：有界 UTF-8 输出、绝对游标、增量读取和长轮询等待。
 - `LocalCmdTerminalSession`：无 SSH 时默认启动的本地终端。
 - `SshTerminalSession`：owner-scoped SSH PTY 会话。
 - `SendOperation`：完整命令发送、等待和结果读取。
-- `performSend`：解析环境预设与调用参数 → 提示规则循环（分页退出、`(y/n)`、脚本 answers，各有次数上限）→ 参数错误清行 → 渲染（去 ANSI、头尾摘要）。自动动作写入返回值 `autoActions` 和诊断事件。
+- `performSend`：解析环境预设与调用参数 → 提示规则循环（分页退出、显式脚本 answers，各有次数上限）→ 参数错误清行 → 渲染（去 ANSI、头尾摘要）。自动动作写入返回值 `autoActions` 和诊断事件。
 - `runScript`：先编译全部步骤再逐步调用 `send`；`failOn` 通过 `collectRaw` 检查完整原始输出。
 
 ### 4.2 Client
 
 `lib/client.js` 注册 DSH Web 右侧 Sidebar：
 
-- 终端是主要工作区，一直占据主区域。
+- 顶部提供终端、网页、API、文件四个工作区标签，默认进入终端。
 - 环境通过可隐藏抽屉管理。
 - 常用命令位于终端下方，默认展开，记住展开状态及可拖拽高度；按钮直接下发，管理独立。
-- SFTP 改为占满插件主区的本地/远端双栏工作区，诊断仍通过辅助面板打开。
+- 文件工作区提供本地/远端双栏，诊断、更新、密度等位于“更多设置”。
 - 没有 SSH 会话时显示本地 CMD。
 - 面板启动按钮只打开右侧 Sidebar，不启动新的 DSH 对话。
 
-终端显示使用轻量 VT 屏幕模型处理 ConPTY 的清屏、光标定位、回车覆盖、滚屏和控制键；不引入完整 xterm 依赖。输出通过 `/api/dsh-remote-ops/terminal` 以绝对游标增量和长轮询传递。
+终端显示使用轻量 VT 屏幕模型处理 ConPTY 的清屏、光标定位、回车覆盖、滚屏和控制键。输出通过 `/api/dsh-remote-ops/terminal` 以绝对游标增量和长轮询传递。
 
 ### 4.3 持久化
 
@@ -155,7 +170,10 @@ connection / systemPrompt / tools / terminals / agents / credentials / subproces
 ```text
 remote-ops/
 ├─ environments/<group>/environments.<group>.json
-└─ quick-commands/<group>/commands.<group>.json
+├─ quick-commands/<group>/commands.<group>.json
+├─ browser/                 # 网站、流程、显示偏好及专用 profile
+├─ api/environments.json    # API 环境和凭据引用
+└─ update-settings.json     # 更新源配置
 ```
 
 环境 JSON 不能保存明文 SSH 密码。密码由 Harness `credentials.set` 保存，环境只保存合法的 `passwordRef`。私钥只保存本机路径引用。
@@ -166,11 +184,14 @@ remote-ops/
 
 当前 Host 工具包括：
 
-- 环境：`remote_environment_list/create/delete`，以及环境分组的 create/rename/delete。
+- 环境：`remote_environment_list/create/update/delete`，以及环境分组的 create/rename/delete。
 - 终端：`remote_terminal_open/send/input/read/signal/close/batch/resize/script`。
 - 独立命令：`remote_command_execute`，不继承交互终端工作目录/环境变量。
 - 快捷命令：`remote_quick_command_list/save/delete/group_create/group_delete/run`。
 - SFTP：`remote_sftp_list/read/write/mkdir/delete/rename/upload/download`。
+- 网页：`remote_browser_runtime/list/open/login/run/read/control`。
+- API：`remote_api_environment_list/save/delete`、`remote_api_login/request/records`。
+- 终端日志：`remote_terminal_logs`、`remote_terminal_log_read/export`。
 - 诊断：`remote_diagnostics`。
 
 工具原则：
@@ -184,10 +205,10 @@ remote-ops/
 7. 发送默认返回 16 Ki 码元的新输出；续读传 `cursor=nextOffset`、`streamId`、`waitMs`，先读完 `hasMore`。流替换或游标过期必须处理 `reset/truncated`。
 8. `completion: "unknown"` 是刻意的契约：静默、超时和存活 PTY 都不证明命令完成。工具输出是原始流，不是渲染后的屏幕，也不提供任意交互程序的可靠退出码。
 9. 独立命令只有实际观察到正常退出才返回 `completion: "exited"`；取消/超时/没有退出消息保持 unknown。远端通道关闭不证明进程已结束，不能伪造 terminationConfirmed。
-10. 工具回执是 owner/stream 上实际返回的数据范围，不代表模型理解；UI 读流不能产生工具回执。人工输入不再使用浏览器 clientId；Agent 写入仍受人工状态保护，SSH 连接仍按 owner 隔离。
-11. 设备 CLI 辅助：`remote_terminal_send/batch/quick_command_run/script` 支持 `autoQuitMore`、`autoSigint`，逻辑在 `lib/terminal-send.js` 与 `lib/cli-assist.js`，只作用于 Agent 发送；每步写入返回值 `autoActions` 与诊断事件，分页退出最多 3 次。**插件不会自动回答 `(y/n)`**：v0.2.24/v0.2.25 的 `autoConfirm`/`confirmPattern` 已移除（自动输入 `y` 可能批准破坏性操作）。仍传这两个参数的调用得到 `notices`；`cliProfile.autoConfirm/confirmPattern` 在保存时被拒绝（`REMOTE_ENV_INVALID`），旧环境文件里的残留值读盘时丢弃。不要重新引入内置的 `y`/`yes` 规则；契约测试会检查。
-12. 环境预设（0.2.25）：`cliProfile` 提供上述选项及 `stripAnsi`/`headTailChars` 的默认值，调用参数优先；落盘前规范化（去掉默认值），保存空值清除、省略字段保留，读盘时容错（坏字段丢弃但不隐藏环境）。预设可以让某环境默认自动确认，所以表单必须保留“也会回答高风险提示”的警示。
-13. 输出渲染（0.2.25）：`stripAnsi`/`headTailChars` 只改变返回给模型的文本；偏移和游标始终是原始流。去 ANSI 的分页会向前延伸到转义序列结束（不在序列中间截断）；流末尾残缺的序列直接丢弃。摘要返回 `omitted` 原始区间，摘要后的发送在回执中记为 truncated。
+10. 工具回执是 owner/stream 上实际返回的数据范围，不代表模型理解；UI 读流不能产生工具回执。人工与 Agent 共享输入，`streamId` 校验阻止写入已替换的流；SSH 连接按 owner 隔离。
+11. 设备 CLI 辅助：`remote_terminal_send/batch/quick_command_run/script` 支持 `autoQuitMore`、`autoSigint`，逻辑在 `lib/terminal-send.js` 与 `lib/cli-assist.js`，作用于 Agent 发送；每步写入 `autoActions` 与诊断事件，分页退出最多 3 次。设备确认提示由调用方核对后回复；固定流程通过显式 `answers` 声明应答。
+12. 环境预设：`cliProfile` 提供上述选项及 `stripAnsi`/`headTailChars` 的默认值，调用参数优先。创建/更新的数据契约见随包环境管理 skill；读盘时坏字段丢弃但保留环境。
+13. 输出渲染：`stripAnsi`/`headTailChars` 只改变返回给模型的文本；偏移和游标始终是原始流。去 ANSI 的分页会向前延伸到转义序列结束；流末尾残缺的序列丢弃。摘要返回 `omitted` 原始区间，摘要后的发送在回执中记为 truncated。
 14. `remote_terminal_script`：全部步骤先编译校验再输入；`answers` 只在输出末尾匹配时回答，每项有 `times` 上限；`expect` 看输出末尾，`failOn` 看完整原始输出（`collectRaw`），不会被摘要隐藏；超时、取消、会话退出和检查失败都会停止并保留已执行步骤。答案会回答所有匹配提示，只脚本化用户已批准的命令。
 15. 可选工具通过 `registerOptionalTool` 注册：宿主拒绝嵌套 schema 时只在 `remote_diagnostics.toolWarnings` 报告，不会让插件无法启动。工具只转发已声明参数（`pick`/`pickSendOptions`），内部开关（`actor`、`answers`、`collectRaw`）不能由模型参数传入。
 16. SSH 尺寸与掉线（0.2.25）：`SshTerminalSession.resize` 使用 ssh2 `setWindow`；终端帧带 `size`，客户端按它换行。本地 CMD 固定 40×160，宿主接管会话不可调整。会话记录 `closeReason`，意外掉线写入 `state.disconnects`（每 owner 最近 10 条）和 `ssh.disconnected` 事件，主动释放不记录；永久 client `error` 监听避免迟到的传输错误变成未捕获异常。
@@ -256,19 +277,18 @@ Windows 也可用 `scripts/release-dsh-remote-ops.ps1 -Version X.Y.Z`（只委�
 
 发布后需要更新本机 3080 profile，重启 DSH，再做一次安装态页面验收。安装态验证不需要重复完整 2000 行性能测试，但必须确认版本、短命令、终端尺寸和输出末行。
 
-## 9. 已知限制和后续方向
+## 9. 运行条件和状态保留
 
-- 没有把完整浏览器运行时放进插件包；页面测试依赖 DSH Web 宿主。
+- 浏览器运行时按需安装；独立窗口需要 DSH 与用户处于同一交互桌面。
 - SSH/SFTP 的真实可用性受网络、远端权限、凭据和目标系统影响，自动化测试使用 fake terminal，不伪装成真实远程成功。每个 owner 在单个环境最多保留 3 个连接，具体连接通过 sessionId 释放。
-- 输出缓冲保留有界历史，过期游标会返回受控最近内容，不承诺无限终端回放。断开标签最多保留 12 个；编号/备注不跨进程恢复。
+- 输出缓冲保留有界历史，过期游标返回截断信息。断开标签最多保留 12 个。
 - SFTP 任务与未完成项重试不跨 DSH 重启；浏览器只保存会话级路径/排序/滚动/书签，不保存旧列表或勾选。覆盖预览只读，不能替代传输时的再次检查。
 - 独立命令每目标最多一个、总计最多 8 个；默认 30 秒、最长 300 秒，stdout/stderr 各默认 64 KiB、上限 256 KiB，超限继续排空并明确截断。
 - 本地 CMD 是插件共享终端；SSH 仍按 Agent owner 隔离。Agent 绑定状态不是输出已读回执，工具/界面视图也不代表 shell 命令完成。
 - 本地 CMD 固定 40×160（宿主没有运行时 resize API）；SSH 连接可调整，但已输出内容不重排；插件重载后由宿主持有（adopted）的连接不可调整。
-- 脚本 `answers` 会在其 pattern 匹配时输入调用里声明的文本（包括确认提示处的 `y`）；目前没有按命令内容的白名单或拒绝名单，也不识别密码类提示，所以只脚本化用户已批准的操作。这是下一步安全护栏的候选项。
-- 设备 CLI 辅助、脚本和输出渲染只用脚本化 fake 终端验证；真实设备的提示文本、回车语义、清行效果和真实 DSH 宿主上的嵌套工具 schema 仍需在目标环境验收。
+- 脚本 `answers` 在 pattern 匹配时输入调用声明的文本（包括确认提示处的 `y`），用于用户已批准的操作。
+- 真实设备的提示文本、回车语义和清行效果须在目标环境验收；自动化及宿主验证范围以各版本验收记录为准。
 - 掉线记录是进程内的最近 10 条，不跨宿主重启；插件不会自动重连或重放命令。
-- 不新增第二套 Agent 循环、权限门禁、MCP 调度或长期记忆。
 - 后续若引入新 Transport、终端渲染器或持久数据格式，必须先更新交接文档、测试矩阵和迁移说明。
 
 ## 10. 新对话开始时的最小动作
