@@ -1,74 +1,188 @@
-import { readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
+import { join, isAbsolute, basename, posix, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 import { PLUGIN_NAME, PLUGIN_VERSION, RELEASE_REPOSITORY } from "./version.js";
 import { sessionError } from "./common.js";
+import { updateFilePath, readUpdateFile } from "./update-files.js";
 
-const VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
-const RELEASE_API = `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/latest`;
 export const UPDATE_CACHE_MS = 10 * 60 * 1000;
+export const UPDATE_PACKAGE = "@dsh/remote-ops";
+export const MAX_UPDATE_BYTES = 64 * 1024 * 1024;
+const RELEASE_API = `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/latest`;
+const defaults = { source: "github", url: "" };
+const fail = (code, message) => sessionError(code, message);
 
-function parseVersion(value) {
-  const match = VERSION_RE.exec(String(value ?? "").trim());
-  return match ? { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]), value: `${match[1]}.${match[2]}.${match[3]}` } : undefined;
+export function parseReleaseVersion(value) {
+  if (typeof value !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value)) throw fail("UPDATE_METADATA_INVALID", "仅支持稳定版本号，例如 0.8.1");
+  const numbers = value.split(".").map(Number);
+  if (!numbers.every(Number.isSafeInteger)) throw fail("UPDATE_METADATA_INVALID", "版本号超出有效范围");
+  return numbers;
 }
 
-function compareVersions(left, right) {
-  const a = parseVersion(left) ?? { major: 0, minor: 0, patch: 0 };
-  const b = parseVersion(right) ?? { major: 0, minor: 0, patch: 0 };
-  return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
+export function compareVersions(left, right) {
+  const a = parseReleaseVersion(left), b = parseReleaseVersion(right);
+  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 }
 
-export async function fetchLatestRelease() {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
-  try {
-    const response = await fetch(RELEASE_API, { headers: { Accept: "application/vnd.github+json", "User-Agent": PLUGIN_NAME }, signal: controller.signal });
-    if (!response.ok) throw sessionError("UPDATE_CHECK_FAILED", `GitHub release API returned HTTP ${response.status}`);
-    const payload = await response.json();
-    const version = parseVersion(String(payload.tag_name ?? "").replace(/^dsh-remote-ops-v/, ""));
-    if (!version) throw sessionError("UPDATE_METADATA_INVALID", "Latest release tag does not contain a valid plugin version");
-    const assetName = `dsh-remote-ops-v${version.value}.tgz`;
-    const asset = Array.isArray(payload.assets) ? payload.assets.find((item) => item?.name === assetName && typeof item.browser_download_url === "string") : undefined;
-    if (!asset) throw sessionError("UPDATE_ASSET_MISSING", `Latest release does not contain ${assetName}`);
-    return { currentVersion: PLUGIN_VERSION, latestVersion: version.value, updateAvailable: compareVersions(version.value, PLUGIN_VERSION) > 0, releaseUrl: payload.html_url, assetUrl: asset.browser_download_url, assetName, publishedAt: payload.published_at ?? null };
-  } catch (error) {
-    if (error?.name === "AbortError") throw sessionError("UPDATE_CHECK_TIMEOUT", "GitHub release check timed out");
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
+function httpUrl(value) {
+  let url;
+  try { url = new URL(value); } catch { throw fail("UPDATE_URL_INVALID", "请填写完整的 HTTP 或 HTTPS 更新地址"); }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.hash || url.search) throw fail("UPDATE_URL_INVALID", "更新地址需为 HTTP/HTTPS，不能包含账号密码、查询参数或片段");
+  return url;
 }
 
-export async function findProfileRoot() {
-  const starts = [process.cwd(), dirname(fileURLToPath(import.meta.url))];
-  for (const start of starts) {
-    let current = resolve(start);
-    for (let depth = 0; depth < 10; depth += 1) {
-      const manifest = await readFile(join(current, "package.json"), "utf8").then((value) => JSON.parse(value)).catch(() => undefined);
-      if (manifest?.dsh?.profile?.bundles && manifest?.dependencies?.["@dsh/remote-ops"]) return current;
-      const parent = dirname(current);
-      if (parent === current) break;
-      current = parent;
+export function normalizeUpdateSettings(value = defaults) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || !["github", "custom", "filesystem", "sftp"].includes(value.source)) throw fail("UPDATE_SETTINGS_INVALID", "请选择有效的更新来源");
+  if (value.source === "github") return { ...defaults };
+  if (value.source === "filesystem" || value.source === "sftp") {
+    if (typeof value.path !== "string" || !value.path.trim() || value.path.length > 4096 || value.path.includes("\0")) throw fail("UPDATE_PATH_INVALID", "请填写更新目录的绝对路径");
+    let path = value.path.trim();
+    if (value.source === "filesystem") {
+      if (path.startsWith("file:")) { try { path = fileURLToPath(path); } catch { throw fail("UPDATE_PATH_INVALID", "file URL 无效"); } }
+      if (!isAbsolute(path)) throw fail("UPDATE_PATH_INVALID", "本机目录必须是 DSH 主机上的绝对路径");
+      path = normalize(path);
+      return { source: "filesystem", path: basename(path) === "latest.json" ? path : join(path, "latest.json") };
     }
+    if (!path.startsWith("/") || path.includes("\\") || typeof value.environment !== "string" || !value.environment.trim()) throw fail("UPDATE_PATH_INVALID", "SFTP 需要选择 SSH 环境并填写以 / 开头的绝对路径");
+    path = posix.normalize(path);
+    return { source: "sftp", environment: value.environment.trim(), path: posix.basename(path) === "latest.json" ? path : posix.join(path, "latest.json") };
   }
-  throw sessionError("UPDATE_PROFILE_NOT_FOUND", "Unable to locate the active DSH profile package.json");
+  if (typeof value.url !== "string" || value.url.length > 2048) throw fail("UPDATE_URL_INVALID", "请填写更新目录或 latest.json 地址");
+  const url = httpUrl(value.url.trim());
+  if (!url.pathname.endsWith("/latest.json")) url.pathname = url.pathname.replace(/\/$/, "") + "/latest.json";
+  return { source: "custom", url: url.href };
 }
 
-export function runPnpm(cwd, args) {
-  const command = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { cwd, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    const append = (target, chunk) => {
-      const value = target + chunk.toString("utf8");
-      return value.length > 24_000 ? value.slice(-24_000) : value;
-    };
-    child.stdout.on("data", (chunk) => { stdout = append(stdout, chunk); });
-    child.stderr.on("data", (chunk) => { stderr = append(stderr, chunk); });
-    child.once("error", reject);
-    child.once("close", (code, signal) => resolvePromise({ code: code ?? 1, signal, stdout, stderr }));
-  });
+export async function readUpdateSettings(root) {
+  try { return normalizeUpdateSettings(JSON.parse(await readFile(join(root, "update-settings.json"), "utf8"))); }
+  catch (error) {
+    if (error.code === "ENOENT") return { ...defaults };
+    throw fail("UPDATE_SETTINGS_INVALID", "更新设置无法读取，请在插件更新中重新保存地址");
+  }
+}
+
+export async function writeUpdateSettings(root, settings) {
+  await mkdir(root, { recursive: true });
+  const temporary = join(root, `update-settings.${randomUUID()}.tmp`);
+  try { await writeFile(temporary, JSON.stringify(settings, null, 2) + "\n"); await rename(temporary, join(root, "update-settings.json")); }
+  finally { await unlink(temporary).catch(() => {}); }
+}
+
+// Custom sources stay on their configured origin, including redirect hops.
+export async function fetchUpdateBytes(address, { limit = 256 * 1024, timeoutMs = 12000, origin, signal, fetchImpl = fetch } = {}) {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const combined = signal ? AbortSignal.any([timeout, signal]) : timeout;
+  let url = httpUrl(address);
+  try {
+    for (let redirects = 0; redirects <= 5; redirects++) {
+      if (origin && url.origin !== origin) throw fail("UPDATE_URL_INVALID", "内网更新文件及重定向必须位于配置地址的同一来源");
+      const response = await fetchImpl(url.href, { redirect: "manual", cache: "no-store", signal: combined, headers: { "User-Agent": PLUGIN_NAME, "Cache-Control": "no-cache" } });
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        await response.body?.cancel();
+        const location = response.headers.get("location");
+        if (!location) throw fail("UPDATE_DOWNLOAD_FAILED", "更新地址返回了无目标的重定向");
+        const next = new URL(location, url);
+        // GitHub assets use signed query parameters on HTTPS redirects.
+        if (url.protocol === "https:" && next.protocol !== "https:") throw fail("UPDATE_URL_INVALID", "更新下载不能从 HTTPS 降级到 HTTP");
+        if (!["http:", "https:"].includes(next.protocol) || next.username || next.password || next.hash) throw fail("UPDATE_URL_INVALID", "无效的更新重定向");
+        url = next;
+        continue;
+      }
+      if (!response.ok) { await response.body?.cancel(); throw fail("UPDATE_DOWNLOAD_FAILED", `更新源返回 HTTP ${response.status}`); }
+      if (Number(response.headers.get("content-length")) > limit) { await response.body?.cancel(); throw fail("UPDATE_TOO_LARGE", "更新文件超过大小限制"); }
+      const chunks = []; let size = 0;
+      if (response.body) for await (const chunk of response.body) {
+        size += chunk.byteLength;
+        if (size > limit) throw fail("UPDATE_TOO_LARGE", "更新文件超过大小限制");
+        chunks.push(Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks);
+    }
+    throw fail("UPDATE_DOWNLOAD_FAILED", "更新地址重定向次数过多");
+  } catch (error) {
+    if (timeout.aborted) throw fail("UPDATE_CHECK_TIMEOUT", "访问更新源超时，请检查内网地址和网络连接");
+    if (signal?.aborted) throw fail("UPDATE_CANCELLED", "插件已关闭，更新下载已取消");
+    if (error.code?.startsWith("UPDATE_")) throw error;
+    throw fail("UPDATE_DOWNLOAD_FAILED", "无法访问更新源，请检查网络、地址及 DSH 主机的证书配置");
+  }
+}
+
+function assetUrl(value, base) {
+  if (typeof value !== "string" || !value.trim()) throw fail("UPDATE_METADATA_INVALID", "版本清单缺少安装包或校验文件地址");
+  let url;
+  try { url = httpUrl(new URL(value, base).href); } catch { throw fail("UPDATE_URL_INVALID", "安装包或校验文件地址无效"); }
+  if (url.origin !== new URL(base).origin) throw fail("UPDATE_URL_INVALID", "内网安装包和校验文件必须与版本清单位于同一来源");
+  return url.href;
+}
+
+export async function fetchLatestRelease(settings = defaults, options = {}) {
+  const config = normalizeUpdateSettings(settings), custom = config.source !== "github", fileSource = ["filesystem", "sftp"].includes(config.source) ? config : undefined;
+  const origin = config.source === "custom" ? new URL(config.url).origin : undefined;
+  const bytes = fileSource ? await readUpdateFile(config, config.path, options) : await fetchUpdateBytes(custom ? config.url : RELEASE_API, { ...options, origin });
+  let payload;
+  try { payload = JSON.parse(bytes.toString("utf8")); } catch { throw fail("UPDATE_METADATA_INVALID", "更新入口必须返回 JSON 版本清单"); }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw fail("UPDATE_METADATA_INVALID", "更新入口必须返回 JSON 对象");
+  const version = custom ? payload.version : String(payload.tag_name ?? "").replace(/^dsh-remote-ops-v/, "");
+  parseReleaseVersion(version);
+  const assetName = `dsh-remote-ops-v${version}.tgz`, checksumName = `SHA256SUMS-dsh-remote-ops-v${version}.txt`;
+  let asset, checksum;
+  if (custom) {
+    if (payload.schemaVersion !== 1 || payload.package !== UPDATE_PACKAGE) throw fail("UPDATE_METADATA_INVALID", "版本清单必须使用 schemaVersion 1 和 @dsh/remote-ops 包名");
+    asset = fileSource ? updateFilePath(payload.asset, config.path, config.source) : assetUrl(payload.asset, config.url);
+    checksum = fileSource ? updateFilePath(payload.checksum, config.path, config.source) : assetUrl(payload.checksum, config.url);
+  } else {
+    if (payload.draft || payload.prerelease) throw fail("UPDATE_METADATA_INVALID", "只安装正式稳定版本");
+    const find = name => Array.isArray(payload.assets) && payload.assets.find(item => item?.name === name)?.browser_download_url;
+    if (!find(assetName) || !find(checksumName)) throw fail("UPDATE_ASSET_MISSING", "Release 缺少 tgz 或 SHA256 校验文件");
+    asset = httpUrl(find(assetName)).href; checksum = httpUrl(find(checksumName)).href;
+  }
+  return { currentVersion: PLUGIN_VERSION, latestVersion: version, updateAvailable: compareVersions(version, PLUGIN_VERSION) > 0, assetUrl: asset, checksumUrl: checksum, assetName, source: config.source, origin, fileSource };
+}
+
+export function expectedChecksum(text, assetName) {
+  const matches = String(text).split(/\r?\n/).map(line => /^([a-f\d]{64})\s+\*?(.+)$/i.exec(line.trim())).filter(match => match && match[2] === assetName);
+  if (matches.length !== 1) throw fail("UPDATE_CHECKSUM_INVALID", "SHA256 文件必须包含且仅包含一条与安装包文件名匹配的校验值");
+  return matches[0][1].toLowerCase();
+}
+
+// Read metadata only; never extract an unverified archive or execute package code.
+export function inspectUpdatePackage(bytes, version) {
+  let tar;
+  try { tar = gunzipSync(bytes, { maxOutputLength: 128 * 1024 * 1024 }); } catch { throw fail("UPDATE_PACKAGE_INVALID", "安装包不是有效的 tgz 或解压大小超限"); }
+  let manifest;
+  for (let offset = 0; offset + 512 <= tar.length;) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every(byte => byte === 0)) break;
+    const name = header.subarray(0, 100).toString().replace(/\0.*$/, "");
+    const sizeText = header.subarray(124, 136).toString().replace(/\0.*$/, "").trim();
+    const size = /^[0-7]+$/.test(sizeText) ? parseInt(sizeText, 8) : NaN;
+    if (!Number.isSafeInteger(size) || offset + 512 + size > tar.length) throw fail("UPDATE_PACKAGE_INVALID", "安装包内容不完整");
+    if (name === "package/package.json") {
+      if (manifest || size > 128 * 1024 || ![0, 48].includes(header[156])) throw fail("UPDATE_PACKAGE_INVALID", "安装包清单无效或重复");
+      try { manifest = JSON.parse(tar.subarray(offset + 512, offset + 512 + size).toString()); } catch { throw fail("UPDATE_PACKAGE_INVALID", "安装包清单无法解析"); }
+    }
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+  if (manifest?.name !== UPDATE_PACKAGE || manifest.version !== version || !manifest.dsh?.bundle) throw fail("UPDATE_PACKAGE_INVALID", "安装包名称、版本或 DSH bundle 与更新清单不一致");
+  return manifest;
+}
+
+export async function downloadRelease(release, root, options = {}) {
+  const { onPhase = () => {}, ...network } = options;
+  const read = (location, extra) => release.fileSource ? readUpdateFile(release.fileSource, location, { ...network, ...extra }) : fetchUpdateBytes(location, { ...network, origin: release.origin, ...extra });
+  const checksum = expectedChecksum((await read(release.checksumUrl, { limit: 64 * 1024 })).toString(), release.assetName);
+  onPhase("downloading");
+  const bytes = await read(release.assetUrl, { limit: MAX_UPDATE_BYTES, timeoutMs: 120000 });
+  onPhase("verifying");
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  if (digest !== checksum) throw fail("UPDATE_CHECKSUM_MISMATCH", "SHA256 校验失败，未执行安装，请重新上传正确的安装包与校验文件");
+  inspectUpdatePackage(bytes, release.latestVersion);
+  const directory = join(root, "updates", digest);
+  await mkdir(directory, { recursive: true });
+  const path = join(directory, release.assetName), temporary = path + "." + randomUUID() + ".tmp";
+  try { await writeFile(temporary, bytes); await rename(temporary, path); }
+  finally { await unlink(temporary).catch(() => {}); }
+  return { path, sha256: digest };
 }

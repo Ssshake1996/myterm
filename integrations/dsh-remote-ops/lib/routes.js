@@ -101,7 +101,21 @@ export function registerRoutes(ctx, state) {
     methods: ["GET", "POST"],
     requestBody: "buffered",
     fetch: async (request) => {
-      try { await state.ready; if (request.method === "POST") return Response.json(await state.upgrade(), { headers: { "Cache-Control": "no-store" } }); return Response.json(await state.checkForUpdate(), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); }
+      try {
+        await state.ready;
+        let value;
+        if (request.method === "GET") value = await state.updateStatus();
+        else {
+          const text = await request.text();
+          const body = text ? JSON.parse(text) : { action: "install" };
+          if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "UPDATE_ACTION_INVALID", code: "UPDATE_ACTION_INVALID" }, { status: 400, headers: { "Cache-Control": "no-store" } });
+          if (body.action === "settings") value = await state.saveUpdateSettings(body.settings);
+          else if (body.action === "check") { await state.checkForUpdate(true); value = await state.updateStatus(); }
+          else if (body.action === "install") value = await state.upgrade();
+          else return Response.json({ error: "UPDATE_ACTION_INVALID", code: "UPDATE_ACTION_INVALID" }, { status: 400, headers: { "Cache-Control": "no-store" } });
+        }
+        return Response.json(value, { headers: { "Cache-Control": "no-store" } });
+      } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); }
     },
   });
   registerRoute(ctx, "dsh-remote-ops action route", {

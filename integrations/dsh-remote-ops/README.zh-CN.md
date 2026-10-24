@@ -6,6 +6,34 @@
 
 客户端兼容 DSH 0.2.0-rc.2 的 `Regular` 图标导出，并回退支持旧版按尺寸命名的图标。v0.2.23 修复图标导出变化导致的 Remote Ops 面板空白；启动失败提示改由 DSH `shell.overlay` 宿主插槽承载，不再向页面 body 创建全局浮层。
 
+## 内网与文件源手动更新（v0.8.1）
+
+Remote Ops → **更多设置 → 检查更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。支持 GitHub Release、HTTP/HTTPS 地址、DSH 主机上的文件目录/共享盘，以及已有 SSH 环境的 SFTP 目录。打开面板或更新对话框不会访问更新源，没有定时检查或自动重启。安装后显示运行版本与已安装版本，需完全重启 DSH 并刷新网页后生效；等待重启时不会重复安装。
+
+三种自定义来源使用同一目录结构：
+
+```text
+remote-ops/
+  latest.json
+  dsh-remote-ops-v0.8.1.tgz
+  SHA256SUMS-dsh-remote-ops-v0.8.1.txt
+```
+
+上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
+
+```sh
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.8.1.tgz
+```
+
+已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；相同目录可直接用于 HTTP、共享盘或 SFTP。GitHub 仍只发布 tgz 和 SHA256。
+
+- HTTP/HTTPS：填写目录地址或 `latest.json` 地址，文件及重定向限于同一来源。首版不支持地址内密码、查询令牌或自定义认证头。内部 HTTPS 证书需由 DSH 的 Node 进程信任。
+- 文件目录：填写 DSH 主机可访问的绝对路径、Windows UNC 共享目录或 `file://` URL。使用运行 DSH 的账号权限，不是浏览器电脑的本地路径。
+- SFTP：选择已保存的 SSH 环境，填写远端绝对目录（如 `/releases/remote-ops`）。复用环境密码/密钥，不打开终端；设置只保存环境 ID 和路径。
+- 依赖沿用 DSH 的 npm/pnpm 源、代理和构建批准配置；内网需有可用的依赖源。Chromium 仍按需安装，不在更新包中。
+
+更新包下载至 DSH 主机缓存，校验 SHA256 和包身份后，通过当前 profile 的 DSH 插件管理器安装。校验失败不安装；旧版不自动降级；设置保存在 `$DSH_HOME/remote-ops/update-settings.json`，同一 DSH home 共享，安装只影响当前 profile。失败时显示原因和宿主安装日志入口；DSH 恢复 manifest/锁文件不等于清理全部依赖缓存。升级不主动关闭现有连接，运行中的任务不跨重启恢复。旧版电脑需先手动安装一次本版本。随包 `remote-ops-updates` skill 提供源配置、清单生成和排错说明，不修改 Agent。
+
 ## RESTful 环境与执行工作区（v0.8.0）
 
 - 新增 **API** 工作区：保存环境的 Base URL、分组、公共请求头、超时、私有 CA 和登录配置。API 环境独立于 SSH，可选关联同一设备的 SSH 环境；已有 SSH 数据无需迁移。
@@ -118,7 +146,7 @@
 - 支持快捷命令保存和执行。
 - 提供 Agent 可读取的诊断事件，以及 DSH 右侧 Sidebar。
 - DSH Web 左侧底部 `Remote Ops` 入口打开原生右侧 Sidebar，保留主对话与草稿；重复点击复用已有标签页，收起右栏即可返回对话。左侧入口展开时图标与文字左对齐，缩进与宿主原生入口一致；收起时仅显示居中的图标和 Tooltip。
-- “更多设置”显示已安装版本，可检查 GitHub Release，并一键安装新版本；检查更新和刷新都会显示进行中、成功或失败状态，安装完成后需要重启 DSH。
+- “更多设置 → 检查更新”支持 GitHub、HTTP/HTTPS、文件目录/共享盘和 SFTP 更新源；手动检查并安装，显示运行版本和已安装版本，安装后需重启 DSH。
 - 快捷命令区域上边界可拖拽调整高度，双击恢复默认高度；环境表单不展示内部 Harness 凭据引用，密码由系统自动管理。
 - 连接错误会保留在界面中，直到用户手动关闭，避免错误提示快速消失。
 - 环境表单单独提供 SSH 密码输入框；密码通过 `credentials.set` 写入 Harness credentials，环境 JSON 只保存引用，不保存明文。
@@ -128,11 +156,11 @@
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.8.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.8.1.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“更多设置”显示 `v0.8.0`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“更多设置”显示 `v0.8.1`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
 
 如果使用已经发布到 registry 的包，则包名为：
 

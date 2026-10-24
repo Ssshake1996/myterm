@@ -1,22 +1,88 @@
+import { randomUUID } from "node:crypto";
 import { sessionError } from "../common.js";
-import { UPDATE_CACHE_MS, fetchLatestRelease, findProfileRoot, runPnpm } from "../release.js";
+import { PLUGIN_VERSION } from "../version.js";
+import { UPDATE_PACKAGE, UPDATE_CACHE_MS, compareVersions, normalizeUpdateSettings, readUpdateSettings, writeUpdateSettings, fetchLatestRelease, downloadRelease } from "../release.js";
 
-// Checking GitHub Releases for a newer plugin version and installing it.
+// All network checks and installation are explicit user actions. GET reads local state only.
 export const withUpdates = (Base) => class UpdatesLayer extends Base {
-  async checkForUpdate(force = false) {
-    if (!force && Date.now() - this.releaseCheckedAt < UPDATE_CACHE_MS) return this.release;
+  async loadUpdateSettings() {
+    if (!this.updateSettingsPromise) this.updateSettingsPromise = readUpdateSettings(this.base).then(value => this.updateSettings = value).catch(error => { this.updateSettingsPromise = undefined; throw error; });
+    return this.updateSettingsPromise;
+  }
+
+  async updateStatus() {
+    let settings, settingsError;
+    try { settings = await this.loadUpdateSettings(); } catch (error) { settings = { source: "github", url: "" }; settingsError = error.message; }
+    const bundles = await this.updateManager?.listBundles();
+    const installedVersion = bundles?.find(bundle => bundle.name === UPDATE_PACKAGE)?.version ?? PLUGIN_VERSION;
+    return { ...this.release, settings, currentVersion: PLUGIN_VERSION, installedVersion, restartRequired: installedVersion !== PLUGIN_VERSION, phase: this.updatePhase ?? "idle", busy: Boolean(this.updatePromise || this.releaseCheckPromise || this.updateSettingsWrite), checkedAt: this.releaseCheckedAt ? new Date(this.releaseCheckedAt).toISOString() : null, canInstall: Boolean(this.updateManager), error: settingsError ?? this.updateError ?? null };
+  }
+
+  async saveUpdateSettings(value) {
+    if (this.updatePromise || this.releaseCheckPromise || this.updateSettingsWrite) throw sessionError("UPDATE_BUSY", "更新操作进行中，请稍后修改来源");
+    const settings = normalizeUpdateSettings(value);
+    if (settings.source === "sftp") {
+      const environment = this.findEnvironment(settings.environment);
+      if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", "请选择已保存的 SSH 环境作为 SFTP 更新源");
+      settings.environment = environment.id;
+    }
+    this.updateSettingsWrite = true;
+    try {
+      await this.updateSettingsPromise?.catch(() => {});
+      await writeUpdateSettings(this.base, settings);
+      this.updateSettings = settings; this.updateSettingsPromise = Promise.resolve(settings);
+      this.release = { currentVersion: PLUGIN_VERSION, latestVersion: PLUGIN_VERSION, updateAvailable: false };
+      this.releaseCheckedAt = 0; this.updateError = null; this.updatePhase = "idle";
+    } finally { this.updateSettingsWrite = false; }
+    return this.updateStatus();
+  }
+
+  async checkForUpdate(force = false, installing = false) {
+    if (this.updatePromise && !installing) throw sessionError("UPDATE_BUSY", "安装操作进行中，请等待结果");
+    if (this.updateSettingsWrite) throw sessionError("UPDATE_BUSY", "正在保存更新设置");
     if (this.releaseCheckPromise) return this.releaseCheckPromise;
-    this.releaseCheckPromise = fetchLatestRelease().then((value) => { this.release = value; this.releaseCheckedAt = Date.now(); return value; }).finally(() => { this.releaseCheckPromise = undefined; });
+    if (!force && Date.now() - this.releaseCheckedAt < UPDATE_CACHE_MS) return this.release;
+    this.updatePhase = "checking"; this.updateError = null;
+    this.updateDownloadAbort ??= new AbortController();
+    this.releaseCheckPromise = (async () => {
+      const settings = await this.loadUpdateSettings();
+      const value = await fetchLatestRelease(settings, { signal: this.updateDownloadAbort.signal, connectFiles: this.connectFiles?.bind(this) });
+      this.release = value; this.releaseCheckedAt = Date.now(); this.updatePhase = "idle";
+      return value;
+    })().catch(error => { this.updatePhase = "failed"; this.updateError = error.message; throw error; }).finally(() => { this.releaseCheckPromise = undefined; });
     return this.releaseCheckPromise;
   }
 
-  async upgrade() {
-    const release = await this.checkForUpdate(true);
-    if (!release.updateAvailable) return { ...release, updated: false, restartRequired: false };
-    const profileRoot = await findProfileRoot();
-    const result = await runPnpm(profileRoot, ["add", release.assetUrl, "--save-prod"]);
-    if (result.code !== 0) throw sessionError("UPDATE_INSTALL_FAILED", `pnpm add ${release.assetName} exited with code ${result.code}`, result.stderr || result.stdout);
-    this.release = { ...release, updated: true, restartRequired: true, profileRoot: "active DSH profile" };
-    return { ...this.release, command: `pnpm add ${release.assetName} --save-prod`, output: result.stdout || result.stderr };
+  upgrade() {
+    if (this.updatePromise) return this.updatePromise;
+    this.updatePromise = this.performUpgrade().then(value => ({ ...value, busy: false })).catch(error => { this.updatePhase = "failed"; this.updateError = error.message; throw error; }).finally(() => { this.updatePromise = undefined; });
+    return this.updatePromise;
+  }
+
+  async performUpgrade() {
+    if (this.disposed) throw sessionError("UPDATE_CANCELLED", "插件已关闭");
+    const before = await this.updateStatus();
+    if (before.restartRequired) return { ...before, updated: false };
+    const release = await this.checkForUpdate(true, true);
+    if (!release.updateAvailable) return { ...await this.updateStatus(), updated: false };
+    if (!this.updateManager) throw sessionError("UPDATE_MANAGER_UNAVAILABLE", "当前 DSH 未提供插件管理服务，请通过 dsh plugin 安装更新");
+    const manager = this.updateManager;
+    // Keep existing connections alive; replacing an existing bundle requires a restart in DSH.
+    const bundle = (await manager.listBundles()).find(item => item.name === UPDATE_PACKAGE);
+    if (!bundle?.installed) throw sessionError("UPDATE_PROFILE_NOT_FOUND", "当前 profile 未安装 Remote Ops，不能自动修改其他 profile");
+    if (compareVersions(bundle.version, release.latestVersion) >= 0) return { ...await this.updateStatus(), updated: false };
+    const downloaded = await downloadRelease(release, this.base, { signal: this.updateDownloadAbort.signal, connectFiles: this.connectFiles?.bind(this), onPhase: phase => this.updatePhase = phase });
+    if (this.disposed) throw sessionError("UPDATE_CANCELLED", "插件已关闭，未执行安装");
+    this.updatePhase = "installing";
+    this.updateInstallId = `remote-ops-update-${randomUUID()}`;
+    const result = await manager.installBundle(downloaded.path, { requestId: this.updateInstallId });
+    if (result.application === "failed" || result.application === "cancelled" || result.packageResult?.exitCode) {
+      const reason = result.pendingBuilds?.length ? `依赖构建脚本等待批准：${result.pendingBuilds.join(", ")}。请在 DSH 插件管理中处理后重试。` : result.error?.code ?? result.packageResult?.kind ?? result.application;
+      throw sessionError("UPDATE_INSTALL_FAILED", `安装失败：${reason}。详情见 DSH 插件管理日志${result.packageResult?.logPath ? ` ${result.packageResult.logPath}` : ""}`);
+    }
+    const installed = (await manager.listBundles()).find(item => item.name === UPDATE_PACKAGE);
+    if (installed?.version !== release.latestVersion) throw sessionError("UPDATE_INSTALL_UNVERIFIED", "安装返回成功，但磁盘版本不匹配，请检查 DSH 插件管理日志");
+    this.updatePhase = "ready"; this.updateError = null;
+    return { ...await this.updateStatus(), updated: true, sha256: downloaded.sha256 };
   }
 };

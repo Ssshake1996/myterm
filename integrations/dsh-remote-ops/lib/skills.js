@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 export function registerBundledSkills(ctx) {
   ctx.inject?.(["skills"], ready => {
-    const entries = ["remote-ops-browser", "remote-ops-environments", "remote-ops-terminal-logs", "remote-ops-api"].map(name => {
+    const entries = ["remote-ops-browser", "remote-ops-environments", "remote-ops-terminal-logs", "remote-ops-api", "remote-ops-updates"].map(name => {
       const path = fileURLToPath(new URL(`../skills/${name}/SKILL.md`, import.meta.url));
       const raw = readFileSync(path, "utf8");
       const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(raw);

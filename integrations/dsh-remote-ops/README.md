@@ -3,6 +3,25 @@
 Standalone DeepSeek Harness plugin for SSH, web and RESTful API operations. It does not
 depend on or start the myterm desktop application.
 
+## Manual intranet and file-source updates (v0.8.1)
+
+Open Remote Ops → **更多设置 → 检查更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Sources: GitHub Release, HTTP/HTTPS, an absolute directory/shared path on the DSH host, or an SFTP directory using a saved SSH environment. Opening the panel/dialog performs no external check. There is no scheduled updater or automatic restart. Running and installed versions are shown separately; fully restart DSH and refresh the browser to activate the new version. A pending-restart version is not installed again.
+
+Keep `latest.json`, `dsh-remote-ops-v0.8.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.8.1.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+
+```sh
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.8.1.tgz
+```
+
+The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. The same portable directory works over HTTP, filesystem or SFTP. GitHub Release still contains only tgz and SHA256.
+
+- HTTP(S): directory URL or latest.json URL; all files/redirects must remain on that origin. Credential/query-token URLs and custom auth headers are not supported. Trust internal HTTPS certificates in the DSH Node process.
+- Filesystem: absolute DSH-host path, Windows UNC share or file:// URL, accessible to the account running DSH. This is not the browser computer's filesystem.
+- SFTP: saved SSH environment plus an absolute remote directory, e.g. /releases/remote-ops. Reuses saved password/key without opening a terminal; only environment ID and path are saved.
+- Dependencies use the existing DSH registry/proxy/build-approval configuration. Provide an accessible internal npm registry when needed. Chromium remains an on-demand separate installation.
+
+Verified packages are cached on the DSH host and installed by the current profile's native DSH plugin manager. Invalid checksums never install; older versions never downgrade automatically. Source settings live in $DSH_HOME/remote-ops/update-settings.json and are shared within that DSH home; installation affects only the current profile. Installation errors expose a reason/log location. Restoring profile manifests/lockfiles is not a full cache rollback. Installation does not close active connections; tasks do not survive a DSH restart. Existing older installations need one manual bootstrap upgrade. The bundled remote-ops-updates skill describes configuration, feed generation and diagnostics without Agent changes.
+
 ## Saved RESTful environments and execution workspace (v0.8.0)
 
 - The new **API** workspace saves base URLs, groups, common headers, timeout, private CA and login configuration. API targets work without SSH; an optional SSH environment ID links the same device without sharing credentials.
@@ -118,10 +137,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 - Quick command storage and execution.
 - Agent-visible diagnostics and a native DSH right-sidebar tab.
 - The `Remote Ops` action at the bottom of the DSH Web left sidebar opens the native right Sidebar while preserving the conversation and draft. Repeated clicks reuse the existing tab; collapsing it returns to the conversation. Expanded left-sidebar entries align the icon and label to the left with native host entries; collapsed entries keep a centered icon and Tooltip.
-- The **更多设置** menu shows the installed plugin version, checks the latest
-  GitHub Release, and can install an update with one click; refresh and update
-  actions expose loading/success/failure feedback. Restart DSH after the package
-  manager finishes.
+- **更多设置 → 检查更新** configures GitHub, HTTP(S), filesystem/share or SFTP sources and manually checks/installs updates. Running and installed versions are shown separately; restart DSH after installation.
 - The quick-command dock can be resized by dragging its top boundary (double-click
   to restore the default height). The environment form hides the internal Harness
   credential reference; SSH passwords are stored through the Harness credentials service.
@@ -135,14 +151,14 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.8.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.8.1.tgz
 dsh web
 ```
 
 For an upgrade, install as the same user and with the same `DSH_HOME` used by
 DSH, and use its actual profile rather than assuming `web`. Fully stop the old
 DSH process after installation, restart it, refresh the browser, and confirm
-`v0.8.0` in Remote Ops **更多设置**. Saved environments and quick commands
+`v0.8.1` in Remote Ops **更多设置**. Saved environments and quick commands
 remain; terminal connections must be reopened.
 
 For a package obtained from a registry, the package name is:

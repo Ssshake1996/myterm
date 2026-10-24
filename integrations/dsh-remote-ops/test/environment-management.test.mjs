@@ -169,7 +169,7 @@ test("the installed plugin skill provider discovers and resolves both environmen
   let provider;
   registerBundledSkills({ inject: (_services, ready) => ready({ skills: { registerProvider: factory => { provider = factory(); } } }) });
   const entries = await provider.list();
-  assert.deepEqual(entries.map(entry => entry.name).sort(), ["remote-ops-api", "remote-ops-browser", "remote-ops-environments", "remote-ops-terminal-logs"]);
+  assert.deepEqual(entries.map(entry => entry.name).sort(), ["remote-ops-api", "remote-ops-browser", "remote-ops-environments", "remote-ops-terminal-logs", "remote-ops-updates"]);
   for (const entry of entries) {
     const loaded = await provider.get(entry, {});
     assert.equal(loaded.name, entry.name);

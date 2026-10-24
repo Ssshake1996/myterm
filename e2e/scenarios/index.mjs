@@ -1,5 +1,6 @@
 import { websiteScenario } from "./browser-workspace.mjs";
 import { apiScenario } from './api-workspace.mjs';
+import { updateScenario } from './plugin-updates.mjs';
 const pause = (page, ms) => page.waitForTimeout(ms);
 
 async function openPanel(t) {
@@ -32,7 +33,7 @@ async function createDeviceEnvironment(t, name) {
   });
 }
 
-export const scenarios = [workspaceUiScenario,liveBrowserScenario,
+export const scenarios = [updateScenario,workspaceUiScenario,liveBrowserScenario,
   websiteScenario,
   {
     id: "sftp-narrow",

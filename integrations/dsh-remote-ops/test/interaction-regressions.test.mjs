@@ -72,7 +72,7 @@ function actionFixture(refresh = async () => {}, name = "action") {
     request: (_path, init) => { requests.push(JSON.parse(init.body)); return response.promise; },
     refresh: async () => { refreshCount++; await refresh(); },
   };
-  const endMarker = name === "workspaceAction" ? "\n      const checkUpdate" : "\n      const installUpdate";
+  const endMarker = name === "workspaceAction" ? "\n      const refreshNow" : "\n      const tabs";
   vm.runInNewContext(clientSection(`const ${name} = useCallback`, endMarker) + `\nglobalThis.invoke = ${name};`, context);
   return { ...context, response, busy, errors, requests, switchOwner, refreshCount: () => refreshCount };
 }

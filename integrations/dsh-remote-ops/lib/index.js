@@ -24,11 +24,18 @@ export { RemoteOpsState } from "./state/index.js";
 
 export function apply(ctx) {
   const state = new RemoteOpsState(ctx);
+  ctx.inject?.(["pluginManager"], ready => ready.effect(() => {
+    state.updateManager = ready.pluginManager;
+    return () => { state.updateManager = undefined; };
+  }, "dsh-remote-ops update manager"));
   registerSessionActivation(ctx, state);
   state.browser = new BrowserWorkspace({ root: join(state.base, "browser"), credentials: ctx.credentials });
   state.api = new ApiWorkspace({ root: join(state.base, "api"), credentials: ctx.credentials });
   ctx.effect(() => async () => {
     state.disposed = true;
+    state.updateDownloadAbort?.abort();
+    if (state.updateInstallId) await state.updateManager?.cancelInstall(state.updateInstallId).catch(() => {});
+    await Promise.allSettled([state.updatePromise, state.releaseCheckPromise].filter(Boolean));
     await state.api.dispose();
     await state.browser.dispose();
     for (const job of state.commands.values()) job.controller.abort();

@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { apply } from "../lib/index.js";
+import { PLUGIN_VERSION } from "../lib/version.js";
 
 class IdleTerminal {
   constructor() { this.output = new EventEmitter(); this.done = new Promise((resolve) => { this.resolveDone = resolve; }); this.writes = []; }
@@ -39,8 +40,20 @@ async function pluginFixture(t, agents = new Map()) {
     const response = await routes.get("/api/dsh-remote-ops/action").fetch(new Request("http://localhost/api/dsh-remote-ops/action", { method: "POST", body: JSON.stringify(body) }));
     return { status: response.status, body: await response.json() };
   };
-  return { ctx, routes, tools, terminals, post };
+  return { ctx, routes, tools, terminals, post, root };
 }
+
+test("update route stores filesystem settings, reads local status and checks only after explicit POST", async t => {
+  const { routes, root } = await pluginFixture(t), route = routes.get("/api/dsh-remote-ops/update");
+  const call = body => route.fetch(new Request("http://localhost/api/dsh-remote-ops/update", body ? { method: "POST", body: JSON.stringify(body) } : {}));
+  const initial = await call(); assert.equal(initial.headers.get("Cache-Control"), "no-store"); assert.equal((await initial.json()).checkedAt, null);
+  const saved = await call({ action: "settings", settings: { source: "filesystem", path: root } }); assert.equal(saved.status, 200);
+  const unavailable = await call({ action: "check" }); assert.equal((await unavailable.json()).code, "UPDATE_READ_FAILED");
+  await writeFile(join(root, "latest.json"), JSON.stringify({ schemaVersion: 1, package: "@dsh/remote-ops", version: PLUGIN_VERSION, asset: "unused.tgz", checksum: "unused.txt" }));
+  const checked = await call({ action: "check" }); assert.equal((await checked.json()).updateAvailable, false);
+  const installed = await call({ action: "install" }); assert.equal((await installed.json()).updated, false);
+  assert.equal((await call({ action: "unexpected" })).status, 400);
+});
 
 test("action route keeps owner-free actions available without a Harness session", async (t) => {
   const { post } = await pluginFixture(t);
