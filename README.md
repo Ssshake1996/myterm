@@ -4,6 +4,8 @@
 
 ## 内网 HTTP/HTTPS 手动更新（v0.8.2）
 
+已发布 [v0.8.2](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.8.2)，正式包通过真实 DSH 的 HTTP/HTTPS 安装与重启验证。[验收记录](docs/testing/dsh-remote-ops-v0.8.2-acceptance.md)。
+
 Remote Ops → **更多设置 → 检查更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。保留 GitHub Release 默认来源，内网更新仅支持 HTTP/HTTPS 地址。打开面板或更新对话框不会访问更新源，没有定时检查或自动重启。安装后显示运行版本与已安装版本，需完全重启 DSH 并刷新网页后生效；等待重启时不会重复安装。
 
 在 HTTP/HTTPS 服务上提供以下目录：

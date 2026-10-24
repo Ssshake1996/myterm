@@ -7,6 +7,8 @@ Agent kernel.
 
 ## Manual intranet HTTP/HTTPS updates (v0.8.2)
 
+[v0.8.2 is released](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.8.2). The official package passed real DSH installation and restart checks over HTTP and HTTPS. [Acceptance details](docs/testing/dsh-remote-ops-v0.8.2-acceptance.md).
+
 Open Remote Ops → **更多设置 → 检查更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). GitHub Release remains the default source; custom intranet updates accept HTTP/HTTPS URLs only. Opening the panel/dialog performs no external check. There is no scheduled updater or automatic restart. Running and installed versions are shown separately; fully restart DSH and refresh the browser to activate the new version. A pending-restart version is not installed again.
 
 Keep `latest.json`, `dsh-remote-ops-v0.8.2.tgz` and `SHA256SUMS-dsh-remote-ops-v0.8.2.txt` in the feed directory. Generate the manifest from the unchanged official release pair:

@@ -13,14 +13,20 @@
 
 升级起点为将当前更新器标为 v0.8.0 的专用测试包，不是旧正式 v0.8.0。旧正式版先手动安装一次 v0.8.2 后才能配置新来源。DSH 安装后会热重载前端；窗口打开状态按对话恢复，再读取后端结果，后端仍需手动重启生效。
 
-## 发布状态
+## 正式发布与安装复验
 
-v0.8.1 在生成 Release 前取消，只有历史标签与候选记录。v0.8.2 正式附件仅为 tgz 和 SHA256；`latest.json` 在内网部署时生成。正式附件下载、摘要比对和安装复验完成后在此补充。
+v0.8.1 在生成 Release 前取消，只有历史标签与候选记录。[v0.8.2 Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.8.2) 正式附件仅为 tgz 和 SHA256；`latest.json` 在内网部署时生成。
 
 v0.8.2 首次发布流程也在生成 Release 前停止，用于修正随包 README 能力列表中残留的一句旧来源描述。确认没有 Release 或正式附件后同步发布标签；最终发布与复验均以修正后的包为准。
+
+- 正式包 SHA256 与官方校验文件、GitHub digest、本地最终包一致：`d896358f176bea5928b60d81ef07a84f216fe77d4eb98ac022bbffd936708655`。
+- 从 GitHub 下载正式包后，HTTP/HTTPS 的上述 11 组原生 DSH 流程全部再次通过；页面异常为 0。关闭后恢复进度、实际安装、重启、版本/设置/环境保留、终端可用、skill 发现及深色窄栏均通过。
+- 正式包解包后，在没有额外 node_modules 的目录直接执行随包清单生成脚本成功；安装包不含已删除的文件/SFTP 更新实现。
+- [Linux/Windows 发布检查](https://github.com/Ssshake1996/myterm/actions/runs/40057431126) 与主分支/标签插件 CI 通过。
+- [浏览器 CI](https://github.com/Ssshake1996/myterm/actions/runs/40057428270) 首次 16/17，已有 20 次页面切换性能用例 p95 为 260ms，超过 250ms；更新功能场景通过。相同功能代码的前次 CI 为 17/17。按相同代码及原门槛复测 17/17 通过，p95 为 215ms；首次失败保留，不把一次复测通过解释为所有机器的性能保证。
 
 ## 验证边界
 
 真实 DSH 的安装、界面、版本及 skill 已验证，更新站点为本机隔离服务。没有连接用户实际内网、企业 CA 或依赖镜像。依赖沿用 DSH 的源、代理与构建批准设置；更新地址不提供 npm 依赖，Chromium 仍按需安装。更新不自动重启，运行中任务不跨重启恢复。
 
-证据（不随安装包分发）：`output/update082-check-final.log`、`output/e2e/update082-full/report.json`、`output/playwright/update082-candidate-1792811316933-acceptance.json` 及截图。早期脚本版本断言与尚未写入发布说明导致的测试失败保留在同目录日志中，修正后完整门禁与原生流程均通过。
+证据（不随安装包分发）：`output/update082-check-final.log`、`output/update082-release-final.log`、`output/e2e/update082-full/report.json`、`output/playwright/update082-candidate-1792811316933-acceptance.json`、`output/playwright/update082-official-1792811860129-acceptance.json` 及截图。早期脚本版本断言与尚未写入发布说明导致的测试失败保留在同目录日志中，修正后完整门禁与原生流程均通过。

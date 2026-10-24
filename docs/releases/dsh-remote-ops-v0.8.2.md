@@ -8,7 +8,7 @@ Remote Ops 支持配置内网 HTTP/HTTPS 更新地址，在「更多设置 → �
 - 窗口区分当前运行版本和已安装版本。安装期间关闭窗口不取消安装，DSH 重载前端模块后恢复已打开的窗口并读取实际结果；安装后手动重启 DSH 并刷新网页生效。
 - README 与随包 `remote-ops-updates` skill 同步配置、清单生成及排错步骤；不修改 Agent。
 
-验证：374 项回归和 smoke、17 个浏览器场景、11 组真实 DSH 候选验收通过，包含实际 HTTPS 下载与安装。[完整验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.8.2-acceptance.md)。
+验证：374 项回归和 smoke、本地 17 个浏览器场景通过；候选包与 GitHub 正式包分别通过 11 组真实 DSH 验收，包含实际 HTTPS 下载、安装及重启。正式 SHA256 与本地包、GitHub digest 一致。CI 结果与边界见 [完整验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.8.2-acceptance.md)。
 
 发布附件仅为 `dsh-remote-ops-v0.8.2.tgz` 和 `SHA256SUMS-dsh-remote-ops-v0.8.2.txt`。`latest.json` 在部署内网更新源时生成，不增加 GitHub 附件。
 
