@@ -105,6 +105,8 @@ try {
     await p.screenshot({ path: join(out, "windows-environment.png"), animations: "disabled" });
     await p.getByRole("button", { name: "返回工作区", exact: true }).click();
     assert.equal(await editor.innerText(), "Windows 验收草稿");
+    await panel.getByRole("tablist", { name: "终端会话" }).getByRole("tab", { name: "Windows 原生验收", exact: true }).first().click();
+    await until(async () => (await p.getByLabel("终端输出", { exact: true }).innerText()).includes("NATIVE_WINDOWS_CLI"));
     await p.screenshot({ path: join(out, "windows-terminal.png"), animations: "disabled" });
     await p.setViewportSize({ width: 390, height: 844 });assert.ok(await panel.evaluate(n => n.scrollWidth <= n.clientWidth + 1));
     await p.screenshot({ path: join(out, "windows-narrow.png"), animations: "disabled" });

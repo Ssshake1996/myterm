@@ -2,13 +2,13 @@
 
 DeepSeek Harness plugin for SSH, web and RESTful API operations. Users and Agents share visible terminals, webpages and request records.
 
-## v0.10.0 Windows OpenSSH
+## v0.10.1 Windows OpenSSH
 
 Windows desktop and Server use the existing SSH environment, terminal, file and log workspaces. Choose the target platform and server-default, CMD, Windows PowerShell 5.1 or an installed PowerShell 7 in **环境 → SSH**. **测试** reports authentication, detected system, PTY, SFTP and the host fingerprint separately.
 
 `remote_environment_create/update/test` manages and diagnoses targets. `remote_command_execute` accepts a Windows shell, literal working directory and named PowerShell parameters, and returns exit status and separate error output. Windows independent commands authenticate a separate SSH connection while preserving the visible terminal. SFTP handles drive paths, Unicode and spaces; existing file and multi-terminal log tools remain available.
 
-The package adds the native DSH `remote-ops-windows` skill. See the [Windows guide](WINDOWS.md) and [verification matrix](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.10.0-acceptance.md). No Agent modification is required.
+The package adds the native DSH `remote-ops-windows` skill. See the [Windows guide](WINDOWS.md) and [verification matrix](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.10.1-acceptance.md). No Agent modification is required.
 
 ## Workspace tabs
 
@@ -36,10 +36,10 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Once ongoing work finishes, fully restart DSH and refresh the browser to activate the installed version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.10.0.tgz` and `SHA256SUMS-dsh-remote-ops-v0.10.0.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.10.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.10.1.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.10.0.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.10.1.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -158,14 +158,14 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.10.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.10.1.tgz
 dsh web
 ```
 
 For an upgrade, install as the same user and with the same `DSH_HOME` used by
 DSH, and use its actual profile rather than assuming `web`. Fully stop the old
 DSH process after installation, restart it, refresh the browser, and confirm
-`v0.10.0` in Remote Ops **设置 → 通用**. Saved environments and quick commands
+`v0.10.1` in Remote Ops **设置 → 通用**. Saved environments and quick commands
 remain; terminal connections must be reopened.
 
 For a package obtained from a registry, the package name is:

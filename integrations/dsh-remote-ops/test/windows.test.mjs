@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateEnvironment } from "../lib/common.js";
@@ -205,7 +205,10 @@ test("native PowerShell executes Unicode parameters and literal cwd, errors and 
   const parameters = { name: '中文 space " & | % ! ^\nnext' };
   const value = await localWindows(buildWindowsCommand({ command: "param($name) @{name=$name;cwd=(Get-Location).Path}|ConvertTo-Json -Compress", parameters, workingDirectory: root, shell: "windows-powershell" }));
   assert.equal(value.code, 0, value.stderr);
-  assert.deepEqual(JSON.parse(value.stdout.trim()), { name: parameters.name, cwd: root });
+  const parsed = JSON.parse(value.stdout.trim());
+  assert.equal(parsed.name, parameters.name);
+  // Runner TEMP may use an 8.3 alias (RUNNER~1), while PowerShell expands it.
+  assert.equal(await realpath(parsed.cwd), await realpath(root));
   const error = await localWindows(buildWindowsCommand({ command: 'Write-Error "test error"', shell: "windows-powershell" }));
   assert.equal(error.code, 1); assert.match(error.stderr, /test error/);
   const exit = await localWindows(buildWindowsCommand({ command: "cmd.exe /c exit 7", shell: "windows-powershell" }));

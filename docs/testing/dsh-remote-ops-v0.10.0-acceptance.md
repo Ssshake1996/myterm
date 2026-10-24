@@ -1,5 +1,7 @@
 # Remote Ops v0.10.0 Windows OpenSSH 验收
 
+**状态：候选包验证记录，v0.10.0 未生成正式 Release。** [发布流程 40115939529](https://github.com/Ssshake1996/myterm/actions/runs/40115939529)的 Windows 检查遇到 `RUNNER~1` 与 `runneradmin` 同一目录别名的测试误判；保留原标签及失败记录。修正测试后的正式版本见 [v0.10.1 验收记录](dsh-remote-ops-v0.10.1-acceptance.md)。
+
 2026-10-25。第一阶段实现 Windows OpenSSH；真实 Windows 使用隔离测试账号的现有身份、回环 SSH 连接和测试目录，不代表用户的内网或生产设备。未改 Agent 源码或全局配置。测试服务器二进制不随插件发布。
 
 ## 实现与测试边界
@@ -40,4 +42,29 @@ node e2e/runner/windows-native.mjs output/release0100-candidate/dsh-remote-ops-v
 
 初次 Server CI：[40113184415](https://github.com/Ssshake1996/myterm/actions/runs/40113184415)。Server 2025 九组通过；Server 2022 九组功能通过但进程收尾超时，该次作业记为失败。失败证据保留，不用后续成功覆盖。
 
-最终版本的回归、Server、安装升级和 Release 校验结果在发布完成后补充于本页。
+## 最终候选包验证
+
+源代码提交 `fe6e38f`，版本 `0.10.0`。后续验收文档与测试截图断言不改变插件包内容。
+
+| 层次 | 结果 | 证据与边界 |
+| --- | --- | --- |
+| 本机完整 check | 402/402 + smoke 通过 | 276 单元/后端、115 客户端、11 契约；包含原生 Windows PowerShell/CMD 子进程测试 |
+| 浏览器回归 | 21/21 通过 | `output/e2e/windows0100`；真实插件前端、仿宿主及隔离设备/服务，不能替代原生 DSH |
+| Windows 11 Home 10.0.22631 x64 | 10/10，通过并退出 | `output/windows-ssh-live-0100/evidence.json`；CMD、Windows PowerShell 5.1、C:/F:、中文/特殊字符、错误码/取消、SFTP/覆盖/二进制 SHA256、日志、跨对话隔离和主机密钥变化 |
+| Server 2022 Datacenter 10.0.20348 x64 | 11/11，通过并退出 | Windows PowerShell 5.1、已安装 PowerShell 7、CMD、C:/D: 与同一完整 SSH 验收 |
+| Server 2025 Datacenter 10.0.26100 x64 | 11/11，通过并退出 | 同上；独立实际 Windows 系统，不是模拟 SSH |
+| 原生 DSH Windows 工具链 | 3/3 通过 | 安装候选包后，六个 skill 原生加载；13 次环境/诊断/PTY/脚本/SFTP/日志工具调用，中文参数/文件内容与 ZIP 摘要检查；环境编辑和主对话草稿保留 |
+| 原生 DSH 通用界面 | 8/8 通过 | 终端、网页、API、文件、设置、环境返回、320/390/1280/1500px、深浅色、键盘操作与六个随包 skill |
+| 原生 HTTP 更新 | 8/8 通过 | 官方 v0.9.2 → 候选 v0.10.0，经插件更新 UI 下载校验并安装，重启后激活；两次实际 DSH 重启、手动更新失败详情及状态 404 单次提示；非注入的意外 404 为 0 |
+| 原生卸载 / 重启 | 通过 | 仅对隔离 profile 卸载；环境文件内容保留，重启后入口与面板移除，浏览器无异常 |
+| 契约 / skill | 通过 | UI 静态契约 14 项；六个 skill 的结构验证通过。非 Codex 插件 manifest 提示不属于 DSH 错误 |
+
+最终 Linux CI：[40115295730](https://github.com/Ssshake1996/myterm/actions/runs/40115295730)。最终 Server 双系统 CI：[40115295760](https://github.com/Ssshake1996/myterm/actions/runs/40115295760)，两个作业均成功；可下载各系统的 `evidence.json` 和 `sshd.log`。
+
+候选 tgz 的 SHA256：
+
+```text
+a1ce18229c39e0d4a5f5ee198ee1ebcde085f9c61ab1d253b43216d4a3bee3db
+```
+
+此摘要只对应 v0.10.0 候选包，不能当作正式发布凭据。Windows 目标均使用隔离回环密钥认证，未将这些结果表述为用户内网或生产环境验收。

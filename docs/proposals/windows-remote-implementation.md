@@ -1,6 +1,6 @@
 # Windows 桌面与 Server 远程操作：具体实现方案
 
-2026-10-25 · 原始分阶段设计记录。Windows OpenSSH 第一阶段已进入开发验证，当前状态以[验证记录](../testing/dsh-remote-ops-v0.10.0-acceptance.md)和[操作指南](../../integrations/dsh-remote-ops/WINDOWS.md)为准；下文保留设计时的提案，WinRM 仍为后续阶段。
+2026-10-25 · 原始分阶段设计记录。Windows OpenSSH 第一阶段已进入开发验证，当前状态以[验证记录](../testing/dsh-remote-ops-v0.10.1-acceptance.md)和[操作指南](../../integrations/dsh-remote-ops/WINDOWS.md)为准；下文保留设计时的提案，WinRM 仍为后续阶段。
 
 **推荐先完善 Windows OpenSSH，再接入 WinRM / PowerShell Remoting。** 两种连接都保存在现有环境管理中，执行过程进入终端工作区，文件与日志沿用现有入口。Windows 桌面和 Server 都按实际启用的服务选择协议，不按系统名称强行绑定一种协议。
 
