@@ -1,6 +1,6 @@
 {
   "name": "@dsh/remote-ops",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "private": false,
   "type": "module",
   "description": "DeepSeek Harness plugin for SSH, SFTP, visible web operations and saved RESTful API environments",
@@ -48,7 +48,7 @@
   "scripts": {
     "test": "npm run test:unit && npm run test:client && npm run test:contract && npm run test:smoke",
     "test:unit": "node --test test/updates.test.mjs test/api.test.mjs test/terminal-logs.test.mjs test/unit.test.mjs test/routes.test.mjs test/tool-schema.test.mjs test/environment-management.test.mjs test/cli-assist.test.mjs test/state-layers.test.mjs test/release-script.test.mjs test/ssh-session.test.mjs test/script.test.mjs test/output-render.test.mjs test/transfer.test.mjs test/diagnostics.test.mjs test/workspace.test.mjs test/commands.test.mjs test/browser.test.mjs test/browser-live.test.mjs test/browser-runtime.test.mjs test/browser-default.test.mjs test/agent-control.test.mjs",
-    "test:client": "node --test test/client-behavior.test.mjs test/navigation.test.mjs test/interaction-regressions.test.mjs test/sftp-interactions.test.mjs test/workspace-ui.test.mjs",
+    "test:client": "node --test test/layout-interactions.test.mjs test/client-behavior.test.mjs test/navigation.test.mjs test/interaction-regressions.test.mjs test/sftp-interactions.test.mjs test/workspace-ui.test.mjs",
     "test:contract": "node --test test/contract.test.mjs",
     "test:smoke": "node test/smoke.mjs",
     "check": "node test/sync-api-client.mjs --check && node test/check-syntax.mjs && npm test"

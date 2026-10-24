@@ -5,7 +5,7 @@ Remote Ops provides a browser in the native DSH right Sidebar. Type a URL to beg
 
 ## Workspace controls
 
-Use **网页设置** to open engines, installation, saved sites and flows; **返回网页** returns to the same page and address draft. **操作记录** shows the active job's step results. **画面设置** below the live image contains viewport controls. These views do not pause or cancel browser work. Switching an open browser's display mode first asks for confirmation; **取消** leaves it untouched, while **切换显示** reloads it and can discard unsent form data. Comfortable/compact density and the installed version are in the plugin's **更多设置** menu.
+Use **设置 → 网页** for engines, Chromium installation, viewport and zoom; **返回工作区** returns to the same page and address draft. **网页 → 收藏** manages sites and flows. **操作记录** expands step results below the live page. These views do not pause or cancel browser work. Switching display mode first asks for confirmation; **取消** leaves it untouched, while **切换显示** reloads it and can discard unsent form data. Density and version are in **设置 → 通用**.
 
 ## Browser settings and installation
 
@@ -19,7 +19,7 @@ Browsers run on the DSH host. Install matching Chromium on demand through plugin
 ## First use
 
 1. Select or create a DSH conversation and open **Remote Ops → 网页**.
-2. In **网页设置**, install the dedicated Chromium or select installed Edge / Chrome. Engine changes apply to newly opened browsers.
+2. In **设置 → 网页**, install the dedicated Chromium or select installed Edge / Chrome. Engine changes apply to newly opened browsers.
 3. Choose **插件内** or **独立窗口** under **显示**, enter an HTTP(S) URL and press Enter. A schemeless address gets `https://`. Independent windows require DSH and the user on the same interactive desktop. Embedded mode streams the dedicated browser into the DSH webpage.
 4. Ask the Agent in the main conversation to operate the current page. The Agent can omit `browserId` to use this conversation's selected browser. You can also click, scroll, type, paste text and sign in directly, including while the conversation runs. Use **Ctrl+Esc** to return keyboard focus to the plugin address field; choose **桌面视口 → 原始大小** for a larger scrollable desktop view. The default **跟随面板** viewport follows the available panel size without reloading the page; the website may respond to resize events. Independent windows use their own viewport.
 5. Use native DSH conversation cancellation to stop the Agent. Cancellation prevents subsequent browser steps after the current action settles. A dispatched click or request may already have taken effect; website server jobs do not roll back. A pending terminal send attempts Ctrl+C on cancellation; already returned commands and remote background processes may continue. Inspect actual results before claiming completion or process exit.
@@ -68,7 +68,7 @@ Unused optional fields should be omitted; null means absent. `target.frame` may 
 
 ## Optional saved sites, login and flows
 
-Expand **网页设置 → 收藏网站与流程** to save sites, configure automatic login, test locators or build reusable flows. Passwords go to the local Harness credentials service; site JSON contains a generated reference. Close a saved site's browsers before editing its configuration. Add credential origins explicitly for an SSO page or cross-origin frame. CAPTCHA/MFA remain manual in the same browser.
+Expand **网页 → 收藏** to save sites, configure automatic login, test locators or build reusable flows. Passwords go to the local Harness credentials service; site JSON contains a generated reference. Close a saved site's browsers before editing its configuration. Add credential origins explicitly for an SSO page or cross-origin frame. CAPTCHA/MFA remain manual in the same browser.
 
 Prefer role plus exact accessible name, label, text or placeholder locators. CSS and XPath are also supported. `frame` is an optional CSS iframe selector. Each action requires exactly one match. `expectPopup` selects a newly opened page. Native dialogs wait for an explicit Agent accept/dismiss response.
 
@@ -112,4 +112,4 @@ The embedded view supports mouse clicks, wheel scrolling, keyboard input, Chines
 
 切换终端/SFTP、收起右栏及刷新 DSH 不取消后台网页任务。切换显示方式会重新载入网页并保留 Cookie，未提交内容不会恢复。取消对话会停止后续步骤，不能撤销已发出的业务请求或保证远程进程退出；`unknown` 需检查实际网页，不会自动重试。登录凭据和专用浏览器 profile 只保存在 DSH 本机。
 
-工作区入口为顶部“终端 / 网页 / API / 文件”，环境与诊断在辅助入口中。默认“跟随面板”视口，也可选择 1024×768“桌面视口”。改变视口不会主动重载；切换“插件内 / 独立窗口”会重载并可能丢失未提交内容。设置和收藏/流程位于“网页设置”中。
+工作区入口为顶部“终端 / 网页 / 文件 / API”，环境与诊断在辅助入口中。默认“跟随面板”视口，也可选择 1024×768“桌面视口”。改变视口不会主动重载；切换“插件内 / 独立窗口”会重载并可能丢失未提交内容。偏好位于“设置 → 网页”，网站与流程位于“网页 → 收藏”。

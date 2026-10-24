@@ -1,6 +1,8 @@
 import { websiteScenario } from "./browser-workspace.mjs";
 import { apiScenario } from './api-workspace.mjs';
 import { updateScenario } from './plugin-updates.mjs';
+import { layoutSimplificationScenario } from './layout-simplification.mjs';
+import { terminalTabsScenario } from './terminal-tabs.mjs';
 const pause = (page, ms) => page.waitForTimeout(ms);
 
 async function openPanel(t) {
@@ -33,7 +35,7 @@ async function createDeviceEnvironment(t, name) {
   });
 }
 
-export const scenarios = [updateScenario,workspaceUiScenario,liveBrowserScenario,
+export const scenarios = [terminalTabsScenario,layoutSimplificationScenario,updateScenario,workspaceUiScenario,liveBrowserScenario,
   websiteScenario,
   {
     id: "sftp-narrow",
@@ -85,12 +87,12 @@ export const scenarios = [updateScenario,workspaceUiScenario,liveBrowserScenario
           const started = t.page.waitForRequest(request => request.url().includes("/browser-upload?"));
           await t.page.getByLabel("浏览器上传 A", { exact: true }).locator("input").setInputFiles(payloads);
           await started;
-          await t.page.getByRole("button", { name: "关闭 SFTP", exact: true }).click();
-          await t.page.getByRole("button", { name: "查看上传进度", exact: true }).waitFor();
+          await t.page.getByRole("tab", { name: "终端", exact: true }).click();
+          await t.page.getByRole("tab", { name: "文件", exact: true }).locator('.dsh-remote-ops__tabBadge').waitFor();
           await t.page.getByRole("button", { name: "关闭运维面板", exact: true }).click();
           await t.page.getByLabel("终端输出").waitFor({ state: "hidden" });
           await t.page.getByRole("button", { name: "Remote Ops", exact: true }).click();
-          await t.page.getByRole("button", { name: "查看上传进度", exact: true }).click();
+          await t.page.getByRole("tab", { name: "文件", exact: true }).click();
           await t.page.getByRole("button", { name: "取消上传", exact: true }).waitFor();
         });
         release();
@@ -191,9 +193,9 @@ export const scenarios = [updateScenario,workspaceUiScenario,liveBrowserScenario
         await t.page.getByLabel("终端输出").getByText("Welcome to Fake Array").waitFor();
       });
       await t.step("把 PTY 调到 200×50", async () => {
-        await t.page.getByLabel("终端显示设置",{exact:true}).click();
+        await t.page.getByLabel("终端操作",{exact:true}).click();
         await t.page.getByLabel("终端大小").selectOption("50x200");
-        await t.page.getByLabel("终端显示设置",{exact:true}).click();
+        await t.page.getByLabel("终端操作",{exact:true}).click();
         const deadline = Date.now() + 5000;
         while (!(await t.info()).device.windows.some(item => item.rows === 50 && item.cols === 200)) {
           if (Date.now() >= deadline) throw new Error("PTY size did not reach 200x50");

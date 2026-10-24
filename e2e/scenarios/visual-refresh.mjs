@@ -7,28 +7,28 @@ export const visualRefreshScenario = { id: 'visual-refresh', title: '视觉工�
   const until=async read=>{for(let n=0;n<150;n++){if(await read())return;await new Promise(r=>setTimeout(r,100));}throw Error('visual workspace did not settle');};
   await p.getByRole('button',{name:'Remote Ops',exact:true}).click();
   await p.getByLabel('终端输出',{exact:true}).waitFor();
-  await t.step('单终端不重复显示会话条，标题留给工作区',async()=>{
+  await t.step('单终端使用统一标签，操作与地址位于下方上下文行',async()=>{
     assert.equal(await p.locator('.dsh-remote-ops__head').innerText().then(v=>/v\d+\.\d+/.test(v)),false);
-    assert.equal(await p.locator('.dsh-remote-ops__terminal>.dsh-remote-ops__tabs').isVisible(),false);
+    assert.equal(await p.getByRole('tablist',{name:'终端会话'}).getByRole('tab',{name:'本地 CMD',exact:true}).isVisible(),true);
     const context=await p.locator('.dsh-remote-ops__terminalHead').boundingBox();
-    const command=await p.getByRole('button',{name:'独立命令',exact:true}).boundingBox();
+    const command=await p.getByLabel('终端操作',{exact:true}).boundingBox();
     assert.ok(command.y>=context.y && command.y+command.height<=context.y+context.height+1,'terminal tools share its context row');
   });
   await t.step('密度设置在刷新后保留，恢复舒适密度',async()=>{
-    await p.getByLabel('更多设置',{exact:true}).click();
+    await p.getByLabel('设置',{exact:true}).click();await p.getByRole('tablist',{name:'设置分类'}).getByRole('tab',{name:'通用',exact:true}).click();
     await p.getByLabel('界面密度',{exact:true}).selectOption('compact');
     assert.equal(await p.locator('.dsh-remote-ops').getAttribute('data-density'),'compact');
     await p.reload();await p.locator('html[data-e2e-ready=true]').waitFor();await p.getByRole('button',{name:'Remote Ops',exact:true}).click();
     assert.equal(await p.locator('.dsh-remote-ops').getAttribute('data-density'),'compact');
-    await p.getByLabel('更多设置',{exact:true}).click();await p.getByLabel('界面密度',{exact:true}).selectOption('comfortable');await p.getByLabel('更多设置',{exact:true}).click();
+    await p.getByLabel('设置',{exact:true}).click();await p.getByRole('tablist',{name:'设置分类'}).getByRole('tab',{name:'通用',exact:true}).click();await p.getByLabel('界面密度',{exact:true}).selectOption('comfortable');await p.getByRole('button',{name:'返回工作区',exact:true}).click();
   });
   await t.step('网页设置按需显示，关闭后保留地址草稿',async()=>{
     await tab('网页').click();await p.getByLabel('网页地址',{exact:true}).fill(info.website.url+'/manual');
     assert.equal(await p.getByLabel('浏览器引擎',{exact:true}).isVisible(),false);
-    await p.getByRole('button',{name:'网页设置',exact:true}).click();
+    await p.getByRole('button',{name:'设置',exact:true}).click();
     await p.getByLabel('浏览器引擎',{exact:true}).selectOption('chrome');
     await p.getByLabel('独立窗口浏览器',{exact:true}).selectOption('chrome');
-    await p.getByRole('button',{name:'返回网页',exact:true}).click();
+    await p.getByRole('button',{name:'返回工作区',exact:true}).click();
     assert.equal(await p.getByLabel('网页地址',{exact:true}).inputValue(),info.website.url+'/manual');
     await p.getByRole('button',{name:'打开网页',exact:true}).click();await p.getByAltText('网页实时画面',{exact:true}).waitFor();
   });

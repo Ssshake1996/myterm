@@ -22,13 +22,13 @@ export const workspaceUiScenario={id:"workspace-ui",title:"工作区恢复、弹
   });
   await t.step("独立命令弹窗约束焦点，Esc 返回入口，关闭与刷新后仍能恢复结果",async()=>{
     await p.getByRole("tab",{name:"终端",exact:true}).click();
-    const trigger=p.getByRole("button",{name:"独立命令",exact:true});await trigger.click();
+    const trigger=p.getByRole("button",{name:"独立命令",exact:true});await p.getByLabel("终端操作",{exact:true}).click();await trigger.click();
     const dialog=p.getByRole("dialog",{name:/独立命令/});
     await p.getByRole("button",{name:"关闭独立命令",exact:true}).focus();await p.keyboard.press("Shift+Tab");
     assert.equal(await dialog.evaluate(node=>node.contains(document.activeElement)),true);
     await p.keyboard.press("Escape");await dialog.waitFor({state:"hidden"});
-    assert.equal(await trigger.evaluate(node=>document.activeElement===node),true);
-    await trigger.click();
+    assert.equal(await p.getByLabel("终端操作",{exact:true}).evaluate(node=>document.activeElement===node),true);
+    await p.getByLabel("终端操作",{exact:true}).click();await trigger.click();
     const command=process.platform==="win32"?"ping -n 3 127.0.0.1 >nul & echo BACKGROUND_OK":"sleep 1.5; printf BACKGROUND_OK";
     await p.getByLabel("独立命令内容",{exact:true}).fill(command);
     await dialog.getByRole("button",{name:"执行",exact:true}).click();
@@ -40,7 +40,7 @@ export const workspaceUiScenario={id:"workspace-ui",title:"工作区恢复、弹
     await p.locator(".e2e-conversation").evaluate(node=>{window.__conversationNode=node;});
     const completed=await until(async()=>{const job=await workspace({action:"command-status",requestId:started.requestId});return job.status!=="running"&&job;});
     assert.equal(completed.result?.exitCode,0);assert.match(completed.result.stdout,/BACKGROUND_OK/);
-    await p.getByRole("tab",{name:"终端",exact:true}).click();await p.getByRole("button",{name:"独立命令",exact:true}).click();
+    await p.getByRole("tab",{name:"终端",exact:true}).click();await p.getByLabel("终端操作",{exact:true}).click();await p.getByRole("button",{name:"独立命令",exact:true}).click();
     const output=dialog.getByRole("tabpanel",{name:"stdout",exact:true});await output.waitFor();
     await until(async()=>/BACKGROUND_OK/.test(await output.textContent()));
     assert.equal((await workspace({action:"command-list",session:"local-cmd"})).jobs.length,1);
@@ -51,7 +51,7 @@ export const workspaceUiScenario={id:"workspace-ui",title:"工作区恢复、弹
     await p.getByRole("button",{name:"环境管理",exact:true}).click();await p.getByRole("button",{name:"+ 分组",exact:true}).click();
     await p.getByLabel("环境分组名称",{exact:true}).fill("do-not-save");await p.keyboard.press("Escape");
     assert.equal(await p.getByText("do-not-save",{exact:true}).count(),0);
-    await p.getByRole("button",{name:"关闭环境",exact:true}).click();
+    await p.getByRole("button",{name:"返回工作区",exact:true}).click();
     await p.getByRole("button",{name:"管理快捷命令",exact:true}).click();await p.getByRole("button",{name:"新建分组",exact:true}).click();
     await p.getByLabel("快捷命令分组名称",{exact:true}).fill("常用检查");
     await p.getByRole("dialog",{name:"编辑名称",exact:true}).getByRole("button",{name:"确认",exact:true}).click();

@@ -18,8 +18,7 @@ export const websiteScenario = {
     await t.step("网页表单保存自动登录配置并按显示偏好打开浏览器", async () => {
       await page.getByRole("button", { name: "Remote Ops", exact: true }).click();
       await page.getByRole("tab", { name: "网页", exact: true }).click();
-      await page.getByRole('button',{name:'网页设置',exact:true}).click();
-      await page.getByText('收藏网站与流程',{exact:true}).click();
+      await page.getByRole('button',{name:'收藏网站与流程',exact:true}).click();
       await page.getByRole("button", { name: "新增网站", exact: true }).click();
       await page.getByLabel("网站名称", { exact: true }).fill("Local console");
       await page.getByLabel("网站地址", { exact: true }).fill(`${info.website.url}/login`);
@@ -108,8 +107,7 @@ export const websiteScenario = {
       await page.reload(); await page.locator("html[data-e2e-ready=true]").waitFor();
       await page.getByRole("button", { name: "Remote Ops", exact: true }).click();
       await page.getByRole("tab", { name: "网页", exact: true }).click();
-      await page.getByRole('button',{name:'网页设置',exact:true}).click();
-      await page.getByText('收藏网站与流程',{exact:true}).click();
+      await page.getByRole('button',{name:'收藏网站与流程',exact:true}).click();
       await page.getByRole("button", { name: "编辑网站", exact: true }).waitFor();
       assert.equal(await page.getByLabel("选择网站", { exact: true }).inputValue(), browser.siteId);
       await page.getByRole("button",{name:"返回网页",exact:true}).click();

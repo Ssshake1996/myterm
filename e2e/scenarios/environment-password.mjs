@@ -37,7 +37,7 @@ export const environmentPasswordScenario = { id: "environment-password", title: 
   });
   await t.step("关闭抽屉和取消编辑后重新打开，密码恢复遮蔽", async () => {
     await show().click(); await hide().waitFor();
-    await p.getByRole("button", { name: "关闭环境", exact: true }).click();
+    await p.getByRole("button", { name: "返回工作区", exact: true }).click();
     const count = reveals.length;
     await p.getByRole("button", { name: "环境管理", exact: true }).click();
     assert.equal(await field().inputValue(), ""); assert.equal(await field().getAttribute("type"), "password"); assert.equal(reveals.length, count);

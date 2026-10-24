@@ -9,7 +9,7 @@ Use the installed `remote_browser_*` tools. The user and Agent share the same li
 
 ## Visible workspace
 
-Enter a URL in **网页** to browse. **网页设置** contains engines, runtime installation and saved sites/flows; **返回网页** preserves the live page and URL draft. **操作记录** opens step results, and **画面设置** below the live image controls its viewport. Jobs continue through module/settings changes. Changing display mode on an open page asks for confirmation because it reloads the page; unsent forms can be lost. Cancel leaves the current page intact. The plugin version and comfortable/compact density are under **更多设置**.
+Enter a URL in **网页** to browse. **设置 → 网页** contains engines, runtime installation, viewport and zoom. **网页 → 收藏** opens saved sites and flows; **操作记录** expands step results below the page. Jobs continue through module/settings changes. A hidden webpage stops frame polling while its browser job continues. Changing display mode asks for confirmation because it reloads the page; unsent forms can be lost. Cancel leaves the current page intact. Version and comfortable/compact density are under **设置 → 通用**.
 
 ## Open and observe
 

@@ -9,7 +9,7 @@ Use the plugin's update dialog to configure the source and check for a newer ver
 
 ## User workflow
 
-Open **Remote Ops → 更多设置 → 检查更新**. Select a source, save it, then click **仅检查版本** or **检查并更新**. The latter checks the source and installs a newer stable version in the current DSH profile. An identical or older version is not installed. A version already installed but awaiting restart is not installed again.
+Open **Remote Ops → 设置 → 更新**. Select a source, save it, then click **仅检查版本** or **检查并更新**. The latter checks the source and installs a newer stable version in the current DSH profile. An identical or older version is not installed. A version already installed but awaiting restart is not installed again.
 
 - **HTTP / HTTPS 地址**: enter a directly readable directory URL or its `latest.json` URL, using the scheme, host and path. The server must allow direct downloads from the DSH host. The manifest, tgz, checksum and redirect hops must stay on the configured origin. Internal HTTPS certificates must be trusted by the DSH Node process; preserve TLS validation.
 - **GitHub Release** is the default source. For an internal mirror, serve the release directory through HTTP/HTTPS and save that address in the dialog.

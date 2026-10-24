@@ -1,12 +1,12 @@
 # dsh-remote-ops 开发交接说明
 
 > 文档更新日期：2026-10-24
-> 当前发布版本：`dsh-remote-ops v0.8.2`；实际版本以 `package.json` 与 `lib/version.js` 为准
+> 当前发布版本：`dsh-remote-ops v0.9.0`；实际版本以 `package.json` 与 `lib/version.js` 为准
 > 基线提交：以 `git log -1` 为准  
 > 项目根目录：`F:\myterm`  
 > GitHub：`Ssshake1996/myterm`
 
-当前产品用法见[根 README](../README.md)和[插件指南](../integrations/dsh-remote-ops/README.zh-CN.md)。v0.8.2 提供 HTTP/HTTPS 手动更新，正式包已完成真实 DSH 安装与重启验收；证据及验证范围见 [v0.8.2 验收记录](testing/dsh-remote-ops-v0.8.2-acceptance.md)。下文历史交接记录保留当时事实，当前行为以源码与当前指南为准。
+当前产品用法见[根 README](../README.md)和[插件指南](../integrations/dsh-remote-ops/README.zh-CN.md)。v0.9.0 统一工作区布局、设置和环境入口，增强终端标签、后台徽标与 API JSON 响应查看；证据及验证范围见 [v0.9.0 验收记录](testing/dsh-remote-ops-v0.9.0-acceptance.md)。下文历史交接记录保留当时事实，当前行为以源码与当前指南为准。
 
 ## 1. 产品边界
 

@@ -88,7 +88,7 @@ test("terminal controls expose usable focus and accessible workspace tabs", () =
   assert.match(client, /role: "tab"/);
   assert.match(client, /"aria-controls": "remote-ops-panel-"/);
   assert.match(client, /ArrowRight:|ArrowLeft:/);
-  assert.match(client, /"aria-label": "环境管理", "aria-expanded": drawer/);
+  assert.match(client, /"aria-label":\s*"环境管理",\s*"aria-expanded":\s*drawer/);
   assert.match(client, /dsh-remote-ops__headAction/);
   assert.match(client, /dsh-remote-ops__drawerClose/);
   assert.match(client, /aria-expanded/);

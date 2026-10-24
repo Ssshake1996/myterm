@@ -9,6 +9,10 @@ For RESTful/API environments use **remote-ops-api** and `remote_api_environment_
 
 Use the installed `remote_environment_*` tools for the user's requested configuration changes. Manage definitions through these tools and passwords through the environment form so persistence and credential handling stay consistent. Saved environments are shared within this DSH home. SSH connections belong to conversations.
 
+## Visible workspace
+
+Open **环境 → SSH** for saved SSH configurations or **环境 → API** for API configurations. The **返回工作区** button at the top left returns to the previous terminal, webpage or API draft without releasing SSH connections. Local CMD and SSH sessions share one terminal tab strip; the selected tab is the visible terminal, while tools must still use the exact session ID returned by the plugin.
+
 ## Select an existing environment
 
 Call `remote_environment_list`. Match the requested environment and reuse its returned internal `id` for updates/deletion, especially after renaming or moving groups. Names are accepted too; an exact ID takes precedence over a name. Clarify genuinely ambiguous targets. The list also contains connection/session information; a saved entry is not evidence of a successful SSH connection.
@@ -52,7 +56,7 @@ For an existing entry use `remote_environment_update`, with `environment` plus o
 - `port` is an integer from 1 to 65535; use 22 to restore the normal SSH port. `encoding` accepts `utf-8`, `gb18030`, `big5`, `windows-1252` or `iso-8859-1`.
 - A provided `cliProfile` or `terminal` object replaces that entire section; `{}` resets that section to defaults. Preserve any other section fields the user wants to keep. `cliProfile` supports `autoQuitMore`, `autoSigint`, `stripAnsi`, `headTailChars`; `terminal` supports `rows` (10–200) and `cols` (40–500).
 - Use an existing Harness `passwordRef` or a private key path on the DSH host. These tools do not accept or store a literal SSH password. If a new password must be stored, the user can enter it in the plugin environment form, which uses the Harness credentials service. Do not ask them to paste it into the conversation.
-- If the user wants to see a saved password, direct them to **环境 → the environment's 编辑 → the eye button beside SSH 密码**. It resolves the current credential only on that click; hiding it or closing the editor/drawer clears the revealed value. Viewing and saving other fields preserves the password. If the credential is missing, the user can re-enter it there. Keep password viewing in this user-facing flow; environment tools expose the configured marker. Do not read credential files or call the UI reveal route from an Agent tool.
+- If the user wants to see a saved password, direct them to **环境 → SSH → the environment's 编辑 → the eye button beside SSH 密码**. It resolves the current credential only on that click; hiding it or closing the editor/drawer clears the revealed value. Viewing and saving other fields preserves the password. If the credential is missing, the user can re-enter it there. Keep password viewing in this user-facing flow; environment tools expose the configured marker. Do not read credential files or call the UI reveal route from an Agent tool.
 - An empty string for `passwordRef` or `privateKeyPath` clears that setting only; it does not delete the credential/key itself. Omission keeps it. Do not clear a credential when merely renaming or moving an environment.
 
 After a successful change, read the list to verify the saved values and report what changed. Do not claim connectivity based on `saved: true`.

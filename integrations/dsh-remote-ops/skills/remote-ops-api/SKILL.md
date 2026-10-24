@@ -7,6 +7,10 @@ description: Manage saved Remote Ops RESTful/API environments, log in with a sto
 
 Use the plugin tools so the user sees the same login, request and response in **Remote Ops → API**. Requests originate on the DSH host. For a service with a different authentication contract, establish the login workflow before sending business requests.
 
+The result area has **响应 / 记录** tabs. Expand JSON arrows, then click a field name to copy its RFC 6901 JSON Pointer (array indices are numeric; `~` becomes `~0` and `/` becomes `~1`). Copy the pointer, not the field value, into login configuration. A colored HTTP 2xx badge still requires checking business success fields.
+
+Use the top-left **返回工作区** button to leave environment management and restore the current API request draft. Choose a Token extraction pointer from the actual login response.
+
 ## Fast path
 
 1. `remote_api_environment_list {}`. Pick the exact API environment ID, base URL and group. Do not invent IDs or use an SSH environment ID as the API ID.
@@ -17,7 +21,7 @@ Use the plugin tools so the user sees the same login, request and response in **
 
 ## Environment example
 
-The password must already exist in DSH credentials under the named reference. Otherwise ask the user to enter it in **API → 管理环境 → 密码**. Do not ask for passwords in chat or put them in tool arguments, headers, extraBody or URLs.
+The password must already exist in DSH credentials under the named reference. Otherwise ask the user to enter it in **环境 → API → 编辑 → API 密码**. Do not ask for passwords in chat or put them in tool arguments, headers, extraBody or URLs.
 
 ```json
 {

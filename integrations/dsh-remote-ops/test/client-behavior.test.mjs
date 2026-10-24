@@ -99,7 +99,7 @@ for (const [label, exportIndex] of [["legacy size-specific", 0], ["DSH 0.2.0-rc.
     assert.equal(tree.props.className, "dsh-remote-ops");
     const rendered = JSON.stringify(tree);
     assert.match(rendered, /Remote Ops/);
-    assert.match(rendered, /检查更新/);
+    assert.match(rendered, /aria-label.*设置/);
     assert.match(rendered, /终端输入/);
     assert.match(rendered, /data-icon/);
   });
