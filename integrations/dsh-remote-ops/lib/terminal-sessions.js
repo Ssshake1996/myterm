@@ -1,12 +1,14 @@
 import { Buffer } from "node:buffer";
+import iconv from "iconv-lite";
 import { TerminalOutputBuffer } from "./output-buffer.js";
 import { normalizeTerminalEncoding, sessionError, summarizeError } from "./common.js";
 import { DEFAULT_TERMINAL_COLS, DEFAULT_TERMINAL_ROWS, TERMINAL_COLS_RANGE, TERMINAL_ROWS_RANGE } from "./cli-profile.js";
+import { isWindowsEnvironment } from "./windows-shell.js";
 
 export function buildSshShellOptions(environment) {
   return {
     window: { term: "xterm-256color", rows: environment?.terminal?.rows ?? DEFAULT_TERMINAL_ROWS, cols: environment?.terminal?.cols ?? DEFAULT_TERMINAL_COLS },
-    options: { env: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8", LC_CTYPE: "C.UTF-8" } },
+    options: isWindowsEnvironment(environment) ? {} : { env: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8", LC_CTYPE: "C.UTF-8" } },
   };
 }
 
@@ -103,6 +105,7 @@ export class SshTerminalSession {
     this.environment = environment;
     this.outputBuffer = new TerminalOutputBuffer();
     this.decoder = new TextDecoder(normalizeTerminalEncoding(environment.encoding), { fatal: false });
+    this.stderrDecoder = new TextDecoder(normalizeTerminalEncoding(environment.encoding), { fatal: false });
     this.closed = false;
     this.exitCode = undefined;
     this.lastActivity = Date.now();
@@ -114,7 +117,7 @@ export class SshTerminalSession {
     this.closeNotified = false;
     this.onClose = undefined;
     channel.on("data", (chunk) => this.append(this.decoder.decode(chunk, { stream: true })));
-    channel.stderr?.on("data", (chunk) => this.append(this.decoder.decode(chunk, { stream: true })));
+    channel.stderr?.on("data", (chunk) => this.append(this.stderrDecoder.decode(chunk, { stream: true })));
     channel.on("exit", (code, signal) => { this.exitCode = code ?? null; this.exitSignal = signal ?? null; });
     channel.on("close", () => this.markClosed());
     // A permanent error listener also keeps a late keepalive/transport error from crashing the host process.
@@ -172,14 +175,16 @@ export class SshTerminalSession {
     if (this.closed) throw this.exitedError();
     const value = String(text ?? "");
     if (!value) return;
-    this.channel.write(value, "utf8");
+    const encoding = normalizeTerminalEncoding(this.environment.encoding);
+    if (encoding === "utf-8") this.channel.write(value, "utf8");
+    else this.channel.write(iconv.encode(value, encoding === "iso-8859-1" ? "windows-1252" : encoding));
   }
 
   writeInput(text) {
     if (this.closed) throw this.exitedError();
     const value = String(text ?? "");
     if (!value) return { accepted: true, bytes: 0 };
-    this.channel.write(value, "utf8");
+    this.write(value);
     this.lastActivity = Date.now();
     return { accepted: true, bytes: Buffer.byteLength(value, "utf8") };
   }

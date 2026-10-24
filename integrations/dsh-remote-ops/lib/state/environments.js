@@ -4,7 +4,7 @@ import { normalizeCliProfile, normalizeTerminalSize } from "../cli-profile.js";
 import { SESSION_NAME_PREFIX } from "../constants.js";
 import { newEnvironmentId, normalizeGroupName, ownerId, sessionError, validateEnvironment } from "../common.js";
 
-const UPDATE_FIELDS = new Set(["name", "host", "username", "group", "port", "privateKeyPath", "passwordRef", "encoding", "cliProfile", "terminal"]);
+const UPDATE_FIELDS = new Set(["name", "host", "username", "group", "port", "privateKeyPath", "passwordRef", "encoding", "cliProfile", "terminal", "transport", "platform", "shell", "readyTimeoutMs", "hostKeySha256"]);
 
 export function sanitizeStoredEnvironment(item) {
   if (!item || typeof item !== "object") return item;

@@ -32,6 +32,7 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
     return { sessionId: record.sessionId, environmentId: record.environment.id, name: record.environment.name,
       endpoint: { host: record.environment.host, port: record.environment.port ?? 22, username: record.environment.username },
       kind: "ssh", status: record.session.status(),
+      platform: record.environment.platform ?? "auto", shell: record.environment.shell ?? "server-default", encoding: record.session.environment?.encoding ?? "utf-8", identity: record.session.identity ?? null, detected: record.session.detected ?? null,
       ownerId: record.ownerId, lastActivity: record.session.lastActivity ?? null, outputCursor: this.outputCursor(record.session), control: this.controlSnapshot(record.session), direct: Boolean(record.direct) };
   }
 

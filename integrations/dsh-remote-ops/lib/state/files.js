@@ -1,9 +1,11 @@
-import { mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { mkdir, readdir, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { Client as SshClient } from "ssh2";
 import { HostFiles, SftpFiles } from "../transfers.js";
 import { MAX_SFTP_BYTES } from "../constants.js";
 import { ownerId, sessionError } from "../common.js";
+import { openSftpChannel } from "../ssh-connection.js";
+import { isWindowsEnvironment } from "../windows-shell.js";
+import { normalizeSftpPath, mkdirSftp } from "../ssh-paths.js";
 
 // Local and SFTP file access used by the file workspace and the sftp tools.
 export const withFiles = (Base) => class FilesLayer extends Base {
@@ -24,22 +26,12 @@ export const withFiles = (Base) => class FilesLayer extends Base {
     if (endpoint.kind !== "ssh") throw sessionError("SFTP_ENDPOINT_INVALID", "Select the DSH host or an SSH environment");
     const environment = this.findEnvironment(endpoint.environment);
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", `Environment not found: ${endpoint.environment}`);
-    const client = new SshClient();
+    let client;
     try {
-      const config = { host: environment.host, port: environment.port ?? 22, username: environment.username, readyTimeout: environment.readyTimeoutMs ?? 15_000 };
-      if (environment.privateKeyPath) config.privateKey = await readFile(environment.privateKeyPath);
-      const password = await this.resolvePassword(environment); if (password) config.password = password;
-      const sftp = await new Promise((resolve, reject) => {
-        const abort = () => { client.destroy(); reject(signal.reason ?? new Error("aborted")); };
-        if (signal?.aborted) return abort();
-        signal?.addEventListener("abort", abort, { once: true });
-        const finish = (error, value) => { signal?.removeEventListener("abort", abort); if (error) reject(error); else resolve(value); };
-        client.once("error", finish);
-        client.once("ready", () => client.sftp(finish));
-        client.connect(config);
-      });
-      return new SftpFiles(client, sftp, signal);
-    } catch (error) { client.end(); throw sessionError("SFTP_CONNECT_FAILED", "Unable to open SFTP channel", error); }
+      ({ client } = await this.connectSshEnvironment(environment, signal));
+      const sftp = await openSftpChannel(client, { windows: isWindowsEnvironment(environment), timeoutMs: environment.readyTimeoutMs, signal });
+      return new SftpFiles(client, sftp, signal, isWindowsEnvironment(environment));
+    } catch (error) { client?.end(); if (String(error.code).startsWith("SSH_")) throw error; throw sessionError("SFTP_CONNECT_FAILED", "Unable to open SFTP channel", error); }
   }
 
   async listFiles(endpoint, signal) {
@@ -62,7 +54,7 @@ export const withFiles = (Base) => class FilesLayer extends Base {
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", `Environment not found: ${environmentId}`);
     if (action === "upload" || action === "download") {
       const upload = action === "upload";
-      const remote = String(args.remotePath).replace(/\\/g, "/");
+      const remote = normalizeSftpPath(String(args.remotePath), isWindowsEnvironment(environment));
       const slash = remote.lastIndexOf("/");
       const local = resolve(String(args.localPath));
       const from = upload ? { kind: "host", path: dirname(local) } : { kind: "ssh", environment: environment.id, path: slash < 0 ? "." : remote.slice(0, slash) || "/" };
@@ -77,21 +69,18 @@ export const withFiles = (Base) => class FilesLayer extends Base {
       if (result.status !== "completed") throw sessionError(result.error.code, result.error.message, result.error);
       return { localPath: local, remotePath: remote, [upload ? "uploaded" : "downloaded"]: result.bytes };
     }
-    const client = new SshClient();
+    const files = await this.connectFiles({ kind: "ssh", environment: environment.id }, args.signal);
     try {
-      const config = { host: environment.host, port: environment.port ?? 22, username: environment.username, readyTimeout: environment.readyTimeoutMs ?? 15_000 };
-      if (environment.privateKeyPath) config.privateKey = await readFile(environment.privateKeyPath);
-      const password = await this.resolvePassword(environment); if (password) config.password = password;
-      await new Promise((resolve, reject) => { client.once("ready", resolve); client.once("error", reject); client.connect(config); });
-      const sftp = await new Promise((resolve, reject) => client.sftp((error, value) => error ? reject(error) : resolve(value)));
-      const call = (method, ...values) => new Promise((resolve, reject) => sftp[method](...values, (error, value) => error ? reject(error) : resolve(value)));
+      const sftp = files.sftp, call = (method, ...values) => files.call(method, ...values);
+      args = { ...args };
+      for (const key of ["path", "from", "to"]) if (args[key] != null) args[key] = normalizeSftpPath(args[key], files.windows);
       if (action === "list") { const entries = await call("readdir", args.path ?? "."); return { path: args.path ?? ".", entries: entries.map((entry) => ({ name: entry.filename, type: (entry.attrs?.mode & 0o170000) === 0o040000 ? "d" : "-", size: entry.attrs?.size ?? 0, modifyTime: entry.attrs?.mtime })) }; }
       if (action === "read") { const chunks = []; let size = 0; await new Promise((resolve, reject) => { const stream = sftp.createReadStream(args.path); stream.on("data", (chunk) => { size += chunk.length; if (size > MAX_SFTP_BYTES) { stream.destroy(sessionError("SFTP_READ_LIMIT", `File exceeds ${MAX_SFTP_BYTES} bytes`)); return; } chunks.push(chunk); }); stream.once("error", reject); stream.once("close", resolve); }); return { path: args.path, content: Buffer.concat(chunks).toString("utf8") }; }
       if (action === "write") { await new Promise((resolve, reject) => { const stream = sftp.createWriteStream(args.path); stream.once("error", reject); stream.once("close", resolve); stream.end(Buffer.from(args.content ?? "", "utf8")); }); return { path: args.path, written: Buffer.byteLength(args.content ?? "", "utf8") }; }
-      if (action === "mkdir") { const parts = String(args.path).split(/[\\/]+/).filter(Boolean); let current = String(args.path).startsWith("/") ? "" : "."; for (const part of parts) { current += `/${part}`; await call("mkdir", current).catch(() => {}); } return { path: args.path, created: true }; }
+      if (action === "mkdir") { const path = await mkdirSftp(call, args.path, files.windows); return { path, created: true }; }
       if (action === "delete") { const stat = await call("stat", args.path); if ((stat.mode & 0o170000) === 0o040000) await call("rmdir", args.path); else await call("unlink", args.path); return { path: args.path, deleted: true }; }
       if (action === "rename") { await call("rename", args.from, args.to); return { from: args.from, to: args.to, renamed: true }; }
       throw new Error(`Unsupported SFTP action: ${action}`);
-    } finally { client.end(); }
+    } finally { files.close(); }
   }
 };

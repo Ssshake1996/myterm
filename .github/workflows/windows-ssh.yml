@@ -1,0 +1,48 @@
+name: Windows OpenSSH acceptance
+
+on:
+  push:
+    branches: [main, codex/windows-openssh]
+  workflow_dispatch:
+
+jobs:
+  real-windows-ssh:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: integrations/dsh-remote-ops/package-lock.json
+      - run: npm ci --prefix integrations/dsh-remote-ops
+      - name: Prepare isolated Microsoft OpenSSH binaries
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Path output/openssh-runtime -Force | Out-Null
+          gh release download v9.8.3.0p2-Preview --repo PowerShell/Win32-OpenSSH --pattern OpenSSH-Win64.zip --dir output/openssh-runtime
+          Expand-Archive -LiteralPath output/openssh-runtime/OpenSSH-Win64.zip -DestinationPath output/openssh-runtime
+          $binary = (Resolve-Path output/openssh-runtime/OpenSSH-Win64/sshd.exe).Path
+          $signature = Get-AuthenticodeSignature -LiteralPath $binary
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') { throw 'OpenSSH signature verification failed' }
+          'WINDOWS_OPENSSH_BIN=' + (Split-Path $binary) | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Real Windows Server PTY, exec, SFTP and log checks
+        env:
+          WINDOWS_SSH_PRODUCT_TYPE: '3'
+          WINDOWS_SSH_OUTPUT: output/windows-ssh-live
+        run: node integrations/dsh-remote-ops/test/windows-ssh-live.mjs
+        timeout-minutes: 8
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-ssh-${{ matrix.os }}
+          path: |
+            output/windows-ssh-live/evidence.json
+            output/windows-ssh-live/server/sshd.log
+          if-no-files-found: warn

@@ -114,7 +114,8 @@ test("generated PTY names resolve through the SSH backend to their saved environ
     await state.saveEnvironment({ id: "prod-1", name: "生产环境", host: "10.0.0.1", username: "root", group: "default", port: 22 });
     const session = await state.spawnBackend({ name: "dsh-remote-ops-prod-1-mu3fti1j-1", sessionId: "session-1" });
     assert.equal(session.environment.id, "prod-1");
-    assert.deepEqual(connectionConfig, { host: "10.0.0.1", port: 22, username: "root", readyTimeout: 15_000, keepaliveInterval: 10_000, keepaliveCountMax: 3 });
+    assert.equal(typeof connectionConfig.hostVerifier, "function");
+    assert.deepEqual({ ...connectionConfig, hostVerifier: undefined }, { host: "10.0.0.1", port: 22, username: "root", readyTimeout: 15_000, keepaliveInterval: 10_000, keepaliveCountMax: 3, hostVerifier: undefined });
     assert.equal(state.findEnvironmentBySessionName("dsh-remote-ops-unknown-mu3fti1j-1"), undefined);
     await session.close();
   } finally {

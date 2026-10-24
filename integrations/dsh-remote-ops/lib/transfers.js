@@ -4,6 +4,7 @@ import { resolve, join, posix, relative, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { normalizeSftpPath, remotePathContains } from "./ssh-paths.js";
 
 const failure = (code, message) => Object.assign(new Error(`${code}: ${message}`), { code });
 const missing = error => error.code === "ENOENT" || error.code === 2;
@@ -27,14 +28,15 @@ export class HostFiles {
 }
 
 export class SftpFiles {
-  constructor(client, sftp, signal) {
+  constructor(client, sftp, signal, windows = false) {
     this.client = client; this.sftp = sftp; this.signal = signal;
+    this.windows = windows;
     this.abort = () => client.destroy();
     if (signal?.aborted) this.abort(); else signal?.addEventListener("abort", this.abort, { once: true });
   }
   call(method, ...args) { return new Promise((resolve, reject) => this.sftp[method](...args, (error, value) => error ? reject(error) : resolve(value))); }
-  join(...parts) { return posix.join(...parts); }
-  canonical(path) { return this.call("realpath", path); }
+  join(...parts) { return posix.join(...parts.map(path => normalizeSftpPath(path, this.windows))); }
+  canonical(path) { return this.call("realpath", normalizeSftpPath(path, this.windows)); }
   async stat(path) { try { return info(await this.call("lstat", path)); } catch (error) { if (missing(error)) return null; throw error; } }
   async list(path) { return (await this.call("readdir", path)).map(entry => entry.filename); }
   mkdir(path) { return this.call("mkdir", path); }
@@ -51,9 +53,10 @@ export class SftpFiles {
 }
 
 function sameEndpoint(a, b) { return a.kind === b.kind && (a.kind === "host" || a.environment === b.environment); }
-function nested(a, b, host) {
-  const delta = host ? relative(resolve(a), resolve(b)) : posix.relative(posix.resolve(a), posix.resolve(b));
-  return delta === "" || (!delta.startsWith("..") && !(host ? isAbsolute(delta) : posix.isAbsolute(delta)));
+function nested(a, b, host, windows = false) {
+  if (!host) return remotePathContains(a, b, windows);
+  const delta = relative(resolve(a), resolve(b));
+  return delta === "" || (!delta.startsWith("..") && !isAbsolute(delta));
 }
 
 export class TransferManager {
@@ -96,7 +99,7 @@ export class TransferManager {
     for (const name of request.names) {
       const from = source ? source.join(sourceRoot, name) : name;
       const to = target.join(destination, request.targetName ?? name);
-      if (source && sameEndpoint(request.source, request.target) && nested(from, to, request.source.kind === "host")) throw failure("TRANSFER_SAME_TREE", "Destination is inside the source tree");
+      if (source && sameEndpoint(request.source, request.target) && nested(from, to, request.source.kind === "host", source.windows)) throw failure("TRANSFER_SAME_TREE", "Destination is inside the source tree");
       await visit(from, to, name, 0);
     }
     return items;

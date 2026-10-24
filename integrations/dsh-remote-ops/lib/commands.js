@@ -1,18 +1,16 @@
-import { StringDecoder } from "node:string_decoder";
-
 const failure = (code, message) => Object.assign(new Error(message), { code });
-const bounded = limit => {
-  const decoder = new StringDecoder("utf8");
+const bounded = (limit, encoding) => {
+  const decoder = new TextDecoder(encoding);
   let text = "", bytes = 0, truncated = false;
   return {
     append(chunk) {
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       const remaining = Math.max(0, limit - bytes);
-      if (remaining) text += decoder.write(buffer.subarray(0, remaining));
+      if (remaining) text += decoder.decode(buffer.subarray(0, remaining), { stream: true });
       bytes += buffer.length;
       truncated ||= bytes > limit;
     },
-    result() { return { text: text + (truncated ? "" : decoder.end()), truncated }; },
+    result() { return { text: text + (truncated ? "" : decoder.decode()), truncated }; },
   };
 };
 
@@ -22,9 +20,9 @@ export function validateCommand(command, timeoutMs = 30000, maxBytes = 65536) {
 }
 
 // This channel never writes to, or infers completion from, the interactive PTY.
-export async function executeCommand({ subprocess, client, command, cwd, signal, timeoutMs = 30000, maxBytes = 65536, platform = process.platform }) {
+export async function executeCommand({ subprocess, client, command, cwd, input, workingDirectory, encoding = "utf-8", signal, timeoutMs = 30000, maxBytes = 65536, platform = process.platform }) {
   validateCommand(command, timeoutMs, maxBytes);
-  const started = Date.now(), stdout = bounded(maxBytes), stderr = bounded(maxBytes);
+  const started = Date.now(), stdout = bounded(maxBytes, encoding), stderr = bounded(maxBytes, encoding);
   let stop, outcome, stopped = false, cause, abortResolve, timer;
   const aborted = new Promise(resolve => { abortResolve = resolve; });
   const abort = reason => { if (stopped) return; stopped = true; cause = reason; try { stop?.(); } finally { abortResolve(null); } };
@@ -48,7 +46,7 @@ export async function executeCommand({ subprocess, client, command, cwd, signal,
             listen(channel, "exit", (code, name) => { exitCode = Number.isInteger(code) ? code : null; exitSignal = name ?? null; });
             listen(channel, "error", reject);
             listen(channel, "close", () => resolve({ exitCode, signal: exitSignal }));
-            channel.end();
+            channel.end(input);
           });
         });
       } else {
@@ -72,7 +70,7 @@ export async function executeCommand({ subprocess, client, command, cwd, signal,
     const out = stdout.result(), err = stderr.result();
     const knownExit = Number.isInteger(facts?.exitCode);
     return {
-      mode: "independent", inheritsTerminalState: false, workingDirectory: client ? null : cwd,
+      mode: "independent", inheritsTerminalState: false, workingDirectory: client ? workingDirectory ?? null : cwd,
       status: cause ?? (knownExit ? facts.exitCode === 0 ? "completed" : "failed" : "unknown"),
       completion: !stopped && knownExit ? "exited" : "unknown",
       exitCode: facts?.exitCode ?? null, signal: facts?.signal ?? null,

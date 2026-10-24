@@ -1,8 +1,9 @@
-import { readFile } from "node:fs/promises";
-import { Client as SshClient } from "ssh2";
 import { CREDENTIAL_REF_RE, LOCAL_SESSION_ID, MAX_SESSIONS_PER_ENVIRONMENT } from "../constants.js";
 import { newSessionName, ownerId, sessionError, validateEnvironment } from "../common.js";
 import { AdoptedTerminalSession, SshTerminalSession, buildSshShellOptions } from "../terminal-sessions.js";
+import { interactiveWindowsCommand, windowsProbeCommand, isWindowsEnvironment } from "../windows-shell.js";
+import { sshChannel } from "../ssh-connection.js";
+import { executeCommand } from "../commands.js";
 
 // SSH connections: spawning, opening, reconciling with the host, credentials, resize and disconnect records.
 export const withConnections = (Base) => class ConnectionsLayer extends Base {
@@ -55,25 +56,30 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
     await this.ready;
     const environment = spec.environment ?? this.directEnvironments.get(spec.name) ?? this.findEnvironment(spec.name) ?? this.findEnvironmentBySessionName(spec.name);
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", `Environment not found: ${spec.name}`);
-    const client = new SshClient();
-    const config = { host: environment.host, port: environment.port ?? 22, username: environment.username, readyTimeout: environment.readyTimeoutMs ?? 15_000, keepaliveInterval: 10_000, keepaliveCountMax: 3 };
+    let client;
     try {
-      if (environment.privateKeyPath) config.privateKey = await readFile(environment.privateKeyPath);
-      const password = await this.resolvePassword(environment);
-      if (password) config.password = password;
+      const connected = await this.connectSshEnvironment(environment);
+      client = connected.client;
       const shell = buildSshShellOptions(environment);
-      const channel = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(sessionError("SSH_CONNECT_TIMEOUT", `SSH connection timed out: ${environment.host}:${config.port}`)), config.readyTimeout);
-        client.once("ready", () => { client.shell(shell.window, shell.options, (error, stream) => { clearTimeout(timer); if (error) reject(error); else resolve(stream); }); });
-        client.once("error", (error) => { clearTimeout(timer); reject(error); });
-        client.connect(config);
-      });
-      const session = new SshTerminalSession(client, channel, environment, shell.window);
+      const command = interactiveWindowsCommand(environment);
+      let detected;
+      if (isWindowsEnvironment(environment)) {
+        const probe = await executeCommand({ client, ...windowsProbeCommand(), timeoutMs: environment.readyTimeoutMs ?? 15000, maxBytes: 16384 });
+        try { if (probe.exitCode === 0) detected = JSON.parse(probe.stdout.trim()); } catch { /* Report the actual failed probe below. */ }
+        if (detected?.platform !== "windows") throw sessionError("WINDOWS_PROBE_FAILED", probe.stderr || probe.stdout || "Windows PowerShell could not identify the target");
+        const executable = { cmd: "cmd.exe", "windows-powershell": "powershell.exe", pwsh: "pwsh.exe" }[environment.shell];
+        if (executable && !detected.availableShells?.some(item => item.name === executable)) throw sessionError("WINDOWS_SHELL_NOT_FOUND", `${executable} is not available on the target; select an installed shell`);
+      }
+      const channel = await sshChannel(client, callback => command ? client.exec(command, { pty: shell.window }, callback) : client.shell(shell.window, shell.options, callback), environment.readyTimeoutMs);
+      const session = new SshTerminalSession(client, channel, { ...environment, ...(command ? { encoding: "utf-8" } : {}) }, shell.window);
+      session.identity = connected.identity;
+      session.detected = detected ?? null;
       this.backendSessions.set(spec.sessionId, session);
       return session;
     } catch (error) {
-      try { client.end(); } catch { /* noop */ }
-      throw sessionError("SSH_CONNECT_FAILED", `${environment.name} (${environment.host}:${config.port})`, error);
+      try { client?.end(); } catch { /* noop */ }
+      if (/^(SSH_|WINDOWS_)/.test(String(error.code))) throw error;
+      throw sessionError("SSH_CONNECT_FAILED", `${environment.name} (${environment.host}:${environment.port ?? 22})`, error);
     }
   }
 

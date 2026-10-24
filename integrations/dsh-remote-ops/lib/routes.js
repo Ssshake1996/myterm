@@ -4,7 +4,7 @@ import { defaultPasswordRef, normalizeGroupName, sessionError, summarizeError, v
 
 const registerRoute = (ctx, label, definition) => ctx.effect(() => ctx.connection.fetch.register(definition), label);
 
-const OWNERLESS_ACTIONS = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]);
+const OWNERLESS_ACTIONS = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "environment.test", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]);
 
 const connectionSummary = (opened, extra = {}) => ({ sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024), ...extra });
 
@@ -26,6 +26,7 @@ const ACTIONS = {
   "group.rename": ({ state, body }) => state.renameGroup(body.group, body.name),
   "group.delete": ({ state, body }) => state.deleteGroup(body.group),
   "environment.save": ({ state, body }) => saveEnvironmentAction(state, body),
+  "environment.test": ({ state, body }) => state.testEnvironment(body.environment),
   "environment.delete": ({ state, body, agent }) => state.deleteEnvironment(agent, body.environment),
   "quick-group.create": ({ state, body }) => state.createQuickGroup(body.name),
   "quick-group.rename": ({ state, body }) => state.renameQuickGroup(body.group, body.name),

@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { CREDENTIAL_REF_RE, ID_RE, SESSION_NAME_PREFIX, TERMINAL_ENCODINGS } from "./constants.js";
 import { validateCliProfile, validateTerminalSize } from "./cli-profile.js";
+import { WINDOWS_SHELLS } from "./windows-shell.js";
 
 export { sessionError, summarizeError } from "./errors.js";
 
@@ -56,6 +57,12 @@ export function validateEnvironment(value) {
   }
   if (typeof value.id === "string" && !ID_RE.test(value.id)) errors.push("id must contain only letters, numbers, dot, underscore or hyphen");
   if (value.port !== undefined && (!Number.isInteger(value.port) || value.port < 1 || value.port > 65535)) errors.push("port must be 1-65535");
+  if (value.transport !== undefined && value.transport !== "ssh") errors.push("transport must be ssh");
+  if (value.platform !== undefined && !["auto", "windows", "posix"].includes(value.platform)) errors.push("platform must be auto, windows or posix");
+  if (value.shell !== undefined && !WINDOWS_SHELLS.includes(value.shell)) errors.push("shell must be server-default, cmd, windows-powershell or pwsh");
+  if (value.platform === "posix" && value.shell && value.shell !== "server-default") errors.push("Windows shells require platform windows or auto");
+  if (value.readyTimeoutMs !== undefined && (!Number.isInteger(value.readyTimeoutMs) || value.readyTimeoutMs < 1000 || value.readyTimeoutMs > 120000)) errors.push("readyTimeoutMs must be 1000-120000");
+  if (value.hostKeySha256 !== undefined && value.hostKeySha256 !== "" && !/^SHA256:[A-Za-z0-9+/]{43}$/.test(value.hostKeySha256)) errors.push("hostKeySha256 must be an OpenSSH SHA256 fingerprint");
   if (value.privateKeyPath !== undefined && typeof value.privateKeyPath !== "string") errors.push("privateKeyPath must be a string");
   if (value.passwordRef !== undefined && typeof value.passwordRef !== "string") errors.push("passwordRef must be a string");
   if (typeof value.passwordRef === "string" && value.passwordRef !== "" && !CREDENTIAL_REF_RE.test(value.passwordRef)) errors.push("passwordRef must be a valid Harness credential reference");

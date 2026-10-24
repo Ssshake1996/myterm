@@ -30,6 +30,7 @@ const PUBLIC_METHODS = [
   "ensureLocalSession", "startLocalSession",
   "terminalOutput", "readTerminal", "claimInput", "control", "send", "input", "signal",
   "execute", "cancelCommand", "startCommand", "commandJob", "commandJobsFor",
+  "verifySshHost", "connectSshEnvironment", "testEnvironment",
   "listLocalFiles", "connectFiles", "listFiles", "sftp",
   "trackTerminalLog", "pruneTerminalLogs", "listTerminalLogs", "readTerminalLog", "exportTerminalLogs", "pruneLogExports", "getLogExport",
 ];

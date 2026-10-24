@@ -7,6 +7,14 @@ const output = { schema: { type: "object", additionalProperties: true }, render:
 const stringParam = (description, required = false) => ({ type: "string", description, ...(required ? { required: true } : {}) });
 const numberParam = (description) => ({ type: "number", description });
 const boolParam = (description) => ({ type: "boolean", description });
+const SSH_ENVIRONMENT_PARAMETERS = {
+  transport: { type: "string", enum: ["ssh"], description: "SSH transport; omitted keeps existing environments compatible" },
+  platform: { type: "string", enum: ["auto", "windows", "posix"], description: "Target platform intent; auto preserves server-default behavior, not local DSH OS" },
+  shell: { type: "string", enum: ["server-default", "cmd", "windows-powershell", "pwsh"], description: "Shell for new SSH connections. Explicit Windows shells use UTF-8 for this process only" },
+  readyTimeoutMs: { type: "number", description: "SSH connection timeout, integer 1000-120000 milliseconds; default 15000" },
+  hostKeySha256: stringParam("Optional independently verified OpenSSH SHA256 fingerprint. Without a pin, first use is remembered and subsequent key changes are rejected"),
+  encoding: { type: "string", enum: ["utf-8", "gb18030", "big5", "windows-1252", "iso-8859-1"], description: "Input/output encoding for server-default shell; explicit Windows shells use UTF-8" },
+};
 const CLI_ASSIST_PARAMETERS = {
   autoQuitMore: boolParam("Send q when a --More-- pager appears and read the remaining output; default false"),
   autoSigint: boolParam("Send SIGINT when output shows a parameter-error hint (^ arrow plus [param=?] suggestions) so residual characters do not pollute the next command; default true"),
@@ -96,10 +104,13 @@ export function registerTools(ctx, state) {
   const owner = (exec) => exec.agent;
   registerTool(ctx, {
     name: "remote_command_execute",
-    description: "Execute a noninteractive command separately from the visible terminal, returning real exitCode, stdout, stderr and duration. Does NOT inherit the terminal cwd or temporary variables. Local uses a new shell in the plugin working directory; SSH uses a new exec channel on an explicit existing connection with server-default cwd. No stdin; timeout/cancellation does not prove a remote process stopped. Use remote_terminal_send/read for interactive programs.",
+    description: "Execute a noninteractive command separately from the visible terminal, returning exitCode, stdout, stderr and duration. Does NOT inherit terminal cwd or variables. Windows SSH accepts shell=cmd/windows-powershell/pwsh and literal workingDirectory; PowerShell parameters is an object passed as data to the script param block. CMD command is a complete batch script (no parameters object). Explicit Windows shells use UTF-8. Other SSH uses the server default and saved encoding. Timeout/cancellation does not prove a remote process stopped. Use remote_terminal_send/read for interactive programs.",
     parameters: {
       session: stringParam("Exact existing SSH session id or local-cmd", true),
       command: stringParam("Complete shell command preserving spaces", true),
+      shell: SSH_ENVIRONMENT_PARAMETERS.shell,
+      workingDirectory: stringParam("Literal Windows directory for this independent command; does not change the terminal cwd"),
+      parameters: { type: "object", properties: {}, additionalProperties: true, description: "Named PowerShell script parameters: scalar string/number/boolean/null or arrays of these. Use command with param($name). Pass an object, never a JSON string" },
       timeoutSeconds: numberParam("1-300 seconds; default 30"),
       maxBytes: numberParam("Per-stream output limit, 1024-262144 bytes; default 65536"),
     },
@@ -127,6 +138,7 @@ export function registerTools(ctx, state) {
       port: numberParam("SSH port"),
       privateKeyPath: stringParam("Local private key path"),
       passwordRef: stringParam("Harness credential reference"),
+      ...SSH_ENVIRONMENT_PARAMETERS,
       ...(withNested ? { cliProfile: CLI_PROFILE_SCHEMA, terminal: TERMINAL_SIZE_SCHEMA } : {}),
     },
     execute: async (args, exec) => {
@@ -153,7 +165,7 @@ export function registerTools(ctx, state) {
         port: numberParam("SSH port, integer 1-65535; use 22 for the standard port"),
         privateKeyPath: stringParam("Private key path on the DSH host; empty string clears it"),
         passwordRef: stringParam("Existing Harness credential reference; empty string clears it. Never pass a password or the display marker configured"),
-        encoding: { type: "string", enum: ["utf-8", "gb18030", "big5", "windows-1252", "iso-8859-1"], description: "Terminal character encoding for new connections" },
+        ...SSH_ENVIRONMENT_PARAMETERS,
         ...(withNested ? { cliProfile: CLI_PROFILE_SCHEMA, terminal: TERMINAL_SIZE_SCHEMA } : {}),
       }).map(([key, schema]) => [key, { description: "Omitted or null keeps the saved value. " + (schema.description ?? ""), oneOf: [schema, { type: "null" }] }])),
     },
@@ -163,6 +175,12 @@ export function registerTools(ctx, state) {
       return { saved: true, environment: { ...saved, passwordRef: saved.passwordRef ? "configured" : undefined }, connectionEffect: "new-connections-only" };
     },
   }));
+  registerTool(ctx, {
+    name: "remote_environment_test",
+    description: "Test one saved SSH environment with read-only OS/Shell probes and PTY/SFTP channels. Returns actual detected OS, shell availability, paths, fingerprint and stage failures. Does not change the remote server; local first-use host identity is remembered. New first-use identity is not independently verified: compare the fingerprint with the administrator before sending sensitive commands. Does not test file writes or prove all Windows versions compatible.",
+    parameters: { environment: stringParam("Exact saved environment id or name", true) },
+    execute: async (args, exec) => state.testEnvironment(args.environment, { signal: exec.signal }),
+  });
   registerTool(ctx, {
     name: "remote_environment_group_create",
     description: "Create an empty saved SSH environment group.",
@@ -196,7 +214,7 @@ export function registerTools(ctx, state) {
     parameters: { environment: stringParam("Environment id or name", true) },
     execute: async (_args, exec) => {
       const record = await state.open(owner(exec), _args.environment);
-      return { sessionId: record.sessionId, environment: record.environment.name, status: record.session.status(), viewport: record.session.output.slice(-64 * 1024) };
+      return { sessionId: record.sessionId, environment: record.environment.name, status: record.session.status(), shell: record.environment.shell ?? "server-default", platform: record.environment.platform ?? "auto", identity: record.session.identity ?? null, viewport: record.session.output.slice(-64 * 1024) };
     },
   });
   registerTool(ctx, {

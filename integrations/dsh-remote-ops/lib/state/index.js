@@ -9,6 +9,7 @@ import { withTerminalIo } from "./terminal-io.js";
 import { withCommands } from "./commands.js";
 import { withFiles } from "./files.js";
 import { withLogs } from "./logs.js";
+import { withSsh } from "./ssh.js";
 
 // RemoteOpsState is one object assembled from layers that each own one area. A layer is a mixin factory
 // (Base) => class extends Base; the fields all layers share are created once by StateBase. No layer overrides
@@ -23,6 +24,6 @@ import { withLogs } from "./logs.js";
 //   commands        Independent non-interactive commands that never touch the visible terminal.
 //   files           Local and SFTP file access used by the file workspace and the sftp tools.
 //   logs            Owner-scoped terminal transcripts, pagination and bounded download archives.
-const layers = [withEnvironments, withQuickCommands, withUpdates, withSnapshots, withConnections, withLocalTerminal, withTerminalIo, withCommands, withFiles, withLogs];
+const layers = [withEnvironments, withQuickCommands, withUpdates, withSnapshots, withSsh, withConnections, withLocalTerminal, withTerminalIo, withCommands, withFiles, withLogs];
 
 export class RemoteOpsState extends layers.reduce((Base, layer) => layer(Base), StateBase) {}
