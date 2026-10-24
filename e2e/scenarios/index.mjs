@@ -293,4 +293,6 @@ import { terminalLogsScenario } from './terminal-logs.mjs';
 scenarios.push(terminalLogsScenario);
 import { environmentPasswordScenario } from './environment-password.mjs';
 scenarios.push(environmentPasswordScenario);
+import { windowsEnvironmentScenario } from './windows-environment.mjs';
+scenarios.push(windowsEnvironmentScenario);
 scenarios.push(apiScenario);

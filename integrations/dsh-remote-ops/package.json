@@ -1,6 +1,6 @@
 {
   "name": "@dsh/remote-ops",
-  "version": "0.9.2",
+  "version": "0.10.0",
   "private": false,
   "type": "module",
   "description": "DeepSeek Harness plugin for SSH, SFTP, visible web operations and saved RESTful API environments",
@@ -37,12 +37,14 @@
     "README.md",
     "README.zh-CN.md",
     "WEB.md",
+    "WINDOWS.md",
     "THIRD_PARTY_NOTICES.md",
     "cordis.patch.yml",
     "locale/en.json",
     "locale/zh.json",
     "package.json",
     "skills/remote-ops-updates/SKILL.md",
+    "skills/remote-ops-windows/SKILL.md",
     "scripts/create-update-manifest.mjs"
   ],
   "scripts": {

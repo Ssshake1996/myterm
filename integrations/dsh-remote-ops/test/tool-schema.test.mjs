@@ -57,7 +57,7 @@ test("browser Schemas stay within the real DSH host's supported JSON Schema subs
     if(schema.items)inspect(schema.items);
     if(schema.additionalProperties&&typeof schema.additionalProperties==='object')inspect(schema.additionalProperties);
   };
-  for(const [name,tool] of tools)if(name.startsWith('remote_browser_'))inspect(tool.parameters);
+  for(const [name,tool] of tools)if(name.startsWith('remote_browser_') || ['remote_environment_create','remote_environment_update','remote_environment_test','remote_command_execute'].includes(name))inspect(tool.parameters);
 });
 
 test("browser run schema expresses supported actions, locators and conditional required fields", () => {
@@ -98,4 +98,16 @@ test("terminal and SFTP metadata preserve required arguments and existing nested
   const answer = script.properties.steps.items.properties.answers.items;
   assert.deepEqual(answer.required, ["pattern", "text"]);
   assert.equal(tools.get("remote_sftp_upload").parameters.properties.overwrite.type, "boolean");
+});
+
+test("Windows tool metadata and bundled execution example pass the same object Schema as DSH", () => {
+  const create = ajv.compile(tools.get("remote_environment_create").parameters);
+  assert.equal(create({ host: "windows.example", username: "HOST\\operator", platform: "windows", shell: "windows-powershell", readyTimeoutMs: 15000 }), true);
+  assert.equal(create({ host: "windows.example", username: "operator", transport: "winrm" }), false);
+  assert.equal(ajv.compile(tools.get("remote_environment_test").parameters)({ environment: "id" }), true);
+  const execute = ajv.compile(tools.get("remote_command_execute").parameters);
+  const skill = readFileSync(new URL("../skills/remote-ops-windows/SKILL.md", import.meta.url), "utf8");
+  const example = JSON.parse(skill.match(/```json\r?\n([\s\S]*?)\r?\n```/)[1]);
+  assert.equal(execute(example), true, JSON.stringify(execute.errors));
+  assert.equal(execute({ ...example, parameters: JSON.stringify(example.parameters) }), false);
 });

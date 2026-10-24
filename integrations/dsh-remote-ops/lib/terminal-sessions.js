@@ -4,6 +4,7 @@ import { TerminalOutputBuffer } from "./output-buffer.js";
 import { normalizeTerminalEncoding, sessionError, summarizeError } from "./common.js";
 import { DEFAULT_TERMINAL_COLS, DEFAULT_TERMINAL_ROWS, TERMINAL_COLS_RANGE, TERMINAL_ROWS_RANGE } from "./cli-profile.js";
 import { isWindowsEnvironment } from "./windows-shell.js";
+import { closeSshClient } from "./ssh-connection.js";
 
 export function buildSshShellOptions(environment) {
   return {
@@ -218,7 +219,7 @@ export class SshTerminalSession {
     this.outputBuffer.notify();
     this.active?.finish("session_exit");
     try { this.channel.end(); } catch { /* noop */ }
-    try { this.client.end(); } catch { /* noop */ }
+    closeSshClient(this.client);
   }
 }
 

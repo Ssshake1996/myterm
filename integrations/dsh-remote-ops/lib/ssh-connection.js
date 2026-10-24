@@ -7,6 +7,14 @@ import { setTimeout as delay } from "node:timers/promises";
 export const sshFingerprint = key => "SHA256:" + createHash("sha256").update(key).digest("base64").replace(/=+$/, "");
 export const sshEndpoint = environment => `${String(environment.host).trim().toLowerCase()}:${environment.port ?? 22}`;
 
+export function closeSshClient(client) {
+  if (!client) return;
+  // ssh2 1.17 destroy() only acts on writable sockets. Calling end() first can
+  // leave Win32 half-closed PTY sockets alive. Completed/cancelled owned channels
+  // have no work left to drain, so destroy directly rather than end-then-destroy.
+  if (typeof client.destroy === "function") client.destroy();else client.end?.();
+}
+
 export async function connectSsh(environment, { password, verifyHost, signal, ClientType = Client } = {}) {
   signal?.throwIfAborted();
   const client = new ClientType();
@@ -41,7 +49,7 @@ export async function connectSsh(environment, { password, verifyHost, signal, Cl
   }
 }
 
-export function sshChannel(client, open, timeoutMs = 15000, signal) {
+export function sshChannel(client, open, timeoutMs = 15000, signal, operation = "Opening the SSH channel") {
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (error, channel) => {
@@ -51,7 +59,7 @@ export function sshChannel(client, open, timeoutMs = 15000, signal) {
     };
     const closed = () => finish(sessionError("SSH_CHANNEL_CLOSED", "Connection closed while opening the channel"));
     const abort = () => finish(signal.reason ?? sessionError("SSH_CANCELLED", "Channel opening cancelled"));
-    const timer = setTimeout(() => finish(sessionError("SSH_CHANNEL_TIMEOUT", "Opening the SSH channel timed out")), timeoutMs);
+    const timer = setTimeout(() => finish(sessionError("SSH_CHANNEL_TIMEOUT", `${operation} timed out`)), timeoutMs);
     client.once("close", closed); signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) abort(); else { try { open(finish); } catch (error) { finish(error); } }
   });

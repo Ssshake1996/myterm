@@ -2,7 +2,7 @@ import { CREDENTIAL_REF_RE, LOCAL_SESSION_ID, MAX_SESSIONS_PER_ENVIRONMENT } fro
 import { newSessionName, ownerId, sessionError, validateEnvironment } from "../common.js";
 import { AdoptedTerminalSession, SshTerminalSession, buildSshShellOptions } from "../terminal-sessions.js";
 import { interactiveWindowsCommand, windowsProbeCommand, isWindowsEnvironment } from "../windows-shell.js";
-import { sshChannel } from "../ssh-connection.js";
+import { sshChannel, closeSshClient } from "../ssh-connection.js";
 import { executeCommand } from "../commands.js";
 
 // SSH connections: spawning, opening, reconciling with the host, credentials, resize and disconnect records.
@@ -77,7 +77,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
       this.backendSessions.set(spec.sessionId, session);
       return session;
     } catch (error) {
-      try { client?.end(); } catch { /* noop */ }
+      closeSshClient(client);
       if (/^(SSH_|WINDOWS_)/.test(String(error.code))) throw error;
       throw sessionError("SSH_CONNECT_FAILED", `${environment.name} (${environment.host}:${environment.port ?? 22})`, error);
     }

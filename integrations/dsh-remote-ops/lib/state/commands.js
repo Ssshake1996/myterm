@@ -3,6 +3,7 @@ import { executeCommand, validateCommand } from "../commands.js";
 import { LOCAL_SESSION_ID, LOCAL_SESSION_NAME } from "../constants.js";
 import { sessionError } from "../common.js";
 import { buildWindowsCommand, isWindowsEnvironment } from "../windows-shell.js";
+import { closeSshClient } from "../ssh-connection.js";
 
 // Independent non-interactive commands that never touch the visible terminal.
 export const withCommands = (Base) => class CommandsLayer extends Base {
@@ -31,7 +32,17 @@ export const withCommands = (Base) => class CommandsLayer extends Base {
     const job = { owner: owner.id, target: targetId, requestId, controller, targetName: record ? record.environment.name : LOCAL_SESSION_NAME, status: "running", startedAt: new Date().toISOString() };
     this.commands.set(requestId, job);
     if (retained) { this.commandHistory.set(requestId, job); this.#pruneCommandJobs(); }
-    job.done = executeCommand({ subprocess: this.ctx.subprocess, client: record?.session.client, ...execution, cwd: this.base, signal: controller.signal, timeoutMs: (args.timeoutSeconds ?? 30) * 1000, maxBytes: args.maxBytes ?? 65536 }).then(value => {
+    const run = async () => {
+      let dedicated;
+      try {
+        // Win32 OpenSSH on desktop can fail to initialize exec processes when they
+        // share the interactive PTY's connection. Authenticate a separate connection
+        // using this session's original environment and the same host-key policy.
+        if (record && isWindowsEnvironment({ ...record.environment, shell })) dedicated = (await this.connectSshEnvironment(record.environment, controller.signal)).client;
+        return await executeCommand({ subprocess: this.ctx.subprocess, client: dedicated ?? record?.session.client, ...execution, cwd: this.base, signal: controller.signal, timeoutMs: (args.timeoutSeconds ?? 30) * 1000, maxBytes: args.maxBytes ?? 65536 });
+      } finally { closeSshClient(dedicated); }
+    };
+    job.done = run().then(value => {
       job.status = value.status;
       job.result = { ...value, shell, requestId, sessionId: targetId, targetName: job.targetName };
       this.event(owner, "command.execute", { sessionId: targetId, status: value.status, exitCode: value.exitCode, durationMs: value.durationMs });

@@ -23,7 +23,7 @@ Call `remote_environment_list`. Match the requested environment and reuse its re
 
 ## Create and update
 
-`remote_environment_create` needs `host` and `username`. It generates the internal ID; `name` defaults to the host and `group` defaults to `default`. Optional settings include `port`, `passwordRef`, `privateKeyPath`, `cliProfile` and `terminal`. This saves a definition without connecting.
+`remote_environment_create` needs `host` and `username`. It generates the internal ID; `name` defaults to the host and `group` defaults to `default`. Optional settings include `port`, `passwordRef`, `privateKeyPath`, `cliProfile`, `terminal`, `platform`, `shell`, `encoding`, `readyTimeoutMs` and `hostKeySha256`. Transport is SSH. This saves a definition without connecting.
 
 Example tool invocation (replace example values with the user's target):
 
@@ -62,6 +62,10 @@ For an existing entry use `remote_environment_update`, with `environment` plus o
 - An empty string for `passwordRef` or `privateKeyPath` clears that setting only; it does not delete the credential/key itself. Omission keeps it. Do not clear a credential when merely renaming or moving an environment.
 
 After a successful change, read the list to verify the saved values and report what changed. Do not claim connectivity based on `saved: true`.
+
+For Windows desktop or Server, select `platform: "windows"`; `shell` is `server-default`, `cmd`, `windows-powershell` or `pwsh`. Keep `server-default` for Linux/Unix and device CLIs; `platform: "posix"` rejects explicit Windows shells. Explicit Windows shells use UTF-8 for the new process. Server-default uses the saved encoding for input and output. `readyTimeoutMs` is an integer 1000–120000 and only controls connection setup.
+
+Call `remote_environment_test` to inspect actual OS facts, PTY/SFTP capabilities and stage failures. **环境 → SSH → 测试** exposes the same diagnostics. First-use SSH keys are remembered; changed keys are rejected by terminal and file channels. A verified `hostKeySha256` pins the target identity. Never reset a changed fingerprint merely to silence the error. See the bundled `remote-ops-windows` skill for Windows scripts, paths and verification.
 
 ## Existing connections
 

@@ -33,7 +33,16 @@ export async function startWindowsOpenSsh({ bin, root, username = userInfo().use
   let log = "", spawnError;
   child.stderr.on("data", chunk => { log = (log + chunk).slice(-100000); });
   child.once("error", error => { spawnError = error; });
-  const close = async () => { if (child.exitCode === null) { try { execFileSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }); } catch { child.kill(); } } await writeFile(join(root, "sshd.log"), log); };
+  const close = async () => {
+    if (child.exitCode === null) {
+      try { execFileSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }); }
+      catch { child.kill(); }
+    }
+    // Win32 console descendants can retain inherited pipe handles after sshd exits.
+    // Release our readers after teardown; a failed assertion still keeps exitCode=1.
+    child.stdout.destroy(); child.stderr.destroy(); child.unref();
+    await writeFile(join(root, "sshd.log"), log);
+  };
   try {
     const deadline = Date.now() + 10000;
     while (!log.includes("Server listening")) {

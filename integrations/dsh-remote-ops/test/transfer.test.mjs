@@ -90,7 +90,9 @@ test("SFTP cancellation closes its transport even during a metadata operation", 
   controller.abort();
   assert.equal(destroyed, 1);
   files.close();
-  assert.equal(ended, 1);
+  assert.equal(destroyed, 2);
+  assert.equal(ended, 0);
+  files.close();assert.equal(destroyed, 2);
 });
 
 test("queued cancellation is immediate and never opens another connection", async t => {

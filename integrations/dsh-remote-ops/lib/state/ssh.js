@@ -1,6 +1,6 @@
-import { writeFile, rename } from "node:fs/promises";
+import { readFile, writeFile, rename } from "node:fs/promises";
 import { join } from "node:path";
-import { connectSsh, sshEndpoint, sshChannel, openSftpChannel } from "../ssh-connection.js";
+import { connectSsh, sshEndpoint, sshChannel, openSftpChannel, closeSshClient } from "../ssh-connection.js";
 import { sessionError } from "../errors.js";
 import { executeCommand } from "../commands.js";
 import { buildSshShellOptions } from "../terminal-sessions.js";
@@ -12,7 +12,16 @@ export const withSsh = Base => class SshLayer extends Base {
     this.sshHostWrites ??= Promise.resolve();
     const operation = this.sshHostWrites.then(async () => {
       const file = join(this.base, "ssh-host-keys.json");
-      this.sshHostKeys ??= await this.readJson(file, {});
+      if (!this.sshHostKeys) {
+        try {
+          const keys = JSON.parse(await readFile(file, "utf8"));
+          if (!keys || typeof keys !== "object" || Array.isArray(keys) || Object.values(keys).some(value => typeof value !== "string" || !/^SHA256:[A-Za-z0-9+/]{43}$/.test(value))) throw new Error("Invalid fingerprint entries");
+          this.sshHostKeys = keys;
+        } catch (error) {
+          if (error.code === "ENOENT") this.sshHostKeys = {};
+          else throw Object.assign(sessionError("SSH_HOST_STORE_INVALID", "Saved SSH host identities could not be read. Restore the verified identity file before connecting", error), { stage: "host-key" });
+        }
+      }
       const known = this.sshHostKeys[endpoint];
       const expected = environment.hostKeySha256 || known;
       if (expected && expected !== fingerprint) {
@@ -52,9 +61,16 @@ export const withSsh = Base => class SshLayer extends Base {
       client = connected.client; result.identity = connected.identity;
       result.stages.push({ stage: "authentication", ok: true });
       if (environment.platform !== "posix") {
-        const probe = await executeCommand({ client, ...windowsProbeCommand(), signal, timeoutMs: 15000, maxBytes: 16384 });
-        try { if (probe.exitCode === 0) result.detected = JSON.parse(probe.stdout.trim()); } catch { /* Non-Windows CLI or an unexpected profile response. */ }
-        if (isWindowsEnvironment(environment) && result.detected?.platform !== "windows") result.stages.push({ stage: "platform", ok: false, code: "WINDOWS_PROBE_FAILED", message: probe.stderr || probe.stdout || "Windows PowerShell probe returned no system facts" });
+        try {
+          const probe = await executeCommand({ client, ...windowsProbeCommand(), signal, timeoutMs: environment.readyTimeoutMs ?? 15000, maxBytes: 16384 });
+          let facts;
+          try { if (probe.exitCode === 0) facts = JSON.parse(probe.stdout.trim()); } catch { /* Non-Windows CLI or unexpected output. */ }
+          if (facts?.platform !== "windows") throw sessionError("WINDOWS_PROBE_FAILED", `Windows probe ${probe.status}, exitCode=${probe.exitCode}: ${probe.stderr || probe.stdout || "No system facts returned"}`);
+          result.detected = facts; result.stages.push({ stage: "platform", ok: true });
+        } catch (error) {
+          // Auto also covers Linux and device CLIs; an absent PowerShell is not their failure.
+          if (isWindowsEnvironment(environment)) result.stages.push({ stage: "platform", ok: false, code: error.code ?? "WINDOWS_PROBE_FAILED", message: error.message });
+        }
       }
       if (!result.detected && !isWindowsEnvironment(environment)) {
         const probe = await run("platform", async () => {
@@ -77,8 +93,11 @@ export const withSsh = Base => class SshLayer extends Base {
       const sftp = await run("sftp", () => openSftpChannel(client, { windows: isWindowsEnvironment(target), signal }));
       result.capabilities.sftp = Boolean(sftp);
       if (sftp) result.capabilities.sftpOpenAttempts = sftp.openAttempts;
-      if (sftp) { result.capabilities.sftpHome = await run("sftp-path", () => new Promise((resolve, reject) => sftp.realpath(".", (error, path) => error ? reject(error) : resolve(path)))); sftp.end(); }
+      if (sftp) {
+        try { result.capabilities.sftpHome = await run("sftp-path", () => sshChannel(client, callback => sftp.realpath(".", callback), environment.readyTimeoutMs ?? 15000, signal, "Resolving the SFTP home directory")); }
+        finally { sftp.end(); }
+      }
       return { ...result, ok: result.stages.every(stage => stage.ok) };
-    } finally { client?.end(); }
+    } finally { closeSshClient(client); }
   }
 };

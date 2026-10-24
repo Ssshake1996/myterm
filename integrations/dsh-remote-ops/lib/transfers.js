@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { normalizeSftpPath, remotePathContains } from "./ssh-paths.js";
+import { closeSshClient } from "./ssh-connection.js";
 
 const failure = (code, message) => Object.assign(new Error(`${code}: ${message}`), { code });
 const missing = error => error.code === "ENOENT" || error.code === 2;
@@ -49,7 +50,11 @@ export class SftpFiles {
     } else await this.call("rename", from, to);
   }
   async remove(path) { await this.call("unlink", path).catch(error => { if (!missing(error)) throw error; }); }
-  close() { this.signal?.removeEventListener("abort", this.abort); this.client.end(); }
+  close() {
+    if (this.closed) return;this.closed = true;
+    this.signal?.removeEventListener("abort", this.abort);
+    try { this.sftp.end?.(); } finally { closeSshClient(this.client); }
+  }
 }
 
 function sameEndpoint(a, b) { return a.kind === b.kind && (a.kind === "host" || a.environment === b.environment); }

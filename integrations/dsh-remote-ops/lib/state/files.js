@@ -3,7 +3,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { HostFiles, SftpFiles } from "../transfers.js";
 import { MAX_SFTP_BYTES } from "../constants.js";
 import { ownerId, sessionError } from "../common.js";
-import { openSftpChannel } from "../ssh-connection.js";
+import { openSftpChannel, closeSshClient } from "../ssh-connection.js";
 import { isWindowsEnvironment } from "../windows-shell.js";
 import { normalizeSftpPath, mkdirSftp } from "../ssh-paths.js";
 
@@ -31,7 +31,7 @@ export const withFiles = (Base) => class FilesLayer extends Base {
       ({ client } = await this.connectSshEnvironment(environment, signal));
       const sftp = await openSftpChannel(client, { windows: isWindowsEnvironment(environment), timeoutMs: environment.readyTimeoutMs, signal });
       return new SftpFiles(client, sftp, signal, isWindowsEnvironment(environment));
-    } catch (error) { client?.end(); if (String(error.code).startsWith("SSH_")) throw error; throw sessionError("SFTP_CONNECT_FAILED", "Unable to open SFTP channel", error); }
+    } catch (error) { closeSshClient(client); if (String(error.code).startsWith("SSH_")) throw error; throw sessionError("SFTP_CONNECT_FAILED", "Unable to open SFTP channel", error); }
   }
 
   async listFiles(endpoint, signal) {

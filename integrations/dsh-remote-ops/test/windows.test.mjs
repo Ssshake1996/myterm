@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateEnvironment } from "../lib/common.js";
@@ -12,6 +12,7 @@ import { sshFingerprint, connectSsh, openSftpChannel } from "../lib/ssh-connecti
 import { EventEmitter } from "node:events";
 import { SshTerminalSession, buildSshShellOptions } from "../lib/terminal-sessions.js";
 import iconv from "iconv-lite";
+import { SftpFiles } from "../lib/transfers.js";
 
 const env = { id: "win", name: "Windows", host: "host", username: "HOST\\user", platform: "windows", transport: "ssh", shell: "cmd" };
 test("Windows environment validation preserves old SSH and rejects unsupported combinations", async t => {
@@ -43,6 +44,59 @@ test("Windows payload is data on stdin, with a bounded launcher and explicit she
   assert.match(interactiveWindowsCommand({ ...env, shell: "pwsh" }), /^pwsh.exe /);
 });
 
+test("Windows independent execution uses a verified fresh connection and preserves the open PTY and its environment snapshot", async t => {
+  const { state } = await fixture(t, () => "");
+  const owner = { id: "windows-command-owner" }, captured = { ...env, shell: "windows-powershell" };
+  let connected, destroyed = 0, payload, ptyTouched = false;
+  const fresh = new EventEmitter();fresh.end = () => {};fresh.destroy = () => { destroyed++; };
+  fresh.exec = (_command, callback) => {
+    const channel = new EventEmitter();channel.stderr = new EventEmitter();
+    channel.end = value => { payload = JSON.parse(value);queueMicrotask(() => { channel.emit("data", Buffer.from("中文 result"));channel.emit("exit", 0);channel.emit("close"); }); };
+    callback(null, channel);
+  };
+  const session = { status: () => ({ kind: "running" }), client: { exec() { ptyTouched = true;throw new Error("PTY connection must not dispatch exec"); } } };
+  state.sessions.set("win-pty", { sessionId: "win-pty", ownerId: owner.id, environment: captured, session });
+  await state.saveEnvironment(captured);await state.updateEnvironment(env.id, { shell: "cmd", host: "new-host" });
+  t.mock.method(state, "connectSshEnvironment", async environment => { connected = environment;return { client: fresh }; });
+  const value = await state.execute(owner, "win-pty", { command: "param($text) $text", parameters: { text: "中文 & | % ! ^" }, workingDirectory: "C:/space [1]" });
+  assert.equal(value.exitCode, 0);assert.equal(value.stdout, "中文 result");assert.equal(value.workingDirectory, "C:/space [1]");
+  assert.equal(connected.host, "host");assert.equal(payload.parameters.text, "中文 & | % ! ^");assert.equal(payload.shell, "windows-powershell");
+  assert.equal(ptyTouched, false);assert.equal(destroyed, 1);assert.equal(state.commands.size, 0);
+  t.mock.method(state, "connectSshEnvironment", async () => { throw Object.assign(new Error("changed host"), { code: "SSH_HOST_KEY_CHANGED" }); });
+  await assert.rejects(state.execute(owner, "win-pty", { command: "echo must-not-run" }), { code: "SSH_HOST_KEY_CHANGED" });
+  assert.equal(ptyTouched, false);assert.equal(state.commands.size, 0);
+});
+
+test("connection diagnostics keep probe failures and numeric SFTP errors in their actual stages", async t => {
+  const { state } = await fixture(t, () => "");
+  await state.saveEnvironment(env);
+  const client = new EventEmitter();let closed = 0;
+  client.exec = (_command, callback) => callback(Object.assign(new Error("exec rejected"), { code: "TEST_EXEC_FAILED" }));
+  client.sftp = callback => callback(Object.assign(new Error("access denied"), { code: 3 }));
+  client.end = () => { closed++; };
+  t.mock.method(state, "connectSshEnvironment", async () => ({ client, identity: { trust: "pinned" } }));
+  const result = await state.testEnvironment(env.id);
+  assert.equal(result.ok, false);assert.equal(result.capabilities.exec, false);
+  assert.ok(result.stages.some(x => x.stage === "platform" && x.code === "TEST_EXEC_FAILED"));
+  assert.ok(result.stages.some(x => x.stage === "sftp" && x.code === 3));
+  assert.equal(closed, 1);
+});
+
+test("connection diagnosis can cancel an unresponsive SFTP path request and closes its channel", async t => {
+  const { state } = await fixture(t, () => "");
+  await state.saveEnvironment({ ...env, shell: "server-default" });
+  const client = new EventEmitter();let closed = 0, sftpClosed = 0;
+  client.exec = (_command, callback) => callback(new Error("probe unavailable"));
+  client.shell = (_window, _options, callback) => callback(null, Object.assign(new EventEmitter(), { close() {} }));
+  const controller = new AbortController();
+  client.sftp = callback => callback(null, { realpath() { setTimeout(() => controller.abort(new Error("cancelled path")), 10); }, end() { sftpClosed++; } });
+  client.end = () => { closed++; };
+  t.mock.method(state, "connectSshEnvironment", async () => ({ client }));
+  const result = await state.testEnvironment(env.id, { signal: controller.signal });
+  assert.equal(result.ok, false);assert.ok(result.stages.some(x => x.stage === "sftp-path" && /cancelled path/.test(x.message)));
+  assert.equal(closed, 1);assert.equal(sftpClosed, 1);
+});
+
 test("first-use SSH identity is persisted, pinned identities override deliberately and changed keys block all channels", async t => {
   const { state } = await fixture(t, () => "");
   const a = sshFingerprint(Buffer.from("key a")), b = sshFingerprint(Buffer.from("key b"));
@@ -59,6 +113,15 @@ test("first-use SSH identity is persisted, pinned identities override deliberate
   await assert.rejects(state.spawnBackend({ name: env.id }), { code: "SSH_HOST_KEY_CHANGED" });
   await assert.rejects(state.connectFiles({ kind: "ssh", environment: env.id }), { code: "SSH_HOST_KEY_CHANGED" });
   await assert.rejects(state.sftp({ id: "owner" }, env.id, "read", { path: "C:/x" }), { code: "SSH_HOST_KEY_CHANGED" });
+});
+
+test("a corrupt SSH identity store cannot silently become first-use trust", async t => {
+  const { state } = await fixture(t, () => "");
+  for (const text of ["broken JSON", "[]", '{"host:22":true}']) {
+    state.sshHostKeys = undefined;
+    await writeFile(join(state.base, "ssh-host-keys.json"), text);
+    await assert.rejects(state.verifySshHost(env, sshFingerprint(Buffer.from("key"))), { code: "SSH_HOST_STORE_INVALID" });
+  }
 });
 
 test("SSH handshake verifies before authentication and cancellation closes only its connection", async () => {
@@ -97,6 +160,13 @@ test("Windows SFTP retries one process-initialization failure before any file op
   }
   count=0;client.sftp = callback => { count++;callback(Object.assign(new Error("still failed"), { code: 3221225794 })); };
   await assert.rejects(openSftpChannel(client, { windows: true }), { code: 3221225794 });assert.equal(count, 2);
+});
+
+test("completed SFTP destroys its owned socket before ssh2 end can make destroy a no-op", () => {
+  const client = new EventEmitter();let writable = true, destroyed = 0, subsystem = 0;
+  client.end = () => { writable = false; };client.destroy = () => { if (writable) destroyed++; };
+  new SftpFiles(client, { end() { subsystem++; } }, undefined, true).close();
+  assert.equal(subsystem, 1);assert.equal(destroyed, 1);
 });
 
 test("SFTP drive roots, relative paths and case-insensitive containment never depend on DSH host cwd", async () => {
