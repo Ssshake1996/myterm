@@ -1,6 +1,6 @@
 # DSH Remote Ops
 
-`@dsh/remote-ops` 是面向 DeepSeek Harness 的 终端、网页与 API 运维插件。本仓库已完成产品边界切换，不再包含 myterm 桌面应用、Tauri 宿主或第二套 Agent 内核。
+`@dsh/remote-ops` 是面向 DeepSeek Harness 的 终端、网页与 API 运维插件。
 
 ## 内网 HTTP/HTTPS 手动更新（v0.8.2）
 
