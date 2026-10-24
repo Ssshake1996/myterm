@@ -30,9 +30,17 @@ DSH 0.2.0-rc.2、Chrome 155，Windows 开发机。隔离 DSH_HOME / profile 和�
 
 候选证据：`output/playwright/release092-native-candidate-1792857118258-acceptance.json`。README 三张产品截图来自该次真实 DSH 安装。
 
+候选 HTTP 升级与故障验收 8 组通过：官方 0.9.1 → 候选 0.9.2、旧进程下重载、实际重启、更新文件诊断、提示去重及手动刷新。`pageErrors: []`。停止并重启宿主的过渡阶段记录到状态与终端接口各一条自然 404；新进程启动后状态恢复，`afterRestart.alerts: []`，没有持续刷新失败。此现象保留在 `output/playwright/update092-native-candidate-1792857498581-evidence.json` 中，不将其隐去或当作另一台电脑持续 404 的根因证明。
+
 ## 发布与官方附件复验
 
-待发布流程完成后补充 Linux / Windows CI、正式附件摘要、重新下载安装及 HTTP 更新结果。最终验收以正式附件复验为准。
+- 发布提交 `641307935e435773ac0889dcdbed782919a51fca`。[Linux 插件 CI](https://github.com/Ssshake1996/myterm/actions/runs/40109492757) 与[浏览器 CI](https://github.com/Ssshake1996/myterm/actions/runs/40109492752) 均通过，浏览器 20/20，切换样本 p95 为 212ms。
+- [发布流程](https://github.com/Ssshake1996/myterm/actions/runs/40109707394) Windows 首轮再次触发既有 `routes.test.mjs` 固定等待 20ms 的初始化竞态。实际状态和操作路由等待 `state.ready`，此失败发生在测试直接读取 mock 终端时；保留首轮日志，同一提交复跑后 Linux 打包、Windows 检查、发布均通过。另在 `79ecd54` 将仓库测试夹具修正为通过状态接口等待初始化，移除三个固定等待，功能断言保留并新增终端已创建断言；Windows 本机完整 388 项、[Linux CI](https://github.com/Ssshake1996/myterm/actions/runs/40110218553) 和[浏览器 CI](https://github.com/Ssshake1996/myterm/actions/runs/40110218551) 均通过。测试文件不进入 tgz；发布标签和包内容不变。
+- 正式 Release 仅两个附件：tgz 和 SHA256。下载后摘要校验通过，与候选包一致；67 个包内文件逐字节匹配当前仓库，包括 5 个随包 skill。`latest.json` 生成成功，仅供部署内网源使用，没有增加 Release 附件。
+
+- 正式 tgz 全新安装到真实 DSH，8 组完整验收全部通过，`errors: []`；真实 skill 工具读取到新版标签导航说明。证据：`output/playwright/release092-native-official-1792858373638-acceptance.json`。安装后的客户端 SHA256 为 `28a66a68007dde4faaf4818e428034f77c714b645f4daf1113d2b6543348d8fc`。
+- 下载的正式附件通过本地 HTTP 源从官方 0.9.1 更新到 0.9.2，8 组升级与故障验收全部通过：真实安装、浏览器重载、两次实际宿主重启、清单 / 校验文件 / 安装包诊断、提示去重与主动刷新。`pageErrors: []`、稳定运行期间的 `unexpected404s: []`；受控故障与主动停机期间的请求分别以 `faultInjected`、`hostTransition` 标记，原始记录保留。新进程启动后无错误提示。缺失附件场景使用 0.9.3 测试清单，没有安装该版本。证据：`output/playwright/update092-native-official-1792858373156-evidence.json`。
+- 正式版本预览已更新，五张截图、键盘切换、1440px / 390px 排版与无横向溢出验证通过。Windows 方案 HTML 的 9 个章节、官方文档链接和宽窄视口也完成渲染检查。
 
 ## 范围边界
 

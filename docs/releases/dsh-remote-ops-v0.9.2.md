@@ -9,4 +9,6 @@
 
 发布附件仅 `dsh-remote-ops-v0.9.2.tgz` 与 `SHA256SUMS-dsh-remote-ops-v0.9.2.txt`，不修改 Agent。内网源继续使用 HTTP/HTTPS 和手动检查更新。
 
+388 项插件检查、20 个浏览器场景通过。正式包重新下载并校验，与候选包内容一致；真实 DSH 0.2.0-rc.2 的 8 组功能及 8 组 HTTP 升级 / 故障复验通过，覆盖 1500、1280、390、320px 工作区标签。
+
 验证结果见[验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.9.2-acceptance.md)。升级后完全停止旧 DSH 进程、重新启动并刷新网页，在“设置 → 通用”确认 v0.9.2。
