@@ -16,9 +16,15 @@
 
 [![Real DSH API workspace with a JSON response tree](docs/images/remote-ops/api.png)](docs/images/remote-ops/api.png)
 
-These screenshots show v0.9.1 installed in real DSH 0.2.0-rc.2; the installed package matches the official Release SHA256. A deterministic test provider drives real tools against isolated local SSH, web and API services.
+These screenshots show v0.9.2 installed in real DSH 0.2.0-rc.2; the installed package matches the official Release SHA256. A deterministic test provider drives real tools against isolated local SSH, web and API services.
 
-## v0.9.1 compact terminals and request diagnostics
+## v0.9.2 workspace tabs
+
+Terminal, Web, Files and API now form a compact left-aligned group. The blue selection line spans the complete tab button. Narrow panels use smaller padding while retaining labels, background activity badges and arrow / Home / End navigation. Switching preserves workspace contents.
+
+The [Windows desktop and Server implementation proposal](docs/proposals/windows-remote-implementation.md) describes staged OpenSSH adaptations and WinRM support. Those additions are not implemented in this release.
+
+## Terminal layout and request diagnostics
 
 - Session tabs, search and the current TXT download share one row, with approximately 32px desktop tabs. All-log ZIP export lives under **更多**; the bottom status bar shows the path, quick commands remain below, and **设置 → 终端** controls the active SSH size.
 - Error headings distinguish state refresh, terminal output refresh and plugin update failures. Expand **错误详情** for the request method, redacted URL, HTTP status, stage, timestamp and bounded response preview. Network failures explicitly say that no HTTP response was received.
@@ -38,14 +44,14 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 ## Manual intranet HTTP/HTTPS updates
 
-Current version: [v0.9.1](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.9.1). See the [installation and UI acceptance scope](docs/testing/dsh-remote-ops-v0.9.1-acceptance.md).
+Current version: [v0.9.2](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.9.2). See the [installation and UI acceptance scope](docs/testing/dsh-remote-ops-v0.9.2-acceptance.md).
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Once ongoing work finishes, fully restart DSH and refresh the browser to activate the installed version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.9.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.9.1.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.9.2.tgz` and `SHA256SUMS-dsh-remote-ops-v0.9.2.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.9.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.9.2.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -157,11 +163,11 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.9.1.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.9.2.tgz
 dsh web
 ```
 
-For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.9.1` in Remote Ops **设置 → 通用**. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
+For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.9.2` in Remote Ops **设置 → 通用**. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
 
 Click `Remote Ops` at the bottom of the left sidebar to open the native right Sidebar while preserving the main conversation. Tested on DSH `0.2.0-rc.2`; other host versions remain untested. If the entry is missing, check the installation profile, host/plugin versions and whether the old process exited. On narrow screens DSH may present its right Sidebar full screen; collapsing it returns to the original conversation.
 
@@ -204,15 +210,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.9.1
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.9.2
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.9.1
-node scripts/release-dsh-remote-ops.mjs 0.9.1 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.9.2
+node scripts/release-dsh-remote-ops.mjs 0.9.2 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

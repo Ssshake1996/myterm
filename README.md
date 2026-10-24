@@ -8,30 +8,36 @@
 
 本地 CMD 与 SSH 共用一套标签。示例中 Agent 连接三个本地 SSH 测试会话、执行版本查询；当前终端与后台新输出均清晰标识。
 
-[![v0.9.1 真实 DSH：本地 CMD 与三个 SSH 会话统一标签，显示版本查询回显](docs/images/remote-ops/terminal.png)](docs/images/remote-ops/terminal.png)
+[![v0.9.2 真实 DSH：本地 CMD 与三个 SSH 会话统一标签，显示版本查询回显](docs/images/remote-ops/terminal.png)](docs/images/remote-ops/terminal.png)
 
 **网页 · 同一页面内操作与观察**
 
 输入网址即可打开网页。示例中 Agent 在插件内的本地测试页面填写内容、读取结果，用户也可直接点击和输入。
 
-[![v0.9.1 真实 DSH：插件内网页显示 Agent 填写的测试内容](docs/images/remote-ops/browser.png)](docs/images/remote-ops/browser.png)
+[![v0.9.2 真实 DSH：插件内网页显示 Agent 填写的测试内容](docs/images/remote-ops/browser.png)](docs/images/remote-ops/browser.png)
 
 **API · 请求、响应与业务结果**
 
 选择保存的 API 环境发送请求，查看状态码和可折叠 JSON；点击字段复制 JSON Pointer，便于配置登录 Token 提取路径。
 
-[![v0.9.1 真实 DSH：HTTP 状态、业务结果提醒与可折叠 JSON 响应树](docs/images/remote-ops/api.png)](docs/images/remote-ops/api.png)
+[![v0.9.2 真实 DSH：HTTP 状态、业务结果提醒与可折叠 JSON 响应树](docs/images/remote-ops/api.png)](docs/images/remote-ops/api.png)
 
 <details>
 <summary>截图环境与版本</summary>
 
-三张截图来自 Remote Ops v0.9.1 在真实 DSH 0.2.0-rc.2 中的安装验收，安装包与正式 Release 的 SHA256 一致，未拼接或模拟插件界面。测试使用独立 profile、确定性模型服务及本地 SSH、网页、API 服务，工具调用和请求实际执行；不代表连接了用户的生产设备。
+三张截图来自 Remote Ops v0.9.2 在真实 DSH 0.2.0-rc.2 中的安装验收，安装包与正式 Release 的 SHA256 一致，未拼接或模拟插件界面。测试使用独立 profile、确定性模型服务及本地 SSH、网页、API 服务，工具调用和请求实际执行；不代表连接了用户的生产设备。
 
 </details>
 
 ---
 
-## v0.9.1 紧凑终端与请求诊断
+## v0.9.2 工作区标签
+
+顶部“终端 / 网页 / 文件 / API”紧凑靠左排列，蓝色选中条覆盖完整标签按钮。窄栏收紧留白，保留文字、后台任务徽标和方向键 / Home / End 操作；切换仍保留当前工作区内容。
+
+Windows 桌面与 Server 的扩展设计见[具体实现方案](docs/proposals/windows-remote-implementation.md)，包含 OpenSSH 适配与 WinRM 分阶段实现；这些新增能力尚未开发。
+
+## 终端布局与请求诊断
 
 - 终端标签、搜索和当前日志导出合并为一行，桌面标签约 32px 高；全部日志打包位于“更多”。路径显示在底部状态栏，常用命令保留在下方，SSH 尺寸统一在“设置 → 终端”调整。
 - 错误提示区分“状态刷新失败”“终端输出刷新失败”和“插件更新失败”。展开“错误详情”查看失败请求的方法、地址、HTTP 状态、阶段、时间和响应摘要；网络失败明确显示未收到 HTTP 响应。
@@ -155,11 +161,11 @@
 从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.9.1.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.9.2.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下执行安装命令；`--profile web` 必须与实际启动的 profile 一致。安装完成后完全停止原 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“设置 → 通用”显示 `v0.9.1`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下执行安装命令；`--profile web` 必须与实际启动的 profile 一致。安装完成后完全停止原 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“设置 → 通用”显示 `v0.9.2`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
 
 在 DSH Web 左侧底部点击 `Remote Ops` 打开右侧 Sidebar，主对话不被替换。已在 DSH `0.2.0-rc.2` 实测；其他宿主版本尚未实测。若未出现入口，先核对安装 profile、DSH 版本及已安装插件版本，并确认旧 DSH 进程已退出；无需手工复制 bundle patch。窄屏下右栏可能按宿主规则展开为全屏，收起即可返回原对话。
 
@@ -173,7 +179,7 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ## 内网 HTTP/HTTPS 手动更新
 
-当前版本为 [v0.9.1](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.9.1)。安装与界面验证范围见[验收记录](docs/testing/dsh-remote-ops-v0.9.1-acceptance.md)。
+当前版本为 [v0.9.2](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.9.2)。安装与界面验证范围见[验收记录](docs/testing/dsh-remote-ops-v0.9.2-acceptance.md)。
 
 Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后，待当前工作结束，完全重启 DSH 并刷新网页以启用新版本。
 
@@ -182,14 +188,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.9.1.tgz
-  SHA256SUMS-dsh-remote-ops-v0.9.1.txt
+  dsh-remote-ops-v0.9.2.tgz
+  SHA256SUMS-dsh-remote-ops-v0.9.2.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.9.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.9.2.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -232,14 +238,14 @@ SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.9.1
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.9.2
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.9.1            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.9.1 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.9.2            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.9.2 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后轮询 Release，比较 GitHub 报告的安装包摘要与本地摘要。

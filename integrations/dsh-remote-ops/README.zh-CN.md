@@ -2,7 +2,11 @@
 
 面向 DeepSeek Harness 的终端、网页与 RESTful API 运维插件。用户与 Agent 共享可见终端、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
 
-## v0.9.1 紧凑终端与请求诊断
+## v0.9.2 工作区标签
+
+顶部“终端 / 网页 / 文件 / API”紧凑靠左排列，蓝色选中条覆盖完整标签按钮。窄栏收紧留白，保留文字、后台任务徽标和方向键 / Home / End 操作；切换仍保留当前工作区内容。
+
+## 终端布局与请求诊断
 
 - 终端标签、搜索和当前日志导出合并为一行，桌面标签约 32px 高；全部日志打包位于“更多”。路径显示在底部状态栏，常用命令保留在下方，SSH 尺寸统一在“设置 → 终端”调整。
 - 错误提示区分“状态刷新失败”“终端输出刷新失败”和“插件更新失败”。展开“错误详情”查看失败请求的方法、地址、HTTP 状态、阶段、时间和响应摘要；网络失败明确显示未收到 HTTP 响应。
@@ -29,14 +33,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.9.1.tgz
-  SHA256SUMS-dsh-remote-ops-v0.9.1.txt
+  dsh-remote-ops-v0.9.2.tgz
+  SHA256SUMS-dsh-remote-ops-v0.9.2.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.9.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.9.2.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -148,11 +152,11 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.9.1.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.9.2.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“设置 → 通用”显示 `v0.9.1`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“设置 → 通用”显示 `v0.9.2`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
 
 如果使用已经发布到 registry 的包，则包名为：
 

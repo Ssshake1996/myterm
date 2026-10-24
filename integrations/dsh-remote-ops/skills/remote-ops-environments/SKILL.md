@@ -11,6 +11,8 @@ Use the installed `remote_environment_*` tools for the user's requested configur
 
 ## Visible workspace
 
+The top **终端 / 网页 / 文件 / API** tabs form a compact group on the left; the blue line spans the selected tab. Background badges remain visible. Use the tab labels or ArrowLeft / ArrowRight / Home / End; do not identify workspaces by screen coordinates or badge text. Environment management is the separate **环境** entry.
+
 Open **环境 → SSH** for saved SSH configurations or **环境 → API** for API configurations. The **返回工作区** button at the top left returns to the previous terminal, webpage or API draft without releasing SSH connections. Local CMD and SSH sessions share one terminal tab strip; the selected tab is the visible terminal, while tools must still use the exact session ID returned by the plugin.
 
 ## Select an existing environment

@@ -1,6 +1,6 @@
 {
   "name": "@dsh/remote-ops",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "private": false,
   "type": "module",
   "description": "DeepSeek Harness plugin for SSH, SFTP, visible web operations and saved RESTful API environments",
