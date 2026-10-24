@@ -16,7 +16,7 @@
 
 [![Real DSH API workspace with a JSON response tree](docs/images/remote-ops/api.png)](docs/images/remote-ops/api.png)
 
-These screenshots show the v0.9.0 candidate installed in real DSH 0.2.0-rc.2. A deterministic test provider drives real tools against isolated local SSH, web and API services.
+These screenshots show v0.9.0 installed in real DSH 0.2.0-rc.2; the installed package matches the official Release SHA256. A deterministic test provider drives real tools against isolated local SSH, web and API services.
 
 ## v0.9.0 workspace layout
 

@@ -28,7 +28,12 @@
 
 首次 [Linux 浏览器 CI](https://github.com/Ssshake1996/myterm/actions/runs/40079056669) 为 17/19：两条新增用例写死了 Windows 的「本地 CMD」名称，Linux 实际正确显示「本地 Shell」。按测试运行平台使用对应名称修正断言，保留标签可见性、选中状态和切换检查；插件功能代码未因此改变。该失败记录保留，修正后的结果在下方补充。
 
-正式发布后追加 GitHub CI、附件校验和下载包安装复验结果。正式附件按约定仅提供 tgz 和 SHA256 校验文件。
+- 修正后 [Linux 浏览器 CI](https://github.com/Ssshake1996/myterm/actions/runs/40079445147) 19/19 通过，20 次工作区切换样本 p95 为 194ms；这不是所有机器的性能保证。[主分支插件 CI](https://github.com/Ssshake1996/myterm/actions/runs/40079445178) 通过。
+- [发布流程](https://github.com/Ssshake1996/myterm/actions/runs/40079667760) 的 Linux 打包检查、Windows 检查和发布任务均成功。发布标签 `dsh-remote-ops-v0.9.0` 指向 `6874379a9cf5f33f9b41adb59fe6c77138c2f28f`。
+- [正式 Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.9.0) 的附件只有 `dsh-remote-ops-v0.9.0.tgz` 和 `SHA256SUMS-dsh-remote-ops-v0.9.0.txt`。
+- 从 GitHub 下载正式附件后，SHA256 文件、GitHub asset digest、下载包和本地候选包摘要全部一致：`c611418612a44686e216f54ec97b5c2ac638edc67af19f93c5b3f8b1da37879a`。解包后逐文件与源码比较一致。
+- 独立 profile 先通过 DSH 原生插件管理器安装正式 v0.8.2，再覆盖安装下载的 v0.9.0，启动宿主后重新执行上述六组验收，全部通过；设置页显示 v0.9.0，五个随包 skill 均被原生 Agent 发现并读取新版内容，页面异常为零。这证明了安装路径和升级后运行，不代表已验证用户旧会话的运行现场迁移。
+- 正式包证据：`output/release090-official/verification.json`、`output/playwright/release090-official-1792832105638-acceptance.json`。安装后的 `client.js` 摘要与本次源码一致。
 
 ## 验证边界
 

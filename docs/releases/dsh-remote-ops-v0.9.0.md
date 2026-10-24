@@ -9,7 +9,7 @@ Remote Ops 将终端、网页、文件和 API 整理为统一工作区，收拢�
 - **API 响应树**：JSON 节点可折叠，点击字段复制正确转义的 JSON Pointer；保留原始响应查看。HTTP 状态码分色，2xx 同时提示「请检查业务结果」。
 - 同步中英文 README、真实 DSH 截图与五个随包 skill 的操作路径；沿用插件内的工具和 DSH 原生 skill 服务。
 
-验证：379 项自动化测试、smoke 与 19 个本地浏览器场景通过；真实 DSH 0.2.0-rc.2 安装验证覆盖多终端切换、环境返回、主对话草稿、网页操作、API 请求及窄栏布局。正式包复验与 CI 结果见[完整验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.9.0-acceptance.md)。本轮使用隔离的本地 SSH、网页和 API 服务，未验证用户的另一台电脑或实际内网设备。
+验证：379 项自动化测试、smoke、19 个浏览器场景及 Linux/Windows 发布检查通过。候选包和下载的正式包分别通过真实 DSH 0.2.0-rc.2 的六组验收，覆盖多终端、环境返回、主对话草稿、网页、API、窄栏和五个随包 skill。正式 v0.8.2 覆盖安装 v0.9.0 后运行通过，正式附件 SHA256 与候选包一致。CI 过程与边界见[完整验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.9.0-acceptance.md)。本轮使用隔离的本地 SSH、网页和 API 服务，未验证用户的另一台电脑或实际内网设备。
 
 发布附件仅为 `dsh-remote-ops-v0.9.0.tgz` 和 `SHA256SUMS-dsh-remote-ops-v0.9.0.txt`。内网更新继续使用 HTTP/HTTPS 地址及随包 `scripts/create-update-manifest.mjs` 生成的 `latest.json`。Chromium 由插件工具按需安装。
 
