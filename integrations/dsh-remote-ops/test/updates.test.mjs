@@ -10,9 +10,6 @@ import { normalizeUpdateSettings, readUpdateSettings, writeUpdateSettings, compa
 import { PLUGIN_VERSION } from "../lib/version.js";
 import { withUpdates } from "../lib/state/updates.js";
 import { createUpdateManifest } from "../scripts/create-update-manifest.mjs";
-import { withFiles } from "../lib/state/files.js";
-import { startUpdateSftp } from "./update-sftp-fixture.mjs";
-import { updateFilePath } from "../lib/update-files.js";
 
 const next = PLUGIN_VERSION.split('.').map(Number); next[2]++; const nextVersion = next.join('.');
 function tarball(version = nextVersion, extra = {}) {
@@ -51,7 +48,7 @@ test('custom address accepts a directory or latest.json; rejects unsafe or malfo
   assert.deepEqual(normalizeUpdateSettings({source:'custom',url:' https://intranet.example/releases '}),{source:'custom',url:'https://intranet.example/releases/latest.json'});
   assert.equal(normalizeUpdateSettings({source:'custom',url:'http://host/latest.json'}).url,'http://host/latest.json');
   assert.deepEqual(normalizeUpdateSettings({source:'github',url:'ignored'}),{source:'github',url:''});
-  for(const value of [null,[],{}, {source:'other'},...['file:///tmp','https://user:pass@host','https://host/?token=secret','https://host/#part',''].map(url=>({source:'custom',url}))])assert.throws(()=>normalizeUpdateSettings(value),/UPDATE_/);
+  for(const value of [null,[],{}, {source:'other'}, {source:'filesystem',path:'/releases'}, {source:'sftp',path:'/releases',environment:'ssh'},...['file:///tmp','sftp://host/releases','ftp://host/releases','https://user:pass@host','https://host/?token=secret','https://host/#part',''].map(url=>({source:'custom',url}))])assert.throws(()=>normalizeUpdateSettings(value),/UPDATE_/);
 });
 
 test('settings persist atomically, corruption is visible and explicit save repairs it',async t=>{
@@ -147,34 +144,4 @@ test('generator validates release pair and publishes portable relative paths wit
   await writeFile(sums,'0'.repeat(64)+'  '+name);await assert.rejects(createUpdateManifest(file,output),/SHA256 mismatch/);assert.equal(await readFile(output,'utf8'),before);
   await writeFile(sums,sha(bytes)+'  '+name);await writeFile(output,JSON.stringify({...result.manifest,version:'99.0.0'}));await assert.rejects(createUpdateManifest(file,output),/newer/);
   await assert.rejects(createUpdateManifest(file,join(folder,'nested','latest.json')),/subdirectories/);
-});
-
-async function writeFeed(root) {
-  const name=`dsh-remote-ops-v${nextVersion}.tgz`,bytes=tarball();await writeFile(join(root,name),bytes);await writeFile(join(root,`SHA256SUMS-dsh-remote-ops-v${nextVersion}.txt`),sha(bytes)+'  '+name);await createUpdateManifest(join(root,name));
-}
-
-test('filesystem source reads a real directory or file URL and uses the same package verification',async t=>{
-  const root=await rootFor(t);await writeFeed(root);
-  const settings=normalizeUpdateSettings({source:'filesystem',path:root});const release=await fetchLatestRelease(settings);assert.equal(release.latestVersion,nextVersion);assert.equal(release.fileSource.source,'filesystem');
-  const output=await rootFor(t);assert.ok((await downloadRelease(release,output)).path);
-  await writeFile(join(root,'latest.json'),'{broken');await assert.rejects(fetchLatestRelease(settings),/UPDATE_METADATA_INVALID/);
-  await assert.rejects(fetchLatestRelease({source:'filesystem',path:join(root,'missing')}),/UPDATE_READ_FAILED/);
-  assert.throws(()=>normalizeUpdateSettings({source:'filesystem',path:'relative/path'}),/UPDATE_PATH_INVALID/);
-});
-
-test('filesystem and SFTP manifests cannot choose absolute, traversal or protocol paths',()=>{
-  for(const source of ['filesystem','sftp'])for(const path of ['../secret','%2e%2e/secret','/secret','C:/secret','https://host/secret','..\\secret','file:///secret',null,'a//b'])assert.throws(()=>updateFilePath(path,'/releases/latest.json',source),/UPDATE_PATH_INVALID/);
-});
-
-test('real SFTP reuses a saved SSH environment; checks and reads three files without a terminal',async t=>{
-  const root=await rootFor(t);await writeFeed(root);const server=await startUpdateSftp(root);t.after(()=>server.close());
-  const State=withFiles(withUpdates(class{})),state=new State();state.base=await rootFor(t);state.releaseCheckedAt=0;
-  state.findEnvironment=id=>id==='source-ssh'?{id:'source-ssh',host:server.host,port:server.port,username:server.username}:undefined;state.resolvePassword=async()=>server.password;
-  await state.saveUpdateSettings({source:'sftp',environment:'source-ssh',path:'/releases'});assert.equal(server.requests.length,0);
-  const release=await state.checkForUpdate(true);assert.equal(release.latestVersion,nextVersion);
-  const downloaded=await downloadRelease(release,state.base,{connectFiles:state.connectFiles.bind(state)});assert.equal(sha(await readFile(downloaded.path)),sha(tarball()));
-  assert.equal(server.requests.filter(r=>r.event==='OPEN').length,3);
-  const saved=await readFile(join(state.base,'update-settings.json'),'utf8');assert.ok(!saved.includes(server.password));assert.ok(!saved.includes(server.host));
-  await assert.rejects(state.saveUpdateSettings({source:'sftp',environment:'missing',path:'/releases'}),/REMOTE_ENV_NOT_FOUND/);
-  state.resolvePassword=async()=> 'wrong';await assert.rejects(state.checkForUpdate(true),/UPDATE_READ_FAILED/);
 });

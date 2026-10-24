@@ -5,21 +5,19 @@ operations. The repository has been cut over to the plugin boundary: it no
 longer contains the myterm desktop application, a Tauri host, or a second
 Agent kernel.
 
-## Manual intranet and file-source updates (v0.8.1)
+## Manual intranet HTTP/HTTPS updates (v0.8.2)
 
-Open Remote Ops → **更多设置 → 检查更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Sources: GitHub Release, HTTP/HTTPS, an absolute directory/shared path on the DSH host, or an SFTP directory using a saved SSH environment. Opening the panel/dialog performs no external check. There is no scheduled updater or automatic restart. Running and installed versions are shown separately; fully restart DSH and refresh the browser to activate the new version. A pending-restart version is not installed again.
+Open Remote Ops → **更多设置 → 检查更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). GitHub Release remains the default source; custom intranet updates accept HTTP/HTTPS URLs only. Opening the panel/dialog performs no external check. There is no scheduled updater or automatic restart. Running and installed versions are shown separately; fully restart DSH and refresh the browser to activate the new version. A pending-restart version is not installed again.
 
-Keep `latest.json`, `dsh-remote-ops-v0.8.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.8.1.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.8.2.tgz` and `SHA256SUMS-dsh-remote-ops-v0.8.2.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.8.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.8.2.tgz
 ```
 
-The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. The same portable directory works over HTTP, filesystem or SFTP. GitHub Release still contains only tgz and SHA256.
+The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release still contains only tgz and SHA256.
 
 - HTTP(S): directory URL or latest.json URL; all files/redirects must remain on that origin. Credential/query-token URLs and custom auth headers are not supported. Trust internal HTTPS certificates in the DSH Node process.
-- Filesystem: absolute DSH-host path, Windows UNC share or file:// URL, accessible to the account running DSH. This is not the browser computer's filesystem.
-- SFTP: saved SSH environment plus an absolute remote directory, e.g. /releases/remote-ops. Reuses saved password/key without opening a terminal; only environment ID and path are saved.
 - Dependencies use the existing DSH registry/proxy/build-approval configuration. Provide an accessible internal npm registry when needed. Chromium remains an on-demand separate installation.
 
 Verified packages are cached on the DSH host and installed by the current profile's native DSH plugin manager. Invalid checksums never install; older versions never downgrade automatically. Source settings live in $DSH_HOME/remote-ops/update-settings.json and are shared within that DSH home; installation affects only the current profile. Installation errors expose a reason/log location. Restoring profile manifests/lockfiles is not a full cache rollback. Installation does not close active connections; tasks do not survive a DSH restart. Existing older installations need one manual bootstrap upgrade. The bundled remote-ops-updates skill describes configuration, feed generation and diagnostics without Agent changes.
@@ -143,18 +141,18 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 - Directory refreshes skip historical completions, merge new completions, and serialize requests per pane while retaining entries, scroll position, and selections that still exist.
 - Narrow file workspaces switch between source/target and collapse finished history to retain usable file-list height.
 - Sequential Multi-SSH tools, Agent diagnostics, and Harness credential references.
-- More settings shows the plugin version and supports manual updates from GitHub, HTTP/HTTPS, a host directory/shared path or SFTP; restart DSH and refresh the browser after installation.
+- More settings shows the plugin version and supports manual updates from GitHub or HTTP/HTTPS; restart DSH and refresh the browser after installation.
 
 ## Installation
 
 Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.8.1.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.8.2.tgz
 dsh web
 ```
 
-For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.8.1` in Remote Ops **更多设置**. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
+For an upgrade, run the installation as the same user and with the same `DSH_HOME` used by DSH. Replace `--profile web` if DSH uses another profile. After installation, fully stop the old DSH process, restart it, refresh the browser, and confirm `v0.8.2` in Remote Ops **更多设置**. Saved environments, quick commands, websites and flows remain; terminals and browsers must be reopened and running jobs cannot resume across a DSH restart.
 
 Click `Remote Ops` at the bottom of the left sidebar to open the native right Sidebar while preserving the main conversation. It uses the official `sidebar.footer.action` seat and `sidebarRight.openTab`; it no longer registers a `sidebar.panellist` / `main` replacement. Tested on DSH `0.2.0-rc.2`; other host versions remain untested. If the entry is missing, check the installation profile, host/plugin versions and whether the old process exited. On narrow screens DSH may present its right Sidebar full screen; collapsing it returns to the original conversation.
 
@@ -194,15 +192,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.8.1
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.8.2
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.8.1
-node scripts/release-dsh-remote-ops.mjs 0.8.1 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.8.2
+node scripts/release-dsh-remote-ops.mjs 0.8.2 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

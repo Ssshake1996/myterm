@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {writeFile} from 'node:fs/promises';
-import {join} from 'node:path';
 export const updateScenario={id:'plugin-updates',title:'手动更新源设置、检查与页面恢复',async run(t){
   const p=t.page,info=await t.info();let reads=0;
   const manifest={schemaVersion:1,package:'@dsh/remote-ops',version:info.pluginVersion,asset:`dsh-remote-ops-v${info.pluginVersion}.tgz`,checksum:`SHA256SUMS-dsh-remote-ops-v${info.pluginVersion}.txt`};
@@ -12,17 +10,15 @@ export const updateScenario={id:'plugin-updates',title:'手动更新源设置、
   try {
     await t.step('打开与保存更新地址不触发外部检查',async()=>{
       await p.getByRole('button',{name:'Remote Ops',exact:true}).click();await open();assert.equal(reads,0);
+      assert.deepEqual(await dialog().getByLabel('更新来源',{exact:true}).locator('option').evaluateAll(nodes=>nodes.map(n=>n.value)),['github','custom']);
       await dialog().getByLabel('更新来源',{exact:true}).selectOption('custom');await dialog().getByLabel('内网更新地址',{exact:true}).fill(url);assert.equal(await dialog().getByRole('button',{name:'仅检查版本',exact:true}).isEnabled(),false);
       await dialog().getByRole('button',{name:'保存更新来源',exact:true}).click();await dialog().getByText('更新来源已保存',{exact:true}).waitFor();assert.equal(reads,0);
       await dialog().getByRole('button',{name:'仅检查版本',exact:true}).click();await dialog().getByText(`当前已是最新版本 v${info.pluginVersion}`,{exact:true}).waitFor();assert.equal(reads,1);
     });
-    await t.step('关闭重新打开保留来源；目录源读取真实 latest.json',async()=>{
+    await t.step('关闭重新打开保留 HTTP 来源，不自动检查版本',async()=>{
       await dialog().getByRole('button',{name:'关闭插件更新',exact:true}).click();await open();assert.equal(await dialog().getByLabel('内网更新地址',{exact:true}).inputValue(),url+'latest.json');assert.equal(reads,1);
-      await writeFile(join(info.fileRoot,'latest.json'),JSON.stringify(manifest));await dialog().getByLabel('更新来源',{exact:true}).selectOption('filesystem');await dialog().getByLabel('更新目录路径',{exact:true}).fill(info.fileRoot);await dialog().getByRole('button',{name:'保存更新来源',exact:true}).click();await dialog().getByText('更新来源已保存',{exact:true}).waitFor();
-      await dialog().getByRole('button',{name:'仅检查版本',exact:true}).click();await dialog().getByText(`当前已是最新版本 v${info.pluginVersion}`,{exact:true}).waitFor();assert.equal(reads,1);
     });
-    await t.step('SFTP 复用环境选择，暗色窄屏更新窗口可用',async()=>{
-      await dialog().getByLabel('更新来源',{exact:true}).selectOption('sftp');await dialog().getByLabel('SFTP 更新环境',{exact:true}).waitFor();await dialog().getByLabel('更新目录路径',{exact:true}).fill('/releases/remote-ops');
+    await t.step('暗色窄屏 HTTP 更新窗口可用',async()=>{
       await p.emulateMedia({colorScheme:'dark'});await p.setViewportSize({width:390,height:844});assert.ok(await dialog().evaluate(n=>n.scrollWidth-n.clientWidth<=1));await t.shot('update-sources-narrow');
       await dialog().getByRole('button',{name:'关闭插件更新',exact:true}).click();await p.getByLabel('终端输入',{exact:true}).waitFor();
     });

@@ -1,5 +1,7 @@
 # dsh-remote-ops v0.8.1
 
+**本版本未发布。** 2026-10-24 在生成 Release 前取消工作流，更新范围改为仅 HTTP/HTTPS，正式版本见 v0.8.2。以下为已取消候选的历史说明，不代表当前功能。
+
 Remote Ops 现在支持从内网 HTTP/HTTPS、DSH 主机文件目录或共享盘、SFTP 目录手动检查并安装更新。设置在「更多设置 → 检查更新」中；保存来源后点击「仅检查版本」或「检查并更新」。SFTP 复用已保存 SSH 环境的凭据，不打开终端。
 
 - 三种自定义来源共用 `latest.json`；随包提供 `scripts/create-update-manifest.mjs`，校验官方 tgz/SHA256 后生成可跨来源复用的相对路径清单。

@@ -1,5 +1,7 @@
 # Remote Ops v0.8.1 验收
 
+**历史候选记录，未发布。** 发布工作流已在生成 Release 前取消；文件目录和 SFTP 更新实现随后移除，v0.8.2 仅支持 HTTP/HTTPS 自定义更新源。
+
 日期：2026-10-24。开发机 Windows，真实宿主 DSH 0.2.0-rc.2，Chrome 155。更新源为本机隔离 HTTP 服务、文件目录和真实 SSH2/SFTP 测试服务。使用独立 DSH_HOME / profile 和确定性测试模型服务，没有修改 Agent、日常 profile 或全局 skill。
 
 ## 自动回归

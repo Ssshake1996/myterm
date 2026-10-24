@@ -299,7 +299,7 @@ window.__ModuleLoader__.load({
     `;
     const failureMessage = (value, status) => [value.title, `HTTP ${status}`, value.code, value.stage, value.error, value.details ?? value.stack, value.cleanupError].filter(Boolean).join("\n");
     async function request(path, init) { const response = await fetch(path, init); const text = await response.text(); let value = {}; try { value = text ? JSON.parse(text) : {}; } catch { throw new Error(`HTTP ${response.status}: ${text}`); } if (!response.ok) { const error = Object.assign(new Error(value.error ?? `HTTP ${response.status}`), value); error.message = failureMessage(value, response.status); throw error; } return value; }
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.8.1", update: { currentVersion: "0.8.1", latestVersion: "0.8.1", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.8.2", update: { currentVersion: "0.8.2", latestVersion: "0.8.2", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -992,7 +992,7 @@ window.__ModuleLoader__.load({
       return h("div", { className: "dsh-remote-ops__modalBackdrop" }, h("section", { className: "dsh-remote-ops__modal", role: "dialog", "aria-modal": false, "aria-label": title, tabIndex: -1, ref: dialog, onKeyDown: key },
         h("div", { className: "dsh-remote-ops__quickModalHead" }, h("strong", null, title), h("button", { type: "button", className: "dsh-remote-ops__drawerClose", "aria-label": closeLabel ?? `关闭${title}`, disabled: closeDisabled, onClick: onClose }, h(IconCloseOutline16, { "aria-hidden": true }))), children));
     }
-    function UpdateDialog({ onClose, onStatus, environments }) {
+    function UpdateDialog({ onClose, onStatus }) {
       const [data, setData] = useState(null), [draft, setDraft] = useState({ source: "github", url: "" });
       const [pending, setPending] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
       const alive = useRef(true), actionLock = useRef(false);
@@ -1031,7 +1031,7 @@ window.__ModuleLoader__.load({
         }
       };
       const busy = pending || data?.busy;
-      const dirty = data && ["source", ...(draft.source === "custom" ? ["url"] : draft.source === "sftp" ? ["path", "environment"] : draft.source === "filesystem" ? ["path"] : [])].some(key => draft[key] !== data.settings[key]);
+      const dirty = data && ["source", ...(draft.source === "custom" ? ["url"] : [])].some(key => draft[key] !== data.settings[key]);
       const phases = { checking: "正在检查版本…", downloading: "正在下载安装包…", verifying: "正在校验安装包…", installing: "正在安装，请稍候…", ready: "安装完成，等待重启", failed: "更新未完成", idle: "" };
       return h(ModalDialog, { title: "插件更新", onClose },
         h("p", { className: "dsh-remote-ops__muted" }, "手动检查并安装更新，重启 DSH 后生效。"),
@@ -1039,11 +1039,9 @@ window.__ModuleLoader__.load({
           h("div", { className: "dsh-remote-ops__updateVersions" }, h("span", null, "当前运行", h("strong", null, `v${data.currentVersion}`)), h("span", null, "已安装", h("strong", null, `v${data.installedVersion}`))),
           data.restartRequired ? h("p", { role: "status" }, "新版已安装，请手动重启 DSH 并刷新网页。") : null,
           h("form", { onSubmit: event => { event.preventDefault(); void run("settings"); } },
-            h("label", null, "更新来源", h("select", { "aria-label": "更新来源", value: draft.source, disabled: busy, onChange: event => changeDraft({ ...draft, source: event.target.value }) }, h("option", { value: "github" }, "GitHub Release"), h("option", { value: "custom" }, "HTTP / HTTPS 地址"), h("option", { value: "filesystem" }, "文件目录 / 共享盘"), h("option", { value: "sftp" }, "SFTP 目录"))),
+            h("label", null, "更新来源", h("select", { "aria-label": "更新来源", value: draft.source, disabled: busy, onChange: event => changeDraft({ ...draft, source: event.target.value }) }, h("option", { value: "github" }, "GitHub Release"), h("option", { value: "custom" }, "HTTP / HTTPS 地址"))),
             draft.source === "custom" ? h("label", null, "内网更新地址", h("input", { type: "url", required: true, "aria-label": "内网更新地址", placeholder: "https://updates.example.internal/remote-ops/", value: draft.url ?? "", disabled: busy, onChange: event => changeDraft({ ...draft, url: event.target.value }) })) : null,
-            draft.source === "sftp" ? h("label", null, "SFTP 更新环境", h("select", { "aria-label": "SFTP 更新环境", required: true, disabled: busy, value: draft.environment ?? "", onChange: event => changeDraft({ ...draft, environment: event.target.value }) }, h("option", { value: "" }, "选择已保存的 SSH 环境"), environments.map(env => h("option", { key: env.id, value: env.id }, `${env.group ?? "default"} / ${env.name}`)))) : null,
-            ["filesystem", "sftp"].includes(draft.source) ? h("label", null, "更新目录路径", h("input", { "aria-label": "更新目录路径", required: true, value: draft.path ?? "", disabled: busy, placeholder: draft.source === "sftp" ? "/releases/remote-ops/" : "DSH 主机上的绝对路径或共享盘路径", onChange: event => changeDraft({ ...draft, path: event.target.value }) })) : null,
-            h("p", { className: "dsh-remote-ops__muted" }, draft.source === "github" ? "从官方 GitHub Release 获取 tgz 和 SHA256。" : draft.source === "filesystem" ? "目录位于 DSH 主机，使用运行 DSH 的账号访问；目录中需有 latest.json。" : draft.source === "sftp" ? "复用所选 SSH 环境的凭据读取 latest.json，不会打开终端。" : "填写更新目录或 latest.json 地址。"),
+            h("p", { className: "dsh-remote-ops__muted" }, draft.source === "github" ? "从官方 GitHub Release 获取 tgz 和 SHA256。" : "填写更新目录或 latest.json 地址。"),
             h("div", { className: "dsh-remote-ops__webActions" }, h("button", { type: "submit", disabled: busy || (!dirty && !data.error) }, "保存更新来源"))),
           data.checkedAt ? h("p", { className: "dsh-remote-ops__muted" }, `最近检查：${new Date(data.checkedAt).toLocaleString()}`) : null,
           h("div", { className: "dsh-remote-ops__webActions" },
@@ -1893,7 +1891,7 @@ window.__ModuleLoader__.load({
         actionNotice ? h("div", { className: "dsh-remote-ops__notice", role: "status", "data-error": actionNotice.includes("失败") }, actionNotice) : null,
         error ? h("div", { className: "dsh-remote-ops__error", role: "alert" }, h("div", { className: "dsh-remote-ops__errorBody" }, error.split("\n")[0], h("details", null, h("summary", null, "错误详情"), error), /AUTH|credential|password|认证/i.test(error) ? h("button", { onClick: () => { setDrawer(true); if (activeEnvironment) openEnvironmentForm(activeEnvironment); } }, "检查环境凭据") : /OWNER|SESSION_REQUIRED/.test(error) ? h("button", { disabled: !sessionId, onClick: () => void workspaceAction({ action: "activate" }) }, "绑定当前会话") : h("button", { onClick: () => void refreshNow() }, "刷新状态")), h("button", { className: "dsh-remote-ops__errorClose", "aria-label": "关闭错误", onClick: () => setError("") }, h(IconCloseOutline16))) : null,
         panelQuestion, pasteView, choicesView, diagnosticsView,
-        updateOpen ? h(UpdateDialog, { onClose: () => changeUpdateOpen(false), onStatus: setUpdate, environments: snapshot.environments }) : null,
+        updateOpen ? h(UpdateDialog, { onClose: () => changeUpdateOpen(false), onStatus: setUpdate }) : null,
         commandTarget ? h(CommandDialog, { key: sessionId + ":" + commandTarget.sessionId, sessionId, target: commandTarget, onClose: () => setCommandTarget(null) }) : null,
         h("nav", { className: "dsh-remote-ops__workspaceTabs", role: "tablist", "aria-label": "Remote Ops 工作区" }, workspaces.map(([id, label, Icon], index) => h("button", { key: id, type: "button", role: "tab", id: "remote-ops-tab-" + uiKey + "-" + id, "aria-label": label, "aria-selected": module === id, "aria-controls": "remote-ops-panel-" + uiKey, tabIndex: module === id ? 0 : -1, onClick: () => selectWorkspace(id), onKeyDown: event => { const next = { ArrowRight: (index + 1) % workspaces.length, ArrowLeft: (index + workspaces.length - 1) % workspaces.length, Home: 0, End: workspaces.length - 1 }[event.key]; if (next !== undefined) { event.preventDefault(); selectWorkspace(workspaces[next][0]); event.currentTarget.parentElement.children[next]?.focus(); } } }, h(Icon, { size: 16, "aria-hidden": true }), label))),
         h("div", { className: "dsh-remote-ops__workspace" }, h("main", { className: "dsh-remote-ops__main", id: "remote-ops-panel-" + uiKey, role: drawer || diagnosticsOpen ? undefined : "tabpanel", "aria-labelledby": drawer || diagnosticsOpen ? undefined : "remote-ops-tab-" + uiKey + "-" + module, "data-module": drawer ? "environments" : diagnosticsOpen ? "diagnostics" : module },

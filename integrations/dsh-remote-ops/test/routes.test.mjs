@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { apply } from "../lib/index.js";
@@ -43,16 +44,21 @@ async function pluginFixture(t, agents = new Map()) {
   return { ctx, routes, tools, terminals, post, root };
 }
 
-test("update route stores filesystem settings, reads local status and checks only after explicit POST", async t => {
-  const { routes, root } = await pluginFixture(t), route = routes.get("/api/dsh-remote-ops/update");
+test("update route stores an HTTP source, reads local status and checks only after explicit POST", async t => {
+  const { routes } = await pluginFixture(t), route = routes.get("/api/dsh-remote-ops/update");
+  let reads = 0, available = false;
+  const server = createServer((_req,res) => { reads++;res.setHeader('Content-Type','application/json');res.end(available ? JSON.stringify({schemaVersion:1,package:'@dsh/remote-ops',version:PLUGIN_VERSION,asset:'unused.tgz',checksum:'unused.txt'}) : 'invalid'); });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve);}));
   const call = body => route.fetch(new Request("http://localhost/api/dsh-remote-ops/update", body ? { method: "POST", body: JSON.stringify(body) } : {}));
   const initial = await call(); assert.equal(initial.headers.get("Cache-Control"), "no-store"); assert.equal((await initial.json()).checkedAt, null);
-  const saved = await call({ action: "settings", settings: { source: "filesystem", path: root } }); assert.equal(saved.status, 200);
-  const unavailable = await call({ action: "check" }); assert.equal((await unavailable.json()).code, "UPDATE_READ_FAILED");
-  await writeFile(join(root, "latest.json"), JSON.stringify({ schemaVersion: 1, package: "@dsh/remote-ops", version: PLUGIN_VERSION, asset: "unused.tgz", checksum: "unused.txt" }));
+  const saved = await call({ action: "settings", settings: { source: "custom", url: `http://127.0.0.1:${server.address().port}/feed/` } }); assert.equal(saved.status, 200);assert.equal(reads,0);
+  const unavailable = await call({ action: "check" }); assert.equal((await unavailable.json()).code, "UPDATE_METADATA_INVALID");
+  available = true;
   const checked = await call({ action: "check" }); assert.equal((await checked.json()).updateAvailable, false);
   const installed = await call({ action: "install" }); assert.equal((await installed.json()).updated, false);
   assert.equal((await call({ action: "unexpected" })).status, 400);
+  assert.equal((await call({action:'settings',settings:{source:'filesystem',path:'/releases'}})).status,400);
+  assert.equal((await call({action:'settings',settings:{source:'sftp',path:'/releases',environment:'ssh'}})).status,400);
 });
 
 test("action route keeps owner-free actions available without a Harness session", async (t) => {

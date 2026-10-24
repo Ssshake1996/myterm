@@ -1,11 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
-import { join, isAbsolute, basename, posix, normalize } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { PLUGIN_NAME, PLUGIN_VERSION, RELEASE_REPOSITORY } from "./version.js";
 import { sessionError } from "./common.js";
-import { updateFilePath, readUpdateFile } from "./update-files.js";
 
 export const UPDATE_CACHE_MS = 10 * 60 * 1000;
 export const UPDATE_PACKAGE = "@dsh/remote-ops";
@@ -34,21 +32,8 @@ function httpUrl(value) {
 }
 
 export function normalizeUpdateSettings(value = defaults) {
-  if (!value || typeof value !== "object" || Array.isArray(value) || !["github", "custom", "filesystem", "sftp"].includes(value.source)) throw fail("UPDATE_SETTINGS_INVALID", "请选择有效的更新来源");
+  if (!value || typeof value !== "object" || Array.isArray(value) || !["github", "custom"].includes(value.source)) throw fail("UPDATE_SETTINGS_INVALID", "请选择 GitHub Release 或 HTTP/HTTPS 更新地址");
   if (value.source === "github") return { ...defaults };
-  if (value.source === "filesystem" || value.source === "sftp") {
-    if (typeof value.path !== "string" || !value.path.trim() || value.path.length > 4096 || value.path.includes("\0")) throw fail("UPDATE_PATH_INVALID", "请填写更新目录的绝对路径");
-    let path = value.path.trim();
-    if (value.source === "filesystem") {
-      if (path.startsWith("file:")) { try { path = fileURLToPath(path); } catch { throw fail("UPDATE_PATH_INVALID", "file URL 无效"); } }
-      if (!isAbsolute(path)) throw fail("UPDATE_PATH_INVALID", "本机目录必须是 DSH 主机上的绝对路径");
-      path = normalize(path);
-      return { source: "filesystem", path: basename(path) === "latest.json" ? path : join(path, "latest.json") };
-    }
-    if (!path.startsWith("/") || path.includes("\\") || typeof value.environment !== "string" || !value.environment.trim()) throw fail("UPDATE_PATH_INVALID", "SFTP 需要选择 SSH 环境并填写以 / 开头的绝对路径");
-    path = posix.normalize(path);
-    return { source: "sftp", environment: value.environment.trim(), path: posix.basename(path) === "latest.json" ? path : posix.join(path, "latest.json") };
-  }
   if (typeof value.url !== "string" || value.url.length > 2048) throw fail("UPDATE_URL_INVALID", "请填写更新目录或 latest.json 地址");
   const url = httpUrl(value.url.trim());
   if (!url.pathname.endsWith("/latest.json")) url.pathname = url.pathname.replace(/\/$/, "") + "/latest.json";
@@ -118,9 +103,9 @@ function assetUrl(value, base) {
 }
 
 export async function fetchLatestRelease(settings = defaults, options = {}) {
-  const config = normalizeUpdateSettings(settings), custom = config.source !== "github", fileSource = ["filesystem", "sftp"].includes(config.source) ? config : undefined;
+  const config = normalizeUpdateSettings(settings), custom = config.source !== "github";
   const origin = config.source === "custom" ? new URL(config.url).origin : undefined;
-  const bytes = fileSource ? await readUpdateFile(config, config.path, options) : await fetchUpdateBytes(custom ? config.url : RELEASE_API, { ...options, origin });
+  const bytes = await fetchUpdateBytes(custom ? config.url : RELEASE_API, { ...options, origin });
   let payload;
   try { payload = JSON.parse(bytes.toString("utf8")); } catch { throw fail("UPDATE_METADATA_INVALID", "更新入口必须返回 JSON 版本清单"); }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw fail("UPDATE_METADATA_INVALID", "更新入口必须返回 JSON 对象");
@@ -130,15 +115,15 @@ export async function fetchLatestRelease(settings = defaults, options = {}) {
   let asset, checksum;
   if (custom) {
     if (payload.schemaVersion !== 1 || payload.package !== UPDATE_PACKAGE) throw fail("UPDATE_METADATA_INVALID", "版本清单必须使用 schemaVersion 1 和 @dsh/remote-ops 包名");
-    asset = fileSource ? updateFilePath(payload.asset, config.path, config.source) : assetUrl(payload.asset, config.url);
-    checksum = fileSource ? updateFilePath(payload.checksum, config.path, config.source) : assetUrl(payload.checksum, config.url);
+    asset = assetUrl(payload.asset, config.url);
+    checksum = assetUrl(payload.checksum, config.url);
   } else {
     if (payload.draft || payload.prerelease) throw fail("UPDATE_METADATA_INVALID", "只安装正式稳定版本");
     const find = name => Array.isArray(payload.assets) && payload.assets.find(item => item?.name === name)?.browser_download_url;
     if (!find(assetName) || !find(checksumName)) throw fail("UPDATE_ASSET_MISSING", "Release 缺少 tgz 或 SHA256 校验文件");
     asset = httpUrl(find(assetName)).href; checksum = httpUrl(find(checksumName)).href;
   }
-  return { currentVersion: PLUGIN_VERSION, latestVersion: version, updateAvailable: compareVersions(version, PLUGIN_VERSION) > 0, assetUrl: asset, checksumUrl: checksum, assetName, source: config.source, origin, fileSource };
+  return { currentVersion: PLUGIN_VERSION, latestVersion: version, updateAvailable: compareVersions(version, PLUGIN_VERSION) > 0, assetUrl: asset, checksumUrl: checksum, assetName, source: config.source, origin };
 }
 
 export function expectedChecksum(text, assetName) {
@@ -171,7 +156,7 @@ export function inspectUpdatePackage(bytes, version) {
 
 export async function downloadRelease(release, root, options = {}) {
   const { onPhase = () => {}, ...network } = options;
-  const read = (location, extra) => release.fileSource ? readUpdateFile(release.fileSource, location, { ...network, ...extra }) : fetchUpdateBytes(location, { ...network, origin: release.origin, ...extra });
+  const read = (location, extra) => fetchUpdateBytes(location, { ...network, origin: release.origin, ...extra });
   const checksum = expectedChecksum((await read(release.checksumUrl, { limit: 64 * 1024 })).toString(), release.assetName);
   onPhase("downloading");
   const bytes = await read(release.assetUrl, { limit: MAX_UPDATE_BYTES, timeoutMs: 120000 });

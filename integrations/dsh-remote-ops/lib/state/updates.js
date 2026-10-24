@@ -21,11 +21,6 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
   async saveUpdateSettings(value) {
     if (this.updatePromise || this.releaseCheckPromise || this.updateSettingsWrite) throw sessionError("UPDATE_BUSY", "更新操作进行中，请稍后修改来源");
     const settings = normalizeUpdateSettings(value);
-    if (settings.source === "sftp") {
-      const environment = this.findEnvironment(settings.environment);
-      if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", "请选择已保存的 SSH 环境作为 SFTP 更新源");
-      settings.environment = environment.id;
-    }
     this.updateSettingsWrite = true;
     try {
       await this.updateSettingsPromise?.catch(() => {});
@@ -46,7 +41,7 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
     this.updateDownloadAbort ??= new AbortController();
     this.releaseCheckPromise = (async () => {
       const settings = await this.loadUpdateSettings();
-      const value = await fetchLatestRelease(settings, { signal: this.updateDownloadAbort.signal, connectFiles: this.connectFiles?.bind(this) });
+      const value = await fetchLatestRelease(settings, { signal: this.updateDownloadAbort.signal });
       this.release = value; this.releaseCheckedAt = Date.now(); this.updatePhase = "idle";
       return value;
     })().catch(error => { this.updatePhase = "failed"; this.updateError = error.message; throw error; }).finally(() => { this.releaseCheckPromise = undefined; });
@@ -71,7 +66,7 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
     const bundle = (await manager.listBundles()).find(item => item.name === UPDATE_PACKAGE);
     if (!bundle?.installed) throw sessionError("UPDATE_PROFILE_NOT_FOUND", "当前 profile 未安装 Remote Ops，不能自动修改其他 profile");
     if (compareVersions(bundle.version, release.latestVersion) >= 0) return { ...await this.updateStatus(), updated: false };
-    const downloaded = await downloadRelease(release, this.base, { signal: this.updateDownloadAbort.signal, connectFiles: this.connectFiles?.bind(this), onPhase: phase => this.updatePhase = phase });
+    const downloaded = await downloadRelease(release, this.base, { signal: this.updateDownloadAbort.signal, onPhase: phase => this.updatePhase = phase });
     if (this.disposed) throw sessionError("UPDATE_CANCELLED", "插件已关闭，未执行安装");
     this.updatePhase = "installing";
     this.updateInstallId = `remote-ops-update-${randomUUID()}`;
