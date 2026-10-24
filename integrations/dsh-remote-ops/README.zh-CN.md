@@ -144,7 +144,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 - 支持快捷命令保存和执行。
 - 提供 Agent 可读取的诊断事件，以及 DSH 右侧 Sidebar。
 - DSH Web 左侧底部 `Remote Ops` 入口打开原生右侧 Sidebar，保留主对话与草稿；重复点击复用已有标签页，收起右栏即可返回对话。左侧入口展开时图标与文字左对齐，缩进与宿主原生入口一致；收起时仅显示居中的图标和 Tooltip。
-- “更多设置 → 检查更新”支持 GitHub、HTTP/HTTPS、文件目录/共享盘和 SFTP 更新源；手动检查并安装，显示运行版本和已安装版本，安装后需重启 DSH。
+- “更多设置 → 检查更新”支持 GitHub 或 HTTP/HTTPS 更新源；手动检查并安装，显示运行版本和已安装版本，安装后需重启 DSH 并刷新网页。
 - 快捷命令区域上边界可拖拽调整高度，双击恢复默认高度；环境表单不展示内部 Harness 凭据引用，密码由系统自动管理。
 - 连接错误会保留在界面中，直到用户手动关闭，避免错误提示快速消失。
 - 环境表单单独提供 SSH 密码输入框；密码通过 `credentials.set` 写入 Harness credentials，环境 JSON 只保存引用，不保存明文。
