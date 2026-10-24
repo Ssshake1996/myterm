@@ -41,6 +41,10 @@ async function pluginFixture(t, agents = new Map()) {
     const response = await routes.get("/api/dsh-remote-ops/action").fetch(new Request("http://localhost/api/dsh-remote-ops/action", { method: "POST", body: JSON.stringify(body) }));
     return { status: response.status, body: await response.json() };
   };
+  // The state route waits for plugin initialization, including the local terminal.
+  const initialized = await routes.get("/api/dsh-remote-ops/state").fetch(new Request("http://localhost/api/dsh-remote-ops/state"));
+  assert.equal(initialized.status, 200);
+  assert.equal(terminals.length, 1);
   return { ctx, routes, tools, terminals, post, root };
 }
 
@@ -144,7 +148,6 @@ test("action route rejects unknown actions and owner-required actions without an
 
 test("action route sends to the shared local terminal as manual input without an owner", async (t) => {
   const { post, terminals } = await pluginFixture(t);
-  await new Promise((resolve) => setTimeout(resolve, 20));
   const sent = await post({ action: "input", session: "local-cmd", text: "echo hi\r" });
   assert.equal(sent.status, 200);
   assert.equal(sent.body.accepted, true);
@@ -201,7 +204,7 @@ test("terminal tools expose output options and the environment profile, and igno
 });
 
 test("tool arguments cannot change receipt attribution in the shared terminal", async t => {
-  const {tools,post}=await pluginFixture(t);await new Promise(r=>setTimeout(r,20));
+  const {tools,post}=await pluginFixture(t);
   assert.equal((await post({action:'input',session:'local-cmd',text:'echo human\r'})).status,200);
   const exec={agent:{id:'tool-agent'}};
   await tools.get('remote_terminal_send').execute({session:'local-cmd',text:'echo agent',actor:'manual',quietMs:20,timeoutSeconds:1},exec);
@@ -211,7 +214,6 @@ test("tool arguments cannot change receipt attribution in the shared terminal", 
 
 test("the terminal tools never answer a (y/n) prompt and tell callers that still pass the removed options", async (t) => {
   const { tools, terminals } = await pluginFixture(t);
-  await new Promise((resolve) => setTimeout(resolve, 20));
   const exec = { agent: { id: "tool-agent" } };
   for (const name of ["remote_terminal_send", "remote_terminal_batch", "remote_quick_command_run", "remote_terminal_script"]) {
     assert.equal(Object.hasOwn(tools.get(name).parameters.properties, "autoConfirm"), false, `${name} must not offer autoConfirm`);
