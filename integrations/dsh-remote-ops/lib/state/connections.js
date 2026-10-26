@@ -147,6 +147,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
     }
     for (const [sessionId, record] of this.sessions) {
       if (record.ownerId === id && !record.direct && !liveIds.has(sessionId)) {
+        if ([...this.commands.values()].some(job => job.owner === id && job.target === sessionId && job.status === "running")) continue;
         this.sessions.delete(sessionId);
         this.event(owner, "ssh.reconciled.closed", { sessionId, environment: record.environment.name });
       }
@@ -201,7 +202,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
     record.closeTask = (async () => {
       // Windows exec uses a separate authenticated connection. Closing only the PTY
       // would leave its tool call running after the user has closed the tab.
-      const outcomes = await Promise.allSettled([this.cancelCommandsFor(owner, record.sessionId), this.ctx.terminals.kill(owner, record.sessionId, "closed by user")]);
+      const outcomes = await Promise.allSettled([this.cancelCommandsFor(owner, record.sessionId), record.session.status().kind === "exited" ? undefined : this.ctx.terminals.kill(owner, record.sessionId, "closed by user")]);
       const failure = outcomes.find(item => item.status === "rejected");
       if (failure) throw failure.reason;
       const cancelledCommands = outcomes[0].value;

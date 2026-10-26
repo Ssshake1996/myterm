@@ -73,7 +73,10 @@ const step = async (name, work) => { try { await work();evidence.steps.push({ na
 const runCli = (args, env) => new Promise((yes, no) => {
   const child = spawn(process.execPath, [cli, ...args], { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
   const log = createWriteStream(join(out, "install.log"));child.stdout.pipe(log, { end: false });child.stderr.pipe(log, { end: false });
-  child.once("error", no);child.once("close", code => { log.end();code === 0 ? yes() : no(new Error("DSH plugin install failed")); });
+  child.once("error", no);child.once("close", code => log.end(async () => {
+    if (code === 0) yes();
+    else no(new Error("DSH plugin install failed: " + (await readFile(join(out, "install.log"), "utf8").catch(() => "unavailable install log")).slice(-4000)));
+  }));
 });
 try {
   await new Promise(r => server.listen(0, "127.0.0.1", r));origin = `http://127.0.0.1:${server.address().port}`;

@@ -807,9 +807,10 @@ window.__ModuleLoader__.load({
     };
     const outputMatches = (text, query) => query ? String(text).split("\n").flatMap((line, index) => line.toLowerCase().includes(query.toLowerCase()) ? [index] : []) : [];
     const fileEndpoint = pane => ({ kind: pane.kind, path: pane.path, ...(pane.kind === "ssh" ? { environment: pane.environment } : {}) });
-    const mergeSessionTabs = (previous, current) => [...current.map(item => ({ ...item, disconnected: false })), ...previous.filter(item => !current.some(live => live.sessionId === item.sessionId)).slice(-12).map(item => ({ ...item, disconnected: true, status: { kind: "exited" } }))];
+    const mergeSessionTabs = (previous, current) => [...current.map(item => ({ ...item, disconnected: item.status?.kind === "exited" })), ...previous.filter(item => !current.some(live => live.sessionId === item.sessionId)).slice(-12).map(item => ({ ...item, disconnected: true, status: { kind: "exited" }, operation: { kind: "disconnected" } }))];
     const terminalTabStatus = (item, frame) => {
       const sameStream = frame && frame.streamId === item.outputCursor?.streamId;
+      if ((item.disconnected || item.status?.kind === "exited") && item.operation?.kind === "command") return { state: "busy", label: `${item.operation.actor === "agent" ? "Agent 操作中" : "操作中"} · 终端已断开，独立命令仍在执行` };
       if (item.disconnected || item.status?.kind === "exited" || sameStream && frame.status?.kind === "exited") return { state: "disconnected", label: "已断开 · 保留最后输出" };
       const operation = sameStream && (frame.operation?.revision ?? 0) > (item.operation?.revision ?? 0) ? frame.operation : item.operation;
       if (operation?.kind === "closing") return { state: "busy", label: "正在关闭连接" };
@@ -818,7 +819,7 @@ window.__ModuleLoader__.load({
     };
     const terminalCloseSelection = (tabs, frames = {}) => {
       const targets = tabs.filter(item => item.kind === "ssh");
-      return { targets, connected: targets.filter(item => !item.disconnected).length, operating: targets.filter(item => terminalTabStatus(item, frames[item.sessionId]).state === "busy").length };
+      return { targets, connected: targets.filter(item => !item.disconnected && item.status?.kind !== "exited").length, operating: targets.filter(item => terminalTabStatus(item, frames[item.sessionId]).state === "busy").length };
     };
     const terminalCloseResult = (targets, results = []) => ({
       closed: targets.filter(item => results.some(result => result.sessionId === item.sessionId && result.closed === true)).map(item => item.sessionId),
@@ -1969,7 +1970,7 @@ window.__ModuleLoader__.load({
       };
       const dismissTab = target => dismissTabs([target]);
       const releaseSession = async session => {
-        if (session.disconnected) { dismissTab(session.sessionId); return; }
+        if (session.disconnected && terminalTabStatus(session).state !== "busy") { dismissTab(session.sessionId); return; }
         const owner = sessionId, revision = viewRevision.current;
         if (!await askPanel(`关闭连接“${session.name}”？这会结束该终端会话，取消关联命令的等待；远端进程不一定随之停止。`)) return;
         if (viewOwner.current !== owner || viewRevision.current !== revision) return;
@@ -1985,7 +1986,7 @@ window.__ModuleLoader__.load({
         closeBatch.current = batch; setClosingAll(true);
         const current = () => viewOwner.current === owner && viewRevision.current === revision;
         try {
-          if (selection.connected && !await askPanel(`关闭当前对话的 ${selection.connected} 个 SSH 连接，其中 ${selection.operating} 个正在操作，并清理 ${selection.targets.length - selection.connected} 个已断开标签？保留本地 CMD、环境配置和可导出的日志。操作可能中断，远端进程不一定随之停止。`)) return;
+          if ((selection.connected || selection.operating) && !await askPanel(`关闭当前对话的 ${selection.targets.length} 个 SSH 标签？${selection.connected} 个连接未断开，${selection.operating} 个正在操作，${selection.targets.length - selection.connected} 个终端已断开。保留本地 CMD、环境配置和可导出的日志。操作可能中断，远端进程不一定随之停止。`)) return;
           if (!current()) return;
           const result = await action({ action: "close-many", sessions: selection.targets.map(item => item.sessionId) });
           if (!result || !current()) return;

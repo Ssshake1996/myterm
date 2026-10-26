@@ -82,10 +82,11 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
     const id = ownerId(owner);
     this.reconcileHostSessions(owner);
     const local = this.localSnapshot();
-    const remoteSessions = [...this.sessions.values()].filter((x) => x.ownerId === id && x.session.status().kind !== "exited").map(x => this.connectionSnapshot(x));
+    const executing = new Set([...this.commands.values()].filter(job => job.owner === id && job.status === "running").map(job => job.target));
+    const remoteSessions = [...this.sessions.values()].filter((x) => x.ownerId === id && (x.session.status().kind !== "exited" || executing.has(x.sessionId))).map(x => this.connectionSnapshot(x));
     const sessions = [...(local ? [local] : []), ...remoteSessions];
     const environments = this.allEnvironments().map((x) => {
-      const connectionCount = remoteSessions.filter((session) => session.environmentId === x.id).length;
+      const connectionCount = remoteSessions.filter((session) => session.environmentId === x.id && session.status.kind !== "exited").length;
       return { ...x, passwordRef: x.passwordRef ? "configured" : undefined, active: connectionCount > 0, running: connectionCount > 0, status: connectionCount > 0 ? "running" : "idle", connectionCount, maxConnections: MAX_SESSIONS_PER_ENVIRONMENT };
     });
     return { groups: this.groupList(), environments, quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, activity: this.workspaceActivity(id), events: this.events.get(id) ?? [], ...(this.disconnects.get(id)?.length ? { disconnects: this.disconnects.get(id) } : {}), localError: this.localError || undefined, pluginName: PLUGIN_NAME, pluginVersion: PLUGIN_VERSION, runtimeId: this.runtimeId, update: this.release };
@@ -98,8 +99,8 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
   terminalOperation(session, target, owner) {
     const job = [...this.commands.values()].find(job => job.target === target && (!owner || job.owner === owner) && job.status === "running");
     const operation = session.closing ? { kind: "closing" }
-      : session.status().kind === "exited" ? { kind: "disconnected" }
       : job ? { kind: "command", actor: job.actor ?? "agent" }
+      : session.status().kind === "exited" ? { kind: "disconnected" }
       : session.pendingSend || session.active ? { kind: "waiting", actor: session.pendingSendActor ?? null }
       : { kind: "idle" };
     const previous = session.operationStatus;

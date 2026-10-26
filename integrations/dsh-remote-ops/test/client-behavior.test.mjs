@@ -42,6 +42,12 @@ test("tab status uses the newer observation for this stream and does not mistake
   assert.equal(terminalTabStatus(item, { ...frame, streamId: "previous" }).state, "connected");
   assert.equal(terminalTabStatus({ ...item, operation: { kind: "idle", revision: 5 } }, frame).state, "connected");
   assert.equal(terminalTabStatus({ ...item, disconnected: true }, frame).state, "disconnected");
+  const detached = { ...item, disconnected: true, status: { kind: "exited" }, operation: { kind: "command", actor: "agent" } };
+  assert.equal(terminalTabStatus(detached).state, "busy");
+  const selection = terminalCloseSelection([detached]);
+  assert.equal(selection.connected, 0); assert.equal(selection.operating, 1);
+  const merge = loadClientFunction("mergeSessionTabs", "\n    const retryDelay");
+  assert.equal(terminalTabStatus(merge([detached], [])[0], frame).state, "disconnected");
 });
 
 test("bulk selection excludes CMD and partial/missing receipts keep their tabs", () => {

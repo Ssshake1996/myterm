@@ -20,13 +20,13 @@ These screenshots show v0.9.2 installed in real DSH 0.2.0-rc.2; the installed pa
 
 ## SSH tab status and close all
 
-The terminal strip exposes **全部关闭** (close all). It closes the current conversation's SSH tabs and their connections captured when clicked, preserving local CMD, saved environments and other conversations. Live connections receive one combined confirmation with an active-operation count; disconnected-only tabs clear immediately. Failed closures remain visible with a reason. Connections opened during confirmation are excluded from that selection.
+The terminal strip exposes **全部关闭** (close all). It closes the current conversation's SSH tabs and their connections captured when clicked, preserving local CMD, saved environments and other conversations. Live connections or known running commands receive one combined confirmation with an active-operation count; disconnected tabs without running commands clear immediately. Failed closures remain visible with a reason. Connections opened during confirmation are excluded from that selection.
 
 | Indicator | Meaning |
 | --- | --- |
 | Amber ring | Waiting for output, executing an independent command or closing; hover for the specific state and whether the Agent initiated it |
 | Green dot | Connected; not proof that a command finished or a business operation succeeded |
-| Hollow gray dot | Disconnected, with received output retained for inspection or export |
+| Hollow gray dot | Disconnected without a known running command; received output is retained for inspection or export |
 
 Shapes, text and accessible descriptions accompany the colors; blue still marks the selected tab. Amber is informational and human input remains available. Ordinary keystrokes and new output are not treated as reliably timed command executions.
 

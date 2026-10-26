@@ -33,7 +33,7 @@ export const terminalCloseScenario = { id: 'terminal-close', title: 'SSH 黄绿�
     await p.evaluate(id=>{ window.bulkSend=fetch('/e2e/agent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tool:'remote_terminal_send',args:{session:id,text:'show version',quietMs:10000,timeoutSeconds:30},timeoutMs:30000})}).then(r=>r.json()); },opened[0].sessionId);
     await until(async()=>await tabs.getByRole('tab',{name:names[0],exact:true}).locator('[data-state=busy]').count()===1);
     assert.equal(await p.getByLabel('终端输入',{exact:true}).getAttribute('readonly'),null);
-    await all().click(); assert.match(await p.getByRole('dialog').innerText(),/3 个 SSH 连接，其中 1 个正在操作/);
+    await all().click(); assert.match(await p.getByRole('dialog').innerText(),/3 个连接未断开，1 个正在操作/);
     await p.getByRole('dialog').getByRole('button',{name:'取消',exact:true}).click();
     assert.equal((await state()).sessions.filter(x=>x.kind==='ssh').length,3);
   });

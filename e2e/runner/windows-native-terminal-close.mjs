@@ -41,7 +41,7 @@ export async function verifyTerminalClose({ p, url, editor, owner, closeProof, u
       assert.equal(await input.getAttribute("readonly"), null);
       await input.focus(); await p.keyboard.type('Write-Output ("HUMAN_" + "WITH_AGENT")'); await p.keyboard.press("Enter");
       await until(async () => (await p.getByLabel("终端输出", { exact: true }).innerText()).includes("HUMAN_WITH_AGENT"));
-      await all().click(); assert.match(await p.getByRole("dialog").innerText(), /2 个 SSH 连接，其中 1 个正在操作/);
+      await all().click(); assert.match(await p.getByRole("dialog").innerText(), /2 个连接未断开，1 个正在操作/);
       await p.getByRole("dialog").getByRole("button", { name: "取消", exact: true }).click();
       assert.equal((await state(p, primaryOwner)).sessions.filter(x => x.kind === "ssh").length, 2);
       await p.screenshot({ path: join(out, "terminal-yellow-manual.png"), animations: "disabled" });

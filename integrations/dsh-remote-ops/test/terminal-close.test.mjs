@@ -122,3 +122,16 @@ test("terminal operation distinguishes known execution from connection/output ac
   session.closing = true; assert.equal(status().kind, "closing");
   session.closing = false; session.closed = true; assert.equal(status().kind, "disconnected");
 });
+
+test("a disconnected Windows PTY retains its active exec until cancelled, then leaves reconciliation", async () => {
+  const { state, killed, add, job } = fixture(); const record = add("ssh-a"); record.session.closed = true;
+  job("active", "ssh-a"); state.ctx.terminals.list = () => []; state.event = () => {};
+  state.reconcileHostSessions(owner);
+  assert.equal(state.sessions.get("ssh-a"), record);
+  assert.equal(state.terminalOperation(record.session, "ssh-a", owner.id).kind, "command");
+  const result = await state.closeMany(owner, ["ssh-a"]);
+  assert.equal(result.results[0].cancelledCommands, 1); assert.equal(result.results[0].closed, true);
+  assert.deepEqual(killed, [], "the exited PTY does not need another host kill");
+  state.commands.clear(); const finished = add("finished"); finished.session.closed = true;
+  state.reconcileHostSessions(owner); assert.equal(state.sessions.has("finished"), false);
+});

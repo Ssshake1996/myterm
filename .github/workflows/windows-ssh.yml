@@ -50,6 +50,9 @@ jobs:
           npm pack --pack-destination ../../output/native-package --silent
           Pop-Location
           'DSH_CLI=' + (Join-Path $PWD 'output/dsh-host/node_modules/@deepseek-ai/dsh/lib/bin.js') | Out-File -FilePath $env:GITHUB_ENV -Append
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
       - name: Installed native DSH Windows and cross-conversation terminal acceptance
         shell: pwsh
         env:
@@ -67,4 +70,6 @@ jobs:
             output/windows-ssh-live/server/sshd.log
             output/windows-native/evidence.json
             output/windows-native/*.png
+            output/windows-native/install.log
+            output/windows-native/dsh.stderr.log
           if-no-files-found: warn
