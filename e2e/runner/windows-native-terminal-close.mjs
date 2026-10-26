@@ -60,6 +60,14 @@ export async function verifyTerminalClose({ p, url, editor, owner, closeProof, u
       await p.setViewportSize({ width: 1500, height: 1000 });
     });
     await check("native bulk close cancels the dedicated Windows exec and preserves CMD, environments and another conversation", async () => {
+      if (evidence.kind === "native-dsh-real-windows-ssh") {
+        const input = p.getByLabel("终端输入", { exact: true }); await until(() => input.isEditable());
+        await input.focus(); await p.keyboard.type("exit"); await p.keyboard.press("Enter");
+        const target = tabs.getByRole("tab", { name: "Windows 原生验收", exact: true }).last();
+        await until(async () => /终端已断开，独立命令仍在执行/.test(await target.getAttribute("aria-description")));
+        assert.equal(await target.locator('[data-state="busy"]').count(), 1);
+        await p.screenshot({ path: join(out, "terminal-disconnected-exec-still-yellow.png"), animations: "disabled" });
+      }
       await all().click(); await p.getByRole("dialog").getByRole("button", { name: "确认", exact: true }).click();
       await until(async () => await tabs.getByRole("tab").count() === 1);
       await until(() => closeProof.has("BUSY"));
@@ -69,7 +77,7 @@ export async function verifyTerminalClose({ p, url, editor, owner, closeProof, u
       assert.equal(current.sessions.filter(x => x.kind === "ssh").length, 0);
       assert.equal(current.environments.length, 1); assert.equal(current.sessions[0].kind, "local");
       assert.ok(other.sessions.some(x => x.sessionId === otherConnection && x.status.kind !== "exited"));
-      const input = p.getByLabel("终端输入", { exact: true }); await input.focus(); await p.keyboard.type("echo LOCAL_AFTER_CLOSE"); await p.keyboard.press("Enter");
+      const input = p.getByLabel("终端输入", { exact: true }); await until(() => input.isEditable()); await input.focus(); await p.keyboard.type("echo LOCAL_AFTER_CLOSE"); await p.keyboard.press("Enter");
       await until(async () => (await p.getByLabel("终端输出", { exact: true }).innerText()).includes("LOCAL_AFTER_CLOSE"));
       await new Promise(r => setTimeout(r, 3500)); assert.equal(await tabs.getByRole("tab").count(), 1);
       await p.screenshot({ path: join(out, "terminal-close-local-retained.png"), animations: "disabled" });
@@ -79,7 +87,7 @@ export async function verifyTerminalClose({ p, url, editor, owner, closeProof, u
       await selectConversation(otherOwner);
       const otherTabs = q.getByRole("tablist", { name: "终端会话" });
       await otherTabs.getByRole("tab", { name: "Windows 原生验收", exact: true }).click();
-      await q.getByLabel("终端输入", { exact: true }).focus(); await q.keyboard.type("exit"); await q.keyboard.press("Enter");
+      const input = q.getByLabel("终端输入", { exact: true }); await until(() => input.isEditable()); await input.focus(); await q.keyboard.type("exit"); await q.keyboard.press("Enter");
       await until(async () => await otherTabs.locator('[data-state="disconnected"]').count() === 1);
       await q.screenshot({ path: join(out, "terminal-gray-disconnected.png"), animations: "disabled" });
       const clear = q.getByRole("button", { name: "全部关闭 SSH 标签", exact: true }); await clear.focus(); await q.keyboard.press("Enter");
