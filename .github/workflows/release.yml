@@ -66,11 +66,17 @@ jobs:
   release:
     needs: [package, windows]
     runs-on: ubuntu-latest
+    concurrency:
+      group: dsh-remote-ops-release-publication
+      cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: actions/download-artifact@v4
         with:
           name: remote-ops-package
@@ -84,6 +90,14 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "$title" --notes-file "$notes"
           else
-            gh release create "$TAG" --verify-tag --title "$title" --notes-file "$notes"
+            gh release create "$TAG" --verify-tag --title "$title" --notes-file "$notes" --latest=false
           fi
           gh release upload "$TAG" dist-release/*.tgz dist-release/SHA256SUMS-*.txt --clobber
+      - name: Promote and verify the newest complete stable release
+        run: |
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" > "$RUNNER_TEMP/remote-ops-releases.json"
+          latest_tag="$(node --input-type=module -e 'import {readFileSync} from "node:fs"; import {selectLatestReleaseTag} from "./scripts/release-dsh-remote-ops.mjs"; console.log(selectLatestReleaseTag(JSON.parse(readFileSync(process.argv[1], "utf8"))));' "$RUNNER_TEMP/remote-ops-releases.json")"
+          gh release edit "$latest_tag" --latest
+          actual="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"
+          test "$actual" = "$latest_tag" || { echo "Latest is $actual, expected $latest_tag" >&2; exit 1; }
+          echo "Verified Latest: $actual"

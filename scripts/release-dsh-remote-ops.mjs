@@ -15,6 +15,25 @@ export const tagName = (version) => `dsh-remote-ops-v${version}`;
 export const artifactName = (version) => `dsh-remote-ops-v${version}.tgz`;
 export const checksumName = (version) => `SHA256SUMS-dsh-remote-ops-v${version}.txt`;
 
+// GitHub's list order is not a version comparison. Only promote complete, stable plugin releases.
+export function selectLatestReleaseTag(pages) {
+  if (!Array.isArray(pages)) throw new Error("Release index must be an array");
+  const candidates = pages.flat().flatMap((release) => {
+    const match = /^dsh-remote-ops-v(\d+)\.(\d+)\.(\d+)$/.exec(release?.tag_name ?? "");
+    if (!match || release.draft !== false || release.prerelease !== false) return [];
+    const version = match.slice(1).join(".");
+    const assets = Array.isArray(release.assets) ? release.assets : [];
+    if (![artifactName(version), checksumName(version)].every(name => assets.some(asset => asset?.name === name && asset.state === "uploaded"))) return [];
+    return [{ tag: release.tag_name, parts: match.slice(1).map(BigInt) }];
+  });
+  candidates.sort((a, b) => {
+    for (let i = 0; i < 3; i++) if (a.parts[i] !== b.parts[i]) return a.parts[i] > b.parts[i] ? -1 : 1;
+    return 0;
+  });
+  if (!candidates.length) throw new Error("No complete stable Remote Ops release found");
+  return candidates[0].tag;
+}
+
 export function parseArgs(argv) {
   const options = { version: undefined, dryRun: false, push: true, wait: true, remote: "origin", branch: undefined, waitMinutes: 10 };
   const rest = [...argv];

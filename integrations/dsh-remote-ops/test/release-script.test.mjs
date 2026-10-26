@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PLUGIN_VERSION } from "../lib/version.js";
-import { artifactName, checkVersionFiles, checksumName, parseArgs, runRelease, sha256File, tagName, waitForRelease } from "../../../scripts/release-dsh-remote-ops.mjs";
+import { artifactName, checkVersionFiles, checksumName, parseArgs, runRelease, selectLatestReleaseTag, sha256File, tagName, waitForRelease } from "../../../scripts/release-dsh-remote-ops.mjs";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const git = (cwd, ...args) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -21,6 +21,18 @@ const fakeNpm = (args, cwd) => {
 };
 const fast = { ...quiet, npm: fakeNpm };
 const options = (extra = {}) => ({ version: "1.2.3", dryRun: false, push: true, wait: false, remote: "origin", branch: undefined, waitMinutes: 1, ...extra });
+
+test("Latest uses numeric versions across all pages, not list position or lexical ordering", () => {
+  const release = version => ({ tag_name: tagName(version), draft: false, prerelease: false, assets: [artifactName(version), checksumName(version)].map(name => ({ name, state: "uploaded" })) });
+  const older = release("0.9.2"), newest = release("0.10.2");
+  assert.equal(selectLatestReleaseTag([[older, release("0.8.2")], [release("0.10.1"), newest]]), newest.tag_name);
+  assert.equal(selectLatestReleaseTag([release("0.10.9"), release("0.10.10"), older]), tagName("0.10.10"));
+  assert.equal(selectLatestReleaseTag([newest, older]), newest.tag_name, "rerunning an old release must not replace a newer Latest");
+  const incomplete = release("0.11.0"); incomplete.assets[1].state = "new";
+  assert.equal(selectLatestReleaseTag([older, { ...release("9.0.0"), draft: true }, { ...release("8.0.0"), prerelease: true }, { ...release("7.0.0"), assets: [] }, { ...release("6.0.0"), tag_name: "v6.0.0" }, incomplete, newest]), newest.tag_name);
+  assert.throws(() => selectLatestReleaseTag([incomplete]), /No complete stable/);
+  assert.throws(() => selectLatestReleaseTag({}), /must be an array/);
+});
 
 function writeTree(root, version, { clientVersion = version, notesVersion = version, lockVersion = version, pluginVersion = version } = {}) {
   const plugin = join(root, "integrations", "dsh-remote-ops");

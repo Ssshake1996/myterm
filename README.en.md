@@ -182,7 +182,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 
 ## Installation
 
-Download the package from [GitHub Releases](https://github.com/Ssshake1996/myterm/releases), then run:
+Download the package from the [latest stable release](https://github.com/Ssshake1996/myterm/releases/latest), then run:
 
 ```powershell
 dsh plugin --profile web add .\dsh-remote-ops-v0.10.2.tgz
@@ -253,6 +253,8 @@ compares the reported package digest with the local package. Use `--dry-run`
 to validate and pack without changing git, or `--no-push` to leave the commit
 and tag local. See `docs/testing/dsh-remote-ops-test-plan.md` for the test
 matrix and 3080 page acceptance requirements.
+
+After uploading both assets, the workflow reads all release pages, selects the highest complete stable plugin version by numeric major/minor/patch, explicitly marks it Latest, and verifies `/releases/latest`. Rerunning an older release keeps the newer version selected. Downloads and updates use the Latest endpoint rather than list position or string sorting.
 
 For handoff and a ready-to-copy prompt for a new development conversation, see
 `docs/development-handoff.md` and `docs/prompts/new-development-session.md`.

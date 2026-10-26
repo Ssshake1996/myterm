@@ -180,7 +180,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
+从 [最新稳定版](https://github.com/Ssshake1996/myterm/releases/latest) 下载插件包，然后执行：
 
 ```powershell
 dsh plugin --profile web add .\dsh-remote-ops-v0.10.2.tgz
@@ -271,6 +271,8 @@ node scripts/release-dsh-remote-ops.mjs 0.10.2 --dry-run  # 只校验、跑门�
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后轮询 Release，比较 GitHub 报告的安装包摘要与本地摘要。
+
+上传完成后，发布流程分页读取正式 Release，按主版本、次版本、补丁版本的数值选择附件完整的最高版本，显式设为 Latest，并核对 `/releases/latest`。重跑旧版发布不会将最新版降回旧版；下载与更新使用 Latest 入口，不依赖列表位置或版本字符串排序。
 
 发布脚本在改动 git 之前先校验所有版本载体（`package.json`、锁文件、`version.js`、`client.js` 默认值、发布说明标题、四份 README 的安装示例及根 README 的发布示例）一致，再执行一次完整回归门禁（包含语法检查、单元、客户端行为、契约和烟测），通过后才打包、提交、创建 Tag 并推送。根目录中英文 README 与插件目录一起纳入发布提交。测试矩阵和 3080 页面验收要求见 `docs/testing/dsh-remote-ops-test-plan.md`。
 
