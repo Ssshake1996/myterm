@@ -9,11 +9,14 @@ export async function verifyTerminalClose({ p, url, editor, owner, closeProof, u
   const primaryOwner = owner(), panel = p.locator(".dsh-remote-ops");
   const tabs = panel.getByRole("tablist", { name: "终端会话" });
   const all = () => panel.getByRole("button", { name: "全部关闭 SSH 标签", exact: true });
-  const state = (page, id) => page.evaluate(id => fetch("/api/dsh-remote-ops/state?sessionId=" + encodeURIComponent(id)).then(r => r.json()), id);
+  const state = (page, id) => page.evaluate(id => fetch("/api/dsh-remote-ops/state?sessionId=" + encodeURIComponent(id), { headers: { "X-Remote-Ops-Acceptance": "read-only-observation" } }).then(r => r.json()), id);
   const send = async (field, text) => { await until(() => field.isEditable()); await field.fill(text); await field.press("Enter"); };
   let otherOwner, otherConnection;
   const q = p;
-  const selectConversation = async id => { await p.locator(`[data-row-key="session:${id}"]`).click(); await until(() => owner() === id); };
+  const selectConversation = async id => {
+    await p.locator(`[data-row-key="session:${id}"]`).click();
+    await until(async () => owner() === id && (await tabs.getByRole("tab").first().getAttribute("id"))?.startsWith("remote-ops-terminal-tab-" + encodeURIComponent(id) + "-"));
+  };
   try {
     await check("native conversations maintain separate live Windows SSH connections", async () => {
       assert.ok(primaryOwner);

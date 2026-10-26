@@ -20,13 +20,13 @@ const home = join(out, "dsh-home"), profile = join(home, "profiles/web");
 const ssh = await startWindowsOpenSsh({ root: join(out, "ssh") });
 const remoteRoot = join(tmpdir(), "Remote Ops Native 中文 " + randomUUID()).replaceAll("\\", "/");
 const skills = ["remote-ops-browser", "remote-ops-environments", "remote-ops-terminal-logs", "remote-ops-api", "remote-ops-updates", "remote-ops-windows"];
-const evidence = { kind: "native-dsh-real-windows-ssh", packageSha256: createHash("sha256").update(await readFile(pkg)).digest("hex"), steps: [], errors: [], tools: [] };
+const evidence = { kind: "native-dsh-real-windows-ssh", releaseTag: process.env.REMOTE_OPS_RELEASE_TAG ?? null, packageSha256: createHash("sha256").update(await readFile(pkg)).digest("hex"), steps: [], errors: [], tools: [] };
 const decode = value => {
   if (typeof value === "string") { try { return decode(JSON.parse(value)); } catch { return value; } }
   if (Array.isArray(value)) return value.map(decode).find(x => x && typeof x === "object") ?? value.map(decode).join("\n");
   return value?.type === "text" ? decode(value.text) : value;
 };
-let host, browser, proof, skillProof, origin;
+let host, browser, page, proof, skillProof, origin;
 const logs = [];
 const closeProof = new Map();
 const server = createServer(async (req, res) => {
@@ -90,10 +90,10 @@ try {
   host = spawn(process.execPath, [cli, "--profile", "web", "--host", "127.0.0.1", "--port", String(port), "--no-open"], { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
   host.stdout.pipe(logs[0], { end: false });host.stderr.pipe(logs[1], { end: false });
   const url = await until(async () => { if (host.exitCode !== null) throw new Error("DSH exited");return (await readFile(join(out, "dsh.stdout.log"), "utf8").catch(() => "")).match(new RegExp(`http://127\\.0\\.0\\.1:${port}/\\?\\S+`))?.[0]; });
-  browser = await chromium.launch({ channel: "chrome", headless: true });const context = await browser.newContext({ viewport: { width: 1500, height: 1000 } }), p = await context.newPage();
+  browser = await chromium.launch({ channel: "chrome", headless: true });const context = await browser.newContext({ locale: "zh-CN", viewport: { width: 1500, height: 1000 } }), p = page = await context.newPage();
   p.setDefaultTimeout(20000);
   let currentOwner;
-  p.on("request", request => { const u = new URL(request.url()); if (u.pathname === "/api/dsh-remote-ops/state" && u.searchParams.get("sessionId")) currentOwner = u.searchParams.get("sessionId"); });
+  p.on("request", request => { const u = new URL(request.url()); if (!request.headers()["x-remote-ops-acceptance"] && u.pathname === "/api/dsh-remote-ops/state" && u.searchParams.get("sessionId")) currentOwner = u.searchParams.get("sessionId"); });
   p.on("pageerror", error => evidence.errors.push(error.message));await p.goto(url);
   const editor = p.getByRole("textbox", { name: /描述你想要|发消息或创建任务/ });await editor.waitFor();
   await p.getByRole("button", { name: "Remote Ops", exact: true }).click();await p.getByLabel("终端输出", { exact: true }).waitFor();
@@ -125,7 +125,13 @@ try {
   });
   if (!process.exitCode) await verifyTerminalClose({ p, url, editor, owner: () => currentOwner, closeProof, until, step, out, evidence });
   assert.deepEqual(evidence.errors, []);
-} catch (error) { evidence.error = error.stack;process.exitCode = 1;console.error(error); }
+} catch (error) {
+  evidence.error = error.stack;process.exitCode = 1;console.error(error);
+  if (page) {
+    evidence.failedView = await page.locator("body").innerText({ timeout: 5000 }).catch(() => "unavailable");
+    await page.screenshot({ path: join(out, "native-failure.png"), timeout: 10000, animations: "disabled" }).catch(() => {});
+  }
+}
 finally {
   evidence.status = process.exitCode ? "failed" : "passed";evidence.finishedAt = new Date().toISOString();
   await writeFile(join(out, "evidence.json"), JSON.stringify(evidence, null, 2));await browser?.close();
