@@ -39,6 +39,7 @@ const ACTIONS = {
   "input": ({ state, body, agent }) => state.input(agent, body.session, body.text, "manual", body.streamId),
   "signal": ({ state, body, agent }) => state.signal(agent, body.session, body.signal),
   "close": ({ state, body, agent }) => state.close(agent, body.session),
+  "close-many": ({ state, body, agent }) => state.closeMany(agent, body.sessions),
   "resize": ({ state, body, agent }) => state.resize(agent, body.session, body.rows, body.cols),
   "sftp": ({ state, body, agent }) => body.operation === "local-list" ? state.listLocalFiles(body.path) : state.sftp(agent, body.environment, body.operation, body),
 };

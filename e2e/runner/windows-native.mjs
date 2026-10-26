@@ -8,6 +8,7 @@ import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { startWindowsOpenSsh } from "../harness/windows-openssh.mjs";
+import { verifyTerminalClose } from "./windows-native-terminal-close.mjs";
 
 // Native DSH, an installed candidate tgz and real Microsoft OpenSSH. The isolated
 // model fixture requests actual tools deterministically; it is not an Agent patch.
@@ -27,14 +28,19 @@ const decode = value => {
 };
 let host, browser, proof, skillProof, origin;
 const logs = [];
+const closeProof = new Map();
 const server = createServer(async (req, res) => {
   try {
     let raw = "";for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw), messages = body.messages ?? [];
-    const at = messages.findLastIndex(m => m.role === "user" && /WINDOWS_NATIVE_CHECK|WINDOWS_SKILL_CHECK/.test(JSON.stringify(m.content)));
+    const at = messages.findLastIndex(m => m.role === "user" && /WINDOWS_NATIVE_CHECK|WINDOWS_SKILL_CHECK|WINDOWS_CLOSE_OTHER|WINDOWS_CLOSE_BUSY|WINDOWS_CLOSE_LOGS/.test(JSON.stringify(m.content)));
+    const closeRun = at >= 0 ? /WINDOWS_CLOSE_(OTHER|BUSY|LOGS)/.exec(JSON.stringify(messages[at].content))?.[1] : null;
     const skillRun = at >= 0 && JSON.stringify(messages[at].content).includes("WINDOWS_SKILL_CHECK");
     const results = messages.slice(at + 1).filter(m => m.role === "tool").map(m => decode(m.content));
-    const plan = skillRun ? skills.map(name => ["skill", { name }]) : [
+    const plan = closeRun === "OTHER" ? [["remote_terminal_open", { environment: "Windows 原生验收" }]]
+      : closeRun === "BUSY" ? [["remote_command_execute", { session: proof[5].sessionId, shell: "windows-powershell", command: 'Write-Output "WINDOWS_CLOSE_STARTED"; Start-Sleep -Seconds 120; Write-Output "WINDOWS_CLOSE_ENDED"', timeoutSeconds: 180 }]]
+      : closeRun === "LOGS" ? [["remote_terminal_logs", {}]]
+      : skillRun ? skills.map(name => ["skill", { name }]) : [
       ["remote_environment_create", { ...ssh.environment, id: undefined, name: "Windows 原生验收" }],
       ["remote_environment_test", { environment: "Windows 原生验收" }],
       ["remote_terminal_open", { environment: "Windows 原生验收" }],
@@ -56,14 +62,14 @@ const server = createServer(async (req, res) => {
       const [name, args] = plan[results.length];evidence.tools.push(name);
       emit({ role: "assistant", tool_calls: [{ index: 0, id: "win-" + results.length + "-" + Date.now(), type: "function", function: { name, arguments: JSON.stringify(args) } }] });emit({}, "tool_calls");
     } else {
-      if (at >= 0 && body.tools?.length) { if (skillRun) skillProof = { results, catalog: skills.every(name => JSON.stringify(messages).includes(name)) }; else proof = results; }
+      if (at >= 0 && body.tools?.length) { if (closeRun) closeProof.set(closeRun, results); else if (skillRun) skillProof = { results, catalog: skills.every(name => JSON.stringify(messages).includes(name)) }; else proof = results; }
       emit({ role: "assistant", content: "WINDOWS_NATIVE_DONE" }, "stop");
     }
     res.end("data: [DONE]\n\n");
   } catch (error) { if (!res.headersSent) res.writeHead(500);res.end(String(error)); }
 });
 const until = async (fn, milliseconds = 60000) => { const end = Date.now() + milliseconds;while (Date.now() < end) { const value = await fn();if (value) return value;await new Promise(r => setTimeout(r, 200)); }throw new Error("Native DSH state did not settle"); };
-const step = async (name, work) => { try { await work();evidence.steps.push({ name, pass: true });console.log("PASS " + name); } catch (error) { evidence.steps.push({ name, pass: false, error: error.stack });process.exitCode = 1;console.error(error); } };
+const step = async (name, work) => { try { await work();evidence.steps.push({ name, pass: true });console.log("PASS " + name); } catch (error) { evidence.steps.push({ name, pass: false, error: error.stack });process.exitCode = 1;throw error; } };
 const runCli = (args, env) => new Promise((yes, no) => {
   const child = spawn(process.execPath, [cli, ...args], { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
   const log = createWriteStream(join(out, "install.log"));child.stdout.pipe(log, { end: false });child.stderr.pipe(log, { end: false });
@@ -81,7 +87,10 @@ try {
   host = spawn(process.execPath, [cli, "--profile", "web", "--host", "127.0.0.1", "--port", String(port), "--no-open"], { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
   host.stdout.pipe(logs[0], { end: false });host.stderr.pipe(logs[1], { end: false });
   const url = await until(async () => { if (host.exitCode !== null) throw new Error("DSH exited");return (await readFile(join(out, "dsh.stdout.log"), "utf8").catch(() => "")).match(new RegExp(`http://127\\.0\\.0\\.1:${port}/\\?\\S+`))?.[0]; });
-  browser = await chromium.launch({ channel: "chrome", headless: true });const p = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
+  browser = await chromium.launch({ channel: "chrome", headless: true });const context = await browser.newContext({ viewport: { width: 1500, height: 1000 } }), p = await context.newPage();
+  p.setDefaultTimeout(20000);
+  let currentOwner;
+  p.on("request", request => { const u = new URL(request.url()); if (u.pathname === "/api/dsh-remote-ops/state" && u.searchParams.get("sessionId")) currentOwner = u.searchParams.get("sessionId"); });
   p.on("pageerror", error => evidence.errors.push(error.message));await p.goto(url);
   const editor = p.getByRole("textbox", { name: /描述你想要|发消息或创建任务/ });await editor.waitFor();
   await p.getByRole("button", { name: "Remote Ops", exact: true }).click();await p.getByLabel("终端输出", { exact: true }).waitFor();
@@ -111,6 +120,8 @@ try {
     await p.setViewportSize({ width: 390, height: 844 });assert.ok(await panel.evaluate(n => n.scrollWidth <= n.clientWidth + 1));
     await p.screenshot({ path: join(out, "windows-narrow.png"), animations: "disabled" });
   });
+  if (!process.exitCode) await verifyTerminalClose({ p, url, editor, owner: () => currentOwner, closeProof, until, step, out, evidence });
+  assert.deepEqual(evidence.errors, []);
 } catch (error) { evidence.error = error.stack;process.exitCode = 1;console.error(error); }
 finally {
   evidence.status = process.exitCode ? "failed" : "passed";evidence.finishedAt = new Date().toISOString();

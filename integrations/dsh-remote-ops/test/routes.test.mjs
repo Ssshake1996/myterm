@@ -165,6 +165,19 @@ test("action route reports a failure shape that includes the failing stage", asy
   assert.equal(failed.body.code, "REMOTE_SESSION_NOT_FOUND");
 });
 
+test("batch close route requires the current conversation and rejects local terminal IDs", async t => {
+  const { post, terminals } = await pluginFixture(t, new Map([["live", { id: "live" }]]));
+  const ownerless = await post({ action: "close-many", sessions: ["gone"] });
+  assert.equal(ownerless.status, 400); assert.equal(ownerless.body.code, "REMOTE_SESSION_REQUIRED");
+  const local = await post({ sessionId: "live", action: "close-many", sessions: ["local-cmd"] });
+  assert.equal(local.status, 400); assert.equal(local.body.stage, "close-many");
+  assert.equal(local.body.code, "REMOTE_CLOSE_INVALID");
+  const cleared = await post({ sessionId: "live", action: "close-many", sessions: ["gone"] });
+  assert.equal(cleared.status, 200); assert.equal(cleared.body.results[0].alreadyClosed, true);
+  await post({ action: "input", session: "local-cmd", text: "echo still-local\r" });
+  assert.equal(terminals[0].writes.at(-1), "echo still-local\r");
+});
+
 // Registered tools use JSON Schema; required is an array on the containing object.
 function assertSchemaNode(node, path) {
   if (node === null || typeof node !== "object") return;

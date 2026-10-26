@@ -2,13 +2,27 @@
 
 DeepSeek Harness plugin for SSH, web and RESTful API operations. Users and Agents share visible terminals, webpages and request records.
 
-## v0.10.1 Windows OpenSSH
+## SSH tab status and close all
+
+The terminal strip exposes **全部关闭** (close all). It closes the current conversation's SSH tabs and their connections captured when clicked, preserving local CMD, saved environments and other conversations. Live connections receive one combined confirmation with an active-operation count; disconnected-only tabs clear immediately. Failed closures remain visible with a reason. Connections opened during confirmation are excluded from that selection.
+
+| Indicator | Meaning |
+| --- | --- |
+| Amber ring | Waiting for output, executing an independent command or closing; hover for the specific state and whether the Agent initiated it |
+| Green dot | Connected; not proof that a command finished or a business operation succeeded |
+| Hollow gray dot | Disconnected, with received output retained for inspection or export |
+
+Shapes, text and accessible descriptions accompany the colors; blue still marks the selected tab. Amber is informational and human input remains available. Ordinary keystrokes and new output are not treated as reliably timed command executions.
+
+Closing cancels associated waits and independent commands and requests SSH channel shutdown. Remote process termination remains unconfirmed; commands are not replayed. Closing tabs does not erase retained logs, which remain available through log tools or **更多 → 一键打包本会话全部日志** within the retention limits.
+
+## Windows OpenSSH
 
 Windows desktop and Server use the existing SSH environment, terminal, file and log workspaces. Choose the target platform and server-default, CMD, Windows PowerShell 5.1 or an installed PowerShell 7 in **环境 → SSH**. **测试** reports authentication, detected system, PTY, SFTP and the host fingerprint separately.
 
 `remote_environment_create/update/test` manages and diagnoses targets. `remote_command_execute` accepts a Windows shell, literal working directory and named PowerShell parameters, and returns exit status and separate error output. Windows independent commands authenticate a separate SSH connection while preserving the visible terminal. SFTP handles drive paths, Unicode and spaces; existing file and multi-terminal log tools remain available.
 
-The package adds the native DSH `remote-ops-windows` skill. See the [Windows guide](WINDOWS.md) and [verification matrix](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.10.1-acceptance.md). No Agent modification is required.
+The package includes the native DSH `remote-ops-windows` skill. See the [Windows guide](WINDOWS.md) and [verification matrix](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.10.2-acceptance.md). No Agent modification is required.
 
 ## Workspace tabs
 
@@ -16,7 +30,7 @@ Terminal, Web, Files and API now form a compact left-aligned group. The blue sel
 
 ## Terminal layout and request diagnostics
 
-- Session tabs, search and the current TXT download share one row, with approximately 32px desktop tabs. All-log ZIP export lives under **更多**; the bottom status bar shows the path, quick commands remain below, and **设置 → 终端** controls the active SSH size.
+- Session tabs, close all, search and the current TXT download share one row, with approximately 32px desktop tabs. All-log ZIP export lives under **更多**; the bottom status bar shows the path, quick commands remain below, and **设置 → 终端** controls the active SSH size.
 - Error headings distinguish state refresh, terminal output refresh and plugin update failures. Expand **错误详情** for the request method, redacted URL, HTTP status, stage, timestamp and bounded response preview. Network failures explicitly say that no HTTP response was received.
 - Update failures identify the version manifest, SHA256 file or archive, including the actual failed URL. Upstream HTTP status and the plugin endpoint status are labeled separately.
 - The same background refresh failure is automatically announced once per DSH/plugin runtime. Dismissing it, switching workspaces or refreshing the page does not repeatedly reopen it. Background retries continue; explicit **刷新状态** still reports its result. Recovery clears the corresponding state error; a new backend runtime enables notifications again.
@@ -27,7 +41,7 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 ## Workspace layout
 
 - All four workspaces share one **设置** entry with general, terminal, browser and update categories. **环境** manages SSH and API environments together, retaining their separate forms and credentials.
-- Local CMD and SSH use one consistent terminal tab strip, with a filled background, border and bold text for the active tab. Arrow keys switch terminals. **返回工作区** (back to workspace) stays at the top left of both SSH and API environment management while scrolling, preserving the active terminal or request draft when returning. The terminal row contains search, current TXT download and **更多** (more). Quick commands start as a compact strip; expand it or open **命令库** to manage saved commands.
+- Local CMD and SSH use one consistent terminal tab strip, with a filled background, border and bold text for the active tab. Arrow keys switch terminals. **返回工作区** (back to workspace) stays at the top left of both SSH and API environment management while scrolling, preserving the active terminal or request draft when returning. The terminal row contains close all, search, current TXT download and **更多** (more). Quick commands start as a compact strip; expand it or open **命令库** to manage saved commands.
 - Workspace tabs show unread terminal output, file transfers and browser execution. Viewing the corresponding terminal clears its unread indicator. Transfers show a percentage only when the total is known reliably.
 - API results have **响应 / 记录** tabs. Expand JSON nodes and click a field name to copy its JSON Pointer, with selectable text when clipboard access fails. HTTP status uses both color and text; 2xx also says **请检查业务结果**. Large trees render in batches and retain a raw view.
 - Workspace/settings switches preserve terminal, browser and API state. Background work continues while hidden browser views suspend frame requests.
@@ -36,10 +50,10 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Once ongoing work finishes, fully restart DSH and refresh the browser to activate the installed version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.10.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.10.1.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.10.2.tgz` and `SHA256SUMS-dsh-remote-ops-v0.10.2.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.10.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.10.2.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -158,14 +172,14 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.10.1.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.10.2.tgz
 dsh web
 ```
 
 For an upgrade, install as the same user and with the same `DSH_HOME` used by
 DSH, and use its actual profile rather than assuming `web`. Fully stop the old
 DSH process after installation, restart it, refresh the browser, and confirm
-`v0.10.1` in Remote Ops **设置 → 通用**. Saved environments and quick commands
+`v0.10.2` in Remote Ops **设置 → 通用**. Saved environments and quick commands
 remain; terminal connections must be reopened.
 
 For a package obtained from a registry, the package name is:

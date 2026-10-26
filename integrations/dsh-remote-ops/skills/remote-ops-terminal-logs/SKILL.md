@@ -31,6 +31,9 @@ Pass either `logIds` or `all:true`, not both. A single terminal can use `format:
 
 Return the real absolute `downloadUrl` as a Markdown download link, with the filename and any missing-history limits. It uses the authenticated DSH browser's observed origin. If `downloadUrl` is null (no supported browser origin was observed), direct the user to the download button beside the terminal tabs (**导出当前终端 TXT**) or **更多 → 一键打包本会话全部日志**; `downloadPath` is for same-host API clients, not a clickable chat link. Never invent a host or file path. The link requires the authenticated DSH web session and expires after one hour, earlier export-cache eviction or a host restart. A ZIP contains one UTF-8 TXT file per terminal and `manifest.json` with source IDs, times, raw offsets and truncation flags. `sha256` verifies the package.
 
+
+**全部关闭** only clears the selected current-conversation SSH tabs and connections; it keeps local CMD and retained logs. Discover closed records through `remote_terminal_logs` and export their actual log IDs within the existing retention limits. Do not reconnect or rerun commands to recreate a closed transcript. Amber/green/gray tab indicators describe known operation/connection/disconnection state, not a command exit code.
+
 ## Interpret the record accurately
 
 - Terminal colors are display-only. Agent sends and visible manual/raw input after common CMD, PowerShell and `user@host` prompts receive command emphasis. Standard Windows `dir` rows distinguish directory and file names; custom prompts and bare listings may stay unclassified. The Catppuccin-inspired palette follows the host light/dark theme: purple commands, teal directories and blue files. Do not rewrite commands, issue extra listing commands or infer completion/file identity from these colors. Copying and log export preserve text without the semantic styling; disabling highlighting is a user display preference.

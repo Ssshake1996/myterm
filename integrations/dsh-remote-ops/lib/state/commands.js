@@ -16,6 +16,7 @@ export const withCommands = (Base) => class CommandsLayer extends Base {
     if (!owner?.id || this.disposed) throw sessionError("COMMAND_OWNER_REQUIRED", "An active Harness session is required");
     validateCommand(args.command, (args.timeoutSeconds ?? 30) * 1000, args.maxBytes ?? 65536);
     const record = target === LOCAL_SESSION_ID ? null : this.getSession(owner, target);
+    if (record?.session.closing) throw sessionError("REMOTE_SESSION_CLOSING", "This SSH terminal is closing; no command was dispatched");
     if (record && (record.session.status().kind === "exited" || !record.session.client?.exec)) throw sessionError("COMMAND_CHANNEL_UNAVAILABLE", "This connection cannot open an independent SSH exec channel");
     const shell = args.shell ?? record?.environment.shell ?? "server-default";
     const useWindows = shell !== "server-default";
@@ -29,8 +30,9 @@ export const withCommands = (Base) => class CommandsLayer extends Base {
     const controller = new AbortController(), abort = () => controller.abort();
     args.signal?.addEventListener("abort", abort, { once: true });
     if (args.signal?.aborted) abort();
-    const job = { owner: owner.id, target: targetId, requestId, controller, targetName: record ? record.environment.name : LOCAL_SESSION_NAME, status: "running", startedAt: new Date().toISOString() };
+    const job = { owner: owner.id, target: targetId, requestId, controller, actor: retained ? "manual" : "agent", targetName: record ? record.environment.name : LOCAL_SESSION_NAME, status: "running", startedAt: new Date().toISOString() };
     this.commands.set(requestId, job);
+    (record?.session ?? this.localSession)?.outputBuffer?.notify();
     if (retained) { this.commandHistory.set(requestId, job); this.#pruneCommandJobs(); }
     const run = async () => {
       let dedicated;
@@ -54,6 +56,7 @@ export const withCommands = (Base) => class CommandsLayer extends Base {
       job.finishedAt = new Date().toISOString();
       args.signal?.removeEventListener("abort", abort);
       this.commands.delete(requestId);
+      (record?.session ?? this.localSession)?.outputBuffer?.notify();
       if (retained) this.#pruneCommandJobs();
     });
     return job;
@@ -103,5 +106,18 @@ export const withCommands = (Base) => class CommandsLayer extends Base {
     if (!job || job.owner !== owner?.id) throw sessionError("COMMAND_NOT_FOUND", "No running command for this Harness session");
     job.controller.abort();
     return { requestId, cancellationRequested: true };
+  }
+
+  async cancelCommandsFor(owner, target) {
+    const jobs = [...this.commands.values()].filter(job => job.owner === owner?.id && job.target === target);
+    for (const job of jobs) job.controller.abort();
+    if (!jobs.length) return 0;
+    let timer;
+    try {
+      await Promise.race([Promise.allSettled(jobs.map(job => job.done)), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(sessionError("COMMAND_CLOSE_PENDING", "An associated command has not finished cancelling. Remote process termination is unconfirmed")), 5000);
+      })]);
+    } finally { clearTimeout(timer); }
+    return jobs.length;
   }
 };

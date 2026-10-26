@@ -29,6 +29,29 @@ const terminalSizeSelect = loadClientFunction("terminalSizeSelect", "\n    // en
 const terminalInputEnabled = loadClientFunction("terminalInputEnabled", "\n    function RemoteOpsPanel");
 const terminalInputCompositionValue = loadClientFunction("terminalInputCompositionValue", "\n    function RemoteOpsPanel");
 const browserRuntimeSummary = loadClientFunction('browserRuntimeSummary', '\n    function BrowserWorkspacePanel');
+const terminalTabStatus = loadClientFunction("terminalTabStatus", "\n    const retryDelay");
+const terminalCloseSelection = loadClientFunction("terminalCloseSelection", "\n    const retryDelay", "terminalTabStatus");
+const terminalCloseResult = loadClientFunction("terminalCloseResult", "\n    const retryDelay");
+
+test("tab status uses the newer observation for this stream and does not mistake a connection for completion", () => {
+  const item = { kind: "ssh", status: { kind: "running" }, operation: { kind: "idle", revision: 3 }, outputCursor: { streamId: "current" } };
+  assert.match(terminalTabStatus(item).label, /不代表命令已完成/);
+  const frame = { streamId: "current", operation: { kind: "waiting", actor: "agent", revision: 4 } };
+  assert.equal(terminalTabStatus(item, frame).state, "busy");
+  assert.match(terminalTabStatus(item, frame).label, /Agent/);
+  assert.equal(terminalTabStatus(item, { ...frame, streamId: "previous" }).state, "connected");
+  assert.equal(terminalTabStatus({ ...item, operation: { kind: "idle", revision: 5 } }, frame).state, "connected");
+  assert.equal(terminalTabStatus({ ...item, disconnected: true }, frame).state, "disconnected");
+});
+
+test("bulk selection excludes CMD and partial/missing receipts keep their tabs", () => {
+  const tabs = [{ kind: "local", sessionId: "local-cmd" }, { kind: "ssh", sessionId: "a", name: "A", operation: { kind: "waiting" } }, { kind: "ssh", sessionId: "b", name: "B", disconnected: true }];
+  const selection = terminalCloseSelection(tabs);
+  assert.equal(selection.targets.length, 2); assert.equal(selection.connected, 1); assert.equal(selection.operating, 1);
+  const result = terminalCloseResult(selection.targets, [{ sessionId: "a", closed: true }, { sessionId: "unselected", closed: true }]);
+  assert.equal(JSON.stringify(result.closed), '["a"]');
+  assert.match(result.failures[0], /B：未收到关闭结果/);
+});
 
 test('browser readiness distinguishes embedded and window modes', () => {
   assert.equal(browserRuntimeSummary({modes:{window:{ready:true},embedded:{ready:false}}}), '插件内：需安装 · 独立窗口：已就绪');

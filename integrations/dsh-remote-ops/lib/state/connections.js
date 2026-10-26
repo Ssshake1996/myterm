@@ -1,5 +1,5 @@
 import { CREDENTIAL_REF_RE, LOCAL_SESSION_ID, MAX_SESSIONS_PER_ENVIRONMENT } from "../constants.js";
-import { newSessionName, ownerId, sessionError, validateEnvironment } from "../common.js";
+import { newSessionName, ownerId, sessionError, summarizeError, validateEnvironment } from "../common.js";
 import { AdoptedTerminalSession, SshTerminalSession, buildSshShellOptions } from "../terminal-sessions.js";
 import { interactiveWindowsCommand, windowsProbeCommand, isWindowsEnvironment } from "../windows-shell.js";
 import { sshChannel, closeSshClient } from "../ssh-connection.js";
@@ -195,8 +195,45 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
 
   async close(owner, target) {
     const record = this.getSession(owner, target);
-    await this.ctx.terminals.kill(owner, record.sessionId, "closed by user");
-    this.sessions.delete(record.sessionId);
-    return { closed: true, sessionId: record.sessionId };
+    if (record.closeTask) return record.closeTask;
+    record.session.closing = true;
+    record.session.outputBuffer?.notify();
+    record.closeTask = (async () => {
+      // Windows exec uses a separate authenticated connection. Closing only the PTY
+      // would leave its tool call running after the user has closed the tab.
+      const outcomes = await Promise.allSettled([this.cancelCommandsFor(owner, record.sessionId), this.ctx.terminals.kill(owner, record.sessionId, "closed by user")]);
+      const failure = outcomes.find(item => item.status === "rejected");
+      if (failure) throw failure.reason;
+      const cancelledCommands = outcomes[0].value;
+      this.sessions.delete(record.sessionId);
+      return { closed: true, sessionId: record.sessionId, cancelledCommands, terminationConfirmed: false };
+    })().finally(() => {
+      record.session.closing = false;
+      record.closeTask = undefined;
+      record.session.outputBuffer?.notify();
+    });
+    return record.closeTask;
+  }
+
+  async closeMany(owner, targets) {
+    if (!Array.isArray(targets) || !targets.length || targets.length > 128 || targets.some(id => typeof id !== "string" || !id || id === LOCAL_SESSION_ID) || new Set(targets).size !== targets.length) throw sessionError("REMOTE_CLOSE_INVALID", "Provide 1-128 distinct SSH session IDs; the shared local terminal cannot be closed here");
+    if (!owner?.id) throw sessionError("REMOTE_SESSION_REQUIRED", "Select the current conversation");
+    const id = ownerId(owner);
+    // Validate the whole selection before dispatch. Never resolve environment names,
+    // include new connections, or operate on another conversation's sessions.
+    for (const target of targets) {
+      const record = this.sessions.get(target);
+      if (record && record.ownerId !== id) throw sessionError("FOREIGN_SESSION", "SSH session belongs to another conversation");
+    }
+    const results = new Array(targets.length);
+    let cursor = 0;
+    await Promise.all(Array.from({ length: Math.min(4, targets.length) }, async () => {
+      while (cursor < targets.length) {
+        const index = cursor++, sessionId = targets[index];
+        try { results[index] = this.sessions.has(sessionId) ? await this.close(owner, sessionId) : { sessionId, closed: true, alreadyClosed: true, cancelledCommands: await this.cancelCommandsFor(owner, sessionId) }; }
+        catch (error) { results[index] = { sessionId, closed: false, error: summarizeError(error) }; }
+      }
+    }));
+    return { results };
   }
 };

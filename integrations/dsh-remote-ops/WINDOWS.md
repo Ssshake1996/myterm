@@ -1,6 +1,6 @@
 # Windows 桌面与 Server：OpenSSH 操作指南
 
-本指南对应 v0.10.1 的 Windows OpenSSH 能力。具体系统、Shell 与认证的验证范围见仓库验收记录。
+本指南对应 v0.10.2 的 Windows OpenSSH 能力。具体系统、Shell 与认证的验证范围见仓库验收记录。
 
 ## 连接环境
 

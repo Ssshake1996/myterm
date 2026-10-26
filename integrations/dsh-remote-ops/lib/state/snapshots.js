@@ -7,7 +7,7 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
   localSnapshot() {
     const session = this.localSession;
     if (!session || session.status().kind === "exited") return undefined;
-    return { sessionId: LOCAL_SESSION_ID, name: session.environment.name, kind: "local", status: session.status(), workingDirectory: this.base, ownerId: "shared", lastActivity: session.lastActivity, outputCursor: this.outputCursor(session), control: this.controlSnapshot(session) };
+    return { sessionId: LOCAL_SESSION_ID, name: session.environment.name, kind: "local", status: session.status(), workingDirectory: this.base, ownerId: "shared", lastActivity: session.lastActivity, outputCursor: this.outputCursor(session), control: this.controlSnapshot(session), operation: this.terminalOperation(session, LOCAL_SESSION_ID) };
   }
 
   catalog() {
@@ -33,7 +33,7 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
       endpoint: { host: record.environment.host, port: record.environment.port ?? 22, username: record.environment.username },
       kind: "ssh", status: record.session.status(),
       platform: record.environment.platform ?? "auto", shell: record.environment.shell ?? "server-default", encoding: record.session.environment?.encoding ?? "utf-8", identity: record.session.identity ?? null, detected: record.session.detected ?? null,
-      ownerId: record.ownerId, lastActivity: record.session.lastActivity ?? null, outputCursor: this.outputCursor(record.session), control: this.controlSnapshot(record.session), direct: Boolean(record.direct) };
+      ownerId: record.ownerId, lastActivity: record.session.lastActivity ?? null, outputCursor: this.outputCursor(record.session), control: this.controlSnapshot(record.session), operation: this.terminalOperation(record.session, record.sessionId, record.ownerId), direct: Boolean(record.direct) };
   }
 
   outputCursor(session) {
@@ -93,5 +93,17 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
 
   controlSnapshot(session) {
     return { holder: "shared", waiting: Boolean(session.pendingSend || session.active) };
+  }
+
+  terminalOperation(session, target, owner) {
+    const job = [...this.commands.values()].find(job => job.target === target && (!owner || job.owner === owner) && job.status === "running");
+    const operation = session.closing ? { kind: "closing" }
+      : session.status().kind === "exited" ? { kind: "disconnected" }
+      : job ? { kind: "command", actor: job.actor ?? "agent" }
+      : session.pendingSend || session.active ? { kind: "waiting", actor: session.pendingSendActor ?? null }
+      : { kind: "idle" };
+    const previous = session.operationStatus;
+    if (!previous || previous.kind !== operation.kind || previous.actor !== operation.actor) session.operationStatus = { ...operation, revision: (previous?.revision ?? 0) + 1 };
+    return session.operationStatus;
   }
 };

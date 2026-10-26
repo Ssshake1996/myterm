@@ -296,3 +296,5 @@ scenarios.push(environmentPasswordScenario);
 import { windowsEnvironmentScenario } from './windows-environment.mjs';
 scenarios.push(windowsEnvironmentScenario);
 scenarios.push(apiScenario);
+import { terminalCloseScenario } from './terminal-close.mjs';
+scenarios.push(terminalCloseScenario);

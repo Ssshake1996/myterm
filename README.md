@@ -31,13 +31,27 @@
 
 ---
 
-## v0.10.1 Windows OpenSSH
+## SSH 标签状态与全部关闭
+
+终端标签栏直接提供“全部关闭”：只关闭点击时选中的当前对话 SSH 标签及对应连接，保留本地 CMD、保存的环境和其他对话连接。存在连接时集中确认一次，并显示正在操作的数量；仅清理已断开标签时直接完成。关闭失败的标签保留并列出原因，可核对后重试。确认期间新开的标签不加入本次关闭。
+
+| 提示 | 含义 |
+| --- | --- |
+| 黄色环 | 插件正在等待回显、执行独立命令或关闭连接；悬停可查看具体状态及是否为 Agent 操作 |
+| 绿色点 | 连接已建立；不代表命令已经完成或业务成功 |
+| 灰色空心点 | 连接已断开，标签保留已接收的输出，便于查看或导出 |
+
+颜色同时配合形状、文字说明和无障碍描述；蓝色仍表示当前选中的标签。黄色是状态提示，用户仍可同时操作。插件不把普通按键输入或新输出当作可准确计时的命令任务。
+
+关闭会取消该标签关联的等待与独立命令，并请求关闭 SSH 通道；远端进程是否已停止仍需核实，不自动重放命令。关闭标签不清除已保留的日志，可在保留期限内通过日志工具或“更多 → 一键打包本会话全部日志”导出。
+
+## Windows OpenSSH
 
 Windows 桌面与 Server 沿用现有 SSH 环境、终端、文件和日志入口。在“环境 → SSH”中选择目标系统与 Shell，可使用服务器默认、CMD、Windows PowerShell 5.1 或目标已安装的 PowerShell 7。“测试”会分别报告身份验证、系统识别、PTY 和 SFTP，并显示主机指纹。
 
 Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；`remote_command_execute` 接受 Windows Shell、字面工作目录及 PowerShell 命名参数，返回退出码和独立错误流。Windows 独立命令使用单独的 SSH 连接，保留可见终端。SFTP 支持盘符、中文和空格路径，文件与多终端日志沿用原有接口。
 
-随包新增 `remote-ops-windows` skill，安装插件后由 DSH 原生发现。用法见 [Windows 操作指南](integrations/dsh-remote-ops/WINDOWS.md)，已完成与待验证的组合见 [验证记录](docs/testing/dsh-remote-ops-v0.10.1-acceptance.md)。Agent 无需修改。
+随包提供 `remote-ops-windows` skill，安装插件后由 DSH 原生发现。用法见 [Windows 操作指南](integrations/dsh-remote-ops/WINDOWS.md)，已完成与待验证的组合见 [验证记录](docs/testing/dsh-remote-ops-v0.10.2-acceptance.md)。Agent 无需修改。
 
 ## 工作区标签
 
@@ -47,7 +61,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 
 ## 终端布局与请求诊断
 
-- 终端标签、搜索和当前日志导出合并为一行，桌面标签约 32px 高；全部日志打包位于“更多”。路径显示在底部状态栏，常用命令保留在下方，SSH 尺寸统一在“设置 → 终端”调整。
+- 终端标签、全部关闭、搜索和当前日志导出合并为一行，桌面标签约 32px 高；全部日志打包位于“更多”。路径显示在底部状态栏，常用命令保留在下方，SSH 尺寸统一在“设置 → 终端”调整。
 - 错误提示区分“状态刷新失败”“终端输出刷新失败”和“插件更新失败”。展开“错误详情”查看失败请求的方法、地址、HTTP 状态、阶段、时间和响应摘要；网络失败明确显示未收到 HTTP 响应。
 - 更新失败进一步定位到版本清单、SHA256 校验文件或安装包，并显示实际失败地址。更新源的 HTTP 状态与插件接口的 HTTP 状态分别标注。
 - 同一次 DSH / 插件运行期间，同一后台刷新错误只自动提示一次；关闭后、切换工作区或刷新网页不会反复弹出。后台重试继续，手动“刷新状态”仍反馈本次结果；状态恢复清除对应错误，识别到新的后端运行标识后重新允许提示。
@@ -58,7 +72,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 ## 工作区布局
 
 - 四个工作区共用一个“设置”入口：通用、终端、网页、更新。环境入口统一管理 SSH / API，表单与凭据仍分别保存。
-- 本地 CMD 与 SSH 使用同一终端标签栏，当前标签通过底色、边框和加粗文字突出，支持方向键切换；SSH 和 API 环境页左上角常驻“返回工作区”，滚动时保持可见，返回后保留原终端或请求草稿。终端栏直接显示搜索、当前 TXT 导出和“更多”；快捷命令默认显示紧凑条，展开或进入“命令库”管理。
+- 本地 CMD 与 SSH 使用同一终端标签栏，当前标签通过底色、边框和加粗文字突出，支持方向键切换；SSH 和 API 环境页左上角常驻“返回工作区”，滚动时保持可见，返回后保留原终端或请求草稿。终端栏直接显示全部关闭、搜索、当前 TXT 导出和“更多”；快捷命令默认显示紧凑条，展开或进入“命令库”管理。
 - 顶部标签提示终端新输出、文件传输和网页执行状态；查看对应终端后清除新输出。传输总量可靠时显示百分比，否则显示“传输中”。
 - API 结果按“响应 / 记录”切换。JSON 树可折叠，点击字段名复制 JSON Pointer；复制失败可手动选择路径。HTTP 状态码带颜色和文字，2xx 提示“请检查业务结果”。大响应按节点分批显示，原文仍可查看。
 - 标签与设置切换保留终端、网页和 API 面板状态；后台任务继续，隐藏网页暂停画面取帧。
@@ -169,11 +183,11 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 从 [GitHub Releases](https://github.com/Ssshake1996/myterm/releases) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.10.1.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.10.2.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下执行安装命令；`--profile web` 必须与实际启动的 profile 一致。安装完成后完全停止原 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“设置 → 通用”显示 `v0.10.1`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下执行安装命令；`--profile web` 必须与实际启动的 profile 一致。安装完成后完全停止原 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“设置 → 通用”显示 `v0.10.2`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
 
 在 DSH Web 左侧底部点击 `Remote Ops` 打开右侧 Sidebar，主对话不被替换。已在 DSH `0.2.0-rc.2` 实测；其他宿主版本尚未实测。若未出现入口，先核对安装 profile、DSH 版本及已安装插件版本，并确认旧 DSH 进程已退出；无需手工复制 bundle patch。窄屏下右栏可能按宿主规则展开为全屏，收起即可返回原对话。
 
@@ -187,7 +201,7 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ## 内网 HTTP/HTTPS 手动更新
 
-当前版本为 [v0.10.1](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.10.1)。安装与界面验证范围见[验收记录](docs/testing/dsh-remote-ops-v0.10.1-acceptance.md)。
+当前版本为 [v0.10.2](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.10.2)。安装与界面验证范围见[验收记录](docs/testing/dsh-remote-ops-v0.10.2-acceptance.md)。
 
 Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后，待当前工作结束，完全重启 DSH 并刷新网页以启用新版本。
 
@@ -196,14 +210,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.10.1.tgz
-  SHA256SUMS-dsh-remote-ops-v0.10.1.txt
+  dsh-remote-ops-v0.10.2.tgz
+  SHA256SUMS-dsh-remote-ops-v0.10.2.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.10.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.10.2.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -246,14 +260,14 @@ SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.10.1
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.10.2
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.10.1            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.10.1 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.10.2            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.10.2 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后轮询 Release，比较 GitHub 报告的安装包摘要与本地摘要。

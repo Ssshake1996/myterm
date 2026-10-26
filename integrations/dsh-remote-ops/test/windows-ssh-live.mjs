@@ -114,6 +114,20 @@ try {
     await assert.rejects(state.sftp(owner, server.environment.id, "list", {}), { code: "SSH_HOST_KEY_CHANGED" });
     await state.updateEnvironment(server.environment.id, { hostKeySha256: server.environment.hostKeySha256 });
   });
+  await step("bulk close cancels a real dedicated Windows command and preserves an unselected terminal", async () => {
+    ctx.terminals = { kill: async (_owner, id) => state.sessions.get(id).session.close() };
+    const pending = state.execute(owner, power.sessionId, { command: "Start-Sleep -Seconds 20", requestId: "windows-bulk-close" });
+    const deadline = Date.now() + 5000;
+    while (!state.commands.has("windows-bulk-close") && Date.now() < deadline) await new Promise(r => setTimeout(r, 25));
+    assert.equal(state.terminalOperation(power.session, power.sessionId, owner.id).kind, "command");
+    await new Promise(r => setTimeout(r, 1000));
+    const receipt = await state.closeMany(owner, [power.sessionId]);
+    assert.equal(receipt.results[0].closed, true); assert.equal(receipt.results[0].cancelledCommands, 1);
+    const result = await pending;
+    assert.equal(result.status, "cancelled"); assert.equal(result.terminationConfirmed, false);
+    assert.equal(state.sessions.has(cmd.sessionId), true); assert.notEqual(cmd.session.status().kind, "exited");
+    assert.equal(state.sessions.has(power.sessionId), false); evidence.bulkClose = { receipt, command: result };
+  });
 } catch (error) { evidence.error = { message: error.message, stack: error.stack }; process.exitCode = 1;console.error(error); }
 finally {
   if (crossDriveRoot) {

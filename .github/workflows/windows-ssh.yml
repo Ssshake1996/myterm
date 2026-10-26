@@ -40,6 +40,24 @@ jobs:
           WINDOWS_SSH_OUTPUT: output/windows-ssh-live
         run: node integrations/dsh-remote-ops/test/windows-ssh-live.mjs
         timeout-minutes: 8
+      - name: Prepare pinned DSH host and candidate package
+        shell: pwsh
+        run: |
+          npm install --prefix output/dsh-host @deepseek-ai/dsh@0.2.0-rc.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Path output/native-package -Force | Out-Null
+          Push-Location integrations/dsh-remote-ops
+          npm pack --pack-destination ../../output/native-package --silent
+          Pop-Location
+          'DSH_CLI=' + (Join-Path $PWD 'output/dsh-host/node_modules/@deepseek-ai/dsh/lib/bin.js') | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Installed native DSH Windows and cross-conversation terminal acceptance
+        shell: pwsh
+        env:
+          WINDOWS_NATIVE_OUTPUT: output/windows-native
+        run: |
+          $package = Get-ChildItem output/native-package -Filter *.tgz | Select-Object -First 1
+          node e2e/runner/windows-native.mjs $package.FullName
+        timeout-minutes: 10
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -47,4 +65,6 @@ jobs:
           path: |
             output/windows-ssh-live/evidence.json
             output/windows-ssh-live/server/sshd.log
+            output/windows-native/evidence.json
+            output/windows-native/*.png
           if-no-files-found: warn

@@ -24,6 +24,9 @@ Explicit Windows shells start in UTF-8 for that process. A server-default shell 
 
 Silence, an echo or `inferred_idle` is not completion: terminal calls report `completion: "unknown"`. Read subsequent output with the returned cursor/stream ID, and inspect actual results before dependent operations.
 
+
+The terminal strip's **全部关闭** closes only the selected SSH connections in the current conversation and retains local CMD, saved environments and other conversations. Amber indicates a known wait or independent command; green indicates a connection, not completion; gray indicates disconnection. Human input remains available while the Agent operates. Closing a Windows tab also cancels its independent exec connection; `terminationConfirmed: false` still requires checking the remote state before repeating an operation.
+
 ## Independent commands and scripts
 
 Use `remote_command_execute` on an existing Windows SSH session when a real exit code and separate stdout/stderr are useful. It authenticates a separate SSH connection using the open session's original environment and the same host-key policy, avoiding reuse of the interactive Windows PTY connection. It does not inherit the interactive directory or temporary variables. Specify `workingDirectory` when needed. The plugin passes PowerShell parameter values as data, not interpolated shell code.

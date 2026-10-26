@@ -297,14 +297,9 @@ export function registerTools(ctx, state) {
   });
   registerTool(ctx, {
     name: "remote_terminal_close",
-    description: "Close an owner-scoped SSH terminal.",
+    description: "Close one exact SSH session owned by the current conversation and cancel its associated waits and independent commands. Preserves local-cmd and saved environments. Channel shutdown does not confirm that a remote process terminated.",
     parameters: { session: stringParam("Session id", true) },
-    execute: async (args, exec) => {
-      const record = state.getSession(owner(exec), args.session);
-      await ctx.terminals.kill(owner(exec), record.sessionId, "agent request");
-      state.sessions.delete(record.sessionId);
-      return { closed: true, sessionId: record.sessionId };
-    },
+    execute: async (args, exec) => state.close(owner(exec), args.session),
   });
   registerTool(ctx, {
     name: "remote_terminal_batch",
