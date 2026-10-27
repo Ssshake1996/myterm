@@ -1,15 +1,23 @@
 ---
 name: remote-ops-updates
-description: Configure and troubleshoot manual DSH Remote Ops plugin updates from an HTTP/HTTPS intranet address, and prepare a latest.json release feed for an internal mirror.
+description: Configure HTTP/HTTPS or GitHub Remote Ops updates, prepare latest.json feeds, and diagnose deferred hot reload or activation failures without changing Agent settings.
 ---
 
 # Remote Ops plugin updates
 
-Use the plugin's update dialog to configure the source and check for a newer version. Checks start when the user clicks a check button; the installed version takes effect after the user restarts DSH.
+Use the plugin's update dialog to configure the source and check for a newer version. Network checks start only from an explicit check/update action. Starting with v0.11.0, compatible updates automatically hot reload after active work finishes.
 
 ## User workflow
 
-Open **Remote Ops → 设置 → 更新**. Select a source, save it, then click **仅检查版本** or **检查并更新**. The latter checks the source and installs a newer stable version in the current DSH profile. An identical or older version is not installed. A version already installed but awaiting restart is not installed again.
+Open **Remote Ops → 设置 → 更新**. Select a source, save it, then click **仅检查版本** or **检查并更新**. The latter checks the source and installs a newer stable version in the current DSH profile. An identical or older version is not installed. If a version is already installed, **重试应用已安装版本** retries activation without downloading or installing it again.
+
+## Activation and task continuity
+
+- Wait for **新版已生效** and matching running/installed versions before claiming success. `phase: waiting` is pending work, not an update failure; inspect `hotReload.blockers`. Conversation tasks across the host, terminal waits/independent commands, transfers, browser jobs/runtime installation and API requests defer activation. Do not cancel them or restart DSH to force an update.
+- Hot reload keeps conversation identity/drafts, saved configurations, live terminal/browser handles, terminal logs and API authentication/receipts. Do not reopen sessions or replay commands/requests merely because `runtimeId` changed. Continue from existing IDs and inspect results. Existing connection transports keep their original implementation; newly opened connections use the new version.
+- A failed activation restores the old running instance. `phase: reload-failed` requires inspection and an explicit retry after addressing the cause. Installed and running versions can differ; rollback of the runtime does not downgrade the installed package. Do not retry in a loop.
+- The first upgrade from v0.10.x or earlier requires one DSH restart to load hot-reload support. After CLI/host-manager installation on an already capable runtime, use the plugin's activation button. Hosts without the public reload interfaces, and packages with incompatible state formats, explicitly report `restartRequired`. A full restart loses process-local connections and records: finish work and export needed logs first. Refreshing only the browser cannot update the backend.
+- This capability is inside the plugin. Do not modify Agent/core files or global Agent settings to enable it.
 
 - **HTTP / HTTPS 地址**: enter a directly readable directory URL or its `latest.json` URL, using the scheme, host and path. The server must allow direct downloads from the DSH host. The manifest, tgz, checksum and redirect hops must stay on the configured origin. Internal HTTPS certificates must be trusted by the DSH Node process; preserve TLS validation.
 - **GitHub Release** is the default source. For an internal mirror, serve the release directory through HTTP/HTTPS and save that address in the dialog.
@@ -34,8 +42,7 @@ Upload the tgz and checksum first, then publish `latest.json` last. Keep publish
 - **状态刷新失败** for `/api/dsh-remote-ops/state` is a plugin-state request failure, not proof that the update source failed. Check the active DSH profile, loaded plugin and route/proxy path; compare running and installed versions. Do not diagnose every 404 as a missing `latest.json` or automatically reinstall.
 - The same background refresh failure is automatically shown once per DSH/plugin runtime. Dismissal, workspace switching and page refresh preserve suppression; retries continue. A manual **设置 → 通用 → 刷新状态** still reports its current result. Recovery clears the state error; a newly identified backend runtime resets notification suppression. If state never loads, suppression falls back to the current browser tab until the backend runtime can be identified.
 - Diagnostic URLs hide query values; previews redact common credential fields and are length-limited. Request bodies and headers are not collected. Check business content before sharing an error report. Use the actual failed address and response rather than guessing from the red box alone.
-- Report **current running version** separately from **installed version**. Installation success requires a matching on-disk package version. New JavaScript and bundled skills take effect after fully restarting DSH and refreshing the page; a browser refresh alone is insufficient.
-- Let ongoing work finish before restarting. Terminal/browser connections and process-local API sessions/records do not survive a DSH restart. Installing an update does not itself close those connections or replay operations.
+- Report **current running version** separately from **installed version**. Installation success requires a matching on-disk package version; activation success additionally requires the matching running version. Hot reload refreshes backend code, browser resources and bundled skill registration together.
 - `UPDATE_METADATA_INVALID`: the entry must return a valid `latest.json`, not HTML, a directory listing or a prerelease. Regenerate the manifest.
 - `UPDATE_CHECKSUM_MISMATCH` / `UPDATE_PACKAGE_INVALID`: installation has not been dispatched. Re-copy the matching official tgz and checksum; do not bypass verification.
 - `UPDATE_DOWNLOAD_FAILED` / `UPDATE_CHECK_TIMEOUT`: verify that the DSH host can reach the HTTP/HTTPS address and trusts its certificate. Check the server status and file permissions. A browser's ability to reach the URL does not establish that the DSH process can reach it.

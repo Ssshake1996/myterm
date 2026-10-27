@@ -1,0 +1,23 @@
+# dsh-remote-ops v0.11.0
+
+更新后自动热加载，保留当前对话、配置和连接。
+
+- **设置 → 更新 → 检查并更新**：下载、校验并安装后，等待执行中的对话任务、终端等待与独立命令、传输、网页操作、浏览器安装和 API 请求结束，再自动应用新版。等待原因与运行/安装版本分别显示。
+- 新旧运行实例交接现有 SSH、本地终端、网页连接、终端日志和 API 登录状态及请求记录，不重放命令或请求。输出安静不被当作手工终端命令已结束的证明；现有连接保留，新连接使用新版实现。
+- 前端资源按版本发布，避免宿主在安装过程中提前刷新界面。后端代码使用独立的版本目录，避免原地覆盖后的模块缓存仍运行旧代码。
+- 新版启动失败时恢复旧运行实例。**重试应用已安装版本**仅重试激活；运行版本恢复不代表磁盘安装包已降级。缺少宿主接口或运行状态格式不兼容时明确提示需要重启。
+- 修正 API 工具返回值中的可选空字段，符合 DSH 的 JSON 输出要求；同步中英文 README 和 `remote-ops-updates` 随包 skill，不修改 Agent。
+
+## 首次升级
+
+**从 v0.10.x 或更早版本升级到本版，仍需重启 DSH 一次，才能加载热加载能力。** 之后通过插件更新界面安装兼容版本，无需重启。CLI/宿主插件管理安装后，可回到插件更新页点击“重试应用已安装版本”。
+
+在运行 DSH 的同一用户、`DSH_HOME` 和实际 profile 下安装：
+
+```powershell
+dsh plugin --profile web add .\dsh-remote-ops-v0.11.0.tgz
+```
+
+Release 仅提供 `dsh-remote-ops-v0.11.0.tgz` 与 `SHA256SUMS-dsh-remote-ops-v0.11.0.txt`。内网沿用 HTTP/HTTPS 地址及随包 `create-update-manifest.mjs` 生成的 `latest.json`；依赖仍使用 DSH 配置的源。
+
+验证采用真实 DSH 0.2.0-rc.2、Chrome、隔离 profile 与本地 SSH/网页/API 测试服务，包括延后应用、连续两次升级和故意启动失败后的恢复。具体证据及未验证范围见 [v0.11.0 验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.11.0-acceptance.md)。

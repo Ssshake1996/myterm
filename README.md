@@ -31,6 +31,16 @@
 
 ---
 
+## 更新后热加载
+
+从 v0.11.0 起，在 **设置 → 更新** 点击“检查并更新”，插件完成下载、SHA256 校验和安装后，会等待任务结束并自动应用新版，无需重启 DSH。等待范围包括各对话的执行任务、终端等待及独立命令、文件传输、网页操作、浏览器安装和 API 请求。界面会显示等待原因。
+
+热加载保留当前对话与草稿、已保存配置、现有终端和网页连接、日志及 API 登录状态和请求记录；不会重放命令或请求。人工终端里的长命令不以“输出安静”判断结束，连接在版本交接时保留。新建连接使用新版实现，已有连接保持其创建时的传输实现。
+
+若新版启动失败，恢复旧运行实例，并显示“重试应用已安装版本”；磁盘上的已安装版本与当前运行版本会分别显示。缺少宿主热加载接口或版本的状态格式不兼容时，界面明确提示需要重启。
+
+**首次从 v0.10.x 或更早版本升级到本版，仍需重启 DSH 一次以加载热加载能力。** 此后通过插件更新界面升级兼容版本即可自动热加载。使用 CLI 或宿主插件管理安装后，可在本插件“设置 → 更新”点击“重试应用已安装版本”。仅刷新浏览器不等于后端已更新。真实 DSH 验证范围见 [v0.11.0 验收记录](docs/testing/dsh-remote-ops-v0.11.0-acceptance.md).
+
 ## SSH 标签状态与全部关闭
 
 终端标签栏直接提供“全部关闭”：只关闭点击时当前对话中的全部 SSH 标签及对应连接，保留本地 CMD、保存的环境和其他对话连接。存在连接或已知执行任务时集中确认一次，并显示正在操作的数量；仅清理没有执行任务的已断开标签时直接完成。关闭失败的标签保留并列出原因，可核对后重试。确认期间新开的标签不加入本次关闭。
@@ -176,18 +186,18 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 - 目录刷新跳过历史完成任务，合并新完成任务并串行处理同一面板请求，保留列表、滚动位置及仍存在的选中项。
 - 窄屏文件区使用来源/目标切换，历史传输折叠，保留可操作的文件列表高度。
 - Multi-SSH 顺序协同工具、Agent 可读诊断和 Harness 凭据引用。
-- “设置 → 通用”显示插件版本，“设置 → 更新”可手动从 GitHub 或 HTTP/HTTPS 检查并安装更新；升级后重启 DSH 并刷新网页生效。
+- “设置 → 通用”显示插件版本，“设置 → 更新”可手动从 GitHub 或 HTTP/HTTPS 检查并安装更新；任务结束后自动热加载生效。
 
 ## 安装
 
 从 [最新稳定版](https://github.com/Ssshake1996/myterm/releases/latest) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.10.2.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.11.0.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下执行安装命令；`--profile web` 必须与实际启动的 profile 一致。安装完成后完全停止原 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“设置 → 通用”显示 `v0.10.2`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+CLI 安装须使用运行 DSH 的同一用户、`DSH_HOME` 和实际 profile。从旧版首次升级后重启一次，后续更新优先使用插件“设置 → 更新”。确认“当前运行”和“已安装”均为目标版本，才表示升级已经生效。
 
 在 DSH Web 左侧底部点击 `Remote Ops` 打开右侧 Sidebar，主对话不被替换。已在 DSH `0.2.0-rc.2` 实测；其他宿主版本尚未实测。若未出现入口，先核对安装 profile、DSH 版本及已安装插件版本，并确认旧 DSH 进程已退出；无需手工复制 bundle patch。窄屏下右栏可能按宿主规则展开为全屏，收起即可返回原对话。
 
@@ -201,23 +211,23 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ## 内网 HTTP/HTTPS 手动更新
 
-当前版本为 [v0.10.2](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.10.2)。安装与界面验证范围见[验收记录](docs/testing/dsh-remote-ops-v0.10.2-acceptance.md)。
+当前版本为 [v0.11.0](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.11.0)。安装与热加载验证范围见[验收记录](docs/testing/dsh-remote-ops-v0.11.0-acceptance.md)。
 
-Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后，待当前工作结束，完全重启 DSH 并刷新网页以启用新版本。
+Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后显示等待原因，任务结束后自动热加载；“新版已生效”与运行版本共同确认结果。
 
 在 HTTP/HTTPS 服务上提供以下目录：
 
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.10.2.tgz
-  SHA256SUMS-dsh-remote-ops-v0.10.2.txt
+  dsh-remote-ops-v0.11.0.tgz
+  SHA256SUMS-dsh-remote-ops-v0.11.0.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.10.2.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.11.0.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -225,7 +235,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 - HTTP/HTTPS：填写可直接读取的目录地址或 `latest.json` 地址。URL 使用协议、主机和路径，文件及重定向须保持同源；服务需允许 DSH 主机直接下载这些文件。内部 HTTPS 证书需由 DSH 的 Node 进程信任。
 - 依赖使用 DSH 的 npm/pnpm 源、代理和构建批准配置；内网需有可访问的依赖源。Chromium 可按需安装。
 
-更新包下载到 DSH 主机缓存，校验 SHA256 和包身份后，通过当前 profile 的 DSH 插件管理器安装。设置保存在 `$DSH_HOME/remote-ops/update-settings.json`，同一 DSH home 共享；安装作用于当前 profile。失败时可查看错误原因与宿主安装日志。重启前请完成任务并导出需要保留的记录，终端和浏览器在重启后重新打开。旧版电脑先手动安装本版本，再配置更新源。配置、清单生成与排错步骤见随包 `remote-ops-updates` skill。
+更新包下载到 DSH 主机缓存，校验 SHA256 和包身份后，通过当前 profile 的 DSH 插件管理器安装。设置保存在 `$DSH_HOME/remote-ops/update-settings.json`，同一 DSH home 共享；安装作用于当前 profile。失败时可查看错误原因与宿主安装日志。热加载失败时保留旧运行实例并显示原因，可修正后重试应用，不重复安装同一版本。首次从旧版升级须重启一次；完整重启不会恢复内存中的任务、连接和记录。配置、清单生成与排错步骤见随包 `remote-ops-updates` skill。
 
 ## 目录
 
@@ -260,14 +270,14 @@ SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.10.2
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.11.0
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.10.2            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.10.2 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.11.0            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.11.0 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后轮询 Release，比较 GitHub 报告的安装包摘要与本地摘要。

@@ -1,4 +1,8 @@
-import { PLUGIN_NAME } from "./version.js";
+import { PLUGIN_NAME, PLUGIN_VERSION } from "./version.js";
+import { randomUUID } from "node:crypto";
+import { HotReload, peekHandoff } from "./hot-reload.js";
+import { TransferManager } from "./transfers.js";
+export { HOT_RELOAD_PROTOCOL } from "./hot-reload.js";
 import { RemoteOpsState } from "./state/index.js";
 import { registerWorkspaceRoutes } from "./workspace-routes.js";
 import { registerTools } from "./tools.js";
@@ -23,15 +27,31 @@ export { defaultPasswordRef, normalizeGroupName, summarizeError, toLosslessJson,
 export { RemoteOpsState } from "./state/index.js";
 
 export function apply(ctx) {
-  const state = new RemoteOpsState(ctx);
+  const handoff = peekHandoff(ctx);
+  const state = handoff?.state ?? new RemoteOpsState(ctx);
+  if (handoff) {
+    Object.setPrototypeOf(state, RemoteOpsState.prototype);
+    state.ctx = ctx; state.disposed = false; state.runtimeId = randomUUID();
+    Object.setPrototypeOf(state.browser, BrowserWorkspace.prototype);
+    Object.setPrototypeOf(state.api, ApiWorkspace.prototype);
+    Object.setPrototypeOf(state.transfers, TransferManager.prototype);
+    state.browser.credentials = ctx.credentials; state.api.credentials = ctx.credentials;
+    state.release = { ...state.release, currentVersion: PLUGIN_VERSION, updateAvailable: false };
+  }
   ctx.inject?.(["pluginManager"], ready => ready.effect(() => {
     state.updateManager = ready.pluginManager;
     return () => { state.updateManager = undefined; };
   }, "dsh-remote-ops update manager"));
+  ctx.inject?.(["loader", "hmr"], ready => ready.effect(() => {
+    const reload = new HotReload(state, ready);
+    state.hotReload = reload;
+    return () => { reload.stop(); if (state.hotReload === reload) state.hotReload = undefined; };
+  }, "dsh-remote-ops hot reload"));
   registerSessionActivation(ctx, state);
-  state.browser = new BrowserWorkspace({ root: join(state.base, "browser"), credentials: ctx.credentials });
-  state.api = new ApiWorkspace({ root: join(state.base, "api"), credentials: ctx.credentials });
+  state.browser ??= new BrowserWorkspace({ root: join(state.base, "browser"), credentials: ctx.credentials });
+  state.api ??= new ApiWorkspace({ root: join(state.base, "api"), credentials: ctx.credentials });
   ctx.effect(() => async () => {
+    if (peekHandoff(ctx)?.state === state) return;
     state.disposed = true;
     state.updateDownloadAbort?.abort();
     if (state.updateInstallId) await state.updateManager?.cancelInstall(state.updateInstallId).catch(() => {});
@@ -58,6 +78,7 @@ export function apply(ctx) {
   registerApiTools(ctx, state);
   registerApiRoutes(ctx, state);
   registerBundledSkills(ctx);
+  if (handoff) handoff.adopted = true;
 }
 
 export function registerSessionActivation(ctx, state) {

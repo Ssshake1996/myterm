@@ -114,6 +114,8 @@ test('tool schemas compile, shipped examples match and native routes bind conver
   assert.equal(ajv.compile(API_TOOL_SCHEMAS.remote_api_environment_save)(examples[0]),true);
   assert.equal(ajv.compile(API_TOOL_SCHEMAS.remote_api_request)(examples[1]),true);
   await tools.get('remote_api_login').execute({environment:env.id,requestId:'native-login'},{agent:{id:'a'}});
+  const receipt=await tools.get('remote_api_records').execute({requestId:'native-login'},{agent:{id:'a'}});
+  assert.deepEqual(receipt,JSON.parse(JSON.stringify(receipt)),'native DSH tool values must not contain undefined response fields');
   const res=await routes.get('/api/dsh-remote-ops/api').fetch(new Request('http://localhost/api/dsh-remote-ops/api?sessionId=a'));
   assert.equal((await res.json()).records[0].id,'native-login');assert.equal(res.headers.get('cache-control'),'no-store');
   const denied=await routes.get('/api/dsh-remote-ops/api').fetch(new Request('http://localhost/api/dsh-remote-ops/api?sessionId=b&requestId=native-login'));assert.equal(denied.status,400);

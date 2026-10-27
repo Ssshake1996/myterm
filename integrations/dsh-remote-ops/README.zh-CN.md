@@ -2,6 +2,16 @@
 
 面向 DeepSeek Harness 的终端、网页与 RESTful API 运维插件。用户与 Agent 共享可见终端、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
 
+## 更新后热加载
+
+从 v0.11.0 起，在 **设置 → 更新** 点击“检查并更新”，插件完成下载、SHA256 校验和安装后，会等待任务结束并自动应用新版，无需重启 DSH。等待范围包括各对话的执行任务、终端等待及独立命令、文件传输、网页操作、浏览器安装和 API 请求。界面会显示等待原因。
+
+热加载保留当前对话与草稿、已保存配置、现有终端和网页连接、日志及 API 登录状态和请求记录；不会重放命令或请求。人工终端里的长命令不以“输出安静”判断结束，连接在版本交接时保留。新建连接使用新版实现，已有连接保持其创建时的传输实现。
+
+若新版启动失败，恢复旧运行实例，并显示“重试应用已安装版本”；磁盘上的已安装版本与当前运行版本会分别显示。缺少宿主热加载接口或版本的状态格式不兼容时，界面明确提示需要重启。
+
+**首次从 v0.10.x 或更早版本升级到本版，仍需重启 DSH 一次以加载热加载能力。** 此后通过插件更新界面升级兼容版本即可自动热加载。使用 CLI 或宿主插件管理安装后，可在本插件“设置 → 更新”点击“重试应用已安装版本”。仅刷新浏览器不等于后端已更新。真实 DSH 验证范围见 [v0.11.0 验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.11.0-acceptance.md).
+
 ## SSH 标签状态与全部关闭
 
 终端标签栏直接提供“全部关闭”：只关闭点击时当前对话中的全部 SSH 标签及对应连接，保留本地 CMD、保存的环境和其他对话连接。存在连接或已知执行任务时集中确认一次，并显示正在操作的数量；仅清理没有执行任务的已断开标签时直接完成。关闭失败的标签保留并列出原因，可核对后重试。确认期间新开的标签不加入本次关闭。
@@ -48,21 +58,21 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 
 ## 内网 HTTP/HTTPS 手动更新
 
-Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后，待当前工作结束，完全重启 DSH 并刷新网页以启用新版本。
+Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后显示等待原因，任务结束后自动热加载；“新版已生效”与运行版本共同确认结果。
 
 在 HTTP/HTTPS 服务上提供以下目录：
 
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.10.2.tgz
-  SHA256SUMS-dsh-remote-ops-v0.10.2.txt
+  dsh-remote-ops-v0.11.0.tgz
+  SHA256SUMS-dsh-remote-ops-v0.11.0.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.10.2.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.11.0.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -70,7 +80,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 - HTTP/HTTPS：填写可直接读取的目录地址或 `latest.json` 地址。URL 使用协议、主机和路径，文件及重定向须保持同源；服务需允许 DSH 主机直接下载这些文件。内部 HTTPS 证书需由 DSH 的 Node 进程信任。
 - 依赖使用 DSH 的 npm/pnpm 源、代理和构建批准配置；内网需有可访问的依赖源。Chromium 可按需安装。
 
-更新包下载到 DSH 主机缓存，校验 SHA256 和包身份后，通过当前 profile 的 DSH 插件管理器安装。设置保存在 `$DSH_HOME/remote-ops/update-settings.json`，同一 DSH home 共享；安装作用于当前 profile。失败时可查看错误原因与宿主安装日志。重启前请完成任务并导出需要保留的记录，终端和浏览器在重启后重新打开。旧版电脑先手动安装本版本，再配置更新源。配置、清单生成与排错步骤见随包 `remote-ops-updates` skill。
+更新包下载到 DSH 主机缓存，校验 SHA256 和包身份后，通过当前 profile 的 DSH 插件管理器安装。设置保存在 `$DSH_HOME/remote-ops/update-settings.json`，同一 DSH home 共享；安装作用于当前 profile。失败时可查看错误原因与宿主安装日志。热加载失败时保留旧运行实例并显示原因，可修正后重试应用，不重复安装同一版本。首次从旧版升级须重启一次；完整重启不会恢复内存中的任务、连接和记录。配置、清单生成与排错步骤见随包 `remote-ops-updates` skill。
 
 ## RESTful 环境与执行工作区
 
@@ -164,7 +174,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 - 支持快捷命令保存和执行。
 - 提供 Agent 可读取的诊断事件，以及 DSH 右侧 Sidebar。
 - DSH Web 左侧底部 `Remote Ops` 入口打开原生右侧 Sidebar，保留主对话与草稿；重复点击复用已有标签页，收起右栏即可返回对话。左侧入口展开时图标与文字左对齐，缩进与宿主原生入口一致；收起时仅显示居中的图标和 Tooltip。
-- “设置 → 更新”支持 GitHub 或 HTTP/HTTPS 更新源；手动检查并安装，显示运行版本和已安装版本，安装后需重启 DSH 并刷新网页。
+- “设置 → 更新”支持 GitHub 或 HTTP/HTTPS 更新源；手动检查并安装，显示运行版本和已安装版本，安装后等待任务结束并自动应用。
 - 快捷命令默认显示紧凑条，展开后可拖拽上边界调整高度，双击恢复默认高度；环境表单不展示内部 Harness 凭据引用，密码由系统自动管理。
 - 连接错误会保留在界面中，直到用户手动关闭，避免错误提示快速消失。
 - 环境表单单独提供 SSH 密码输入框；密码通过 `credentials.set` 写入 Harness credentials，环境 JSON 只保存引用，不保存明文。
@@ -174,11 +184,11 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.10.2.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.11.0.tgz
 dsh web
 ```
 
-升级时，在运行 DSH 的同一用户和 `DSH_HOME` 下安装，并把 `--profile web` 改为实际使用的 profile。安装后完全停止旧 DSH 进程，重新启动并刷新浏览器，确认 Remote Ops“设置 → 通用”显示 `v0.10.2`。环境、快捷命令、网站和流程保留；终端与浏览器需重新打开，运行中的任务不跨 DSH 重启恢复。
+CLI 安装须使用运行 DSH 的同一用户、`DSH_HOME` 和实际 profile。从旧版首次升级后重启一次，后续更新优先使用插件“设置 → 更新”。确认“当前运行”和“已安装”均为目标版本，才表示升级已经生效。
 
 如果使用已经发布到 registry 的包，则包名为：
 
@@ -247,7 +257,7 @@ DSH Web 启动后，点击左侧底部 `Remote Ops` 打开原生右侧 Sidebar�
   - `stripAnsi`：send/read/batch/快捷命令/script 返回文本去除 ANSI/VT 控制序列；游标和偏移仍按原始流计数，分页不会在转义序列中间截断。
   - `headTailChars`（200-100000，0 关闭）：长输出只返回首尾各 N 个字符并附标记，结果带 `summarized: true` 和 `omitted`（字符数、行数、原始 `startOffset`/`endOffset`），可用 `remote_terminal_read` 的 `cursor=omitted.startOffset` 读回被省略区间；摘要后的发送在工具回执中记为截断。
   - `remote_terminal_script`：一次调用在同一明确会话上顺序执行最多 20 步。每步可设 `text`、`submit`、`quietMs`、`timeoutSeconds`、`answers`（`[{ pattern, text, submit?, times? }]`，按顺序尝试，每项最多 `times` 次）、`expect`（必须匹配该步输出末尾）和 `failOn`（在整段输出中搜索，摘要隐藏的部分也会检查）。所有内容先校验再输入；遇到第一个错误、超时、检查失败或会话退出即停止，返回已执行的 `steps` 和 `stopped`，其余步骤不执行；`completion` 仍为 `unknown`。
-  - `remote_terminal_resize` 与界面“大小”选择：调整 SSH 连接的 PTY（行 10-200、列 40-500）；终端帧回报 PTY 大小，VT 模型按真实宽度换行。共享本地终端固定 40×160（宿主没有 resize API），插件重载后由宿主持有的连接不能调整。
+  - `remote_terminal_resize` 与界面“大小”选择：调整 SSH 连接的 PTY（行 10-200、列 40-500）；终端帧回报 PTY 大小，VT 模型按真实宽度换行。共享本地终端固定 40×160（宿主没有 resize API），正常热加载保留连接及其尺寸控制。
   - 掉线提示：连接记录关闭原因（传输错误、远端退出码）；意外掉线出现在 `remote_environment_list` 的 `disconnects` 和诊断事件中，向已断开连接发送会说明“未重放任何命令”及重连方法，因掉线结束的发送带 `reconnect`；界面显示断开原因。
   - 工具参数：`remote_terminal_send/read` 只转发已声明的参数，确保工具回执归属准确。
 - 状态栏区分输出连接、Agent 绑定和等待状态；“Agent 已绑定”不代表模型已经读取当前输出。上移阅读时新输出不抢位置，可通过“新输出”按钮回到底部。

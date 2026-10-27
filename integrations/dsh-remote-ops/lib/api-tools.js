@@ -1,4 +1,5 @@
-import { ownerId } from './common.js';
+import { registerRuntimeTool } from "./hot-reload.js";
+import { ownerId, toLosslessJson } from './common.js';
 import { apiError } from './api-config.js';
 
 const str = description => ({type:'string',description});
@@ -38,5 +39,5 @@ export function registerApiTools(ctx,state) {
     ['remote_api_request','Execute one HTTP request from the DSH host against an exact saved API environment. Login first when required. Returns HTTP status, duration and redacted response. No automatic redirects, login retry or request replay. state=unknown means the device may have applied the operation; verify with a read-only request before any retry.',(args,owner,exec)=>workspace.request(owner,args,{signal:exec.signal})],
     ['remote_api_records','Read current-conversation API execution records, including requests started in the UI. A specific requestId returns response details. Records are bounded to the last 100 and are lost on DSH restart.',async(args,owner)=>args.requestId?workspace.read(owner,args.requestId):{records:workspace.snapshot(owner).records}],
   ];
-  for(const [name,description,execute]of definitions)ctx.tools.register({name,description,parameters:API_TOOL_SCHEMAS[name],output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},execute:async(args,exec)=>{await workspace.ready;return execute(args,ownerId(exec.agent),exec);}});
+  for(const [name,description,execute]of definitions)registerRuntimeTool(ctx, state, {name,description,parameters:API_TOOL_SCHEMAS[name],output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},execute:async(args,exec)=>{await workspace.ready;return toLosslessJson(await execute(args,ownerId(exec.agent),exec));}});
 }

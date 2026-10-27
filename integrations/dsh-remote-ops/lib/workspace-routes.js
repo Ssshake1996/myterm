@@ -1,3 +1,4 @@
+import { registerRuntimeFetch, retainDownload } from "./hot-reload.js";
 import { Readable } from "node:stream";
 import { describeFailure, diagnosticReport } from "./diagnostics.js";
 import { transferName } from "./transfers.js";
@@ -7,7 +8,7 @@ const json = value => Response.json(value, { headers });
 const errorResponse = (error, stage) => Response.json({ error: String(error.message ?? error), ...describeFailure(error, stage) }, { status: 400, headers });
 
 export function registerWorkspaceRoutes(ctx, state) {
-  ctx.effect(() => ctx.connection.fetch.register({
+  ctx.effect(() => registerRuntimeFetch(ctx, state, {
     path: "/api/dsh-remote-ops/workspace", methods: ["POST"], requestBody: "buffered",
     fetch: async request => {
       let body;
@@ -59,6 +60,7 @@ export function registerWorkspaceRoutes(ctx, state) {
         const details = await files.stat(path);
         if (details?.type !== "file") throw new Error("DOWNLOAD_FILE_REQUIRED: Select a regular file");
         const stream = files.read(path), connection = files;
+        retainDownload(state, stream);
         const close = () => { request.signal.removeEventListener("abort", abort); connection.close(); };
         const abort = () => stream.destroy(new Error("Download cancelled"));
         request.signal.addEventListener("abort", abort, { once: true });
@@ -68,6 +70,6 @@ export function registerWorkspaceRoutes(ctx, state) {
       } catch (error) { files?.close(); return errorResponse(error, "browser-file"); }
     };
   // The host streaming bridge attaches a request body, which is invalid for GET.
-  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/browser-upload", methods: ["POST"], requestBody: "streaming", fetch: browserFile }), "dsh-remote-ops browser upload route");
-  ctx.effect(() => ctx.connection.fetch.register({ path: "/api/dsh-remote-ops/browser-file", methods: ["GET"], requestBody: "buffered", fetch: browserFile }), "dsh-remote-ops browser download route");
+  ctx.effect(() => registerRuntimeFetch(ctx, state, { path: "/api/dsh-remote-ops/browser-upload", methods: ["POST"], requestBody: "streaming", fetch: browserFile }), "dsh-remote-ops browser upload route");
+  ctx.effect(() => registerRuntimeFetch(ctx, state, { path: "/api/dsh-remote-ops/browser-file", methods: ["GET"], requestBody: "buffered", fetch: browserFile }), "dsh-remote-ops browser download route");
 }

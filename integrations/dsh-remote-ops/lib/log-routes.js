@@ -1,3 +1,4 @@
+import { registerRuntimeFetch } from "./hot-reload.js";
 import { summarizeError } from "./common.js";
 
 const headers = { "Cache-Control": "no-store" };
@@ -15,7 +16,7 @@ export function registerLogRoutes(ctx, state) {
     } catch { /* An unavailable browser origin must not interrupt API dispatch. */ }
     return next();
   });
-  ctx.effect(() => ctx.connection.fetch.register({
+  ctx.effect(() => registerRuntimeFetch(ctx, state, {
     path: "/api/dsh-remote-ops/logs", methods: ["POST"], requestBody: "buffered",
     fetch: async request => {
       try {
@@ -30,7 +31,7 @@ export function registerLogRoutes(ctx, state) {
       } catch (error) { return Response.json({ error: summarizeError(error), code: error.code }, { status: 400, headers }); }
     },
   }), "dsh-remote-ops terminal logs");
-  ctx.effect(() => ctx.connection.fetch.register({
+  ctx.effect(() => registerRuntimeFetch(ctx, state, {
     path: "/api/dsh-remote-ops/log-download", methods: ["GET"], requestBody: "buffered",
     fetch: async request => {
       try {

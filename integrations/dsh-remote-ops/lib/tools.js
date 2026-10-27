@@ -1,3 +1,4 @@
+import { registerRuntimeTool } from "./hot-reload.js";
 import { normalizeGroupName, ownerId, sessionError, summarizeError, toLosslessJson, validateEnvironment } from "./common.js";
 import { MAX_SESSIONS_PER_ENVIRONMENT } from "./constants.js";
 import { MAX_SCRIPT_STEPS, runScript } from "./terminal-script.js";
@@ -77,21 +78,21 @@ const withNotices = (args, result) => REMOVED_OPTIONS.some((key) => args[key] !=
 
 // A host may reject unsupported optional schemas at registration; report that rejection without dropping the plugin.
 function registerOptionalTool(ctx, state, definition) {
-  try { registerTool(ctx, definition); } catch (error) { state.toolWarnings.push({ tool: definition.name, error: summarizeError(error) }); }
+  try { registerTool(ctx, state, definition); } catch (error) { state.toolWarnings.push({ tool: definition.name, error: summarizeError(error) }); }
 }
 
 function registerWithFallback(ctx, state, build) {
-  try { registerTool(ctx, build(true)); } catch (error) {
+  try { registerTool(ctx, state, build(true)); } catch (error) {
     const definition = build(false);
     state.toolWarnings.push({ tool: definition.name, error: summarizeError(error), fallback: "registered without the nested cliProfile/terminal parameters" });
-    registerTool(ctx, definition);
+    registerTool(ctx, state, definition);
   }
 }
 
-function registerTool(ctx, { strictParameters = false, ...definition }) {
+function registerTool(ctx, state, { strictParameters = false, ...definition }) {
   const parameters = toolParameters(definition.parameters);
   if (strictParameters) parameters.additionalProperties = false;
-  ctx.tools.register({ ...definition, parameters, execute: async (...args) => toLosslessJson(await definition.execute(...args)), output });
+  registerRuntimeTool(ctx, state, { ...definition, parameters, execute: async (...args) => toLosslessJson(await definition.execute(...args)), output });
 }
 
 export function registerTools(ctx, state) {
@@ -102,7 +103,7 @@ export function registerTools(ctx, state) {
   });
 
   const owner = (exec) => exec.agent;
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_command_execute",
     description: "Execute a noninteractive command separately from the visible terminal, returning exitCode, stdout, stderr and duration. Does NOT inherit terminal cwd or variables. Windows SSH accepts shell=cmd/windows-powershell/pwsh and literal workingDirectory; PowerShell parameters is an object passed as data to the script param block. CMD command is a complete batch script (no parameters object). Explicit Windows shells use UTF-8. Other SSH uses the server default and saved encoding. Timeout/cancellation does not prove a remote process stopped. Use remote_terminal_send/read for interactive programs.",
     parameters: {
@@ -116,7 +117,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => state.execute(owner(exec), args.session, { ...args, signal: exec.signal }),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_environment_list",
     description: "List saved SSH environments and active owner-scoped sessions.",
     parameters: {},
@@ -175,19 +176,19 @@ export function registerTools(ctx, state) {
       return { saved: true, environment: { ...saved, passwordRef: saved.passwordRef ? "configured" : undefined }, connectionEffect: "new-connections-only" };
     },
   }));
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_environment_test",
     description: "Test one saved SSH environment with read-only OS/Shell probes and PTY/SFTP channels. Returns actual detected OS, shell availability, paths, fingerprint and stage failures. Does not change the remote server; local first-use host identity is remembered. New first-use identity is not independently verified: compare the fingerprint with the administrator before sending sensitive commands. Does not test file writes or prove all Windows versions compatible.",
     parameters: { environment: stringParam("Exact saved environment id or name", true) },
     execute: async (args, exec) => state.testEnvironment(args.environment, { signal: exec.signal }),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_environment_group_create",
     description: "Create an empty saved SSH environment group.",
     parameters: { group: stringParam("Environment group", true) },
     execute: async (args) => state.createGroup(args.group),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_environment_group_rename",
     description: "Rename a saved SSH environment group.",
     parameters: {
@@ -196,19 +197,19 @@ export function registerTools(ctx, state) {
     },
     execute: async (args) => state.renameGroup(args.group, args.name),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_environment_group_delete",
     description: "Delete an empty saved SSH environment group.",
     parameters: { group: stringParam("Environment group", true) },
     execute: async (args) => state.deleteGroup(args.group),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_environment_delete",
     description: "Delete a saved SSH environment and close its owner sessions.",
     parameters: { environment: stringParam("Environment id or name", true) },
     execute: async (args, exec) => state.deleteEnvironment(owner(exec), args.environment),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_terminal_open",
     description: `Open a new SSH terminal for an environment. Each environment allows at most ${MAX_SESSIONS_PER_ENVIRONMENT} owner-scoped connections; use the returned sessionId for subsequent operations.`,
     parameters: { environment: stringParam("Environment id or name", true) },
@@ -217,7 +218,7 @@ export function registerTools(ctx, state) {
       return { sessionId: record.sessionId, environment: record.environment.name, status: record.session.status(), shell: record.environment.shell ?? "server-default", platform: record.environment.platform ?? "auto", identity: record.session.identity ?? null, viewport: record.session.output.slice(-64 * 1024) };
     },
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_terminal_send",
     description: "Send exact text to a visible SSH session or local-cmd and wait for new output. Returns bounded delta and a resumable cursor, not old history. Silence/timeout is NOT proof of completion. Continue reading, never resend to poll. For custom device CLIs: autoQuitMore sends q at --More-- pagers, and a parameter-error hint with a ^ arrow triggers an automatic SIGINT that clears the polluted command line (disable with autoSigint=false); applied steps are listed in autoActions. (y/n) confirmation prompts are never answered automatically: read the prompt and answer it yourself.",
     parameters: {
@@ -234,7 +235,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => withNotices(args, await state.send(owner(exec), args.session, { ...pick(args, ["environment", "text", "submit", "includeViewport"]), ...pickSendOptions(args), signal: exec.signal })),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_terminal_input",
     description: "Write raw terminal input immediately without waiting. Use for Tab completion, arrow keys, password prompts, interactive programs, or control characters.",
     parameters: {
@@ -243,7 +244,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => state.input(owner(exec), args.session, args.text),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_terminal_read",
     description: "Read the same terminal stream shown in Remote Ops, including local-cmd. Omit cursor for recent history; then pass nextOffset as cursor and streamId to read only new output. waitMs long-polls without typing. hasMore requires another read; reset/truncated signals missing history. No output does not mean command completion. offset/count explicitly selects backward line history instead.",
     parameters: {
@@ -258,25 +259,25 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => state.readTerminal(owner(exec), args.session, { ...pick(args, ["cursor", "streamId", "waitMs", "maxChars", "offset", "count", "stripAnsi", "headTailChars"]), signal: exec.signal }),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_terminal_logs",
     description: "List retained terminal logs for this conversation plus the shared local terminal, including recently closed terminals. Returns logId, streamId, raw offset range and retention/truncation metadata. Logs are bounded process memory and do not survive a DSH restart. Use the bundled remote-ops-terminal-logs skill for reading or export.",
     parameters: {},
     execute: async (_args, exec) => state.listTerminalLogs(owner(exec)),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_terminal_log_read",
     description: "Read a page of retained terminal output without typing or executing anything. Omit cursor to start at the earliest retained output; continue with nextOffset and streamId while hasMore. Text is cleaned, but cursor counts raw UTF-16 stream positions. Read gap/truncated metadata. Never reconstruct missing history by re-running commands.",
     parameters: { logId: stringParam("Exact logId from remote_terminal_logs", true), cursor: numberParam("Raw nextOffset; starts at earliest retained output when omitted"), streamId: stringParam("Stream identity returned by list/read"), maxChars: numberParam("Raw page size 2-65536; default 16384") },
     execute: async (args, exec) => state.readTerminalLog(owner(exec), args),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_terminal_log_export",
     description: "Package retained logs through the plugin, without copying screen text or running archive commands in a terminal. Pass logIds as an array, or all=true for this conversation's logs plus shared local history. txt requires one log; zip includes one TXT per log and manifest.json. Returns an absolute downloadUrl when a trusted DSH browser origin is available, otherwise null (use the terminal export menu); downloadPath is for same-host API clients. At most 32 logs / 32 MiB raw output. The download expires after one hour, earlier cache eviction or host restart. Return the real downloadUrl and SHA256; disclose truncation/evicted logs.",
     parameters: { logIds: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 32, uniqueItems: true, description: "Exact IDs from remote_terminal_logs; omit when all=true" }, all: boolParam("Explicitly export all currently available logs in this conversation"), format: { type: "string", enum: ["txt", "zip"], description: "Default txt for one log, zip for multiple logs" } },
     execute: async (args, exec) => state.exportTerminalLogs(owner(exec), args),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_terminal_signal",
     description: "Interrupt the foreground process in a visible SSH terminal or local-cmd.",
     parameters: {
@@ -285,7 +286,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => state.signal(owner(exec), args.session, args.signal),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_terminal_resize",
     description: "Change the PTY size of an SSH connection (rows 10-200, cols 40-500) so wide tables stop wrapping. Applies to the remote PTY immediately; output already printed is not reflowed. The shared local-cmd terminal has a fixed size and cannot be resized.",
     parameters: {
@@ -295,13 +296,13 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => state.resize(owner(exec), args.session, args.rows, args.cols),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_terminal_close",
     description: "Close one exact SSH session owned by the current conversation and cancel its associated waits and independent commands. Preserves local-cmd and saved environments. Channel shutdown does not confirm that a remote process terminated.",
     parameters: { session: stringParam("Session id", true) },
     execute: async (args, exec) => state.close(owner(exec), args.session),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_terminal_batch",
     description: "Open at most one owner-scoped SSH connection per target and execute complete commands sequentially on that explicit session.",
     parameters: {
@@ -332,7 +333,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => withNotices(args, await runScript(state, owner(exec), { session: args.session, steps: args.steps, totalTimeoutSeconds: args.totalTimeoutSeconds, sendOptions: pickSendOptions(args), signal: exec.signal })),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_quick_command_list",
     description: "List saved quick commands and groups.",
     parameters: {},
@@ -341,7 +342,7 @@ export function registerTools(ctx, state) {
       return { groups: state.quickGroupList(), commands: state.quickCommands };
     },
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_quick_command_save",
     description: "Create or replace a saved quick command. The command can contain multiple lines.",
     parameters: {
@@ -352,25 +353,25 @@ export function registerTools(ctx, state) {
     },
     execute: async (args) => state.saveQuickCommand({ ...args, group: normalizeGroupName(args.group) }),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_quick_command_delete",
     description: "Delete a saved quick command.",
     parameters: { commandId: stringParam("Quick command id", true) },
     execute: async (args) => state.deleteQuickCommand(args.commandId),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_quick_command_group_create",
     description: "Create an empty quick command group.",
     parameters: { group: stringParam("Quick command group", true) },
     execute: async (args) => state.createQuickGroup(args.group),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_quick_command_group_delete",
     description: "Delete an empty quick command group.",
     parameters: { group: stringParam("Quick command group", true) },
     execute: async (args) => state.deleteQuickGroup(args.group),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_quick_command_run",
     description: "Run a saved quick command on one explicit environment.",
     parameters: {
@@ -386,7 +387,7 @@ export function registerTools(ctx, state) {
       return withNotices(args, await state.send(owner(exec), undefined, { ...pickSendOptions(args), environment: args.environment, text: command.command, submit: true }));
     },
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_sftp_list",
     description: "List a remote SFTP directory.",
     parameters: {
@@ -395,7 +396,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => state.sftp(owner(exec), args.environment, "list", args),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_sftp_read",
     description: "Read a bounded UTF-8 remote SFTP file.",
     parameters: {
@@ -404,7 +405,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => state.sftp(owner(exec), args.environment, "read", args),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_sftp_write",
     description: "Write a UTF-8 remote SFTP file.",
     parameters: {
@@ -414,7 +415,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => state.sftp(owner(exec), args.environment, "write", args),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_sftp_mkdir",
     description: "Create a remote SFTP directory.",
     parameters: {
@@ -423,7 +424,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => state.sftp(owner(exec), args.environment, "mkdir", args),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_sftp_delete",
     description: "Delete a remote SFTP file or directory.",
     parameters: {
@@ -432,7 +433,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => state.sftp(owner(exec), args.environment, "delete", args),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_sftp_rename",
     description: "Rename a remote SFTP file or directory.",
     parameters: {
@@ -442,7 +443,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => state.sftp(owner(exec), args.environment, "rename", args),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_sftp_upload",
     description: "Stream one DSH-host file to SFTP. Existing targets are rejected unless overwrite is explicitly true.",
     parameters: {
@@ -453,7 +454,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => state.sftp(owner(exec), args.environment, "upload", { ...args, signal: exec.signal }),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_sftp_download",
     description: "Stream one SFTP file to the DSH host. Existing targets are rejected unless overwrite is explicitly true.",
     parameters: {
@@ -464,7 +465,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => state.sftp(owner(exec), args.environment, "download", { ...args, signal: exec.signal }),
   });
-  registerTool(ctx, {
+  registerTool(ctx, state, {
     name: "remote_diagnostics",
     description: "Read recent remote operation diagnostics for this Agent.",
     parameters: {},

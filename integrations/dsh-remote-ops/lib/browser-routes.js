@@ -1,3 +1,4 @@
+import { registerRuntimeFetch } from "./hot-reload.js";
 import { ownerId } from "./common.js";
 import { browserError, browserRunSource, browserTarget } from "./browser-steps.js";
 
@@ -5,7 +6,7 @@ const headers = { "Cache-Control": "no-store" };
 const configuration = new Set(["site.save", "site.delete", "flow.save", "flow.delete", "runtime.install", "preferences.save"]);
 export function registerBrowserRoutes(ctx, state) {
   const workspace = state.browser;
-  const register = definition => ctx.effect(() => ctx.connection.fetch.register({ requestBody: "buffered", ...definition }), "dsh-remote-ops browser route");
+  const register = definition => ctx.effect(() => registerRuntimeFetch(ctx, state, { requestBody: "buffered", ...definition }), "dsh-remote-ops browser route");
   register({ path: "/api/dsh-remote-ops/browser", methods: ["GET", "POST"], fetch: async request => {
     try {
       await workspace.ready;

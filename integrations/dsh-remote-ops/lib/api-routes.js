@@ -1,9 +1,10 @@
+import { registerRuntimeFetch } from "./hot-reload.js";
 import { ownerId } from './common.js';
 import { apiError } from './api-config.js';
 
 export function registerApiRoutes(ctx,state) {
   const workspace=state.api,headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
-  ctx.effect(()=>ctx.connection.fetch.register({path:'/api/dsh-remote-ops/api',methods:['GET','POST'],requestBody:'buffered',fetch:async request=>{
+  ctx.effect(()=>registerRuntimeFetch(ctx, state, {path:'/api/dsh-remote-ops/api',methods:['GET','POST'],requestBody:'buffered',fetch:async request=>{
     try {
       await workspace.ready;
       if(request.method==='GET') {const url=new URL(request.url),agent=ctx.agents.get(url.searchParams.get('sessionId'));const owner=agent?ownerId(agent):undefined;if(url.searchParams.has('requestId'))return Response.json(workspace.read(owner,url.searchParams.get('requestId')),{headers});return Response.json({...workspace.snapshot(owner),bound:!!agent},{headers});}

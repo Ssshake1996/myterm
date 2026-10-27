@@ -142,3 +142,8 @@ test("environment form hides internal ids and defaults blank names to the host",
   assert.match(server, /toLosslessJson\(await definition\.execute/);
   assert.doesNotMatch(server, /id: stringParam\("Stable environment id", true\)/);
 });
+
+test("frontend artifact identity includes its version so installs cannot bypass deferred activation", () => {
+  assert.equal(manifest.exports["./client"], `./lib/client-v${manifest.version}.js`);
+  assert.equal(manifest.scripts.prepack, "node scripts/prepare-client.mjs");
+});

@@ -1,5 +1,11 @@
 # Remote Ops 浏览器测试
 
+## 真实 DSH 热加载验收
+
+Windows 主机可运行 `node e2e/runner/hot-reload-native.mjs <tgz>`，设置 `DSH_CLI` 为 DSH 0.2.0-rc.2 的 `lib/bin.js`，并先安装插件与 `e2e` 的依赖。可用 `HOT_RELOAD_OUTPUT` 指定证据目录，`NPM_CLI` 覆盖 npm 的 `bin/npm-cli.js` 路径。
+
+测试安装传入包到独立 `DSH_HOME`，使用真实 DSH、Chrome、确定性模型和本地 SSH/网页/API 服务；临时合成后续版本以验证等待任务结束、前后端同步生效、连接与记录保留、同进程第二次升级及启动失败恢复。合成版本仅为测试夹具，不会发布。证据包含版本、包 SHA256、原生 Agent 工具结果检查与截图；不代表连接用户的生产设备。Windows Server CI 同时运行此验收。
+
 这一层在真实 Chrome 里跑生产 `client.js`。后端是生产插件，SSH 连到进程内的假设备。它不启动完整的 DSH 宿主，所以不覆盖宿主登录、工作区选择和侧栏服务本身。
 
 ## 运行

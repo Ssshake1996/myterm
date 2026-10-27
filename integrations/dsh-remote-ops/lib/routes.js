@@ -1,8 +1,9 @@
+import { registerRuntimeFetch } from "./hot-reload.js";
 import { describeFailure } from "./diagnostics.js";
 import { LOCAL_SESSION_ID } from "./constants.js";
 import { defaultPasswordRef, normalizeGroupName, sessionError, summarizeError, validateEnvironment } from "./common.js";
 
-const registerRoute = (ctx, label, definition) => ctx.effect(() => ctx.connection.fetch.register(definition), label);
+const registerRoute = (ctx, state, label, definition) => ctx.effect(() => registerRuntimeFetch(ctx, state, definition), label);
 
 const OWNERLESS_ACTIONS = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "environment.test", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]);
 
@@ -47,7 +48,7 @@ const ACTIONS = {
 export function registerRoutes(ctx, state) {
   // UI-only reveal: Connection authenticates this route. Accept an exact saved
   // environment ID, never an arbitrary credential reference, and do not log values.
-  registerRoute(ctx, "dsh-remote-ops environment password", {
+  registerRoute(ctx, state, "dsh-remote-ops environment password", {
     path: "/api/dsh-remote-ops/environment-password", methods: ["POST"], requestBody: "buffered",
     fetch: async request => {
       const headers = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
@@ -69,7 +70,7 @@ export function registerRoutes(ctx, state) {
       }
     },
   });
-  registerRoute(ctx, "dsh-remote-ops state route", {
+  registerRoute(ctx, state, "dsh-remote-ops state route", {
     path: "/api/dsh-remote-ops/state",
     methods: ["GET"],
     requestBody: "buffered",
@@ -80,7 +81,7 @@ export function registerRoutes(ctx, state) {
       return Response.json(agent ? { ...state.snapshot(agent), bound: true } : state.catalog(), { headers: { "Cache-Control": "no-store" } });
     },
   });
-  registerRoute(ctx, "dsh-remote-ops terminal route", {
+  registerRoute(ctx, state, "dsh-remote-ops terminal route", {
     path: "/api/dsh-remote-ops/terminal",
     methods: ["GET"],
     requestBody: "buffered",
@@ -98,7 +99,7 @@ export function registerRoutes(ctx, state) {
       try { await state.ready; return Response.json(await state.terminalOutput(agent, target, offset, waitMs, request.signal, url.searchParams.get("streamId")), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); }
     },
   });
-  registerRoute(ctx, "dsh-remote-ops update route", {
+  registerRoute(ctx, state, "dsh-remote-ops update route", {
     path: "/api/dsh-remote-ops/update",
     methods: ["GET", "POST"],
     requestBody: "buffered",
@@ -120,7 +121,7 @@ export function registerRoutes(ctx, state) {
       } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code, requestFailure: error?.requestFailure }, { status: 400, headers: { "Cache-Control": "no-store" } }); }
     },
   });
-  registerRoute(ctx, "dsh-remote-ops action route", {
+  registerRoute(ctx, state, "dsh-remote-ops action route", {
     path: "/api/dsh-remote-ops/action",
     methods: ["POST"],
     requestBody: "buffered",

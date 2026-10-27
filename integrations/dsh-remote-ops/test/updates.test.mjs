@@ -146,6 +146,17 @@ test('current or older release never installs; bad packages never invoke DSH man
   f.version=nextVersion;f.digest='0'.repeat(64);await assert.rejects(state.upgrade(),/UPDATE_CHECKSUM_MISMATCH/);assert.equal(installs.length,0);assert.equal((await state.updateStatus()).phase,'failed');
 });
 
+test('supported runtime schedules activation; retrying an installed version never checks or installs again',async t=>{
+  const f=await feed(t),{state,installs}=await stateFor(t,f),scheduled=[];
+  state.hotReload={supported:true,schedule:version=>{scheduled.push(version);state.updatePhase='waiting';return true;}};
+  const result=await state.upgrade();assert.equal(result.restartRequired,false);assert.equal(result.hotReload.pending,true);assert.equal(result.busy,true);
+  assert.deepEqual(scheduled,[nextVersion]);assert.equal(installs.length,1);
+  await assert.rejects(state.saveUpdateSettings(f.settings),/UPDATE_BUSY/);
+  await assert.rejects(state.checkForUpdate(true),/UPDATE_BUSY/);
+  const network=f.requests.length;state.updatePhase='reload-failed';await state.upgrade();
+  assert.equal(f.requests.length,network);assert.equal(installs.length,1);assert.deepEqual(scheduled,[nextVersion,nextVersion]);
+});
+
 test('DSH failures are reported without automatic retries, approvals or hot reload',async t=>{
   const f=await feed(t),{state}=await stateFor(t,f);let calls=0;
   state.updateManager.installBundle=async()=>{calls++;return {application:'failed',packageResult:{exitCode:1,kind:'network',logPath:'test.log'}};};

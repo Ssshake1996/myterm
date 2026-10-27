@@ -80,6 +80,15 @@ jobs:
           $package = Get-ChildItem output/native-package -Filter *.tgz | Select-Object -First 1
           node e2e/runner/windows-native.mjs $package.FullName
         timeout-minutes: 10
+      - run: npm ci --prefix e2e
+      - name: Native DSH deferred hot reload and failed-startup recovery
+        shell: pwsh
+        env:
+          HOT_RELOAD_OUTPUT: output/hot-reload-native
+        run: |
+          $package = Get-ChildItem output/native-package -Filter *.tgz | Select-Object -First 1
+          node e2e/runner/hot-reload-native.mjs $package.FullName
+        timeout-minutes: 8
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -91,4 +100,8 @@ jobs:
             output/windows-native/*.png
             output/windows-native/install.log
             output/windows-native/dsh.stderr.log
+            output/hot-reload-native/evidence.json
+            output/hot-reload-native/*.png
+            output/hot-reload-native/install.log
+            output/hot-reload-native/stderr.log
           if-no-files-found: warn

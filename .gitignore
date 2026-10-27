@@ -1,5 +1,6 @@
 # DSH plugin
 node_modules/
+integrations/dsh-remote-ops/lib/client-v*.js
 coverage/
 dist-release/
 .cache/

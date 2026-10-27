@@ -429,7 +429,7 @@ window.__ModuleLoader__.load({
     }
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.10.2", update: { currentVersion: "0.10.2", latestVersion: "0.10.2", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.11.0", update: { currentVersion: "0.11.0", latestVersion: "0.11.0", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -1183,6 +1183,7 @@ window.__ModuleLoader__.load({
           if (!alive.current) return;
           accept(value);
           if (action === "settings") { setDraft(value.settings); setNotice("更新来源已保存"); }
+          else if (value.hotReload?.pending) setNotice(`已安装 v${value.installedVersion}，任务结束后自动应用，无需重启 DSH`);
           else if (value.restartRequired) setNotice(`已安装 v${value.installedVersion}，请在任务结束后手动重启 DSH 并刷新网页`);
           else setNotice(value.updateAvailable ? `发现新版本 v${value.latestVersion}` : `当前已是最新版本 v${value.currentVersion}`);
         } catch (cause) { if (alive.current) setError(cause.message); }
@@ -1193,12 +1194,13 @@ window.__ModuleLoader__.load({
       };
       const busy = pending || data?.busy;
       const dirty = data && ["source", ...(draft.source === "custom" ? ["url"] : [])].some(key => draft[key] !== data.settings[key]);
-      const phases = { checking: "正在检查版本…", downloading: "正在下载安装包…", verifying: "正在校验安装包…", installing: "正在安装，请稍候…", ready: "安装完成，等待重启", failed: "更新未完成", idle: "" };
+      const phases = { checking: "正在检查版本…", downloading: "正在下载安装包…", verifying: "正在校验安装包…", installing: "正在安装，请稍候…", ready: "安装完成", waiting: "等待任务结束后自动应用…", preparing: "正在准备新版运行环境…", reloading: "正在应用新版…", applied: "新版已生效，无需重启 DSH", "reload-failed": "热加载未完成", "restart-required": "此版本需要重启 DSH", failed: "更新未完成", idle: "" };
       const updateError = error || (data?.error ? data.requestFailure ? formatRequestFailure(data.requestFailure) : `插件更新失败\n${safeDiagnosticText(data.error)}` : "");
       return h(embedded ? "section" : ModalDialog, embedded ? { className: "dsh-remote-ops__settingsBody", "aria-label": "插件更新" } : { title: "插件更新", onClose },
-        h("p", { className: "dsh-remote-ops__muted" }, "手动检查并安装更新，重启 DSH 后生效。"),
+        h("p", { className: "dsh-remote-ops__muted" }, "手动检查并安装更新。任务结束后自动热加载，保留当前对话、连接和已保存配置。"),
         data ? h(React.Fragment, null,
           h("div", { className: "dsh-remote-ops__updateVersions" }, h("span", null, "当前运行", h("strong", null, `v${data.currentVersion}`)), h("span", null, "已安装", h("strong", null, `v${data.installedVersion}`))),
+          data.hotReload?.pending ? h("p", { role: "status" }, data.hotReload.blockers.length ? `等待：${data.hotReload.blockers.join("、")}。完成后自动应用。` : "即将应用新版，请稍候…") : null,
           data.restartRequired ? h("p", { role: "status" }, "新版已安装，请手动重启 DSH 并刷新网页。") : null,
           h("form", { onSubmit: event => { event.preventDefault(); void run("settings"); } },
             h("label", null, "更新来源", h("select", { "aria-label": "更新来源", value: draft.source, disabled: busy, onChange: event => changeDraft({ ...draft, source: event.target.value }) }, h("option", { value: "github" }, "GitHub Release"), h("option", { value: "custom" }, "HTTP / HTTPS 地址"))),
@@ -1207,7 +1209,7 @@ window.__ModuleLoader__.load({
             h("div", { className: "dsh-remote-ops__webActions" }, h("button", { type: "submit", disabled: busy || (!dirty && !data.error) }, "保存更新来源"))),
           data.checkedAt ? h("p", { className: "dsh-remote-ops__muted" }, `最近检查：${new Date(data.checkedAt).toLocaleString()}`) : null,
           h("div", { className: "dsh-remote-ops__webActions" },
-            h("button", { type: "button", disabled: busy || dirty || data.restartRequired || !data.canInstall, className: "dsh-remote-ops__primaryAction", onClick: () => void run("install") }, "检查并更新"),
+            h("button", { type: "button", disabled: busy || dirty || data.restartRequired || !data.canInstall, className: "dsh-remote-ops__primaryAction", onClick: () => void run("install") }, data.needsActivation && !data.restartRequired ? "重试应用已安装版本" : "检查并更新"),
             h("button", { type: "button", disabled: busy || dirty || data.restartRequired, onClick: () => void run("check") }, "仅检查版本")),
           dirty ? h("p", { className: "dsh-remote-ops__muted" }, "请先保存更新来源。") : null,
           !data.canInstall ? h("p", null, "当前 DSH 未提供插件管理服务，可检查版本并通过 dsh plugin 手动安装。") : null,
