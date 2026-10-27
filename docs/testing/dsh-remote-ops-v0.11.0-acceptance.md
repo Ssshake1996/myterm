@@ -7,6 +7,7 @@
 - `npm run check --prefix integrations/dsh-remote-ops`：425 项测试通过，另有 smoke 门禁通过。
 - 浏览器完整回归：22/22 场景通过，报告 `e2e/output/hot-reload-e2e/report.json`；这是仿宿主浏览器层，区别于下方真实宿主验收。
 - 热加载新增回归覆盖版本依赖隔离、任务阻挡、流式下载结束/取消、激活失败恢复、状态协议不兼容、更新重试不重复下载安装。
+- Windows CI 的既有多对话验收暴露了终端异步聚焦抢占宿主富文本输入的问题。浏览器回归先复现焦点丢失，再验证修复：带 `role=textbox` 和普通 `contenteditable` 的宿主编辑器均保留焦点，输入草稿不进入终端。修复后 117 项客户端回归及 `terminal-tabs` 场景通过；证据 `e2e/output/hot-reload-focus-repro`、`e2e/output/hot-reload-focus-fixed`。
 
 ## 本地真实 DSH
 

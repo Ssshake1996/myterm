@@ -1835,7 +1835,7 @@ window.__ModuleLoader__.load({
         const runs = terminalSemanticRuns(terminalScreen.runs?.[index], line, terminalUsesGrid(terminalScreen), preferences.highlight);
         return h("span", props, terminalStyledLine(runs, line, terminalScreen.cursor.column, index === terminalScreen.cursor.row && terminalScreen.cursorVisible && terminalReady, terminalUsesGrid(terminalScreen)), index < lines.length - 1 ? "\n" : null);
       }) : "等待终端输出…";
-      useEffect(() => { if (!terminalReady) return undefined; const frame = window.requestAnimationFrame(() => { if (module === "terminal" && !document.activeElement?.closest?.('[role="dialog"],input,textarea,[role="tab"]')) terminalInputRef.current?.focus({ preventScroll: true }); }); return () => window.cancelAnimationFrame(frame); }, [activeTerminalId, terminalReady]);
+      useEffect(() => { if (!terminalReady) return undefined; const frame = window.requestAnimationFrame(() => { if (module === "terminal" && !document.activeElement?.closest?.('[role="dialog"],input,textarea,[role="textbox"],[role="tab"],[contenteditable]:not([contenteditable="false"])')) terminalInputRef.current?.focus({ preventScroll: true }); }); return () => window.cancelAnimationFrame(frame); }, [activeTerminalId, terminalReady]);
       useEffect(() => {
         if (!activeTerminalId || activeSession?.disconnected) { setOutputConnection("disconnected"); return undefined; }
         setOutputConnection("connecting");

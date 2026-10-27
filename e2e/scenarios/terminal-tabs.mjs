@@ -51,6 +51,28 @@ export const terminalTabsScenario={id:'terminal-tabs',title:'CMD 与 SSH 统一�
     assert.equal(new Set(styles.map(s=>s.font)).size,1);assert.ok(styles.every(s=>s.height>=28&&s.height<=34));assert.equal(styles.filter(s=>s.selected==='true').length,1);
     await t.shot('统一的 CMD 和 SSH 标签');
   });
+  await t.step('异步切换终端不抢走宿主富文本对话框的焦点',async()=>{
+    for(const role of ['textbox',null]){
+      await tab(localName).click();
+      await tool('remote_terminal_send',{session:'local-cmd',text:'echo FOCUS_READY',quietMs:100});
+      await until(()=>p.getByLabel('终端输入',{exact:true}).evaluate(n=>!n.readOnly));
+      const targetId=await tab('开发环境').getAttribute('id');
+      await p.evaluate(({targetId,role})=>{
+        const composer=document.createElement('div');composer.id='host-chat-composer';composer.contentEditable='true';
+        if(role)composer.setAttribute('role',role);document.body.append(composer);
+        document.getElementById(targetId).click();composer.focus();
+      },{targetId,role});
+      try{
+        await tool('remote_terminal_send',{session:opened[0].sessionId,text:'show version',quietMs:100});
+        await until(async()=>await tab('开发环境').getAttribute('aria-selected')==='true'&&await p.getByLabel('终端输入',{exact:true}).evaluate(n=>!n.readOnly));
+        await p.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+        assert.equal(await p.locator('#host-chat-composer').evaluate(n=>n===document.activeElement),true,'terminal activation must preserve the host composer focus');
+        await p.keyboard.insertText('CHAT_DRAFT_MUST_STAY_IN_CONVERSATION');
+        assert.equal(await p.locator('#host-chat-composer').innerText(),'CHAT_DRAFT_MUST_STAY_IN_CONVERSATION');
+        assert.doesNotMatch(await p.getByLabel('终端输出',{exact:true}).innerText(),/CHAT_DRAFT_MUST_STAY_IN_CONVERSATION/);
+      }finally{await p.locator('#host-chat-composer').evaluate(n=>n.remove());}
+    }
+  });
   await t.step('窄栏键盘切换滚动到所选标签，关闭连接仍需原有确认',async()=>{
     await tab('验收环境').click();
     await p.setViewportSize({width:390,height:844});await p.emulateMedia({reducedMotion:'reduce'});
