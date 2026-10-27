@@ -121,6 +121,7 @@ try {
     await page.getByRole("tab", { name: "更新", exact: true }).click();
     await page.getByText(`NATIVE_CLIENT_${feed.version}`, { exact: false }).waitFor();
     await page.getByRole("button", { name: "检查并更新", exact: true }).waitFor();
+    await page.getByText("新版已生效，无需重启 DSH", { exact: true }).waitFor();
     await page.screenshot({ path: join(out, "updated.png") });
   });
   await step("Agent tools work after handoff and keep earlier browser/API identities", async () => {

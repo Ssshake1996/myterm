@@ -21,7 +21,7 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
     return { ...this.release, settings, currentVersion: PLUGIN_VERSION, installedVersion, needsActivation,
       restartRequired: needsActivation && (!this.hotReload?.supported || this.updatePhase === "restart-required"),
       hotReload: { supported: Boolean(this.hotReload?.supported), pending, blockers: pending ? reloadBlockers(this) : [] },
-      phase: this.updatePhase ?? "idle", busy: Boolean(this.updatePromise || this.releaseCheckPromise || this.updateSettingsWrite || pending), checkedAt: this.releaseCheckedAt ? new Date(this.releaseCheckedAt).toISOString() : null, canInstall: Boolean(this.updateManager), error: settingsError ?? this.updateError ?? null, requestFailure: settingsError ? null : this.updateFailure ?? null };
+      phase: this.updatePhase ?? "idle", busy: Boolean(this.updatePromise || this.releaseCheckPromise || this.updateSettingsWrite || this.reloadGate || pending), checkedAt: this.releaseCheckedAt ? new Date(this.releaseCheckedAt).toISOString() : null, canInstall: Boolean(this.updateManager), error: settingsError ?? this.updateError ?? null, requestFailure: settingsError ? null : this.updateFailure ?? null };
   }
 
   async saveUpdateSettings(value) {

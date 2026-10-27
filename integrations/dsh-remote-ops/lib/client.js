@@ -1219,7 +1219,7 @@ window.__ModuleLoader__.load({
             h("button", { type: "button", disabled: busy || dirty || data.restartRequired, onClick: () => void run("check") }, "仅检查版本")),
           dirty ? h("p", { className: "dsh-remote-ops__muted" }, "请先保存更新来源。") : null,
           !data.canInstall ? h("p", null, "当前 DSH 未提供插件管理服务，可检查版本并通过 dsh plugin 手动安装。") : null,
-          busy ? h("p", { role: "status", "aria-live": "polite" }, phases[data.phase] || "正在处理…") : null
+          busy || data.phase === "applied" ? h("p", { role: "status", "aria-live": "polite" }, phases[data.phase] || "正在处理…") : null
         ) : h("p", { role: "status" }, error ? "无法读取更新配置" : "正在读取更新配置…"),
         notice ? h("p", { role: "status" }, notice) : null,
         updateError ? h("div", { role: "alert", className: "dsh-remote-ops__dangerAction", style: { overflowWrap: "anywhere" } }, requestErrorDetails(updateError)) : null,

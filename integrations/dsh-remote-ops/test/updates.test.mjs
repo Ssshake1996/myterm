@@ -127,6 +127,9 @@ test('checksum requires exactly one matching filename',()=>{
 
 test('local status performs no update fetch; manual checks bypass cached latest results',async t=>{
   const f=await feed(t),{state}=await stateFor(t,f);await state.updateStatus();assert.equal(f.requests.length,0);
+  state.reloadGate=true;state.updatePhase='reloading';const activating=await state.updateStatus();
+  assert.equal(activating.currentVersion,activating.installedVersion);assert.equal(activating.busy,true,'frontend must keep polling until the handoff commits');
+  state.reloadGate=false;state.updatePhase='applied';assert.equal((await state.updateStatus()).busy,false);
   await state.checkForUpdate(true);await state.checkForUpdate(true);assert.equal(f.requests.length,2);
   await state.checkForUpdate(false);assert.equal(f.requests.length,2);
   f.version='0.0.1';assert.equal((await state.checkForUpdate(true)).updateAvailable,false);
