@@ -1,4 +1,4 @@
-import { registerRuntimeFetch, retainDownload } from "./hot-reload.js";
+import { registerRuntimeFetch, retainDownload, uploadBatch } from "./hot-reload.js";
 import { Readable } from "node:stream";
 import { describeFailure, diagnosticReport } from "./diagnostics.js";
 import { transferName } from "./transfers.js";
@@ -18,6 +18,7 @@ export function registerWorkspaceRoutes(ctx, state) {
         const localList = body.action === "files" && body.endpoint?.kind === "host";
         const owner = (localControl || localList || ["diagnostics", "quick.move"].includes(body.action)) ? ctx.agents.get(body.sessionId) : await state.resolveOwner(body.sessionId);
         if (body.action === "activate") return json({ bound: true });
+        if (body.action === "upload-batch") return json(uploadBatch(state, owner.id, body));
         if (body.action === "enter") return json(await state.enter(owner, body.environment));
         if (body.action === "control") return json(await state.control(owner, body.session, body.control));
         if (body.action === "quick.dispatch") return json(await state.dispatchQuick(owner, body));

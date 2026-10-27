@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
-import { HotReload, HOT_RELOAD_PROTOCOL, peekHandoff, reloadBlockers, runtimeOperation, retainDownload, registerRuntimeFetch, registerRuntimeTool, stageRuntime } from "../lib/hot-reload.js";
+import { HotReload, HOT_RELOAD_PROTOCOL, peekHandoff, reloadBlockers, runtimeOperation, retainDownload, registerRuntimeFetch, registerRuntimeTool, stageRuntime, uploadBatch } from "../lib/hot-reload.js";
 import { RemoteOpsState } from "../lib/state/index.js";
 
 async function fixture(t, protocol = HOT_RELOAD_PROTOCOL) {
@@ -67,6 +67,22 @@ test("streaming downloads keep the barrier until completion or cancellation, wit
   const cancelled = new PassThrough(); retainDownload(state, cancelled);
   await new Promise(resolve => { cancelled.once("close", resolve); cancelled.destroy(new Error("cancelled")); });
   assert.equal(state.runtimeCalls, 0);
+});
+
+test("browser upload batches protect gaps between files and release on completion or browser expiry", () => {
+  const state = {}, now = Date.now();
+  const { batchId } = uploadBatch(state, "chat-a", { phase: "start" }, now);
+  assert.deepEqual(reloadBlockers(state), ["浏览器批量上传中"]);
+  uploadBatch(state, "chat-b", { phase: "end", batchId }, now);
+  assert.throws(() => uploadBatch(state, "chat-b", { phase: "touch", batchId }, now), /UPLOAD_BATCH_EXPIRED/);
+  assert.equal(state.uploadBatches.size, 1);
+  uploadBatch(state, "chat-a", { phase: "touch", batchId }, now + 240000);
+  uploadBatch(state, "chat-a", { phase: "touch", batchId }, now + 480000);
+  uploadBatch(state, "chat-a", { phase: "end", batchId }, now + 480000);
+  assert.deepEqual(reloadBlockers(state), []);
+  const abandoned = uploadBatch(state, "chat-a", { phase: "start" }, now).batchId;
+  assert.throws(() => uploadBatch(state, "chat-a", { phase: "touch", batchId: abandoned }, now + 300000), /UPLOAD_BATCH_EXPIRED/);
+  assert.deepEqual(reloadBlockers(state), []);
 });
 
 async function reloader(t, { fail = false, protocol } = {}) {

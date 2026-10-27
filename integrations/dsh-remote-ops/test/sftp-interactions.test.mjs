@@ -38,7 +38,7 @@ function fixture() {
     localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) },
     URLSearchParams, XMLHttpRequest: Xhr, crypto: { randomUUID: () => "upload-" + (xhrs.length + 1) },
     setTimeout: (fn, delay) => { const id = ++timerId; timers.set(id, { fn, delay }); return id; }, clearTimeout: id => timers.delete(id),
-    fetch: async (_url, init) => { const body = JSON.parse(init.body); requests.push(body); const value = body.action === "files" ? await filesReply(body) : body.action === "transfers" ? { tasks } : { conflictCount: 0 }; return { ok: true, text: async () => JSON.stringify(value) }; },
+    fetch: async (_url, init) => { const body = JSON.parse(init.body); requests.push(body); const value = body.action === "files" ? await filesReply(body) : body.action === "transfers" ? { tasks } : body.action === "upload-batch" ? { batchId: body.batchId ?? "batch-a" } : { conflictCount: 0 }; return { ok: true, text: async () => JSON.stringify(value) }; },
   });
   const nodes = tree => { const result = []; const visit = node => { if (node && typeof node === "object") { result.push(node); node.children?.forEach(visit); } }; visit(tree); return result; };
   const mount = (owner = "owner-a") => {
@@ -150,11 +150,14 @@ test("browser upload continues across file-view and plugin remounts, retaining i
   assert.ok(returned.find(node => node.type === "button" && node.children.includes("取消上传")));
   f.xhrs[1].finish(); await tick(); returned.render();
   assert.equal(f.plugin.browserUploads.get("owner-a").status, "completed");
+  assert.deepEqual(f.requests.filter(row => row.action === "upload-batch").map(row => row.phase), ["start", "touch", "touch", "end"]);
+  assert.ok(f.requests.filter(row => row.action === "upload-batch" && row.phase !== "start").every(row => row.batchId === "batch-a" && row.sessionId === "owner-a"));
 });
 
 test("explicit cancellation aborts the active request and never sends remaining files", async () => {
   const f = fixture(); assert.ok(f.plugin.browserUploads, "uploads must be owned outside the file view");
   f.plugin.browserUploads.start({ owner: "owner-a", target: { kind: "host", path: "/files" }, files: [file("one"), file("two")], conflict: "error" });
+  await tick();
   f.plugin.browserUploads.cancel("owner-a"); await tick();
   assert.equal(f.xhrs[0].aborted, true); assert.equal(f.xhrs.length, 1);
   assert.equal(f.plugin.browserUploads.get("owner-a").status, "cancelled");
@@ -163,6 +166,7 @@ test("explicit cancellation aborts the active request and never sends remaining 
 test("a failed browser upload retains useful feedback after remount and stops the batch", async () => {
   const f = fixture(); assert.ok(f.plugin.browserUploads);
   f.plugin.browserUploads.start({ owner: "owner-a", target: { kind: "host", path: "/files" }, files: [file("one"), file("two")], conflict: "error" });
+  await tick();
   f.xhrs[0].finish(400, { error: "TARGET_FULL: destination full" }); await tick();
   assert.equal(f.plugin.browserUploads.get("owner-a").status, "failed");
   assert.match(f.plugin.browserUploads.get("owner-a").error, /destination full/); assert.equal(f.xhrs.length, 1);
@@ -171,6 +175,7 @@ test("a failed browser upload retains useful feedback after remount and stops th
 test("browser completion and server polling share one directory invalidation", async () => {
   const f = fixture(); assert.ok(f.plugin.browserUploads); f.mount(); await tick();
   f.plugin.browserUploads.start({ owner: "owner-a", target: { kind: "host", path: "/files" }, files: [file("one")], conflict: "error" });
+  await tick();
   const task = completed("browser-task"); f.xhrs[0].finish(200, task); await tick();
   f.tasks([task]); await f.poll();
   assert.equal(f.requests.filter(row => row.action === "files").length, 4);
@@ -212,7 +217,17 @@ test("the plugin upload owner rejects a duplicate batch and disposes active requ
   const job = { owner: "owner-a", target: { kind: "host", path: "/files" }, files: [file("one")], conflict: "error" };
   assert.equal(f.plugin.browserUploads.start(job), true);
   assert.equal(f.plugin.browserUploads.start(job), false);
+  await tick();
   f.plugin.browserUploads.dispose(); await tick();
   assert.equal(f.xhrs[0].aborted, true); assert.equal(f.xhrs.length, 1);
   assert.equal(f.plugin.browserUploads.get("owner-a"), null);
+});
+
+test("cancelling before upload registration finishes releases the batch without sending a file", async () => {
+  const f = fixture();
+  f.plugin.browserUploads.start({ owner: "owner-a", target: { kind: "host", path: "/files" }, files: [file("one")], conflict: "error" });
+  f.plugin.browserUploads.cancel("owner-a"); await tick();
+  assert.equal(f.xhrs.length, 0);
+  assert.equal(f.plugin.browserUploads.get("owner-a").status, "cancelled");
+  assert.deepEqual(f.requests.filter(row => row.action === "upload-batch").map(row => row.phase), ["start", "end"]);
 });

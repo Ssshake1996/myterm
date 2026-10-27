@@ -20,7 +20,7 @@ These screenshots show v0.9.2 installed in real DSH 0.2.0-rc.2; the installed pa
 
 ## Hot reload after updates
 
-Starting with v0.11.0, **设置 → 更新 → 检查并更新** downloads, verifies and installs a newer release, then automatically applies it when work is idle. DSH keeps running. The update view explains waits for conversation activity, terminal waits and independent commands, transfers, browser jobs/runtime installation, and API requests.
+Starting with v0.11.0, **设置 → 更新 → 检查并更新** downloads, verifies and installs a newer release, then automatically applies it when work is idle. DSH keeps running. The update view explains waits for conversation activity, terminal waits and independent commands, transfers, browser jobs/runtime installation, and API requests. Browser uploads defer reload until the whole batch finishes or is cancelled, including the gaps between file requests.
 
 The handoff preserves the current conversation and draft, saved settings, live terminal/browser connections, terminal logs, and API authentication and records. No command or request is replayed. Output silence is not treated as proof that a manual terminal command finished: its connection is retained. New connections use the new implementation; existing transports retain the implementation they were created with.
 

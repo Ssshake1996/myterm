@@ -841,8 +841,14 @@ window.__ModuleLoader__.load({
       const active = job => job && ["uploading", "cancelling"].includes(job.view.status);
       const cancel = owner => { const job = jobs.get(owner); if (!active(job)) return; job.cancelled = true; update(job, { status: "cancelling" }); job.xhr?.abort(); };
       const run = async job => {
+        let batchId, heartbeat;
+        const batch = phase => request("/api/dsh-remote-ops/workspace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "upload-batch", sessionId: job.owner, phase, batchId }) });
+        const keepAlive = () => { heartbeat = setTimeout(async () => { try { await batch("touch"); } catch { /* A file dispatch checks the lease before sending. */ } if (jobs.get(job.owner) === job && active(job)) keepAlive(); }, 30000); };
         try {
+          batchId = (await batch("start")).batchId; keepAlive();
           for (const [index, file] of job.files.entries()) {
+            if (job.cancelled) break;
+            await batch("touch");
             if (job.cancelled) break;
             update(job, { name: file.name, bytes: 0, total: file.size, index: index + 1 });
             const task = await new Promise((resolve, reject) => {
@@ -859,7 +865,7 @@ window.__ModuleLoader__.load({
           }
           update(job, { status: job.cancelled ? "cancelled" : "completed" });
         } catch (error) { update(job, { status: job.cancelled ? "cancelled" : "failed", error: job.cancelled ? "" : error.message }); }
-        finally { job.files = []; job.xhr = null; }
+        finally { clearTimeout(heartbeat); job.files = []; job.xhr = null; if (batchId) await batch("end").catch(() => {}); }
       };
       return {
         get: owner => jobs.get(owner)?.view ?? null,

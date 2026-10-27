@@ -10,6 +10,30 @@ const HANDOFFS = Symbol.for("dsh.remote-ops.hot-reload.v1");
 const handoffs = () => globalThis[HANDOFFS] ??= new Map();
 export function peekHandoff(ctx) { return handoffs().get(ctx.fiber?.entry); }
 
+const UPLOAD_BATCH_TTL = 5 * 60 * 1000;
+function activeUploadBatches(state, now) {
+  const batches = state.uploadBatches ??= new Map();
+  for (const [id, batch] of batches) if (batch.expiresAt <= now) batches.delete(id);
+  return batches;
+}
+
+// Cover the network gap between files, not just the individual upload requests.
+// A closed/disconnected browser must not block updates forever.
+export function uploadBatch(state, owner, { phase, batchId }, now = Date.now()) {
+  const batches = activeUploadBatches(state, now);
+  if (phase === "start") {
+    if (batches.size >= 64) throw sessionError("UPLOAD_BATCH_LIMIT", "Too many active browser upload batches");
+    batchId = randomUUID(); batches.set(batchId, { owner, expiresAt: now + UPLOAD_BATCH_TTL });
+  } else if (phase === "end") {
+    if (batches.get(batchId)?.owner === owner) batches.delete(batchId);
+  } else if (phase === "touch") {
+    const batch = batches.get(batchId);
+    if (batch?.owner !== owner) throw sessionError("UPLOAD_BATCH_EXPIRED", "Upload batch expired; inspect completed files before retrying");
+    batch.expiresAt = now + UPLOAD_BATCH_TTL;
+  } else throw sessionError("UPLOAD_BATCH_INVALID", "Invalid upload batch operation");
+  return { batchId };
+}
+
 export async function runtimeOperation(state, work) {
   if (state.reloadGate) throw sessionError("UPDATE_RELOADING", "Remote Ops 正在切换版本，请稍后重试；本次操作未执行");
   state.runtimeCalls = (state.runtimeCalls ?? 0) + 1;
@@ -47,6 +71,7 @@ export function reloadBlockers(state) {
   if (state.openings?.size || state.localStarting) busy.push("终端连接中");
   if ([state.localSession, ...[...(state.sessions?.values() ?? [])].map(r => r.session)].some(s => s?.active || s?.pendingSend)) busy.push("终端等待回显");
   if ([...(state.transfers?.jobs?.values() ?? [])].some(j => ["queued", "running"].includes(j.status))) busy.push("文件传输中");
+  if (activeUploadBatches(state, Date.now()).size) busy.push("浏览器批量上传中");
   if (state.browser?.openings?.size || [...(state.browser?.sessions?.values() ?? [])].some(r => r.job && !["completed", "failed", "unknown", "stopped"].includes(r.job.status))) busy.push("网页任务执行中");
   if (state.browser?.installation?.status === "installing") busy.push("浏览器安装中");
   if ([...(state.api?.owners?.values() ?? [])].some(o => [...o.records.values()].some(r => r.state === "running"))) busy.push("API 请求执行中");

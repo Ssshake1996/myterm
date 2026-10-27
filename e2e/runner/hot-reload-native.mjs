@@ -128,10 +128,35 @@ try {
     assert.equal(proof.length, 3); assert.match(JSON.stringify(proof[0]), /HOT_RELOAD_EXEC/); assert.doesNotMatch(JSON.stringify(proof), /Error:|PRIVATE|Cannot read private/);
     evidence.agentToolsAfter = proof.map((_, index) => ["remote_command_execute", "remote_browser_read", "remote_api_records"][index]);
   });
-  await step("second update works in the same DSH process", async () => {
-    feed = await nextPackage(2); await api("update", { action: "install" });
-    await until(async () => { try { return (await state()).pluginVersion === feed.version; } catch {} });
-    assert.equal(ssh.log.connections, 1); assert.equal(host.exitCode, null);
+  await step("second update waits across a batch upload gap and preserves both files", async () => {
+    const uploadRoot = join(out, "uploaded"); await mkdir(uploadRoot, { recursive: true });
+    // Both panes use isolated host storage; unrelated SFTP directory probes
+    // would otherwise create additional SSH connections during this assertion.
+    await page.evaluate(({ owner, path }) => localStorage.setItem("remote-ops.files." + owner, JSON.stringify({ panes: [{ kind: "host", path }, { kind: "host", path }] })), { owner, path: uploadRoot });
+    await page.getByRole("button", { name: "返回工作区", exact: true }).click();
+    await page.getByRole("tablist", { name: "Remote Ops 工作区" }).getByRole("tab", { name: "文件", exact: true }).click();
+    await page.getByLabel("位置 A", { exact: true }).selectOption("host");
+    await until(() => page.getByLabel("路径 A", { exact: true }).isEnabled());
+    await page.getByLabel("路径 A", { exact: true }).fill(uploadRoot);
+    const directory = page.waitForResponse(response => { try { const body = response.request().postDataJSON(); return response.url().includes("/workspace") && body.action === "files" && body.endpoint.path === uploadRoot; } catch { return false; } });
+    await page.getByLabel("文件来源 A", { exact: true }).getByRole("button", { name: "打开路径", exact: true }).click(); await directory;
+    const upload = page.getByLabel("上传文件 A", { exact: true }); await until(() => upload.isEnabled());
+    let release, held = false; const gate = new Promise(resolve => release = resolve);
+    const pattern = "**/api/dsh-remote-ops/browser-upload?*";
+    await page.route(pattern, async route => { if (new URL(route.request().url()).searchParams.get("name") === "gap-two.txt") { held = true; await gate; } await route.continue().catch(() => {}); });
+    try {
+      await upload.setInputFiles(["gap-one.txt", "gap-two.txt"].map(name => ({ name, mimeType: "text/plain", buffer: Buffer.from(name + " contents") })));
+      await until(() => held); assert.equal(await readFile(join(uploadRoot, "gap-one.txt"), "utf8"), "gap-one.txt contents");
+      const beforeBatch = await state(), clientLoads = moduleRequests.length;
+      feed = await nextPackage(2); await api("update", { action: "install" });
+      await new Promise(r => setTimeout(r, 1800));
+      assert.equal((await state()).runtimeId, beforeBatch.runtimeId); assert.equal(moduleRequests.length, clientLoads);
+      assert.ok((await update()).hotReload.blockers.includes("浏览器批量上传中"));
+      release();
+      await until(async () => { try { return await readFile(join(uploadRoot, "gap-two.txt"), "utf8") === "gap-two.txt contents"; } catch { return false; } });
+      await until(async () => { try { return (await state()).pluginVersion === feed.version; } catch {} });
+      assert.equal(ssh.log.connections, 1); assert.equal(host.exitCode, null);
+    } finally { release(); await page.unroute(pattern); }
   });
   await step("host profile recomposition keeps the committed runtime and frontend", async () => {
     const path = join(profile, "cordis.patch.yml");
