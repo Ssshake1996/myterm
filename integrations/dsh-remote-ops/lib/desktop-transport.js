@@ -3,16 +3,15 @@ import { createConnection } from 'node:net';
 import { promisify } from 'node:util';
 import { readFile, mkdir, copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
 import { join, win32 } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { openSftpChannel, sshChannel, closeSshClient } from './ssh-connection.js';
 import { executeCommand } from './commands.js';
 import { buildWindowsCommand } from './windows-shell.js';
+import {desktopRuntimeRoot as runtime,desktopError,desktopRuntime} from './desktop-runtime.js';
+export {desktopError,desktopRuntime} from './desktop-runtime.js';
 
 const runFile = promisify(execFile);
-const runtime = fileURLToPath(new URL('../desktop/runtime/', import.meta.url));
-export const desktopError = (code, message) => Object.assign(new Error(`${code}: ${message}`), { code });
 const parse = text => { const value=JSON.parse(text.trim()); if(value.error)throw desktopError(value.code??'DESKTOP_RUNTIME_FAILED',value.error);return value; };
 const runHelper=async(exe,args,signal)=>{try{return parse((await runFile(exe,args,{windowsHide:true,timeout:40000,maxBuffer:262144,signal})).stdout);}catch(error){if(error.stdout?.trim())return parse(error.stdout);if(error.code?.startsWith?.('DESKTOP_'))throw error;throw desktopError('DESKTOP_SETUP_FAILED',`Worker ${args[0]} failed (exit ${error.code??'unknown'}, signal ${error.signal??'none'}): ${error.stderr?.trim()||error.message}`);}};
 // SSH exec is a bounded setup command. Bidirectional desktop traffic uses SSH
@@ -47,18 +46,6 @@ try {
   $ready|ConvertTo-Json -Compress
 }catch{@{error=$_.Exception.Message;code='DESKTOP_SETUP_FAILED'}|ConvertTo-Json -Compress}
 `;
-
-export async function desktopRuntime() {
-  const bytes=await readFile(join(runtime,'manifest.json')).catch(()=>{throw desktopError('DESKTOP_RUNTIME_MISSING','Install a plugin package containing the built Windows desktop runtime');});
-  const manifest=JSON.parse(bytes);
-  const names=['RemoteOpsDesktop.exe','RemoteOpsDesktopWorker.exe','RemoteOpsDesktop.exe.config','RemoteOpsDesktopWorker.exe.config','FlaUI.Core.dll','FlaUI.UIA3.dll','Interop.UIAutomationClient.dll','flaui.core-LICENSE.txt','flaui.uia3-LICENSE.txt','interop.uiautomationclient-LICENSE.txt'];
-  if(manifest.protocol!==1||!Array.isArray(manifest.files)||manifest.files.length!==names.length||names.some(name=>manifest.files.filter(file=>file.name===name).length!==1))throw desktopError('DESKTOP_RUNTIME_INVALID','Runtime manifest must contain exactly the pinned binaries, configuration and licenses');
-  for(const file of manifest.files) {
-    if(!/^[\w.-]+$/.test(file.name))throw desktopError('DESKTOP_RUNTIME_INVALID','Invalid runtime filename');
-    if(createHash('sha256').update(await readFile(join(runtime,file.name))).digest('hex')!==file.sha256)throw desktopError('DESKTOP_RUNTIME_INVALID',`Runtime checksum mismatch: ${file.name}`);
-  }
-  return {...manifest,id:createHash('sha256').update(bytes).digest('hex').slice(0,20)};
-}
 
 export class DesktopRpc {
   constructor(input,output,close) {

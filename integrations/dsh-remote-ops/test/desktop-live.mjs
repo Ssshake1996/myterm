@@ -4,7 +4,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { connectDesktop } from '../lib/desktop-transport.js';
+import { connectDesktop, desktopRuntime } from '../lib/desktop-transport.js';
 import { RemoteOpsState } from '../lib/state/index.js';
 import { startWindowsOpenSsh } from '../../../e2e/harness/windows-openssh.mjs';
 
@@ -24,6 +24,13 @@ try {
   assert.ok(transport.info.sessionId>0,'An actual interactive user session is required');
   await step('exchange repeated requests on one desktop transport',async()=>{assert.equal((await transport.call('status')).workerId,transport.info.workerId);assert.equal((await transport.call('status')).workerId,transport.info.workerId);});
   await step('independent connections share one user-session worker and can disconnect separately',async()=>{const other=await connectDesktop(targetState,targetArgs);try{assert.equal(other.info.workerId,transport.info.workerId);}finally{other.close();}assert.equal((await transport.call('status')).interactive,true);});
+  if(!ssh)await step('rapid readiness probes cannot terminate the shared worker',async()=>{
+    const runtime=await desktopRuntime(),endpoint=JSON.parse(await readFile(join(targetState.base,'desktop-runtime',runtime.id,'endpoint-'+transport.info.sessionId+'.json'),'utf8'));
+    assert.match(endpoint.pipe,/^[\w-]+$/);
+    const script=`$ProgressPreference='SilentlyContinue';$count=0;for($i=0;$i -lt 160;$i++){$p=[IO.Pipes.NamedPipeClientStream]::new('.', '${endpoint.pipe}', [IO.Pipes.PipeDirection]::InOut);try{$p.Connect(100);$count++}catch{}finally{$p.Dispose()}};Write-Output $count`;
+    const count=Number(execFileSync('powershell.exe',['-NoProfile','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{encoding:'utf8',windowsHide:true,timeout:30000}));
+    assert.ok(count>=80,'Most readiness probes must connect');assert.equal((await transport.call('status')).workerId,transport.info.workerId,'Readiness probes must not kill or replace the worker');
+  });
   const fixture=resolve('desktop/test-app/RemoteOpsDesktopTest.exe');
   const file=join(out,'桌面结果.txt');
   await step('launch an actual visible Windows test application',async()=>{app=await transport.call('launch',{path:fixture,args:[file],requestId:runId+'-launch-test'});assert.ok(app.pid>0);});

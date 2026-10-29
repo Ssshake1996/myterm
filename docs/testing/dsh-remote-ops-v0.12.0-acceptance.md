@@ -4,7 +4,7 @@
 
 ## 源码与浏览器回归
 
-- `npm run check --prefix integrations/dsh-remote-ops`：440 项通过（桌面 10、后端 300、客户端 118、契约 12），另有 smoke 通过。本地证据：`output/desktop-regression-release-final.log`。
+- `npm run check --prefix integrations/dsh-remote-ops`：441 项通过（桌面 11、后端 300、客户端 118、契约 12），另有 smoke 通过。本地证据：`output/desktop-regression-final441.log`。
 - 原有终端、网页、文件、API 浏览器回归 22/22 通过，证据 `output/desktop-e2e-regression/report.json`。此层使用真实插件前后端与隔离协议服务，不代替原生 DSH 验收。
 - 覆盖参数 Schema、完整批次先校验、空字符串填写、跨对话隔离、请求去重、取消后续步骤、未知结果不重放、图片模型能力检查、真实附件引用、日志下载鉴权和关闭后导出。
 - 发布脚本增加三项校验回归：CI 重编译包按实际下载字节验证、拒绝损坏包或错名校验文件、GitHub 未提供可选摘要时仍核对 SHA256。下载资产不转发 GitHub API 令牌。
@@ -14,7 +14,7 @@
 
 系统为 Windows 11 Home x64，10.0.22631；执行器运行在已登录且解锁的用户会话。用独立 WinForms 应用测试，最终结果以实际文件内容验证，测试结束仅关闭测试应用。
 
-- 本机真实桌面：9/9 通过，`output/desktop-live/evidence.json`。
+- 本机真实桌面：10/10 通过，`output/desktop-pipe-race-after/evidence.json`，包括连续探测竞态回归。
 - 隔离的真实 Windows OpenSSH：9/9 通过，`output/desktop-ssh-final-source/evidence.json`。SSH 服务和桌面目标在同一台 Windows 11 上，用真实协议验证 SFTP 部署、InteractiveToken 启动及 SSH TCP 转发，未使用另一台物理电脑。
 - 检查包括同一运行时复用执行器、两个独立连接分别关闭、启动等待、UIA 与截图、中文填写、点击后落盘、重复请求不重复保存、实际 Ctrl+A/Unicode/坐标输入、过期执行器和虚构控件引用拒绝。
 
@@ -22,7 +22,7 @@
 
 DSH 0.2.0-rc.2，独立 `DSH_HOME`，真实 Chrome 与真实 Windows 测试窗口。使用本地确定性模型接口驱动原生工具调用；这验证宿主集成与工具执行，不代表开放式模型规划质量。
 
-`e2e/runner/desktop-native.mjs` 四组通过，证据 `output/desktop-native-final-source/evidence.json`：
+`e2e/runner/desktop-native.mjs` 四组通过，最终修复后证据 `output/desktop-native-pipe-fixed/evidence.json`：
 
 1. 安装 tgz 后原生发现 skill，调用桌面连接、启动、观察、填写、保存、导出和读取工具。真实 JPEG 通过 DSH 附件服务传入模型请求，保存文件内容正确。
 2. 右侧桌面工作区显示实际应用窗口，主对话草稿保留；390px 窄窗口无横向溢出。
@@ -31,7 +31,7 @@ DSH 0.2.0-rc.2，独立 `DSH_HOME`，真实 Chrome 与真实 Windows 测试窗�
 
 ## Windows Server 真实系统
 
-[Server 最终桌面工作流](https://github.com/Ssshake1996/myterm/actions/runs/40910114092) 在提交 `56ceade` 上通过：Windows Server 2022 Datacenter（20348）与 Server 2025 Datacenter（26100），均为具有活动桌面的 x64 GitHub Windows runner。
+[Server 阶段桌面工作流](https://github.com/Ssshake1996/myterm/actions/runs/40910114092) 在提交 `56ceade` 上通过：Windows Server 2022 Datacenter（20348）与 Server 2025 Datacenter（26100），均为具有活动桌面的 x64 GitHub Windows runner。后续重复验收暴露管道探测竞态，修复与新增回归见下文；最终发布门禁将另行记录。
 
 | 系统 | 本机真实桌面 | OpenSSH 到交互桌面 | 安装候选包的原生 DSH |
 | --- | --- | --- | --- |
@@ -49,6 +49,8 @@ DSH 0.2.0-rc.2，独立 `DSH_HOME`，真实 Chrome 与真实 Windows 测试窗�
 - Server 冷启动与进程生命周期：本机和远程均通过用户交互会话计划任务启动，保留结构化启动错误并给予冷启动时间。
 - 连续人工输入：预览点击与快捷键按顺序发送，避免异步忙状态直接丢弃后一条输入。
 - 包内容：运行时必须符合固定文件清单及各文件 SHA256，额外的端点或状态文件会阻止打包。
+- 复测发现启动管道探测的竞态：探测客户端立即断开时，Windows 偶尔在接受连接阶段返回管道关闭错误。新增连续 160 次探测，在旧执行器上复现退出，修复后同一执行器保持存活并继续 UIA/鼠标操作。证据 `output/desktop-pipe-race-before` 与 `output/desktop-pipe-race-after`；本机门禁增加至 10 项。
+- 独立目录重打包时，运行时检查间接导入了尚未安装的 `ssh2`，使热加载验收夹具打包失败。完整性检查已拆成仅使用 Node 内置模块的模块；回归同时检查无依赖打包、额外端点文件和被篡改二进制。修复后本地真实 DSH 八项热加载通过，证据 `output/desktop-hotreload-final/evidence.json`。
 
 早期失败 CI 与本地输出保留，未用成功记录覆盖失败证据。
 

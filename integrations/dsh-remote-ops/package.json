@@ -60,7 +60,7 @@
     "test:contract": "node --test test/contract.test.mjs",
     "test:smoke": "node test/smoke.mjs",
     "check": "node test/sync-api-client.mjs --check && node test/check-syntax.mjs && npm run test:desktop && npm test",
-    "test:desktop": "node --test test/desktop.test.mjs test/desktop-routes.test.mjs",
+    "test:desktop": "node --test test/desktop.test.mjs test/desktop-routes.test.mjs test/desktop-runtime.test.mjs",
     "test:windows:ssh": "node test/windows-ssh-live.mjs"
   },
   "dependencies": {

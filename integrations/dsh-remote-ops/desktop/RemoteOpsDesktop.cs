@@ -112,8 +112,13 @@ class RemoteOpsDesktop {
         security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(Sid),PipeAccessRights.FullControl,AccessControlType.Allow));
         IdleTimer=new Timer(_=>{if(Clients==0&&DateTime.UtcNow-LastUse>TimeSpan.FromMinutes(2))Environment.Exit(0);},null,30000,30000);
         while(true) {
-            var p=new NamedPipeServerStream(pipe,PipeDirection.InOut,8,PipeTransmissionMode.Byte,PipeOptions.Asynchronous,65536,65536,security);
-            p.WaitForConnection();Interlocked.Increment(ref Clients);
+            NamedPipeServerStream p=null;
+            // Readiness clients deliberately disconnect immediately. Windows may
+            // report ERROR_NO_DATA while accepting them, or temporary instance
+            // exhaustion before their handlers finish. Neither ends the worker.
+            try { p=new NamedPipeServerStream(pipe,PipeDirection.InOut,8,PipeTransmissionMode.Byte,PipeOptions.Asynchronous,65536,65536,security);p.WaitForConnection(); }
+            catch(IOException) {if(p!=null)p.Dispose();Thread.Sleep(20);continue;}
+            Interlocked.Increment(ref Clients);
             var thread=new Thread(()=>{try {using(p)using(var input=new StreamReader(p,new UTF8Encoding(false),false,65536,true))using(var output=new StreamWriter(p,new UTF8Encoding(false),65536,true){AutoFlush=true}) {
                 string line;while((line=ReadLine(input,262144))!=null)output.WriteLine(Json.Serialize(Respond(line)));
             }}catch{}finally{Interlocked.Decrement(ref Clients);LastUse=DateTime.UtcNow;}});thread.IsBackground=true;thread.SetApartmentState(ApartmentState.MTA);thread.Start();

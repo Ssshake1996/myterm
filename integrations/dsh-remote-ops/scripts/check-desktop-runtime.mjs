@@ -1,4 +1,4 @@
-import {desktopRuntime} from '../lib/desktop-transport.js';
+import {desktopRuntime} from '../lib/desktop-runtime.js';
 import {readdir} from 'node:fs/promises';
 const runtime=await desktopRuntime();
 for(const name of ['RemoteOpsDesktop.exe','RemoteOpsDesktopWorker.exe','FlaUI.Core.dll','FlaUI.UIA3.dll','Interop.UIAutomationClient.dll']){
