@@ -13,7 +13,7 @@ const cli=process.env.DSH_CLI;if(!cli||!process.argv[2])throw Error('Set DSH_CLI
 const pkg=resolve(process.argv[2]),out=resolve(process.env.DESKTOP_NATIVE_OUTPUT??'output/desktop-native');await mkdir(out,{recursive:true});
 const home=join(out,'dsh-home'),profile=join(home,'profiles/web'),fixture=resolve('integrations/dsh-remote-ops/desktop/test-app/RemoteOpsDesktopTest.exe'),resultFile=join(out,'native-result.txt');
 const evidence={kind:'native-dsh-real-windows-desktop',packageSha256:createHash('sha256').update(await readFile(pkg)).digest('hex'),steps:[],errors:[],tools:[],imageDelivered:false};
-const decode=value=>{if(typeof value==='string'){try{return decode(JSON.parse(value));}catch{return value;}}if(Array.isArray(value))return value.map(decode).find(v=>v&&typeof v==='object'&&!v.type)??value.map(decode).join('\n');return value?.type==='text'?decode(value.text):value;};
+const decode=value=>{if(typeof value==='string'){try{return decode(JSON.parse(value));}catch{try{return JSON.parse(value.split('\n')[0]);}catch{return value;}}}if(Array.isArray(value))return value.map(decode).find(v=>v&&typeof v==='object'&&!v.type)??value.map(decode).join('\n');return value?.type==='text'?decode(value.text):value;};
 let host,browser,page,proof,appPid,owner;const logs=[];
 const server=createServer(async(req,res)=>{
  try{

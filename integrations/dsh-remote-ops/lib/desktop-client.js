@@ -32,26 +32,34 @@ export function createDesktopPanel(React,request) {
   return function DesktopPanel({sessionId,environments=[],visible=true}) {
     const [state,setState]=useState({sessions:[],selected:null,localAvailable:true}),[environment,setEnvironment]=useState('local'),[windowsSession,setWindowsSession]=useState(''),[sessions,setSessions]=useState([]);
     const [observation,setObservation]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[showLaunch,setShowLaunch]=useState(false),[showConnect,setShowConnect]=useState(false),[path,setPath]=useState(''),[args,setArgs]=useState(''),[text,setText]=useState(''),[events,setEvents]=useState([]);
-    const alive=useRef(true),busyRef=useRef(false),canvas=useRef(null),image=useRef(null),currentRef=useRef(),observationRef=useRef(),visibleRef=useRef(visible),refreshing=useRef(false);
+    const alive=useRef(true),busyRef=useRef(false),canvas=useRef(null),image=useRef(null),currentRef=useRef(),observationRef=useRef(),visibleRef=useRef(visible),refreshing=useRef(false),inputQueue=useRef(Promise.resolve()),queued=useRef(0);
     visibleRef.current=visible;observationRef.current=observation;
     const current=state.sessions.find(s=>s.desktopId===state.selected);currentRef.current=current;
     const post=(action,values={})=>request('/api/dsh-remote-ops/desktop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,action,args:values})});
     const refresh=async()=>{
       if(refreshing.current)return;refreshing.current=true;
       try {
-        const next=await request('/api/dsh-remote-ops/desktop?'+new URLSearchParams({sessionId}));if(!alive.current)return;setState(next);if(!next.localAvailable&&environment==='local')setEnvironment('');
+        const next=await request('/api/dsh-remote-ops/desktop?'+new URLSearchParams({sessionId}));if(!alive.current)return;setState(next);if(!next.localAvailable)setEnvironment(previous=>previous==='local'?'':previous);
         const selected=next.sessions.find(s=>s.desktopId===next.selected);
         if(visibleRef.current&&selected?.status==='connected'&&!busyRef.current){let frame;try{frame=await post('observe',{desktopId:selected.desktopId,listOnly:!selected.target});}catch(cause){if(!/DESKTOP_WINDOW_NOT_FOUND/.test(cause.message))throw cause;frame=await post('observe',{desktopId:selected.desktopId,listOnly:true});frame.captureError='原窗口暂未就绪或已关闭，请从窗口列表选择。';}if(alive.current){setObservation(frame);setError(frame.captureError??'');}}
       }catch(cause){if(alive.current){setError(cause.message);setObservation(null);}}finally{refreshing.current=false;}
     };
     useEffect(()=>{alive.current=true;void refresh();const timer=setInterval(()=>void refresh(),1600);return()=>{alive.current=false;clearInterval(timer);};},[sessionId]);
     const run=async(work)=>{if(busyRef.current)return;busyRef.current=true;setBusy(true);setError('');try{return await work();}catch(cause){if(alive.current)setError(cause.message);return null;}finally{busyRef.current=false;if(alive.current){setBusy(false);void refresh();}}};
-    const act=step=>run(async()=>{
-      const c=currentRef.current,s=observationRef.current;if(!c||c.status!=='connected'||!s?.snapshotId)return;
-      const result=await post('act',{desktopId:c.desktopId,requestId:id(),snapshotId:s.snapshotId,steps:[step]});
-      if(result.status!=='completed')throw new Error(result.results?.at(-1)?.message??'操作未完成，请检查当前窗口');
-      const next=await post('observe',{desktopId:c.desktopId});if(alive.current)setObservation(next);return result;
-    });
+    const act=step=>{
+      const intended=currentRef.current,seen=observationRef.current;if(!intended||!seen?.snapshotId)return Promise.resolve(null);
+      if(queued.current>=8){setError('输入队列已满，请等待当前操作完成');return Promise.resolve(null);}queued.current++;
+      const pending=inputQueue.current.then(async()=>{
+        while(alive.current&&busyRef.current)await new Promise(resolve=>setTimeout(resolve,30));
+        if(!alive.current||!visibleRef.current||currentRef.current?.desktopId!==intended.desktopId)return null;
+        return run(async()=>{
+          const snapshot=['keys','text'].includes(step.action)?await post('observe',{desktopId:intended.desktopId,windowId:seen.windowId}):seen;
+          const result=await post('act',{desktopId:intended.desktopId,requestId:id(),snapshotId:snapshot.snapshotId,steps:[step]});
+          if(result.status!=='completed')throw new Error(result.results?.at(-1)?.message??'操作未完成，请检查当前窗口');
+          const next=await post('observe',{desktopId:intended.desktopId});if(alive.current){observationRef.current=next;setObservation(next);}return result;
+        });
+      }).finally(()=>{queued.current--;});inputQueue.current=pending.catch(()=>{});return pending;
+    };
     const connect=()=>run(async()=>{const result=await post('connect',{environment,...(windowsSession?{windowsSessionId:Number(windowsSession)}:{})});setObservation(null);setSessions([]);setShowConnect(false);return result;});
     const inspect=()=>run(async()=>{const result=await post('inspect',{environment});setSessions(result.sessions??[]);if(result.sessions?.length===1)setWindowsSession(String(result.sessions[0].sessionId));});
     const keyboard=event=>{

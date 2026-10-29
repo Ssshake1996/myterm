@@ -145,5 +145,5 @@ test("environment form hides internal ids and defaults blank names to the host",
 
 test("frontend artifact identity includes its version so installs cannot bypass deferred activation", () => {
   assert.equal(manifest.exports["./client"], `./lib/client-v${manifest.version}.js`);
-  assert.equal(manifest.scripts.prepack, "node scripts/prepare-client.mjs");
+  assert.equal(manifest.scripts.prepack, "node scripts/check-desktop-runtime.mjs && node scripts/prepare-client.mjs");
 });

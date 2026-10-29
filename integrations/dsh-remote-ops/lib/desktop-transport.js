@@ -1,4 +1,5 @@
-import { spawn, execFile } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { createConnection } from 'node:net';
 import { promisify } from 'node:util';
 import { readFile, mkdir, copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -93,7 +94,7 @@ const chooseSession=(probe,requested)=>{
 };
 
 export async function connectDesktop(state,args={}) {
-  const manifest=await desktopRuntime();let client,channel,child,sftp;
+  const manifest=await desktopRuntime();let client,channel,sftp;
   try {
     let probe,ensured,exe;
     if(args.environment==='local') {
@@ -107,8 +108,8 @@ export async function connectDesktop(state,args={}) {
       probe=parse((await runFile(exe,['probe'],{windowsHide:true,timeout:12000,maxBuffer:262144})).stdout);
       if(args.inspect)return probe;
       const session=chooseSession(probe,args.windowsSessionId);
-      ensured=parse((await runFile(exe,['ensure',String(session)],{windowsHide:true,timeout:15000,maxBuffer:262144})).stdout);
-      child=spawn(exe,['bridge',ensured.pipe],{windowsHide:true,stdio:['pipe','pipe','pipe']});child.stderr.resume();
+      ensured=parse((await runFile(exe,['ensure',String(session),'task'],{windowsHide:true,timeout:15000,maxBuffer:262144})).stdout);
+      channel=await new Promise((resolve,reject)=>{const socket=createConnection({host:'127.0.0.1',port:ensured.port});const timer=setTimeout(()=>{socket.destroy();reject(desktopError('DESKTOP_CONNECT_TIMEOUT','Local worker did not accept a connection'));},5000);socket.once('connect',()=>{clearTimeout(timer);resolve(socket);});socket.once('error',error=>{clearTimeout(timer);reject(error);});});
     } else {
       await state.ready;const environment=state.findEnvironment(args.environment);
       if(!environment||environment.platform!=='windows')throw desktopError('DESKTOP_ENVIRONMENT_INVALID','Select an existing SSH environment with target system Windows');
@@ -121,6 +122,7 @@ export async function connectDesktop(state,args={}) {
         if(!exists)await new Promise((resolve,reject)=>readFile(join(runtime,file.name)).then(bytes=>sftp.writeFile(target,bytes,error=>error?reject(error):resolve()),reject));
       }
       const nativeRoot=root.replace(/^\/([A-Za-z]:)/,'$1').replaceAll('/','\\');
+      if(!win32.isAbsolute(nativeRoot))throw desktopError('DESKTOP_SETUP_FAILED','The SFTP runtime path is not an absolute Windows path');
       const setup=await executeCommand({client,...buildWindowsCommand({shell:'windows-powershell',command:bootstrap,parameters:{root:nativeRoot,expected:JSON.stringify(manifest.files),session:args.windowsSessionId??0,inspect:!!args.inspect}}),timeoutMs:30000,maxBytes:262144,signal:args.signal});
       if(setup.exitCode!==0)throw desktopError('DESKTOP_SETUP_FAILED',`${setup.status}, exit=${setup.exitCode}: ${setup.stderr}`);
       ensured=parse(setup.stdout);
@@ -128,11 +130,10 @@ export async function connectDesktop(state,args={}) {
       if(!Number.isInteger(ensured.port)||ensured.port<1||ensured.port>65535||!/^[a-f0-9]{64}$/.test(ensured.token))throw desktopError('DESKTOP_PROTOCOL_INVALID','Invalid worker endpoint');
       channel=await sshChannel(client,cb=>client.forwardOut('127.0.0.1',0,'127.0.0.1',ensured.port,cb),15000,args.signal,'Opening desktop SSH forwarding (AllowTcpForwarding must permit local forwarding)');
     }
-    const rpc=new DesktopRpc(channel??child.stdin,channel??child.stdout,()=>{if(channel){sftp?.end();channel.close();closeSshClient(client);}else{child.stdin.destroy();child.stdout.destroy();child.stderr.destroy();child.kill();}});
-    child?.once('error',error=>rpc.close(desktopError('DESKTOP_BRIDGE_FAILED',error.message)));
-    if(channel)await rpc.call('authenticate',{token:ensured.token});
+    const rpc=new DesktopRpc(channel,channel,()=>{sftp?.end();channel.close?.();channel.destroy?.();closeSshClient(client);});
+    await rpc.call('authenticate',{token:ensured.token});
     rpc.info=await rpc.call('status');
     if((ensured.sessionId!=null&&rpc.info.sessionId!==ensured.sessionId)||rpc.info.sessionId<1||rpc.info.protocol!==manifest.protocol||!rpc.info.interactive){rpc.close();throw desktopError('DESKTOP_SESSION_MISMATCH','Worker did not join the selected interactive desktop');}
     return rpc;
-  } catch(error){sftp?.end();channel?.close();closeSshClient(client);child?.kill();throw error;}
+  } catch(error){sftp?.end();channel?.close?.();channel?.destroy?.();closeSshClient(client);throw error;}
 }

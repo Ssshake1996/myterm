@@ -7,6 +7,8 @@ description: Operate Windows desktop and Server targets through Remote Ops OpenS
 
 Use this skill for a Windows target reachable through OpenSSH. The SSH service and account must already work. This plugin does not need PowerShell's SSH remoting subsystem; it uses ordinary PTY, exec and SFTP channels. Windows desktop and Server use the same environment form and tools.
 
+For opening visible software windows, clicking controls or typing into desktop applications, load `remote-ops-desktop` and use `remote_desktop_*`. A terminal process launched through SSH alone does not guarantee a visible user desktop. Prefer the terminal or API for tasks they can complete directly.
+
 ## Identify and test the target
 
 1. Call `remote_environment_list`. Reuse the exact saved environment ID and suitable existing session IDs. The local `local-cmd` belongs to the DSH host, not the remote Windows machine.

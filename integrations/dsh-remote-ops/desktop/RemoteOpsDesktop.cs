@@ -33,6 +33,7 @@ class RemoteOpsDesktop {
     static int Clients;
     static DateTime LastUse = DateTime.UtcNow;
     static bool CaptureStuck;
+    static Timer IdleTimer;
     static readonly string AccessToken=Guid.NewGuid().ToString("N")+Guid.NewGuid().ToString("N");
     static string EndpointPath(int session){return Path.Combine(Path.GetDirectoryName(typeof(RemoteOpsDesktop).Assembly.Location),"endpoint-"+session+".json");}
     class Receipt { public string Body; public object Result; }
@@ -51,7 +52,6 @@ class RemoteOpsDesktop {
             SetProcessDpiAwarenessContext(new IntPtr(-4));
             if(args.Length==0 || args[0]=="probe") { Write(Probe()); return 0; }
             if(args[0]=="ensure") { int id=Int32.Parse(args[1]); Ensure(id,args.Length>2&&args[2]=="task"); Write(Json.DeserializeObject(File.ReadAllText(EndpointPath(id))));return 0; }
-            if(args[0]=="bridge") { Bridge(args[1]); return 0; }
             if(args[0]=="serve") { Serve(args[1]); return 0; }
             Fail("DESKTOP_MODE_INVALID","Unknown worker mode");
         } catch(Exception error) { Write(new { error=error.Message,code=error is DesktopException ? ((DesktopException)error).Code : "DESKTOP_RUNTIME_FAILED" }); return 1; }
@@ -99,20 +99,13 @@ class RemoteOpsDesktop {
         for(int i=0;i<50;i++){if(Alive(pipe))return;Thread.Sleep(100);}
         Fail("DESKTOP_WORKER_START_FAILED","Worker did not become reachable in the selected desktop");
     }
-    static void Bridge(string pipe) {
-        if(!pipe.StartsWith("remote-ops-desktop-"+Hash(Sid).Substring(0,16)+"-"))Fail("DESKTOP_PIPE_INVALID","Worker belongs to another account");
-        using(var p=new NamedPipeClientStream(".",pipe,PipeDirection.InOut,PipeOptions.Asynchronous)) {
-            p.Connect(5000);var input=Console.OpenStandardInput();var output=Console.OpenStandardOutput();
-            var upload=Task.Run(()=>{try{input.CopyTo(p);}catch{}});var download=Task.Run(()=>{try{p.CopyTo(output);output.Flush();}catch{}});Task.WaitAny(upload,download);
-        }
-    }
     static void Serve(string pipe) {
         RequireDesktop();Automation=new UIA3Automation();Automation.ConnectionTimeout=TimeSpan.FromSeconds(3);Automation.TransactionTimeout=TimeSpan.FromSeconds(3);
         StartForwardEndpoint(pipe);
         var security=new PipeSecurity();security.SetAccessRuleProtection(true,false);
         security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.NetworkSid,null),PipeAccessRights.FullControl,AccessControlType.Deny));
         security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(Sid),PipeAccessRights.FullControl,AccessControlType.Allow));
-        var timer=new Timer(_=>{if(Clients==0&&DateTime.UtcNow-LastUse>TimeSpan.FromMinutes(2))Environment.Exit(0);},null,30000,30000);
+        IdleTimer=new Timer(_=>{if(Clients==0&&DateTime.UtcNow-LastUse>TimeSpan.FromMinutes(2))Environment.Exit(0);},null,30000,30000);
         while(true) {
             var p=new NamedPipeServerStream(pipe,PipeDirection.InOut,8,PipeTransmissionMode.Byte,PipeOptions.Asynchronous,65536,65536,security);
             p.WaitForConnection();Interlocked.Increment(ref Clients);
