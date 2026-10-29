@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "dsh-remote-ops-v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing immutable release tag to build and publish
+        type: string
+        required: true
 
 permissions:
   contents: write
@@ -14,9 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -25,6 +33,7 @@ jobs:
       - name: Verify tag, package version and release notes agree
         id: meta
         run: |
+          [[ "$TAG" =~ ^dsh-remote-ops-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid release tag" >&2; exit 1; }
           version="${TAG#dsh-remote-ops-v}"
           package_version="$(node -p "require('./integrations/dsh-remote-ops/package.json').version")"
           if [ "$version" != "$package_version" ]; then
@@ -44,7 +53,8 @@ jobs:
       - name: Package and checksum
         run: |
           mkdir -p dist-release
-          packed="$(cd integrations/dsh-remote-ops && npm pack --silent --pack-destination ../../dist-release)"
+          packed_output="$(cd integrations/dsh-remote-ops && npm pack --silent --pack-destination ../../dist-release)"
+          packed="${packed_output##*$'\n'}"
           artifact="dsh-remote-ops-v${{ steps.meta.outputs.version }}.tgz"
           [ "$packed" = "$artifact" ] || mv "dist-release/$packed" "dist-release/$artifact"
           (cd dist-release && sha256sum "$artifact" > "SHA256SUMS-dsh-remote-ops-v${{ steps.meta.outputs.version }}.txt")
@@ -60,6 +70,8 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -87,9 +99,11 @@ jobs:
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ inputs.release_tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
