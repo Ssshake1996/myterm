@@ -1,6 +1,7 @@
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdir, copyFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join, win32 } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -64,7 +65,12 @@ export async function connectDesktop(state,args={}) {
     let probe,ensured,exe;
     if(args.environment==='local') {
       if(process.platform!=='win32')throw desktopError('DESKTOP_PLATFORM_UNSUPPORTED','The DSH host is not Windows; select a saved Windows SSH environment');
-      exe=join(runtime,'RemoteOpsDesktop.exe');
+      // Windows locks loaded native images. Run an immutable private copy, never
+      // the package files that DSH replaces during installation/hot reload.
+      const cached=join(state?.base??tmpdir(),'desktop-runtime',manifest.id);
+      await mkdir(cached,{recursive:true});
+      for(const file of manifest.files){const target=join(cached,file.name);const previous=await readFile(target).catch(()=>null);if(!previous)await copyFile(join(runtime,file.name),target);else if(createHash('sha256').update(previous).digest('hex')!==file.sha256)throw desktopError('DESKTOP_RUNTIME_INVALID','Cached worker integrity check failed');}
+      exe=join(cached,'RemoteOpsDesktop.exe');
       probe=parse((await runFile(exe,['probe'],{windowsHide:true,timeout:12000,maxBuffer:262144})).stdout);
       if(args.inspect)return probe;
       const session=chooseSession(probe,args.windowsSessionId);
@@ -91,7 +97,7 @@ export async function connectDesktop(state,args={}) {
         } finally{sftp.end();}
       }
       // Validate every installed byte before running the helper, including reused installs.
-      await run('param($root) $m=Get-Content -LiteralPath (Join-Path $root "manifest.json") -Raw|ConvertFrom-Json; foreach($f in $m.files){if((Get-FileHash -LiteralPath (Join-Path $root $f.name) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $f.sha256){throw "Desktop runtime checksum mismatch"}}; @{ok=$true}|ConvertTo-Json -Compress',{root:location.root});
+      await run('param($root,$expected) $files=ConvertFrom-Json $expected; foreach($f in $files){if((Get-FileHash -LiteralPath (Join-Path $root $f.name) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $f.sha256){throw "Desktop runtime checksum mismatch"}}; @{ok=$true}|ConvertTo-Json -Compress',{root:location.root,expected:JSON.stringify(manifest.files)});
       probe=await run('param($exe) & $exe probe',{exe});
       if(args.inspect){closeSshClient(client);return probe;}
       const session=chooseSession(probe,args.windowsSessionId);
