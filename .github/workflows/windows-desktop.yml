@@ -1,6 +1,11 @@
 name: Windows desktop acceptance
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional official Release tag to download, verify and install in native DSH
+        type: string
+        required: false
   push:
     branches: [main, codex/windows-desktop]
 jobs:
@@ -51,13 +56,27 @@ jobs:
         timeout-minutes: 4
       - name: Install native DSH and package candidate
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REMOTE_OPS_RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           npm install --prefix output/dsh-host @deepseek-ai/dsh@0.2.0-rc.2
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Path output/desktop-package -Force | Out-Null
-          Push-Location integrations/dsh-remote-ops
-          npm pack --pack-destination ../../output/desktop-package --silent
-          Pop-Location
+          if ($env:REMOTE_OPS_RELEASE_TAG) {
+            if ($env:REMOTE_OPS_RELEASE_TAG -notmatch '^dsh-remote-ops-v\d+\.\d+\.\d+$') { throw 'Invalid release tag' }
+            gh release download $env:REMOTE_OPS_RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern '*.tgz' --pattern 'SHA256SUMS-*.txt' --dir output/desktop-package
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $archive = Get-ChildItem output/desktop-package -Filter *.tgz | Select-Object -First 1
+            $checksum = Get-ChildItem output/desktop-package -Filter SHA256SUMS-*.txt | Select-Object -First 1
+            $expected = ((Get-Content -LiteralPath $checksum.FullName -Raw).Trim() -split '\s+')[0]
+            if ((Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected.ToLowerInvariant()) { throw 'Release SHA256 mismatch' }
+          } else {
+            Push-Location integrations/dsh-remote-ops
+            npm pack --pack-destination ../../output/desktop-package --silent
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Pop-Location
+          }
           'DSH_CLI=' + (Join-Path $PWD 'output/dsh-host/node_modules/@deepseek-ai/dsh/lib/bin.js') | Out-File -FilePath $env:GITHUB_ENV -Append
       - uses: pnpm/action-setup@v4
         with:
