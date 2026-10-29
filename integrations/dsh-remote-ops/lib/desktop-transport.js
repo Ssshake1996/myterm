@@ -33,7 +33,7 @@ try {
     $info.StandardOutputEncoding=$u;$info.StandardErrorEncoding=$u
     $process=[Diagnostics.Process]::Start($info);$process.StandardInput.Close()
     $output=$process.StandardOutput.ReadToEndAsync();$errors=$process.StandardError.ReadToEndAsync()
-    if(-not $process.WaitForExit(15000)){$process.Kill();throw 'Desktop setup process timed out'}
+    if(-not $process.WaitForExit(40000)){$process.Kill();throw 'Desktop setup process timed out'}
     $result=$output.Result
     if(-not $result){throw ('Desktop setup exited '+$process.ExitCode+': '+$errors.Result)}
     $process.Dispose();return $result
@@ -126,7 +126,7 @@ export async function connectDesktop(state,args={}) {
       }
       const nativeRoot=root.replace(/^\/([A-Za-z]:)/,'$1').replaceAll('/','\\');
       if(!win32.isAbsolute(nativeRoot))throw desktopError('DESKTOP_SETUP_FAILED','The SFTP runtime path is not an absolute Windows path');
-      const setup=await executeCommand({client,...buildWindowsCommand({shell:'windows-powershell',command:bootstrap,parameters:{root:nativeRoot,expected:JSON.stringify(manifest.files),session:args.windowsSessionId??0,inspect:!!args.inspect}}),timeoutMs:30000,maxBytes:262144,signal:args.signal});
+      const setup=await executeCommand({client,...buildWindowsCommand({shell:'windows-powershell',command:bootstrap,parameters:{root:nativeRoot,expected:JSON.stringify(manifest.files),session:args.windowsSessionId??0,inspect:!!args.inspect}}),timeoutMs:60000,maxBytes:262144,signal:args.signal});
       if(setup.exitCode!==0)throw desktopError('DESKTOP_SETUP_FAILED',`${setup.status}, exit=${setup.exitCode}: ${setup.stderr}`);
       ensured=parse(setup.stdout);
       if(args.inspect){sftp.end();closeSshClient(client);return ensured;}
