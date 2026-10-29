@@ -5,7 +5,7 @@
 ## 源码与浏览器回归
 
 - `npm run check --prefix integrations/dsh-remote-ops`：441 项通过（桌面 11、后端 300、客户端 118、契约 12），另有 smoke 通过。本地证据：`output/desktop-regression-final441.log`。
-- 原有终端、网页、文件、API 浏览器回归 22/22 通过，证据 `output/desktop-e2e-regression/report.json`。此层使用真实插件前后端与隔离协议服务，不代替原生 DSH 验收。
+- 原有终端、网页、文件、API 浏览器回归 22/22 通过，[最终浏览器 CI](https://github.com/Ssshake1996/myterm/actions/runs/40913687833) 与本地 `output/desktop-e2e-regression/report.json` 留存证据。此层使用真实插件前后端与隔离协议服务，不代替原生 DSH 验收。
 - 覆盖参数 Schema、完整批次先校验、空字符串填写、跨对话隔离、请求去重、取消后续步骤、未知结果不重放、图片模型能力检查、真实附件引用、日志下载鉴权和关闭后导出。
 - 发布脚本增加三项校验回归：CI 重编译包按实际下载字节验证、拒绝损坏包或错名校验文件、GitHub 未提供可选摘要时仍核对 SHA256。下载资产不转发 GitHub API 令牌。
 - DSH UI 契约检查无错误；缺少 Codex 插件 manifest 的提示不适用于本 DSH 包。
@@ -31,14 +31,16 @@ DSH 0.2.0-rc.2，独立 `DSH_HOME`，真实 Chrome 与真实 Windows 测试窗�
 
 ## Windows Server 真实系统
 
-[Server 阶段桌面工作流](https://github.com/Ssshake1996/myterm/actions/runs/40910114092) 在提交 `56ceade` 上通过：Windows Server 2022 Datacenter（20348）与 Server 2025 Datacenter（26100），均为具有活动桌面的 x64 GitHub Windows runner。后续重复验收暴露管道探测竞态，修复与新增回归见下文；最终发布门禁将另行记录。
+[最终 Server 桌面工作流](https://github.com/Ssshake1996/myterm/actions/runs/40913687523) 在功能提交 `504daee` 上通过：Windows Server 2022 Datacenter（20348）与 Server 2025 Datacenter（26100），均为具有活动桌面的 x64 GitHub Windows runner，已包含管道探测竞态修复和压力回归。
 
 | 系统 | 本机真实桌面 | OpenSSH 到交互桌面 | 安装候选包的原生 DSH |
 | --- | --- | --- | --- |
-| Windows Server 2022 | 9/9 | 9/9 | 4/4 |
-| Windows Server 2025 | 9/9 | 9/9 | 4/4 |
+| Windows Server 2022 | 10/10 | 9/9 | 4/4 |
+| Windows Server 2025 | 10/10 | 9/9 | 4/4 |
 
-已下载该轮 CI 证据到 `output/desktop-server-final/desktop-windows-{2022,2025}/`，包含系统信息、执行结果和实际窗口截图。同提交的 [440 项源码 CI](https://github.com/Ssshake1996/myterm/actions/runs/40910114314) 通过。
+已下载该轮 CI 证据到 `output/desktop-server-release-gate/desktop-windows-{2022,2025}/`，包含系统信息、执行结果和实际窗口截图。同提交的 [441 项源码 CI](https://github.com/Ssshake1996/myterm/actions/runs/40913687430) 通过。
+
+[既有 Windows OpenSSH 与热加载工作流](https://github.com/Ssshake1996/myterm/actions/runs/40913687668) 同样通过：两个 Server 均完成实际 PTY/exec/SFTP 检查、8 项原生 DSH 多对话终端验证及 8 项热加载/失败恢复验证。证据 `output/desktop-existing-final/`。早期一次 Server 2025 系统探测超时保留在旧 CI 中，最终验收完整通过，未删除断言或用模拟结果代替。
 
 ## 排查中修复的问题
 
