@@ -429,7 +429,7 @@ window.__ModuleLoader__.load({
     }
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.11.0", update: { currentVersion: "0.11.0", latestVersion: "0.11.0", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.12.0", update: { currentVersion: "0.12.0", latestVersion: "0.12.0", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -887,7 +887,7 @@ window.__ModuleLoader__.load({
     const workspaceViews = new Map(), fileViews = new Map(), commandDrafts = new Map();
     const workspaceView = owner => {
       if (workspaceViews.has(owner)) return workspaceViews.get(owner);
-      try { const saved = JSON.parse(sessionStorage.getItem("remote-ops.view." + owner) || "{}"); return { module: ["terminal", "browser", "sftp", "api"].includes(saved.module) ? saved.module : "terminal", activeSessionId: typeof saved.activeSessionId === "string" ? saved.activeSessionId.slice(0, 200) : "", search: typeof saved.search === "string" ? saved.search.slice(0, 120) : "" }; }
+      try { const saved = JSON.parse(sessionStorage.getItem("remote-ops.view." + owner) || "{}"); return { module: ["terminal", "browser", "desktop", "sftp", "api"].includes(saved.module) ? saved.module : "terminal", activeSessionId: typeof saved.activeSessionId === "string" ? saved.activeSessionId.slice(0, 200) : "", search: typeof saved.search === "string" ? saved.search.slice(0, 120) : "" }; }
       catch { return { module: "terminal", activeSessionId: "", search: "" }; }
     };
     const rememberWorkspace = (owner, value) => {
@@ -1642,6 +1642,7 @@ window.__ModuleLoader__.load({
     }
 
     function ApiIcon({size=16}) { return h("svg",{width:size,height:size,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.6,"aria-hidden":true},h("path",{d:"m8 5-6 7 6 7m8-14 6 7-6 7m-3-16-2 18"})); }
+    function DesktopIcon({size=16}) { return h("svg",{width:size,height:size,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.6,"aria-hidden":true},h("rect",{x:3,y:3,width:18,height:13,rx:2}),h("path",{d:"M8 21h8m-4-5v5"})); }
     const terminalUnreadState = (seen, unread, sessions, visibleSession, frames, owner) => {
       const nextSeen = {...seen}, nextUnread = {...unread};
       for (const session of sessions ?? []) {
@@ -1686,6 +1687,7 @@ window.__ModuleLoader__.load({
       const [filesVisited, setFilesVisited] = useState(restoredView.module === "sftp");
       const [browserVisited, setBrowserVisited] = useState(restoredView.module === "browser");
       const [apiVisited, setApiVisited] = useState(restoredView.module === "api");
+      const [desktopVisited, setDesktopVisited] = useState(restoredView.module === "desktop");
       const [settingsTab, setSettingsTab] = useState(updateOpen ? "updates" : "");
       const [updatesVisited, setUpdatesVisited] = useState(updateOpen);
       const [environmentKind, setEnvironmentKind] = useState("ssh");
@@ -1824,6 +1826,7 @@ window.__ModuleLoader__.load({
         setSeenFailures(current => { const next=[...new Set([...current[module],...failed])].slice(-200); return JSON.stringify(current[module]) === JSON.stringify(next) ? current : {...current, [module]:next}; });
       }, [workspaceVisible, module, snapshot.activity, browserUpload]);
       const tabBadges = workspaceBadges(activity, browserUpload, terminalUnread, seenFailures);
+      if(activity.desktops?.some(s=>s.status==="busy"))tabBadges.desktop={tone:"active",label:"操作中",description:"Windows 桌面正在执行操作"};
       const terminalReady = terminalInputEnabled(snapshot) && !activeSession?.disconnected && Boolean(activeTerminalFrame?.streamId) && outputConnection === "connected" && reviewStream !== activeFrameKey;
       const frameRows = activeTerminalFrame?.size?.rows || 40, frameCols = activeTerminalFrame?.size?.cols || 160;
       const terminalScreen = useMemo(() => terminalScreenModel(activeTerminalFrame?.raw ?? "", frameRows, frameCols, { decorate: true, highlight: preferences.highlight, commandAnnotations: activeTerminalFrame?.commandAnnotations, startOffset: (activeTerminalFrame?.nextOffset ?? 0) - (activeTerminalFrame?.raw?.length ?? 0) }), [activeTerminalFrame?.raw, activeTerminalFrame?.commandAnnotations, activeTerminalFrame?.nextOffset, frameRows, frameCols, preferences.highlight]);
@@ -2162,7 +2165,7 @@ window.__ModuleLoader__.load({
       const pasteView = pasteDraft ? modal("确认终端输入", () => setPasteDraft(null), h(React.Fragment, null, h("strong", null, `目标：${pasteDraft.name}`), h("small", null, pasteDraft.session), h("textarea", { autoFocus: true, "aria-label": "待发送内容", spellCheck: false, value: pasteDraft.text, onChange: event => setPasteDraft(current => ({ ...current, text: event.target.value })) }), /[\r\n]/.test(pasteDraft.text) ? h("strong", { className: "dsh-remote-ops__dangerAction" }, "包含换行，将提交命令") : null, h("div", { className: "dsh-remote-ops__formActions" }, h("button", { onClick: () => setPasteDraft(null) }, "取消"), h("button", { disabled: busy || !pasteDraft.text, onClick: () => void submitPaste() }, "发送到此终端")))) : null;
       const choicesView = connectionChoices ? modal("选择连接", () => setConnectionChoices(null), connectionChoices.map(item => h("button", { key: item.sessionId, onClick: () => { setActiveSessionId(item.sessionId); setModule("terminal"); setConnectionChoices(null); setDrawer(false); } }, `${item.name} · ${item.ownerId} · ${item.lastActivity ? new Date(item.lastActivity).toLocaleTimeString() : "暂无活动"}`))) : null;
       const diagnosticsView = diagnosticPreview !== null ? modal("诊断导出预览", () => setDiagnosticPreview(null), h(React.Fragment, null, h("pre", null, diagnosticPreview), h("button", { onClick: () => { const url = URL.createObjectURL(new Blob([diagnosticPreview], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = "remote-ops-diagnostics.json"; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); } }, h(IconDownloadOutline16), " 导出 JSON"))) : null;
-      const workspaces = [["terminal", "终端", RemoteOpsIcon], ["browser", "网页", BrowserIcon], ["sftp", "文件", IconFolderClose16], ["api", "API", ApiIcon]];
+      const workspaces = [["terminal", "终端", RemoteOpsIcon], ["browser", "网页", BrowserIcon], ["desktop", "桌面", DesktopIcon], ["sftp", "文件", IconFolderClose16], ["api", "API", ApiIcon]];
       const uiKey = encodeURIComponent(sessionId ?? "local");
       const closeSettings = () => { setSettingsTab(""); changeUpdateOpen(false); };
       const openSettings = (tab = module === "browser" ? "browser" : module === "terminal" ? "terminal" : "general") => {
@@ -2175,7 +2178,7 @@ window.__ModuleLoader__.load({
         const trigger = event.currentTarget.closest(".dsh-remote-ops")?.querySelector('[aria-label="' + (drawer ? "环境管理" : "设置") + '"]');
         setDrawer(false); closeSettings(); trigger?.focus({ preventScroll: true });
       };
-      const selectWorkspace = id => { if (id === "sftp") setFilesVisited(true); if (id === "browser") setBrowserVisited(true); if (id === "api") setApiVisited(true); setModule(id); setDrawer(false); setDiagnosticsOpen(false); closeSettings(); };
+      const selectWorkspace = id => { if (id === "sftp") setFilesVisited(true); if (id === "browser") setBrowserVisited(true); if (id === "api") setApiVisited(true); if(id==="desktop")setDesktopVisited(true); setModule(id); setDrawer(false); setDiagnosticsOpen(false); closeSettings(); };
       const settingsCategories = [["general","通用"],["terminal","终端"],["browser","网页"],["updates","更新"]];
       const settingsHead = settingsTab ? h("section", {className:"dsh-remote-ops__utilityHead", "aria-label":"设置中心"},
         h("div", {className:"dsh-remote-ops__drawerHead"}, h("strong",null,"设置"), h("button", {onClick:returnToWorkspace,"aria-label":"返回工作区"}, "返回工作区")),
@@ -2211,6 +2214,7 @@ window.__ModuleLoader__.load({
           diagnosticsOpen ? aux : null, settingsGeneral, settingsTerminal,
           h("div",settingsPanelProps("updates"),updatesVisited?h(UpdateDialog,{embedded:true,visible:settingsTab==="updates",onClose:closeSettings,onStatus:setUpdate}):null),
           terminal,
+          h("div",{className:"dsh-remote-ops__moduleHost",hidden:module!=="desktop"||drawer||diagnosticsOpen||!!settingsTab},desktopVisited?h(DesktopWorkspacePanel,{key:sessionId,sessionId,environments:snapshot.environments,visible:module==="desktop"&&!drawer&&!diagnosticsOpen&&!settingsTab}):null),
           h("div",{className:"dsh-remote-ops__moduleHost",hidden:!(settingsTab==="browser"||module==="browser"&&!drawer&&!diagnosticsOpen&&!settingsTab),role:settingsTab==="browser"?"tabpanel":undefined,id:"settings-panel-"+uiKey+"-browser","aria-labelledby":settingsTab==="browser"?"settings-tab-"+uiKey+"-browser":undefined},browserVisited?h(BrowserWorkspacePanel,{key:sessionId,sessionId,visible:module==="browser"&&!drawer&&!diagnosticsOpen&&!settingsTab,settings:settingsTab==="browser"}):null),
           h("div",{className:"dsh-remote-ops__moduleHost",hidden:!(drawer&&environmentKind==="api"||module==="api"&&!drawer&&!diagnosticsOpen&&!settingsTab),role:drawer&&environmentKind==="api"?"tabpanel":undefined,id:"environment-panel-"+uiKey+"-api","aria-labelledby":drawer&&environmentKind==="api"?"environment-tab-"+uiKey+"-api":undefined},apiVisited?h(ApiWorkspacePanel,{key:sessionId,sessionId,sshEnvironments:snapshot.environments,mode:drawer&&environmentKind==="api"?"environments":"workspace",onManage:()=>openEnvironments("api")}):null),
           h("div", { className: "dsh-remote-ops__fileHost", hidden: module !== "sftp" || drawer || diagnosticsOpen || !!settingsTab }, sftpWorkspace),
@@ -2348,6 +2352,96 @@ window.__ModuleLoader__.load({
 
     const ApiWorkspacePanel = createApiPanel(React, request);
     // END generated API client
+    // BEGIN generated desktop client
+    function desktopPoint(frame,rect,clientX,clientY) {
+      if(!frame||!rect.width||!rect.height)return null;
+      const scale=Math.min(rect.width/frame.width,rect.height/frame.height),width=frame.width*scale,height=frame.height*scale;
+      const x=clientX-rect.left-(rect.width-width)/2,y=clientY-rect.top-(rect.height-height)/2;
+      if(x<0||y<0||x>=width||y>=height)return null;
+      return {x:Math.floor(x/width*frame.sourceWidth),y:Math.floor(y/height*frame.sourceHeight)};
+    }
+
+    function createDesktopPanel(React,request) {
+      const {createElement:h,useState,useRef,useEffect}=React;
+      const id=()=>globalThis.crypto?.randomUUID?.()??'desktop-'+Date.now()+'-'+Math.random().toString(36).slice(2);
+      const styles=`
+        .dsh-remote-ops__desktop{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;padding:10px;gap:8px}
+        .dsh-remote-ops__desktopBar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;flex:none}
+        .dsh-remote-ops__desktopBar select{min-width:0;max-width:100%;flex:1;padding:6px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:6px;background:var(--dsw-alias-bg-base,#fff);color:inherit}
+        .dsh-remote-ops__desktopCanvas{display:flex;align-items:center;justify-content:center;position:relative;flex:1;min-height:160px;min-width:0;overflow:hidden;background:#161c25;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:9px}
+        .dsh-remote-ops__desktopCanvas:fullscreen{padding:16px;background:#161c25}
+        .dsh-remote-ops__desktopCanvas img{width:100%;height:100%;object-fit:contain;outline:none;cursor:default}
+        .dsh-remote-ops__desktopCanvas img:focus-visible{outline:2px solid #79a7ff;outline-offset:-2px}
+        .dsh-remote-ops__desktopEmpty{max-width:320px;padding:28px;color:#aab8ca;text-align:center;line-height:1.7}
+        .dsh-remote-ops__desktopEmpty strong{display:block;font-size:16px;color:#edf4ff;margin-bottom:9px}
+        .dsh-remote-ops__desktopStatus{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--dsw-alias-label-secondary,#667085);min-height:20px}
+        .dsh-remote-ops__desktopStatus span:last-child{margin-left:auto}
+        .dsh-remote-ops__desktopDot{width:7px;height:7px;border-radius:50%;background:#8b95a4;flex:none}
+        .dsh-remote-ops__desktopDot[data-state=connected]{background:#29a36a}.dsh-remote-ops__desktopDot[data-state=busy]{background:#db9d24}
+        .dsh-remote-ops__desktopMessage{padding:8px 10px;border-left:3px solid #d79b36;background:var(--dsw-alias-bg-layer-1,#f7f9fb);white-space:pre-wrap;overflow-wrap:anywhere;max-height:100px;overflow:auto;font-size:12px}
+        .dsh-remote-ops__desktopForm{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:8px}
+        .dsh-remote-ops__desktopEntry{display:flex;gap:6px;align-items:center}.dsh-remote-ops__desktopEntry textarea{resize:none;height:34px;min-height:34px;flex:1}
+        .dsh-remote-ops__desktopRecords{flex:none;max-height:160px;overflow:auto;font-size:12px}.dsh-remote-ops__desktopRecords summary{cursor:pointer;color:var(--dsw-alias-label-secondary,#667085)}
+        .dsh-remote-ops__desktopRecords ol{padding-left:20px}.dsh-remote-ops__desktopRecords li{padding:3px;overflow-wrap:anywhere}
+      `;
+      return function DesktopPanel({sessionId,environments=[],visible=true}) {
+        const [state,setState]=useState({sessions:[],selected:null,localAvailable:true}),[environment,setEnvironment]=useState('local'),[windowsSession,setWindowsSession]=useState(''),[sessions,setSessions]=useState([]);
+        const [observation,setObservation]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[showLaunch,setShowLaunch]=useState(false),[showConnect,setShowConnect]=useState(false),[path,setPath]=useState(''),[args,setArgs]=useState(''),[text,setText]=useState(''),[events,setEvents]=useState([]);
+        const alive=useRef(true),busyRef=useRef(false),canvas=useRef(null),image=useRef(null),currentRef=useRef(),observationRef=useRef(),visibleRef=useRef(visible),refreshing=useRef(false);
+        visibleRef.current=visible;observationRef.current=observation;
+        const current=state.sessions.find(s=>s.desktopId===state.selected);currentRef.current=current;
+        const post=(action,values={})=>request('/api/dsh-remote-ops/desktop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,action,args:values})});
+        const refresh=async()=>{
+          if(refreshing.current)return;refreshing.current=true;
+          try {
+            const next=await request('/api/dsh-remote-ops/desktop?'+new URLSearchParams({sessionId}));if(!alive.current)return;setState(next);if(!next.localAvailable&&environment==='local')setEnvironment('');
+            const selected=next.sessions.find(s=>s.desktopId===next.selected);
+            if(visibleRef.current&&selected?.status==='connected'&&!busyRef.current){let frame;try{frame=await post('observe',{desktopId:selected.desktopId,listOnly:!selected.target});}catch(cause){if(!/DESKTOP_WINDOW_NOT_FOUND/.test(cause.message))throw cause;frame=await post('observe',{desktopId:selected.desktopId,listOnly:true});frame.captureError='原窗口暂未就绪或已关闭，请从窗口列表选择。';}if(alive.current){setObservation(frame);setError(frame.captureError??'');}}
+          }catch(cause){if(alive.current){setError(cause.message);setObservation(null);}}finally{refreshing.current=false;}
+        };
+        useEffect(()=>{alive.current=true;void refresh();const timer=setInterval(()=>void refresh(),1600);return()=>{alive.current=false;clearInterval(timer);};},[sessionId]);
+        const run=async(work)=>{if(busyRef.current)return;busyRef.current=true;setBusy(true);setError('');try{return await work();}catch(cause){if(alive.current)setError(cause.message);return null;}finally{busyRef.current=false;if(alive.current){setBusy(false);void refresh();}}};
+        const act=step=>run(async()=>{
+          const c=currentRef.current,s=observationRef.current;if(!c||c.status!=='connected'||!s?.snapshotId)return;
+          const result=await post('act',{desktopId:c.desktopId,requestId:id(),snapshotId:s.snapshotId,steps:[step]});
+          if(result.status!=='completed')throw new Error(result.results?.at(-1)?.message??'操作未完成，请检查当前窗口');
+          const next=await post('observe',{desktopId:c.desktopId});if(alive.current)setObservation(next);return result;
+        });
+        const connect=()=>run(async()=>{const result=await post('connect',{environment,...(windowsSession?{windowsSessionId:Number(windowsSession)}:{})});setObservation(null);setSessions([]);setShowConnect(false);return result;});
+        const inspect=()=>run(async()=>{const result=await post('inspect',{environment});setSessions(result.sessions??[]);if(result.sessions?.length===1)setWindowsSession(String(result.sessions[0].sessionId));});
+        const keyboard=event=>{
+          if(event.isComposing||event.key==='Process')return;
+          const named={Enter:'ENTER',Tab:'TAB',Escape:'ESC',Backspace:'BACKSPACE',Delete:'DELETE',ArrowLeft:'LEFT',ArrowRight:'RIGHT',ArrowUp:'UP',ArrowDown:'DOWN',Home:'HOME',End:'END',' ':'SPACE'};
+          const key=named[event.key]??(/^[a-z0-9]$/i.test(event.key)?event.key.toUpperCase():null);
+          if(!key||['Control','Shift','Alt','Meta'].includes(event.key))return;
+          if(!event.ctrlKey&&!event.altKey&&event.key.length===1)return;
+          event.preventDefault();void act({action:'keys',keys:[event.ctrlKey?'CTRL':null,event.altKey?'ALT':null,event.shiftKey?'SHIFT':null,key].filter(Boolean).join('+')});
+        };
+        const imageData=current&&current.status!=='disconnected'?observation?.screenshot:null;
+        const available=environments.filter(e=>e.platform==='windows');
+        const openForm=showLaunch?h('form',{className:'dsh-remote-ops__desktopForm',onSubmit:event=>{event.preventDefault();void run(async()=>{const result=await post('launch',{desktopId:current.desktopId,requestId:id(),path,args:args===''?[]:args.split(/\r?\n/)});setShowLaunch(false);return result;});}},
+          h('label',null,'程序路径',h('input',{'aria-label':'Windows 程序路径',value:path,onChange:e=>setPath(e.target.value),placeholder:'C:\\Program Files\\App\\App.exe',required:true})),
+          h('label',null,'启动参数',h('textarea',{'aria-label':'Windows 启动参数',value:args,onChange:e=>setArgs(e.target.value),placeholder:'每行一个参数，保留其中的空格'})),
+          h('div',{className:'dsh-remote-ops__desktopBar'},h('button',{type:'submit',disabled:busy},'打开'),h('button',{type:'button',onClick:()=>setShowLaunch(false)},'返回画面'))):null;
+        return h('section',{className:'dsh-remote-ops__desktop','aria-label':'Windows 桌面'},h('style',null,styles),
+          !current||showConnect?h(React.Fragment,null,
+            h('div',{className:'dsh-remote-ops__desktopBar'},h('select',{'aria-label':'桌面环境',value:environment,onChange:e=>{setEnvironment(e.target.value);setSessions([]);setWindowsSession('');}},state.localAvailable?h('option',{value:'local'},'本机 Windows'):h('option',{value:''},'选择 Windows 环境'),available.map(e=>h('option',{key:e.id,value:e.id},e.name))),h('button',{disabled:busy||!environment,onClick:connect},busy?'连接中…':'连接桌面'),h('button',{disabled:busy||!environment,onClick:inspect},'检查会话')),
+            sessions.length?h('select',{'aria-label':'Windows 登录会话',value:windowsSession,onChange:e=>setWindowsSession(e.target.value)},h('option',{value:''},'选择登录会话'),sessions.map(s=>h('option',{key:s.sessionId,value:s.sessionId,disabled:s.state!=='active'},`${s.user} · 会话 ${s.sessionId} · ${s.state}`))):null):
+          h('div',{className:'dsh-remote-ops__desktopBar'},
+            state.sessions.length>1?h('select',{'aria-label':'桌面连接',value:state.selected,onChange:e=>void run(async()=>{await post('select',{desktopId:e.target.value});setObservation(null);})},state.sessions.map(s=>h('option',{key:s.desktopId,value:s.desktopId},s.environment+' · '+s.info.sessionId))):null,
+            h('select',{'aria-label':'桌面窗口',value:observation?.windowId??'',onChange:e=>void run(async()=>{const frame=await post('observe',{desktopId:current.desktopId,windowId:e.target.value});setObservation(frame);})},h('option',{value:''},'选择软件窗口'),(observation?.windows??[]).map(w=>h('option',{key:w.windowId,value:w.windowId},w.title))),
+            h('button',{disabled:busy||current.status==='disconnected',onClick:()=>setShowLaunch(v=>!v)},'打开应用'),h('button',{disabled:!imageData,onClick:()=>canvas.current?.requestFullscreen?.()},'全屏'),
+            h('details',null,h('summary',null,'更多'),h('div',{className:'dsh-remote-ops__desktopBar'},h('button',{onClick:()=>setShowConnect(true)},'连接其他环境'),h('button',{onClick:()=>void run(async()=>{const result=await post('export',{all:true});const link=document.createElement('a');link.href=result.url;link.download=result.filename;link.click();})},'导出本会话桌面日志'),h('button',{disabled:busy||current.status==='busy',onClick:()=>void run(async()=>{await post('disconnect',{desktopId:current.desktopId});setObservation(null);})},'断开连接')))),
+          error?h('div',{className:'dsh-remote-ops__desktopMessage',role:'status'},error):null,openForm,
+          h('div',{className:'dsh-remote-ops__desktopCanvas',ref:canvas},imageData?h('img',{ref:image,src:'data:'+imageData.mimeType+';base64,'+imageData.data,alt:'目标 Windows 软件窗口',tabIndex:0,onKeyDown:keyboard,onClick:event=>{const point=desktopPoint(imageData,event.currentTarget.getBoundingClientRect(),event.clientX,event.clientY);if(point){event.currentTarget.focus({preventScroll:true});void act({action:'click',...point});}}}):h('div',{className:'dsh-remote-ops__desktopEmpty'},h('strong',null,current?'选择窗口，开始操作':'操作真实的 Windows 软件'),current?'从上方选择已打开的软件，或打开应用。':'连接已登录、解锁的桌面。首次连接会部署随包执行器；你与 Agent 共享同一个窗口。')),
+          current&&imageData?h('form',{className:'dsh-remote-ops__desktopEntry',onSubmit:event=>{event.preventDefault();if(text)void act({action:'text',text}).then(result=>{if(result)setText('');});}},h('textarea',{'aria-label':'桌面输入内容',value:text,onChange:e=>setText(e.target.value),placeholder:'输入文字，点击发送到窗口',onCompositionStart:()=>{},onKeyDown:e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();e.currentTarget.form.requestSubmit();}}}),h('button',{type:'submit',disabled:busy||!text},'发送'),h('button',{type:'button',disabled:busy,onClick:()=>void act({action:'keys',keys:'ENTER'})},'Enter')):null,
+          h('div',{className:'dsh-remote-ops__desktopStatus',role:'status'},h('i',{className:'dsh-remote-ops__desktopDot','data-state':busy?'busy':current?.status??'disconnected'}),h('span',null,current?`${current.info.user??''} · 会话 ${current.info.sessionId}`:'未连接'),h('span',null,busy||current?.status==='busy'?'正在操作':observation?.observedAt?'画面 '+new Date(observation.observedAt).toLocaleTimeString():'')),
+          current?h('details',{className:'dsh-remote-ops__desktopRecords',onToggle:event=>{if(event.currentTarget.open)void post('read',{desktopId:current.desktopId}).then(result=>{if(alive.current)setEvents(result.events);}).catch(e=>setError(e.message));}},h('summary',null,'操作记录'),h('ol',null,events.map((event,index)=>h('li',{key:index},new Date(event.at).toLocaleTimeString()+' · '+(event.action??event.event)+(event.status?' · '+event.status:'')+(event.message?' · '+event.message:''))))):null);
+      };
+    }
+
+    const DesktopWorkspacePanel = createDesktopPanel(React, request);
+    // END generated desktop client
     function BrowserIcon({ size = 16 }) { return h("svg", { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, "aria-hidden": true }, h("circle", { cx: 12, cy: 12, r: 9 }), h("path", { d: "M3 12h18M12 3a17 17 0 0 1 0 18 17 17 0 0 1 0-18" })); }
     function FileIcon() { return h("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, "aria-hidden": true }, h("path", { d: "M14 3H6v18h12V7zM14 3v5h4M8 12h8M8 16h8" })); }
 

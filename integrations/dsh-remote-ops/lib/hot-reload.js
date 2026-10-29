@@ -68,6 +68,7 @@ export function reloadBlockers(state) {
   if (state.runtimeCalls) busy.push("正在处理操作");
   if (state.ctx?.agents?.list?.().some(agent => agent.status === "running")) busy.push("对话任务执行中");
   if (state.commands?.size) busy.push("终端命令执行中");
+  if (state.desktop?.active || state.desktop?.openings?.size) busy.push("桌面操作执行中");
   if (state.openings?.size || state.localStarting) busy.push("终端连接中");
   if ([state.localSession, ...[...(state.sessions?.values() ?? [])].map(r => r.session)].some(s => s?.active || s?.pendingSend)) busy.push("终端等待回显");
   if ([...(state.transfers?.jobs?.values() ?? [])].some(j => ["queued", "running"].includes(j.status))) busy.push("文件传输中");

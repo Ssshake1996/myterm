@@ -42,7 +42,7 @@ function fixture(storage=new Map()) {
 test("workspace tabs retain the chosen module across remounts and refresh without leaking into another conversation",async()=>{
   const storage=new Map(),f=fixture(storage),view=f.mount("RemoteOpsPanel",{sessionId:"a"});await tick();view.render();
   assert.ok(view.find(n=>n.props.role==="tablist"&&n.props["aria-label"]==="Remote Ops 工作区"));
-  assert.deepEqual(view.all(n=>n.props.role==="tab").map(n=>n.props["aria-label"]),["终端","网页","文件","API"]);
+  assert.deepEqual(view.all(n=>n.props.role==="tab").map(n=>n.props["aria-label"]),["终端","网页","桌面","文件","API"]);
   view.find(n=>n.props.role==="tab"&&n.props["aria-label"]==="网页").props.onClick();view.render();view.unmount();
   const reopened=f.mount("RemoteOpsPanel",{sessionId:"a"});
   assert.equal(reopened.find(n=>n.props["data-module"]).props["data-module"],"browser");reopened.unmount();

@@ -12,5 +12,10 @@ const httpFrom=next.indexOf(httpStart),httpTo=next.indexOf(httpEnd);
 if(httpFrom<0||httpTo<httpFrom)throw Error('HTTP diagnostics generation markers missing');
 const http=readFileSync(new URL('../lib/http-diagnostics.js',import.meta.url),'utf8').replace(/^export /gm,'');
 next=next.slice(0,httpFrom)+httpStart+'\n'+http.split('\n').map(line=>line?'    '+line:'').join('\n')+'\n'+httpEnd+next.slice(httpTo+httpEnd.length);
+const desktopStart='    // BEGIN generated desktop client',desktopEnd='    // END generated desktop client';
+const desktopFrom=next.indexOf(desktopStart),desktopTo=next.indexOf(desktopEnd);
+if(desktopFrom<0||desktopTo<desktopFrom)throw Error('Desktop client generation markers missing');
+const desktop=readFileSync(new URL('../lib/desktop-client.js',import.meta.url),'utf8').replace(/^export /gm,'');
+next=next.slice(0,desktopFrom)+desktopStart+'\n'+desktop.split('\n').map(line=>line?'    '+line:'').join('\n')+'\n    const DesktopWorkspacePanel = createDesktopPanel(React, request);\n'+desktopEnd+next.slice(desktopTo+desktopEnd.length);
 if(process.argv.includes('--check')){if(next!==current)throw Error('API client is stale; run node test/sync-api-client.mjs');}
 else writeFileSync(clientUrl,next);

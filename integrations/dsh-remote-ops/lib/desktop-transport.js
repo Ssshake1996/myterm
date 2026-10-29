@@ -5,14 +5,46 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join, win32 } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { openSftpChannel, sshChannel, closeSshClient } from './ssh-connection.js';
 import { executeCommand } from './commands.js';
 import { buildWindowsCommand } from './windows-shell.js';
-import { openSftpChannel, sshChannel, closeSshClient } from './ssh-connection.js';
 
 const runFile = promisify(execFile);
 const runtime = fileURLToPath(new URL('../desktop/runtime/', import.meta.url));
 export const desktopError = (code, message) => Object.assign(new Error(`${code}: ${message}`), { code });
 const parse = text => { const value=JSON.parse(text.trim()); if(value.error)throw desktopError(value.code??'DESKTOP_RUNTIME_FAILED',value.error);return value; };
+// SSH exec is a bounded setup command. Bidirectional desktop traffic uses SSH
+// direct-tcpip to the worker's authenticated loopback-only endpoint.
+const bootstrap=String.raw`
+param($root,$expected,$session,$inspect)
+$u=[Text.UTF8Encoding]::new($false)
+try {
+  foreach($f in (ConvertFrom-Json $expected)){
+    if($f.name -notmatch '^[\w.-]+$'){throw 'Invalid runtime filename'}
+    $path=Join-Path $root $f.name
+    if((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $f.sha256){throw 'Desktop runtime checksum mismatch'}
+  }
+  $exe=Join-Path $root 'RemoteOpsDesktop.exe'
+  function RunDesktop($arguments){
+    $info=[Diagnostics.ProcessStartInfo]::new($exe,$arguments);$info.UseShellExecute=$false;$info.CreateNoWindow=$true
+    $info.RedirectStandardInput=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+    $info.StandardOutputEncoding=$u;$info.StandardErrorEncoding=$u
+    $process=[Diagnostics.Process]::Start($info);$process.StandardInput.Close()
+    $output=$process.StandardOutput.ReadToEndAsync();$errors=$process.StandardError.ReadToEndAsync()
+    if(-not $process.WaitForExit(15000)){$process.Kill();throw 'Desktop setup process timed out'}
+    $result=$output.Result
+    if(-not $result){throw ('Desktop setup exited '+$process.ExitCode+': '+$errors.Result)}
+    $process.Dispose();return $result
+  }
+  if($inspect){RunDesktop 'probe';return}
+  $probe=RunDesktop 'probe' | ConvertFrom-Json
+  if($probe.error){throw $probe.error}
+  if($session -le 0){$active=@($probe.sessions|Where-Object state -eq 'active');if($active.Count -ne 1){throw 'DESKTOP_SESSION_REQUIRED: select an active same-account windowsSessionId'};$session=[int]$active[0].sessionId}
+  $ready=RunDesktop ('ensure '+$session+' task') | ConvertFrom-Json
+  if($ready.error){throw ($ready.code+': '+$ready.error)}
+  $ready|ConvertTo-Json -Compress
+}catch{@{error=$_.Exception.Message;code='DESKTOP_SETUP_FAILED'}|ConvertTo-Json -Compress}
+`;
 
 export async function desktopRuntime() {
   const bytes=await readFile(join(runtime,'manifest.json')).catch(()=>{throw desktopError('DESKTOP_RUNTIME_MISSING','Install a plugin package containing the built Windows desktop runtime');});
@@ -32,6 +64,7 @@ export class DesktopRpc {
       this.buffer+=chunk;if(this.buffer.length>12*1024*1024){this.close(desktopError('DESKTOP_RESPONSE_LIMIT','Worker response exceeded limit'));return;}
       let index;while((index=this.buffer.indexOf('\n'))>=0){const line=this.buffer.slice(0,index);this.buffer=this.buffer.slice(index+1);if(!line.trim())continue;
         let response;try{response=JSON.parse(line);}catch{this.close(desktopError('DESKTOP_PROTOCOL_INVALID','Invalid worker response'));return;}
+        if(!response.id&&response.error){this.close(desktopError(response.code??'DESKTOP_SETUP_FAILED',response.error));return;}
         const pending=this.pending.get(response.id);if(!pending)continue;this.pending.delete(response.id);clearTimeout(pending.timer);
         response.ok?pending.resolve(response.result):pending.reject(desktopError(response.code??'DESKTOP_OPERATION_FAILED',response.error));
       }
@@ -60,7 +93,7 @@ const chooseSession=(probe,requested)=>{
 };
 
 export async function connectDesktop(state,args={}) {
-  const manifest=await desktopRuntime();let client,channel,child;
+  const manifest=await desktopRuntime();let client,channel,child,sftp;
   try {
     let probe,ensured,exe;
     if(args.environment==='local') {
@@ -79,38 +112,27 @@ export async function connectDesktop(state,args={}) {
     } else {
       await state.ready;const environment=state.findEnvironment(args.environment);
       if(!environment||environment.platform!=='windows')throw desktopError('DESKTOP_ENVIRONMENT_INVALID','Select an existing SSH environment with target system Windows');
+      if(args.windowsSessionId!=null&&(!Number.isInteger(args.windowsSessionId)||args.windowsSessionId<1))throw desktopError('DESKTOP_SESSION_INVALID','windowsSessionId must be a positive integer');
       ({client}=await state.connectSshEnvironment(environment,args.signal));
-      const run=async(command,parameters={})=>{
-        const result=await executeCommand({client,...buildWindowsCommand({shell:'windows-powershell',command,parameters}),timeoutMs:25000,maxBytes:262144,signal:args.signal});
-        if(result.exitCode!==0)throw desktopError('DESKTOP_SETUP_FAILED',`${result.status}, exit=${result.exitCode}: ${result.stderr||result.stdout}`);
-        return parse(result.stdout);
-      };
-      const location=await run('param($version) $root=Join-Path $env:LOCALAPPDATA ("DSH/RemoteOps/desktop/"+$version); @{root=$root; exists=(Test-Path -LiteralPath (Join-Path $root "manifest.json"))}|ConvertTo-Json -Compress',{version:manifest.id});
-      exe=win32.join(location.root,'RemoteOpsDesktop.exe');
-      if(!location.exists) {
-        await run('param($root) New-Item -ItemType Directory -Path $root -Force|Out-Null; @{ok=$true}|ConvertTo-Json -Compress',{root:location.root});
-        const sftp=await openSftpChannel(client,{windows:true,signal:args.signal});
-        try {
-          for(const file of [...manifest.files,{name:'manifest.json'}]){
-            const data=await readFile(join(runtime,file.name));await new Promise((resolve,reject)=>sftp.writeFile(win32.join(location.root,file.name).replaceAll('\\','/'),data,error=>error?reject(error):resolve()));
-          }
-        } finally{sftp.end();}
+      sftp=await openSftpChannel(client,{windows:true,signal:args.signal});
+      const home=await new Promise((resolve,reject)=>sftp.realpath('.',(error,path)=>error?reject(error):resolve(path)));
+      let root=home;for(const part of ['.dsh-remote-ops','desktop',manifest.id]){root=root.replace(/\/$/,'')+'/'+part;const exists=await new Promise((resolve,reject)=>sftp.stat(root,(error,stat)=>error?(error.code===2?resolve(false):reject(error)):resolve(stat.isDirectory())));if(!exists)await new Promise((resolve,reject)=>sftp.mkdir(root,error=>error?reject(error):resolve()));}
+      for(const file of manifest.files){const target=root+'/'+file.name;const exists=await new Promise((resolve,reject)=>sftp.stat(target,(error,stat)=>error?(error.code===2?resolve(false):reject(error)):resolve(!!stat)));
+        if(!exists)await new Promise((resolve,reject)=>readFile(join(runtime,file.name)).then(bytes=>sftp.writeFile(target,bytes,error=>error?reject(error):resolve()),reject));
       }
-      // Validate every installed byte before running the helper, including reused installs.
-      await run('param($root,$expected) $files=ConvertFrom-Json $expected; foreach($f in $files){if((Get-FileHash -LiteralPath (Join-Path $root $f.name) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $f.sha256){throw "Desktop runtime checksum mismatch"}}; @{ok=$true}|ConvertTo-Json -Compress',{root:location.root,expected:JSON.stringify(manifest.files)});
-      probe=await run('param($exe) & $exe probe',{exe});
-      if(args.inspect){closeSshClient(client);return probe;}
-      const session=chooseSession(probe,args.windowsSessionId);
-      ensured=await run('param($exe,$session) & $exe ensure $session',{exe,session});
-      const quote=value=>"'"+value.replaceAll("'","''")+"'";
-      const script=`& ${quote(exe)} bridge ${quote(ensured.pipe)}`;
-      const command='powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand '+Buffer.from(script,'utf16le').toString('base64');
-      channel=await sshChannel(client,cb=>client.exec(command,cb),15000,args.signal);channel.stderr.resume();
+      const nativeRoot=root.replace(/^\/([A-Za-z]:)/,'$1').replaceAll('/','\\');
+      const setup=await executeCommand({client,...buildWindowsCommand({shell:'windows-powershell',command:bootstrap,parameters:{root:nativeRoot,expected:JSON.stringify(manifest.files),session:args.windowsSessionId??0,inspect:!!args.inspect}}),timeoutMs:30000,maxBytes:262144,signal:args.signal});
+      if(setup.exitCode!==0)throw desktopError('DESKTOP_SETUP_FAILED',`${setup.status}, exit=${setup.exitCode}: ${setup.stderr}`);
+      ensured=parse(setup.stdout);
+      if(args.inspect){sftp.end();closeSshClient(client);return ensured;}
+      if(!Number.isInteger(ensured.port)||ensured.port<1||ensured.port>65535||!/^[a-f0-9]{64}$/.test(ensured.token))throw desktopError('DESKTOP_PROTOCOL_INVALID','Invalid worker endpoint');
+      channel=await sshChannel(client,cb=>client.forwardOut('127.0.0.1',0,'127.0.0.1',ensured.port,cb),15000,args.signal,'Opening desktop SSH forwarding (AllowTcpForwarding must permit local forwarding)');
     }
-    const rpc=new DesktopRpc(channel??child.stdin,channel??child.stdout,()=>{if(channel){channel.close();closeSshClient(client);}else{child.stdin.destroy();child.stdout.destroy();child.stderr.destroy();child.kill();}});
+    const rpc=new DesktopRpc(channel??child.stdin,channel??child.stdout,()=>{if(channel){sftp?.end();channel.close();closeSshClient(client);}else{child.stdin.destroy();child.stdout.destroy();child.stderr.destroy();child.kill();}});
     child?.once('error',error=>rpc.close(desktopError('DESKTOP_BRIDGE_FAILED',error.message)));
+    if(channel)await rpc.call('authenticate',{token:ensured.token});
     rpc.info=await rpc.call('status');
-    if(rpc.info.sessionId!==ensured.sessionId||rpc.info.protocol!==manifest.protocol||!rpc.info.interactive){rpc.close();throw desktopError('DESKTOP_SESSION_MISMATCH','Worker did not join the selected interactive desktop');}
+    if((ensured.sessionId!=null&&rpc.info.sessionId!==ensured.sessionId)||rpc.info.sessionId<1||rpc.info.protocol!==manifest.protocol||!rpc.info.interactive){rpc.close();throw desktopError('DESKTOP_SESSION_MISMATCH','Worker did not join the selected interactive desktop');}
     return rpc;
-  } catch(error){channel?.close();closeSshClient(client);child?.kill();throw error;}
+  } catch(error){sftp?.end();channel?.close();closeSshClient(client);child?.kill();throw error;}
 }

@@ -72,3 +72,7 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+# Windows desktop runtime
+
+The plugin bundles FlaUI.Core 5.0.0, FlaUI.UIA3 5.0.0 and Interop.UIAutomationClient 10.19041.0. Their upstream MIT license texts and original copyright notices are distributed verbatim as `desktop/runtime/flaui.core-LICENSE.txt`, `flaui.uia3-LICENSE.txt`, and `interop.uiautomationclient-LICENSE.txt`. Versions and upstream package SHA256 values are pinned in the repository's `desktop/dependencies.json`.
+

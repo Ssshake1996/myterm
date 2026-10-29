@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   package:
+    needs: windows
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -35,6 +36,10 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "notes=$notes" >> "$GITHUB_OUTPUT"
       - run: npm ci --prefix integrations/dsh-remote-ops
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-runtime
+          path: integrations/dsh-remote-ops/desktop/runtime
       - run: npm run check --prefix integrations/dsh-remote-ops
       - name: Package and checksum
         run: |
@@ -52,8 +57,7 @@ jobs:
             dist-release/SHA256SUMS-*.txt
           if-no-files-found: error
   windows:
-    needs: package
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -62,7 +66,19 @@ jobs:
           cache: npm
           cache-dependency-path: integrations/dsh-remote-ops/package-lock.json
       - run: npm ci --prefix integrations/dsh-remote-ops
+      - name: Build and verify bundled Windows desktop runtime
+        shell: powershell
+        run: ./integrations/dsh-remote-ops/scripts/build-desktop.ps1
       - run: npm run check --prefix integrations/dsh-remote-ops
+      - name: Actual Windows desktop gate
+        working-directory: integrations/dsh-remote-ops
+        run: node test/desktop-live.mjs
+        timeout-minutes: 4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-runtime
+          path: integrations/dsh-remote-ops/desktop/runtime/
+          if-no-files-found: error
   release:
     needs: [package, windows]
     runs-on: ubuntu-latest

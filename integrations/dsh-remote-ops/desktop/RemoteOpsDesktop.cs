@@ -2,6 +2,8 @@
 using System;
 using System.IO;
 using System.IO.Pipes;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Linq;
 using System.Threading;
@@ -31,6 +33,8 @@ class RemoteOpsDesktop {
     static int Clients;
     static DateTime LastUse = DateTime.UtcNow;
     static bool CaptureStuck;
+    static readonly string AccessToken=Guid.NewGuid().ToString("N")+Guid.NewGuid().ToString("N");
+    static string EndpointPath(int session){return Path.Combine(Path.GetDirectoryName(typeof(RemoteOpsDesktop).Assembly.Location),"endpoint-"+session+".json");}
     class Receipt { public string Body; public object Result; }
     class Snapshot { public DateTime At; public IntPtr Window; public RECT Rect; public uint LastInput; public Dictionary<string, AutomationElement> Elements = new Dictionary<string, AutomationElement>(); }
     class DesktopException : Exception { public string Code; public DesktopException(string code, string message) : base(message) { Code = code; } }
@@ -46,7 +50,7 @@ class RemoteOpsDesktop {
         try {
             SetProcessDpiAwarenessContext(new IntPtr(-4));
             if(args.Length==0 || args[0]=="probe") { Write(Probe()); return 0; }
-            if(args[0]=="ensure") { int id=Int32.Parse(args[1]); Ensure(id); Write(new { pipe=Pipe(id),sessionId=id,protocol=Protocol });return 0; }
+            if(args[0]=="ensure") { int id=Int32.Parse(args[1]); Ensure(id,args.Length>2&&args[2]=="task"); Write(Json.DeserializeObject(File.ReadAllText(EndpointPath(id))));return 0; }
             if(args[0]=="bridge") { Bridge(args[1]); return 0; }
             if(args[0]=="serve") { Serve(args[1]); return 0; }
             Fail("DESKTOP_MODE_INVALID","Unknown worker mode");
@@ -73,13 +77,13 @@ class RemoteOpsDesktop {
     }
     static void RequireDesktop() { if(!Interactive())Fail("DESKTOP_NOT_INTERACTIVE","The selected user desktop is locked or unavailable. Unlock/reconnect it before continuing."); }
     static bool Alive(string pipe) { try { using(var p=new NamedPipeClientStream(".",pipe,PipeDirection.InOut)) {p.Connect(200);return true;} }catch{return false;} }
-    static void Ensure(int session) {
+    static void Ensure(int session,bool forceTask=false) {
         if(session<=0)Fail("DESKTOP_SESSION_INVALID","Choose a logged-on interactive user session");
         var probe=Obj(Json.DeserializeObject(Json.Serialize(Probe())));var sessions=probe["sessions"] as object[];
         if(sessions==null || !sessions.Any(x=>Number(Obj(x),"sessionId")==session && Text(Obj(x),"state")=="active"))Fail("DESKTOP_SESSION_UNAVAILABLE","No active desktop for this SSH account and session ID");
         string pipe=Pipe(session);if(Alive(pipe))return;
-        string exe=typeof(RemoteOpsDesktop).Assembly.Location;
-        if(Session==session)Process.Start(new ProcessStartInfo(exe,"serve "+pipe){UseShellExecute=false,CreateNoWindow=true});
+        string exe=Path.Combine(Path.GetDirectoryName(typeof(RemoteOpsDesktop).Assembly.Location),"RemoteOpsDesktopWorker.exe");
+        if(Session==session&&!forceTask)Process.Start(new ProcessStartInfo(exe,"serve "+pipe){UseShellExecute=false,CreateNoWindow=true});
         else {
             // InteractiveToken, same account, exact session: never substitute a service/S4U token.
             dynamic scheduler=Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service"));scheduler.Connect();dynamic folder=scheduler.GetFolder("\\");dynamic task=scheduler.NewTask(0);
@@ -104,6 +108,7 @@ class RemoteOpsDesktop {
     }
     static void Serve(string pipe) {
         RequireDesktop();Automation=new UIA3Automation();Automation.ConnectionTimeout=TimeSpan.FromSeconds(3);Automation.TransactionTimeout=TimeSpan.FromSeconds(3);
+        StartForwardEndpoint(pipe);
         var security=new PipeSecurity();security.SetAccessRuleProtection(true,false);
         security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.NetworkSid,null),PipeAccessRights.FullControl,AccessControlType.Deny));
         security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(Sid),PipeAccessRights.FullControl,AccessControlType.Allow));
@@ -112,12 +117,24 @@ class RemoteOpsDesktop {
             var p=new NamedPipeServerStream(pipe,PipeDirection.InOut,8,PipeTransmissionMode.Byte,PipeOptions.Asynchronous,65536,65536,security);
             p.WaitForConnection();Interlocked.Increment(ref Clients);
             var thread=new Thread(()=>{try {using(p)using(var input=new StreamReader(p,new UTF8Encoding(false),false,65536,true))using(var output=new StreamWriter(p,new UTF8Encoding(false),65536,true){AutoFlush=true}) {
-                string line;while((line=input.ReadLine())!=null) {if(line.Length>262144)break;object response;var req=Obj(Json.DeserializeObject(line));
-                    lock(Gate){LastUse=DateTime.UtcNow;try{var method=Text(req,"method");var a=Obj(req.ContainsKey("args")?req["args"]:null);response=new{id=Text(req,"id"),ok=true,result=Dispatch(method,a)};}catch(Exception error){response=new{id=Text(req,"id"),ok=false,code=error is DesktopException?((DesktopException)error).Code:"DESKTOP_OPERATION_FAILED",error=error.Message};}}
-                    output.WriteLine(Json.Serialize(response));
-                }
+                string line;while((line=ReadLine(input,262144))!=null)output.WriteLine(Json.Serialize(Respond(line)));
             }}catch{}finally{Interlocked.Decrement(ref Clients);LastUse=DateTime.UtcNow;}});thread.IsBackground=true;thread.SetApartmentState(ApartmentState.MTA);thread.Start();
         }
+    }
+    static string ReadLine(StreamReader reader,int max){var s=new StringBuilder();int c;while((c=reader.Read())!=-1){if(c==10)return s.ToString();if(c!=13)s.Append((char)c);if(s.Length>max)Fail("DESKTOP_REQUEST_LIMIT","Request exceeds its size limit");}return s.Length==0?null:s.ToString();}
+    static object Respond(string line){var req=Obj(Json.DeserializeObject(line));var received=DateTime.UtcNow;lock(Gate){LastUse=DateTime.UtcNow;try{if(DateTime.UtcNow-received>TimeSpan.FromSeconds(8))Fail("DESKTOP_BUSY","Queued request expired without dispatch");var a=Obj(req.ContainsKey("args")?req["args"]:null);return new{id=Text(req,"id"),ok=true,result=Dispatch(Text(req,"method"),a)};}catch(Exception error){return new{id=Text(req,"id"),ok=false,code=error is DesktopException?((DesktopException)error).Code:"DESKTOP_OPERATION_FAILED",error=error.Message};}}}
+    static void StartForwardEndpoint(string pipe){
+        var listener=new TcpListener(IPAddress.Loopback,0);listener.Start(8);
+        string file=EndpointPath(Session);var security=new FileSecurity();security.SetAccessRuleProtection(true,false);security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(Sid),FileSystemRights.FullControl,AccessControlType.Allow));
+        using(var stream=new FileStream(file,FileMode.Create,FileSystemRights.FullControl,FileShare.None,4096,FileOptions.None,security))using(var writer=new StreamWriter(stream,new UTF8Encoding(false)))writer.Write(Json.Serialize(new{pipe=pipe,port=((IPEndPoint)listener.LocalEndpoint).Port,token=AccessToken,sessionId=Session,protocol=Protocol}));
+        var accept=new Thread(()=>{while(true){var client=listener.AcceptTcpClient();if(Interlocked.Increment(ref Clients)>8){client.Close();Interlocked.Decrement(ref Clients);continue;}
+            var thread=new Thread(()=>{try{using(client)using(var stream=client.GetStream())using(var reader=new StreamReader(stream,new UTF8Encoding(false),false,65536,true))using(var writer=new StreamWriter(stream,new UTF8Encoding(false),65536,true){AutoFlush=true}){
+                stream.ReadTimeout=5000;var auth=Obj(Json.DeserializeObject(ReadLine(reader,4096)));var a=Obj(auth.ContainsKey("args")?auth["args"]:null);
+                if(Text(auth,"method")!="authenticate"||Text(a,"token")!=AccessToken)return;
+                writer.WriteLine(Json.Serialize(new{id=Text(auth,"id"),ok=true,result=new{authenticated=true}}));stream.ReadTimeout=Timeout.Infinite;
+                string line;while((line=ReadLine(reader,262144))!=null)writer.WriteLine(Json.Serialize(Respond(line)));
+            }}catch{}finally{Interlocked.Decrement(ref Clients);LastUse=DateTime.UtcNow;}});thread.IsBackground=true;thread.SetApartmentState(ApartmentState.MTA);thread.Start();
+        }});accept.IsBackground=true;accept.Start();
     }
     static object Dispatch(string method,Dictionary<string,object> args) {
         if(method=="status")return Probe();RequireDesktop();
@@ -141,6 +158,7 @@ class RemoteOpsDesktop {
     static IntPtr Window(Dictionary<string,object> args) {
         long raw;IntPtr window=Int64.TryParse(Text(args,"windowId"),out raw)?new IntPtr(raw):IntPtr.Zero;int pid=Number(args,"pid");
         if(window==IntPtr.Zero){var fg=GetForegroundWindow();if(pid>0&&ProcessId(fg)==pid)window=fg;else EnumWindows((h,l)=>{if(IsWindowVisible(h)&&Title(h).Length>0&&(pid==0||ProcessId(h)==pid)&&InSession(h)){window=h;return false;}return true;},IntPtr.Zero);}
+        if(window!=IntPtr.Zero)window=GetAncestor(window,2);
         if(window==IntPtr.Zero||!IsWindow(window)||!InSession(window))Fail("DESKTOP_WINDOW_NOT_FOUND","Select a current window in this user session");return window;
     }
     static bool InSession(IntPtr h) { try{return Process.GetProcessById(ProcessId(h)).SessionId==Session;}catch{return false;} }
@@ -148,11 +166,11 @@ class RemoteOpsDesktop {
     static string Title(IntPtr h){var s=new StringBuilder(1024);GetWindowText(h,s,s.Capacity);return s.ToString();}
     static object Observe(Dictionary<string,object> args) {
         var windows=new List<object>();EnumWindows((h,l)=>{if(IsWindowVisible(h)&&InSession(h)&&Title(h).Length>0)windows.Add(new {windowId=h.ToInt64().ToString(),title=Title(h),pid=ProcessId(h)});return windows.Count<80;},IntPtr.Zero);
-        if(windows.Count==0)return new {windows=windows,elements=new object[0],screenshot=(object)null,interactive=true};
+        if(windows.Count==0||Text(args,"listOnly")=="True"||Text(args,"listOnly")=="true")return new {windows=windows,elements=new object[0],screenshot=(object)null,interactive=true};
         IntPtr hWnd=Window(args);RECT rect;GetWindowRect(hWnd,out rect);if(IsIconic(hWnd))Fail("DESKTOP_WINDOW_MINIMIZED","Restore this window to inspect its visible content");
         var snapshot=new Snapshot{Window=hWnd,Rect=rect,At=DateTime.UtcNow,LastInput=LastInput()};var elements=new List<object>();var masks=new List<Rectangle>();string id=Guid.NewGuid().ToString("N");
         var root=Automation.FromHandle(hWnd);var queue=new Queue<Tuple<AutomationElement,int>>();queue.Enqueue(Tuple.Create(root,0));
-        while(queue.Count>0&&elements.Count<350){var item=queue.Dequeue();var e=item.Item1;try{
+        while(queue.Count>0&&elements.Count<350&&DateTime.UtcNow-snapshot.At<TimeSpan.FromSeconds(6)){var item=queue.Dequeue();var e=item.Item1;try{
             string key="e"+(elements.Count+1);snapshot.Elements[key]=e;bool password=e.Properties.IsPassword.ValueOrDefault;var bounds=e.Properties.BoundingRectangle.ValueOrDefault;
             string value=null;if(!password&&e.Patterns.Value.IsSupported)value=e.Patterns.Value.Pattern.Value.ValueOrDefault;
             if(password)masks.Add(bounds);
@@ -162,7 +180,8 @@ class RemoteOpsDesktop {
         foreach(var old in Snapshots.Where(x=>DateTime.UtcNow-x.Value.At>TimeSpan.FromSeconds(45)).Select(x=>x.Key).ToArray())Snapshots.Remove(old);
         while(Snapshots.Count>=16)Snapshots.Remove(Snapshots.OrderBy(x=>x.Value.At).First().Key);Snapshots[id]=snapshot;
         object image=null;string captureError=null;try{image=Capture(hWnd,rect,masks);}catch(Exception error){captureError=error.Message;}
-        return new {workerId=WorkerId,sessionId=Session,snapshotId=id,windowId=hWnd.ToInt64().ToString(),pid=ProcessId(hWnd),title=Title(hWnd),windows=windows,elements=elements,truncated=queue.Count>0,observedAt=DateTime.UtcNow.ToString("o"),screenshot=image,captureError=captureError,interactive=true};
+        RECT after;GetWindowRect(hWnd,out after);if(!after.Equals(rect))Fail("DESKTOP_SNAPSHOT_STALE","Window moved while being observed; observe again");snapshot.At=DateTime.UtcNow;
+        return new {workerId=WorkerId,sessionId=Session,snapshotId=id,windowId=hWnd.ToInt64().ToString(),pid=ProcessId(hWnd),title=Title(hWnd),bounds=new{x=rect.Left,y=rect.Top,width=rect.Right-rect.Left,height=rect.Bottom-rect.Top},windows=windows,elements=elements,truncated=queue.Count>0,observedAt=snapshot.At.ToString("o"),screenshot=image,captureError=captureError,interactive=true};
     }
     static string Limit(string value,int length){return value==null?"":value.Substring(0,Math.Min(length,value.Length));}
     static object Act(Dictionary<string,object> args) {
@@ -178,7 +197,9 @@ class RemoteOpsDesktop {
         else if(action=="expect") {if(e==null)Fail("DESKTOP_ELEMENT_NOT_FOUND","Expected element is missing");string actual=e.Patterns.Value.IsSupported&&!e.Properties.IsPassword.ValueOrDefault?e.Patterns.Value.Pattern.Value.ValueOrDefault:e.Properties.Name.ValueOrDefault;if(actual!=Text(step,"text"))Fail("DESKTOP_EXPECT_FAILED","Current control value did not match the expected result");return new {status="completed",verified=true};}
         else if(action=="click"||action=="keys"||action=="text"||action=="scroll") {
             RECT current;GetWindowRect(snap.Window,out current);if(!current.Equals(snap.Rect)||DateTime.UtcNow-snap.At>TimeSpan.FromSeconds(8))Fail("DESKTOP_SNAPSHOT_STALE","Window moved or input snapshot expired; observe again");
-            if(LastInput()!=snap.LastInput)Fail("DESKTOP_INPUT_CHANGED","Desktop input changed after observation; observe again");
+            // Clicking the DSH preview is itself input on a local target. Global
+            // last-input ticks therefore cannot distinguish a stale target.
+            // Bound point actions by snapshot age, window geometry and foreground.
             SetForegroundWindow(snap.Window);Thread.Sleep(60);if(GetForegroundWindow()!=snap.Window)Fail("DESKTOP_FOCUS_CHANGED","Target could not obtain foreground focus; no input sent");
             if(e!=null)e.Focus();
             if(action=="click") {int x,y;if(e!=null){var b=e.Properties.BoundingRectangle.ValueOrDefault;x=b.Left+b.Width/2;y=b.Top+b.Height/2;}else{x=current.Left+Number(step,"x",-1);y=current.Top+Number(step,"y",-1);}if(x<current.Left||y<current.Top||x>=current.Right||y>=current.Bottom)Fail("DESKTOP_POINT_INVALID","Point is outside the observed window");SetCursorPos(x,y);var at=WindowFromPoint(new POINT{x=x,y=y});if(GetAncestor(at,2)!=snap.Window)Fail("DESKTOP_WINDOW_OCCLUDED","Another window covers the target point; no click sent");SendMouse(2,0);SendMouse(4,0);}

@@ -25,6 +25,9 @@ jobs:
           cache: npm
           cache-dependency-path: integrations/dsh-remote-ops/package-lock.json
       - run: npm ci --prefix integrations/dsh-remote-ops
+      - name: Build bundled desktop runtime
+        shell: powershell
+        run: ./integrations/dsh-remote-ops/scripts/build-desktop.ps1
       - name: Full Windows regression gate
         run: npm run check --prefix integrations/dsh-remote-ops
       - name: Prepare isolated Microsoft OpenSSH binaries

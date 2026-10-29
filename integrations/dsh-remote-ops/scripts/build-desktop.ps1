@@ -21,14 +21,19 @@ foreach ($dependency in $dependencies) {
 $framework = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319'
 $compiler = Join-Path $framework 'csc.exe'
 $references = @('System.Drawing.dll','System.Windows.Forms.dll','System.Web.Extensions.dll','Microsoft.CSharp.dll','System.Management.dll')
-$arguments = @('/nologo','/target:winexe','/platform:x64','/optimize+',('/out:' + (Join-Path $runtimeRoot 'RemoteOpsDesktop.exe')))
+$arguments = @('/nologo','/target:exe','/platform:x64','/optimize+',('/out:' + (Join-Path $runtimeRoot 'RemoteOpsDesktop.exe')))
 foreach ($reference in $references) { $arguments += '/reference:' + (Join-Path $framework $reference) }
 foreach ($dependency in $dependencies) { $arguments += '/reference:' + (Join-Path $runtimeRoot $dependency.dll) }
 $arguments += '/reference:' + (Join-Path $framework 'WPF/WindowsBase.dll')
 $arguments += Join-Path $desktopRoot 'RemoteOpsDesktop.cs'
+$arguments += '/win32manifest:' + (Join-Path $desktopRoot 'app.manifest')
 & $compiler @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Desktop worker compilation failed' }
 [IO.File]::WriteAllText((Join-Path $runtimeRoot 'RemoteOpsDesktop.exe.config'),'<configuration><startup><supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.8" /></startup></configuration>')
+$workerArguments = $arguments | ForEach-Object { if ($_ -eq '/target:exe') { '/target:winexe' } elseif ($_ -like '/out:*') { '/out:' + (Join-Path $runtimeRoot 'RemoteOpsDesktopWorker.exe') } else { $_ } }
+& $compiler @workerArguments
+if ($LASTEXITCODE -ne 0) { throw 'Desktop interactive worker compilation failed' }
+Copy-Item -LiteralPath (Join-Path $runtimeRoot 'RemoteOpsDesktop.exe.config') -Destination (Join-Path $runtimeRoot 'RemoteOpsDesktopWorker.exe.config')
 & $compiler /nologo /target:winexe /platform:x64 /reference:System.Windows.Forms.dll /reference:System.Drawing.dll ('/out:' + (Join-Path $desktopRoot 'test-app/RemoteOpsDesktopTest.exe')) (Join-Path $desktopRoot 'test-app/Program.cs')
 if ($LASTEXITCODE -ne 0) { throw 'Desktop test fixture compilation failed' }
 $manifest = @{ protocol = 1; files = @() }

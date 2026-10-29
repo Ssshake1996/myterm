@@ -62,7 +62,7 @@ test('background snapshot is owner scoped and includes no browser targets, crede
   const State=withSnapshots(class {}),state=new State();
   state.transfers={list:owner=>owner==='a'?[{id:'t',status:'running',source:{kind:'ssh',password:'secret'}}]:[]};
   state.browser={sessions:new Map([['a',{id:'a',owner:'a',job:{id:'a-job',steps:[{password:'secret'}],status:'running',index:0},secret:'secret'}],['b',{id:'b',owner:'b',job:{id:'private-job',steps:[],status:'failed'}}]])};
-  assert.deepEqual(state.workspaceActivity('a'),{transfers:[{id:'t',status:'running',source:'ssh'}],activeBrowserId:null,browsers:[{browserId:'a',id:'a-job',status:'running',index:0,count:1}]});
+  assert.deepEqual(state.workspaceActivity('a'),{transfers:[{id:'t',status:'running',source:'ssh'}],activeBrowserId:null,desktops:[],browsers:[{browserId:'a',id:'a-job',status:'running',index:0,count:1}]});
   assert.equal(JSON.stringify(state.workspaceActivity('a')).includes('secret'),false);
   assert.deepEqual(state.outputCursor({outputBuffer:{streamId:'x',endOffset:12,value:'sensitive-output'}}),{streamId:'x',offset:12});
 });

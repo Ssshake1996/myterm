@@ -46,6 +46,7 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
     return {
       transfers: (this.transfers?.list(id) ?? []).map(({ id, status, source }) => ({ id, status, source: source.kind })),
       activeBrowserId: this.browser?.active?.get(id) ?? null,
+      desktops: this.desktop?.snapshot(id).sessions.map(({ desktopId, status }) => ({ desktopId, status })) ?? [],
       browsers: [...(this.browser?.sessions?.values() ?? [])].filter(record => record.owner === id && !record.closed && record.job).map(record => {
         const job = record.job;
         return { browserId: record.id, id: job.id, status: job.status, index: job.index, count: job.steps.length };

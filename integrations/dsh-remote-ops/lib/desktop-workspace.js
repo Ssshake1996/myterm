@@ -24,6 +24,7 @@ export function validateDesktopAction(args) {
     if(['fill','text','expect'].includes(step.action)&&(typeof step.text!=='string'||step.text.length>16384||step.text.includes('\0')))invalid('text must be a string up to 16384 characters; empty text clears a field');
     if(step.action==='keys'&&(typeof step.keys!=='string'||!/^(?:(?:CTRL|ALT|SHIFT)\+){0,3}(?:[A-Z0-9]|ENTER|TAB|ESC|BACKSPACE|DELETE|HOME|END|LEFT|UP|RIGHT|DOWN|SPACE)$/i.test(step.keys)))invalid('keys must be a supported chord such as CTRL+S or ENTER');
     if(step.action==='toggle'&&typeof step.checked!=='boolean')invalid('checked must be a boolean');
+    if(step.action==='click'&&step.ref&&(step.x!=null||step.y!=null))invalid('click must select ref or x/y, not both');
     if(step.action==='click'&&!step.ref&&(!Number.isInteger(step.x)||!Number.isInteger(step.y)||step.x<0||step.y<0||step.x>10000||step.y>10000))invalid('click needs ref, or integer window-relative x and y');
     if(step.action==='scroll'&&(!Number.isInteger(step.delta)||!step.delta||Math.abs(step.delta)>1200))invalid('delta must be a nonzero integer between -1200 and 1200');
     return {...step};
@@ -33,9 +34,9 @@ export function validateDesktopAction(args) {
 
 export class DesktopWorkspace {
   constructor(state,{connect=connectDesktop}={}) {
-    this.state=state;this.connector=connect;this.sessions=new Map();this.selected=new Map();this.openings=new Map();this.active=0;this.exports=new Map();
+    this.state=state;this.connector=connect;this.sessions=new Map();this.closed=new Map();this.selected=new Map();this.openings=new Map();this.active=0;this.exports=new Map();
   }
-  async inspect(args,signal){return this.connector(this.state,{...args,signal,inspect:true});}
+  async inspect(args,signal){bounded(args.environment,'environment');return this.connector(this.state,{...args,signal,inspect:true});}
   async connect(owner,args,signal) {
     bounded(args.environment,'environment');
     const existing=[...this.sessions.values()].find(r=>r.owner===owner&&r.environment===args.environment&&!r.transport.closed&&(args.windowsSessionId==null||r.info.sessionId===args.windowsSessionId));
@@ -52,22 +53,24 @@ export class DesktopWorkspace {
     try{return await pending;}finally{this.openings.delete(key);}
   }
   session(owner,id){const record=this.sessions.get(id??this.selected.get(owner));if(!record||record.owner!==owner)throw desktopError('DESKTOP_SESSION_NOT_FOUND','Use the desktopId returned in this conversation');return record;}
-  publicSession(r){return {desktopId:r.id,environment:r.environment,info:r.info,status:r.transport.closed?'disconnected':r.busy?'busy':'connected',createdAt:r.createdAt,error:r.error??null,lastAction:r.events.at(-1)??null};}
+  select(owner,id){const r=this.session(owner,id);this.selected.set(owner,r.id);return this.publicSession(r);}
+  publicSession(r){return {desktopId:r.id,environment:r.environment,info:r.info,target:r.target??null,status:r.transport.closed?'disconnected':r.busy?'busy':'connected',createdAt:r.createdAt,error:r.error??null,lastAction:r.events.at(-1)??null};}
   snapshot(owner){return {selected:this.selected.get(owner)??null,sessions:[...this.sessions.values()].filter(r=>r.owner===owner).map(r=>this.publicSession(r))};}
   record(r,event,details={}){r.events.push({at:new Date().toISOString(),event,...details});if(r.events.length>1000)r.events.shift();}
   async observe(owner,args,signal){signal?.throwIfAborted();const r=this.session(owner,args.desktopId);this.active++;
-    try{const value=await r.transport.call('observe',{...(args.windowId?{windowId:args.windowId}:{}),...(args.pid?{pid:args.pid}:{})});r.observation=value;r.error=null;return {...value,desktopId:r.id};}
+    try{const target=args.windowId?{windowId:args.windowId}:args.pid?{pid:args.pid}:r.target??{};const value=await r.transport.call('observe',{...target,...(args.listOnly?{listOnly:true}:{})});if(args.windowId||args.pid)r.target=target;if(!args.listOnly)r.observation=value;r.error=null;return {...value,desktopId:r.id};}
     catch(error){r.error={code:error.code,message:error.message};throw error;}finally{this.active--;}
   }
   async once(r,requestId,body,work){
     const hash=JSON.stringify(body),previous=r.receipts.get(requestId);
     if(previous){if(previous.hash!==hash)throw desktopError('DESKTOP_REQUEST_CONFLICT','This requestId already identifies a different action');return previous.promise;}
+    if(r.busy)throw desktopError('DESKTOP_BUSY','An action is already running in this desktop connection; wait for its result');
     if(r.receipts.size>=500)throw desktopError('DESKTOP_REQUEST_LIMIT','Disconnect this idle desktop connection before starting another batch');
     const entry={hash};r.receipts.set(requestId,entry);
     entry.promise=(async()=>{r.busy++;this.active++;try{return await work();}finally{r.busy--;this.active--;}})();return entry.promise;
   }
   async launch(owner,args,signal){const normalized=validateLaunch(args),requestId=bounded(args.requestId,'requestId',100),r=this.session(owner,args.desktopId);
-    return this.once(r,requestId,{launch:normalized},async()=>{signal?.throwIfAborted();this.record(r,'launch',{path:normalized.path});const result=await r.transport.call('launch',{...normalized,requestId:r.id+':'+requestId});this.record(r,'launched',{pid:result.pid});return {...result,desktopId:r.id};});
+    return this.once(r,requestId,{launch:normalized},async()=>{signal?.throwIfAborted();this.record(r,'launch',{path:normalized.path});const result=await r.transport.call('launch',{...normalized,workerId:r.info.workerId,requestId:r.id+':'+requestId});r.target={pid:result.pid};this.record(r,'launched',{pid:result.pid});return {...result,desktopId:r.id};});
   }
   async act(owner,args,signal){const normalized=validateDesktopAction(args),r=this.session(owner,args.desktopId);
     return this.once(r,normalized.requestId,normalized,async()=>{
@@ -75,7 +78,7 @@ export class DesktopWorkspace {
       for(const [index,step] of normalized.steps.entries()){
         if(signal?.aborted){status='cancelled';break;}
         this.record(r,'action',{requestId:normalized.requestId,index,action:step.action,ref:step.ref??null,characters:step.text?.length});
-        try{const result=await r.transport.call('act',{snapshotId:normalized.snapshotId,step,requestId:r.id+':'+normalized.requestId+':'+index});results.push(result);this.record(r,'result',{index,...result});}
+        try{const result=await r.transport.call('act',{snapshotId:normalized.snapshotId,step,workerId:r.info.workerId,requestId:r.id+':'+normalized.requestId+':'+index});results.push(result);this.record(r,'result',{index,...result});}
         catch(error){status=error.code==='DESKTOP_OUTCOME_UNKNOWN'||r.transport.closed?'unknown':'failed';r.error={code:error.code,message:error.message};results.push({status,...r.error});this.record(r,'error',r.error);break;}
       }
       if(signal?.aborted)status='cancelled';
@@ -83,14 +86,14 @@ export class DesktopWorkspace {
     });
   }
   read(owner,args){const r=this.session(owner,args.desktopId);return {...this.publicSession(r),events:r.events.slice(-100),observation:r.observation?{...r.observation,screenshot:undefined}:null};}
-  async disconnect(owner,id){const r=this.session(owner,id);if(r.busy)throw desktopError('DESKTOP_BUSY','Stop the current DSH conversation and wait for its action to settle before disconnecting');r.transport.close();this.sessions.delete(r.id);if(this.selected.get(owner)===r.id)this.selected.delete(owner);return {disconnected:true,applicationsClosed:false};}
+  async disconnect(owner,id){const r=this.session(owner,id);if(r.busy)throw desktopError('DESKTOP_BUSY','Stop the current DSH conversation and wait for its action to settle before disconnecting');r.transport.close();this.record(r,'disconnected');this.closed??=new Map();this.closed.set(r.id,r);while(this.closed.size>32)this.closed.delete(this.closed.keys().next().value);this.sessions.delete(r.id);if(this.selected.get(owner)===r.id)this.selected.delete(owner);return {disconnected:true,applicationsClosed:false,logsRetained:true};}
   async export(owner,{desktopId,all=false}={}){
-    const records=all?[...this.sessions.values()].filter(s=>s.owner===owner):[this.session(owner,desktopId)];
+    const records=all?[...this.sessions.values(),...(this.closed?.values()??[])].filter(s=>s.owner===owner):[this.session(owner,desktopId)];
     if(!records.length)throw desktopError('DESKTOP_LOGS_EMPTY','No desktop records in this conversation');
     const files=[];for(const r of records){files.push({name:`${r.id}/actions.json`,text:JSON.stringify({environment:r.environment,target:r.info,events:r.events},null,2)});if(r.observation?.screenshot?.data)files.push({name:`${r.id}/last-window.jpg`,text:Buffer.from(r.observation.screenshot.data,'base64')});}
     const data=await zipLogs(files),id=randomUUID(),filename='remote-ops-desktop-'+new Date().toISOString().replaceAll(/[:.]/g,'-')+'.zip';
     while(this.exports.size>=16)this.exports.delete(this.exports.keys().next().value);this.exports.set(id,{owner,data,filename});
     return {exportId:id,filename,bytes:data.length,sha256:createHash('sha256').update(data).digest('hex'),url:`/api/dsh-remote-ops/desktop-log?${new URLSearchParams({sessionId:owner,exportId:id})}`};
   }
-  async dispose(){for(const r of this.sessions.values())r.transport.close();this.sessions.clear();this.exports.clear();}
+  async dispose(){for(const r of this.sessions.values())r.transport.close();this.sessions.clear();this.closed?.clear();this.exports.clear();}
 }

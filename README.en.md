@@ -18,6 +18,12 @@
 
 These screenshots show v0.9.2 installed in real DSH 0.2.0-rc.2; the installed package matches the official Release SHA256. A deterministic test provider drives real tools against isolated local SSH, web and API services.
 
+## Windows desktop operations
+
+The **桌面** workspace shows real Windows application windows. Connect the DSH Windows host or a saved Windows SSH environment, launch software, inspect UIA controls, fill fields, click buttons and verify outcomes. Users can operate the same window; native DSH cancellation stops later steps. Export this conversation's desktop records and last captured windows as a ZIP.
+
+The tgz includes the pinned worker and dependencies plus the native `remote-ops-desktop` skill. Use a logged-on, unlocked Windows 11 or Windows Server Desktop Experience session; the SSH account must match that desktop user. Hot reload waits for active desktop work and retains connections and logs. See the [Windows desktop guide](integrations/dsh-remote-ops/DESKTOP.md).
+
 ## Hot reload after updates
 
 Starting with v0.11.0, **设置 → 更新 → 检查并更新** downloads, verifies and installs a newer release, then automatically applies it when work is idle. DSH keeps running. The update view explains waits for conversation activity, terminal waits and independent commands, transfers, browser jobs/runtime installation, and API requests. Browser uploads defer reload until the whole batch finishes or is cancelled, including the gaps between file requests.
@@ -80,10 +86,10 @@ Current version: [v0.11.0](https://github.com/Ssshake1996/myterm/releases/tag/ds
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.11.0.tgz` and `SHA256SUMS-dsh-remote-ops-v0.11.0.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.12.0.tgz` and `SHA256SUMS-dsh-remote-ops-v0.12.0.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.11.0.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.0.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -195,7 +201,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from the [latest stable release](https://github.com/Ssshake1996/myterm/releases/latest), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.11.0.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.12.0.tgz
 dsh web
 ```
 
@@ -242,15 +248,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.11.0
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.12.0
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.11.0
-node scripts/release-dsh-remote-ops.mjs 0.11.0 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.12.0
+node scripts/release-dsh-remote-ops.mjs 0.12.0 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

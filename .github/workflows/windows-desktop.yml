@@ -30,8 +30,54 @@ jobs:
           DESKTOP_OUTPUT: ${{ github.workspace }}/output/desktop-live
         run: node test/desktop-live.mjs
         timeout-minutes: 4
+      - name: Prepare isolated OpenSSH
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Path output/openssh-runtime -Force | Out-Null
+          gh release download v9.8.3.0p2-Preview --repo PowerShell/Win32-OpenSSH --pattern OpenSSH-Win64.zip --dir output/openssh-runtime
+          Expand-Archive -LiteralPath output/openssh-runtime/OpenSSH-Win64.zip -DestinationPath output/openssh-runtime
+          $binary = (Resolve-Path output/openssh-runtime/OpenSSH-Win64/sshd.exe).Path
+          $signature = Get-AuthenticodeSignature -LiteralPath $binary
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') { throw 'OpenSSH signature verification failed' }
+          'WINDOWS_OPENSSH_BIN=' + (Split-Path $binary) | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Actual SSH to interactive desktop
+        working-directory: integrations/dsh-remote-ops
+        env:
+          DESKTOP_SSH: '1'
+          DESKTOP_OUTPUT: ${{ github.workspace }}/output/desktop-ssh-live
+        run: node test/desktop-live.mjs
+        timeout-minutes: 4
+      - name: Install native DSH and package candidate
+        shell: pwsh
+        run: |
+          npm install --prefix output/dsh-host @deepseek-ai/dsh@0.2.0-rc.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Path output/desktop-package -Force | Out-Null
+          Push-Location integrations/dsh-remote-ops
+          npm pack --pack-destination ../../output/desktop-package --silent
+          Pop-Location
+          'DSH_CLI=' + (Join-Path $PWD 'output/dsh-host/node_modules/@deepseek-ai/dsh/lib/bin.js') | Out-File -FilePath $env:GITHUB_ENV -Append
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
+      - name: Installed native DSH desktop tools and shared input
+        shell: pwsh
+        env:
+          DESKTOP_NATIVE_OUTPUT: output/desktop-native
+        run: |
+          $package = Get-ChildItem output/desktop-package -Filter *.tgz | Select-Object -First 1
+          node e2e/runner/desktop-native.mjs $package.FullName
+        timeout-minutes: 8
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: desktop-${{ matrix.os }}
-          path: output/desktop-live/
+          path: |
+            output/desktop-live/evidence.json
+            output/desktop-live/*.jpg
+            output/desktop-ssh-live/evidence.json
+            output/desktop-ssh-live/*.jpg
+            output/desktop-native/evidence.json
+            output/desktop-native/*.png

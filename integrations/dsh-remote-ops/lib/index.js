@@ -16,6 +16,10 @@ import { registerLogRoutes } from "./log-routes.js";
 import { ApiWorkspace } from "./api-workspace.js";
 import { registerApiTools } from "./api-tools.js";
 import { registerApiRoutes } from "./api-routes.js";
+import { DesktopWorkspace } from "./desktop-workspace.js";
+import { connectDesktop } from "./desktop-transport.js";
+import { registerDesktopTools } from "./desktop-tools.js";
+import { registerDesktopRoutes } from "./desktop-routes.js";
 
 export const name = PLUGIN_NAME;
 export const inject = ["connection", "systemPrompt", "tools", "terminals", "agents", "credentials", "subprocess"];
@@ -34,6 +38,7 @@ export function apply(ctx) {
     state.ctx = ctx; state.disposed = false; state.runtimeId = randomUUID();
     Object.setPrototypeOf(state.browser, BrowserWorkspace.prototype);
     Object.setPrototypeOf(state.api, ApiWorkspace.prototype);
+    if (state.desktop) { Object.setPrototypeOf(state.desktop, DesktopWorkspace.prototype); state.desktop.state = state; state.desktop.connector = connectDesktop; }
     Object.setPrototypeOf(state.transfers, TransferManager.prototype);
     state.browser.credentials = ctx.credentials; state.api.credentials = ctx.credentials;
     state.release = { ...state.release, currentVersion: PLUGIN_VERSION, updateAvailable: false };
@@ -50,6 +55,7 @@ export function apply(ctx) {
   registerSessionActivation(ctx, state);
   state.browser ??= new BrowserWorkspace({ root: join(state.base, "browser"), credentials: ctx.credentials });
   state.api ??= new ApiWorkspace({ root: join(state.base, "api"), credentials: ctx.credentials });
+  state.desktop ??= new DesktopWorkspace(state);
   ctx.effect(() => async () => {
     if (peekHandoff(ctx)?.state === state) return;
     state.disposed = true;
@@ -57,6 +63,7 @@ export function apply(ctx) {
     if (state.updateInstallId) await state.updateManager?.cancelInstall(state.updateInstallId).catch(() => {});
     await Promise.allSettled([state.updatePromise, state.releaseCheckPromise].filter(Boolean));
     await state.api.dispose();
+    await state.desktop.dispose();
     await state.browser.dispose();
     for (const job of state.commands.values()) job.controller.abort();
     await Promise.allSettled([...state.commands.values()].map((job) => job.done));
@@ -77,6 +84,8 @@ export function apply(ctx) {
   registerBrowserTools(ctx, state);
   registerApiTools(ctx, state);
   registerApiRoutes(ctx, state);
+  registerDesktopTools(ctx, state);
+  registerDesktopRoutes(ctx, state);
   registerBundledSkills(ctx);
   if (handoff) handoff.adopted = true;
 }
