@@ -16,5 +16,7 @@ jobs:
           cache-dependency-path: integrations/dsh-remote-ops/package-lock.json
       - run: npm ci --prefix integrations/dsh-remote-ops
       - run: npm run check --prefix integrations/dsh-remote-ops
-      - run: npm pack --dry-run
+      # Windows desktop acceptance builds and verifies the native payload before
+      # its real pack/install gate. This Linux job checks the JS package inventory.
+      - run: npm pack --dry-run --ignore-scripts
         working-directory: integrations/dsh-remote-ops

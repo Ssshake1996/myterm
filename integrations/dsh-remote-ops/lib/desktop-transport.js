@@ -14,6 +14,7 @@ const runFile = promisify(execFile);
 const runtime = fileURLToPath(new URL('../desktop/runtime/', import.meta.url));
 export const desktopError = (code, message) => Object.assign(new Error(`${code}: ${message}`), { code });
 const parse = text => { const value=JSON.parse(text.trim()); if(value.error)throw desktopError(value.code??'DESKTOP_RUNTIME_FAILED',value.error);return value; };
+const runHelper=async(exe,args,signal)=>{try{return parse((await runFile(exe,args,{windowsHide:true,timeout:40000,maxBuffer:262144,signal})).stdout);}catch(error){if(error.stdout?.trim())return parse(error.stdout);if(error.code?.startsWith?.('DESKTOP_'))throw error;throw desktopError('DESKTOP_SETUP_FAILED',`Worker ${args[0]} failed (exit ${error.code??'unknown'}, signal ${error.signal??'none'}): ${error.stderr?.trim()||error.message}`);}};
 // SSH exec is a bounded setup command. Bidirectional desktop traffic uses SSH
 // direct-tcpip to the worker's authenticated loopback-only endpoint.
 const bootstrap=String.raw`
@@ -50,6 +51,8 @@ try {
 export async function desktopRuntime() {
   const bytes=await readFile(join(runtime,'manifest.json')).catch(()=>{throw desktopError('DESKTOP_RUNTIME_MISSING','Install a plugin package containing the built Windows desktop runtime');});
   const manifest=JSON.parse(bytes);
+  const names=['RemoteOpsDesktop.exe','RemoteOpsDesktopWorker.exe','RemoteOpsDesktop.exe.config','RemoteOpsDesktopWorker.exe.config','FlaUI.Core.dll','FlaUI.UIA3.dll','Interop.UIAutomationClient.dll','flaui.core-LICENSE.txt','flaui.uia3-LICENSE.txt','interop.uiautomationclient-LICENSE.txt'];
+  if(manifest.protocol!==1||!Array.isArray(manifest.files)||manifest.files.length!==names.length||names.some(name=>manifest.files.filter(file=>file.name===name).length!==1))throw desktopError('DESKTOP_RUNTIME_INVALID','Runtime manifest must contain exactly the pinned binaries, configuration and licenses');
   for(const file of manifest.files) {
     if(!/^[\w.-]+$/.test(file.name))throw desktopError('DESKTOP_RUNTIME_INVALID','Invalid runtime filename');
     if(createHash('sha256').update(await readFile(join(runtime,file.name))).digest('hex')!==file.sha256)throw desktopError('DESKTOP_RUNTIME_INVALID',`Runtime checksum mismatch: ${file.name}`);
@@ -105,10 +108,10 @@ export async function connectDesktop(state,args={}) {
       await mkdir(cached,{recursive:true});
       for(const file of manifest.files){const target=join(cached,file.name);const previous=await readFile(target).catch(()=>null);if(!previous)await copyFile(join(runtime,file.name),target);else if(createHash('sha256').update(previous).digest('hex')!==file.sha256)throw desktopError('DESKTOP_RUNTIME_INVALID','Cached worker integrity check failed');}
       exe=join(cached,'RemoteOpsDesktop.exe');
-      probe=parse((await runFile(exe,['probe'],{windowsHide:true,timeout:12000,maxBuffer:262144})).stdout);
+      probe=await runHelper(exe,['probe'],args.signal);
       if(args.inspect)return probe;
       const session=chooseSession(probe,args.windowsSessionId);
-      ensured=parse((await runFile(exe,['ensure',String(session),'task'],{windowsHide:true,timeout:15000,maxBuffer:262144})).stdout);
+      ensured=await runHelper(exe,['ensure',String(session),'task'],args.signal);
       channel=await new Promise((resolve,reject)=>{const socket=createConnection({host:'127.0.0.1',port:ensured.port});const timer=setTimeout(()=>{socket.destroy();reject(desktopError('DESKTOP_CONNECT_TIMEOUT','Local worker did not accept a connection'));},5000);socket.once('connect',()=>{clearTimeout(timer);resolve(socket);});socket.once('error',error=>{clearTimeout(timer);reject(error);});});
     } else {
       await state.ready;const environment=state.findEnvironment(args.environment);

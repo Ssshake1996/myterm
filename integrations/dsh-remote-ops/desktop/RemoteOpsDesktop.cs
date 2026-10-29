@@ -36,6 +36,7 @@ class RemoteOpsDesktop {
     static Timer IdleTimer;
     static readonly string AccessToken=Guid.NewGuid().ToString("N")+Guid.NewGuid().ToString("N");
     static string EndpointPath(int session){return Path.Combine(Path.GetDirectoryName(typeof(RemoteOpsDesktop).Assembly.Location),"endpoint-"+session+".json");}
+    static string FailurePath(int session){return Path.Combine(Path.GetDirectoryName(typeof(RemoteOpsDesktop).Assembly.Location),"startup-failure-"+session+".json");}
     class Receipt { public string Body; public object Result; }
     class Snapshot { public DateTime At; public IntPtr Window; public RECT Rect; public uint LastInput; public Dictionary<string, AutomationElement> Elements = new Dictionary<string, AutomationElement>(); }
     class DesktopException : Exception { public string Code; public DesktopException(string code, string message) : base(message) { Code = code; } }
@@ -54,7 +55,7 @@ class RemoteOpsDesktop {
             if(args[0]=="ensure") { int id=Int32.Parse(args[1]); Ensure(id,args.Length>2&&args[2]=="task"); Write(Json.DeserializeObject(File.ReadAllText(EndpointPath(id))));return 0; }
             if(args[0]=="serve") { Serve(args[1]); return 0; }
             Fail("DESKTOP_MODE_INVALID","Unknown worker mode");
-        } catch(Exception error) { Write(new { error=error.Message,code=error is DesktopException ? ((DesktopException)error).Code : "DESKTOP_RUNTIME_FAILED" }); return 1; }
+        } catch(Exception error) {var failure=new {error=error.Message,code=error is DesktopException ? ((DesktopException)error).Code : "DESKTOP_RUNTIME_FAILED"};if(args.Length>0&&args[0]=="serve"){try{File.WriteAllText(FailurePath(Session),Json.Serialize(failure));}catch{}}Write(failure);return 1; }
         return 1;
     }
     static object Probe() {
@@ -82,6 +83,7 @@ class RemoteOpsDesktop {
         var probe=Obj(Json.DeserializeObject(Json.Serialize(Probe())));var sessions=probe["sessions"] as object[];
         if(sessions==null || !sessions.Any(x=>Number(Obj(x),"sessionId")==session && Text(Obj(x),"state")=="active"))Fail("DESKTOP_SESSION_UNAVAILABLE","No active desktop for this SSH account and session ID");
         string pipe=Pipe(session);if(Alive(pipe))return;
+        if(File.Exists(FailurePath(session)))File.Delete(FailurePath(session));
         string exe=Path.Combine(Path.GetDirectoryName(typeof(RemoteOpsDesktop).Assembly.Location),"RemoteOpsDesktopWorker.exe");
         if(Session==session&&!forceTask)Process.Start(new ProcessStartInfo(exe,"serve "+pipe){UseShellExecute=false,CreateNoWindow=true});
         else {
@@ -93,10 +95,10 @@ class RemoteOpsDesktop {
             string name="RemoteOps-Desktop-"+Hash(pipe).Substring(0,20);
             dynamic registered=folder.RegisterTaskDefinition(name,task,6,Sid,null,3,null);registered.RunEx(null,4,session,null);
             // Remove the completed bootstrap registration; it is not an auto-logon/startup task.
-            for(int i=0;i<50&&!Alive(pipe);i++)Thread.Sleep(100);
+            for(int i=0;i<50&&!Alive(pipe)&&!File.Exists(FailurePath(session));i++)Thread.Sleep(100);
             try{folder.DeleteTask(name,0);}catch{}
         }
-        for(int i=0;i<50;i++){if(Alive(pipe))return;Thread.Sleep(100);}
+        for(int i=0;i<50;i++){if(File.Exists(FailurePath(session))){var failure=Obj(Json.DeserializeObject(File.ReadAllText(FailurePath(session))));Fail(Text(failure,"code"),Text(failure,"error"));}if(Alive(pipe))return;Thread.Sleep(100);}
         Fail("DESKTOP_WORKER_START_FAILED","Worker did not become reachable in the selected desktop");
     }
     static void Serve(string pipe) {
