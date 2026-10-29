@@ -55,7 +55,7 @@ export class DesktopWorkspace {
   session(owner,id){const record=this.sessions.get(id??this.selected.get(owner));if(!record||record.owner!==owner)throw desktopError('DESKTOP_SESSION_NOT_FOUND','Use the desktopId returned in this conversation');return record;}
   select(owner,id){const r=this.session(owner,id);this.selected.set(owner,r.id);return this.publicSession(r);}
   publicSession(r){return {desktopId:r.id,environment:r.environment,info:r.info,target:r.target??null,status:r.transport.closed?'disconnected':r.busy?'busy':'connected',createdAt:r.createdAt,error:r.error??null,lastAction:r.events.at(-1)??null};}
-  snapshot(owner){return {selected:this.selected.get(owner)??null,sessions:[...this.sessions.values()].filter(r=>r.owner===owner).map(r=>this.publicSession(r))};}
+  snapshot(owner){return {selected:this.selected.get(owner)??null,sessions:[...this.sessions.values()].filter(r=>r.owner===owner).map(r=>this.publicSession(r)),retainedCount:[...(this.closed?.values()??[])].filter(r=>r.owner===owner).length};}
   record(r,event,details={}){r.events.push({at:new Date().toISOString(),event,...details});if(r.events.length>1000)r.events.shift();}
   async observe(owner,args,signal){signal?.throwIfAborted();const r=this.session(owner,args.desktopId);this.active++;
     try{const target=args.windowId?{windowId:args.windowId}:args.pid?{pid:args.pid}:r.target??{};const value=await r.transport.call('observe',{...target,...(args.listOnly?{listOnly:true}:{})});if(args.windowId||args.pid)r.target=target;if(!args.listOnly)r.observation=value;r.error=null;return {...value,desktopId:r.id};}
@@ -70,7 +70,7 @@ export class DesktopWorkspace {
     entry.promise=(async()=>{r.busy++;this.active++;try{return await work();}finally{r.busy--;this.active--;}})();return entry.promise;
   }
   async launch(owner,args,signal){const normalized=validateLaunch(args),requestId=bounded(args.requestId,'requestId',100),r=this.session(owner,args.desktopId);
-    return this.once(r,requestId,{launch:normalized},async()=>{signal?.throwIfAborted();this.record(r,'launch',{path:normalized.path});const result=await r.transport.call('launch',{...normalized,workerId:r.info.workerId,requestId:r.id+':'+requestId});r.target={pid:result.pid};this.record(r,'launched',{pid:result.pid});return {...result,desktopId:r.id};});
+    return this.once(r,requestId,{launch:normalized},async()=>{signal?.throwIfAborted();this.record(r,'launch',{path:normalized.path});try{const result=await r.transport.call('launch',{...normalized,workerId:r.info.workerId,requestId:r.id+':'+requestId});r.target={pid:result.pid};this.record(r,'launched',{pid:result.pid});return {...result,desktopId:r.id};}catch(error){r.error={code:error.code,message:error.message};this.record(r,'error',r.error);throw error;}});
   }
   async act(owner,args,signal){const normalized=validateDesktopAction(args),r=this.session(owner,args.desktopId);
     return this.once(r,normalized.requestId,normalized,async()=>{

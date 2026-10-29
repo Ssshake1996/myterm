@@ -131,7 +131,7 @@ export async function connectDesktop(state,args={}) {
       ensured=parse(setup.stdout);
       if(args.inspect){sftp.end();closeSshClient(client);return ensured;}
       if(!Number.isInteger(ensured.port)||ensured.port<1||ensured.port>65535||!/^[a-f0-9]{64}$/.test(ensured.token))throw desktopError('DESKTOP_PROTOCOL_INVALID','Invalid worker endpoint');
-      channel=await sshChannel(client,cb=>client.forwardOut('127.0.0.1',0,'127.0.0.1',ensured.port,cb),15000,args.signal,'Opening desktop SSH forwarding (AllowTcpForwarding must permit local forwarding)');
+      try{channel=await sshChannel(client,cb=>client.forwardOut('127.0.0.1',0,'127.0.0.1',ensured.port,cb),15000,args.signal,'Opening desktop SSH forwarding');}catch(error){throw desktopError('DESKTOP_FORWARDING_UNAVAILABLE','OpenSSH must allow local TCP forwarding to the loopback desktop worker: '+error.message);}
     }
     const rpc=new DesktopRpc(channel,channel,()=>{sftp?.end();channel.close?.();channel.destroy?.();closeSshClient(client);});
     await rpc.call('authenticate',{token:ensured.token});

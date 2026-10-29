@@ -1,6 +1,6 @@
 # @dsh/remote-ops
 
-面向 DeepSeek Harness 的终端、网页与 RESTful API 运维插件。用户与 Agent 共享可见终端、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
+面向 DeepSeek Harness 的终端、网页、Windows 桌面与 RESTful API 运维插件。用户与 Agent 共享可见终端、软件窗口、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
 
 ## Windows 桌面操作
 

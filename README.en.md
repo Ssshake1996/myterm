@@ -1,6 +1,6 @@
 # DSH Remote Ops
 
-`@dsh/remote-ops` is a DeepSeek Harness plugin for terminal, web and RESTful API operations. Users and Agents share a workspace for commands, webpages, file transfers and business API requests.
+`@dsh/remote-ops` is a DeepSeek Harness plugin for terminal, web, Windows desktop and RESTful API operations. Users and Agents share a workspace for commands, application windows, webpages, file transfers and business API requests.
 
 ## See the workspace
 
@@ -264,11 +264,13 @@ client versions, release-note heading, install examples in all four READMEs,
 and release examples in the root READMEs. It runs the complete regression gate
 (syntax, unit, client behavior, contract, and smoke tests), then packs, commits
 the plugin and both root READMEs, tags, and pushes the selected branch. The tag
-workflow publishes the GitHub Release; the script waits for its assets and
-compares the reported package digest with the local package. Use `--dry-run`
+workflow publishes the GitHub Release; the script downloads the official tgz
+and verifies its bytes against the SHA256 file and GitHub digest. Use `--dry-run`
 to validate and pack without changing git, or `--no-push` to leave the commit
 and tag local. See `docs/testing/dsh-remote-ops-test-plan.md` for the test
 matrix and 3080 page acceptance requirements.
+
+Before local packaging, build the desktop runtime on Windows with `powershell -File integrations/dsh-remote-ops/scripts/build-desktop.ps1`, or use the CI-built runtime files. The release workflow recompiles and validates the native runtime on Windows, so a local candidate can have a different digest. Distribute the official Release tgz with its matching SHA256 file.
 
 After uploading both assets, the workflow reads all release pages, selects the highest complete stable plugin version by numeric major/minor/patch, explicitly marks it Latest, and verifies `/releases/latest`. Rerunning an older release keeps the newer version selected. Downloads and updates use the Latest endpoint rather than list position or string sorting.
 

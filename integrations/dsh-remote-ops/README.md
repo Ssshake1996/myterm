@@ -1,6 +1,6 @@
 # @dsh/remote-ops
 
-DeepSeek Harness plugin for SSH, web and RESTful API operations. Users and Agents share visible terminals, webpages and request records.
+DeepSeek Harness plugin for SSH, Windows desktop, web and RESTful API operations. Users and Agents share visible terminals, application windows, webpages and request records.
 
 ## Windows desktop operations
 

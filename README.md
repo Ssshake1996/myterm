@@ -1,6 +1,6 @@
 # DSH Remote Ops
 
-`@dsh/remote-ops` 是面向 DeepSeek Harness 的终端、网页与 API 运维插件。用户和 Agent 在同一工作区操作终端、浏览网页、传输文件并调用业务接口。
+`@dsh/remote-ops` 是面向 DeepSeek Harness 的终端、网页、Windows 桌面与 API 运维插件。用户和 Agent 在同一工作区操作终端和软件窗口、浏览网页、传输文件并调用业务接口。
 
 在主对话中描述任务，右侧即可查看命令回显、网页操作和 API 请求结果，也可以直接在插件里操作。
 
@@ -286,7 +286,9 @@ node scripts/release-dsh-remote-ops.mjs 0.12.0            # 校验、门禁、�
 node scripts/release-dsh-remote-ops.mjs 0.12.0 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
-选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后轮询 Release，比较 GitHub 报告的安装包摘要与本地摘要。
+选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后下载正式包，核对其实际 SHA256、校验文件及 GitHub 提供的摘要。
+
+本地打包前，在 Windows 上运行 `powershell -File integrations/dsh-remote-ops/scripts/build-desktop.ps1` 构建桌面运行时；也可使用 CI 生成的运行时文件。发布工作流会在 Windows 上重新编译并验证，因此本地候选包和正式包的摘要可以不同。正式分发以 Release 中的 tgz 和配套 SHA256 为准。
 
 上传完成后，发布流程分页读取正式 Release，按主版本、次版本、补丁版本的数值选择附件完整的最高版本，显式设为 Latest，并核对 `/releases/latest`。重跑旧版发布不会将最新版降回旧版；下载与更新使用 Latest 入口，不依赖列表位置或版本字符串排序。
 
@@ -295,6 +297,6 @@ node scripts/release-dsh-remote-ops.mjs 0.12.0 --dry-run  # 只校验、跑门�
 ## 边界
 
 - Agent Loop、Session、Goal、Skill、MCP、权限和本地工具完全由 DeepSeek Harness 负责。
-- 本插件提供 SSH、交互式终端、SFTP、快捷命令、共享网页、RESTful API、执行记录、多 SSH 和远程诊断能力。
+- 本插件提供 SSH、交互式终端、Windows 桌面操作、SFTP、快捷命令、共享网页、RESTful API、执行记录、多 SSH 和远程诊断能力。
 
 详细说明见 [插件中文说明](integrations/dsh-remote-ops/README.zh-CN.md)、[插件英文说明](integrations/dsh-remote-ops/README.md)、[开发经验记录](docs/development-experience.md)、[开发交接说明](docs/development-handoff.md) 和 [新对话 Prompt](docs/prompts/new-development-session.md)。

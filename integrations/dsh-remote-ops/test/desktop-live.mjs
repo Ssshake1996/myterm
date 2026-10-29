@@ -9,7 +9,7 @@ import { RemoteOpsState } from '../lib/state/index.js';
 import { startWindowsOpenSsh } from '../../../e2e/harness/windows-openssh.mjs';
 
 const out=resolve(process.env.DESKTOP_OUTPUT??'../../output/desktop-live');await mkdir(out,{recursive:true});
-const evidence={kind:'real-windows-interactive-desktop',steps:[],errors:[]};let transport,app,ssh,snap;
+const evidence={kind:'real-windows-interactive-desktop',steps:[],errors:[]};let transport,app,ssh,snap,targetState,targetArgs;
 const runId=randomUUID();
 const step=async(name,work)=>{await work();evidence.steps.push({name,pass:true});console.log('PASS '+name);};
 try {
@@ -18,11 +18,12 @@ try {
     ssh=await startWindowsOpenSsh({root:join(out,'sshd')});process.env.DSH_HOME=join(out,'dsh-home');
     const state=new RemoteOpsState({});await state.ready;await state.saveEnvironment(ssh.environment);
     const probe=await connectDesktop(state,{environment:ssh.environment.id,inspect:true});evidence.bridgeProbe=probe;
-    transport=await connectDesktop(state,{environment:ssh.environment.id});evidence.transport='real-openssh';
-  }else{transport=await connectDesktop(null,{environment:'local'});evidence.transport='local';}
+    targetState=state;targetArgs={environment:ssh.environment.id};transport=await connectDesktop(targetState,targetArgs);evidence.transport='real-openssh';
+  }else{targetState={base:join(out,runId)};targetArgs={environment:'local'};transport=await connectDesktop(targetState,targetArgs);evidence.transport='local';}
   evidence.target=transport.info;
   assert.ok(transport.info.sessionId>0,'An actual interactive user session is required');
   await step('exchange repeated requests on one desktop transport',async()=>{assert.equal((await transport.call('status')).workerId,transport.info.workerId);assert.equal((await transport.call('status')).workerId,transport.info.workerId);});
+  await step('independent connections share one user-session worker and can disconnect separately',async()=>{const other=await connectDesktop(targetState,targetArgs);try{assert.equal(other.info.workerId,transport.info.workerId);}finally{other.close();}assert.equal((await transport.call('status')).interactive,true);});
   const fixture=resolve('desktop/test-app/RemoteOpsDesktopTest.exe');
   const file=join(out,'桌面结果.txt');
   await step('launch an actual visible Windows test application',async()=>{app=await transport.call('launch',{path:fixture,args:[file],requestId:runId+'-launch-test'});assert.ok(app.pid>0);});

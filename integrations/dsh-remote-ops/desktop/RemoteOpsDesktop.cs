@@ -34,6 +34,7 @@ class RemoteOpsDesktop {
     static DateTime LastUse = DateTime.UtcNow;
     static bool CaptureStuck;
     static Timer IdleTimer;
+    static Mutex InstanceLock;
     static readonly string AccessToken=Guid.NewGuid().ToString("N")+Guid.NewGuid().ToString("N");
     static string EndpointPath(int session){return Path.Combine(Path.GetDirectoryName(typeof(RemoteOpsDesktop).Assembly.Location),"endpoint-"+session+".json");}
     static string FailurePath(int session){return Path.Combine(Path.GetDirectoryName(typeof(RemoteOpsDesktop).Assembly.Location),"startup-failure-"+session+".json");}
@@ -102,6 +103,8 @@ class RemoteOpsDesktop {
         Fail("DESKTOP_WORKER_START_FAILED","Worker did not become reachable in the selected desktop");
     }
     static void Serve(string pipe) {
+        var mutexSecurity=new MutexSecurity();mutexSecurity.SetAccessRuleProtection(true,false);mutexSecurity.AddAccessRule(new MutexAccessRule(new SecurityIdentifier(Sid),MutexRights.FullControl,AccessControlType.Allow));bool created;
+        InstanceLock=new Mutex(false,"Local\\RemoteOpsDesktop-"+Hash(pipe),out created,mutexSecurity);bool owns;try{owns=InstanceLock.WaitOne(0);}catch(AbandonedMutexException){owns=true;}if(!owns)return;
         RequireDesktop();Automation=new UIA3Automation();Automation.ConnectionTimeout=TimeSpan.FromSeconds(3);Automation.TransactionTimeout=TimeSpan.FromSeconds(3);
         StartForwardEndpoint(pipe);
         var security=new PipeSecurity();security.SetAccessRuleProtection(true,false);

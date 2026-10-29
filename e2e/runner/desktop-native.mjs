@@ -85,6 +85,7 @@ try{
  await step('desktop ZIP is authenticated, binary and available after disconnect without closing software',async()=>{
   const response=await page.request.get(new URL(proof[8].url,url).href);assert.equal(response.status(),200);const bytes=await response.body();assert.equal(bytes.readUInt32LE(0),0x04034b50);await writeFile(join(out,'desktop-logs.zip'),bytes);
   await api('disconnect',{desktopId:proof[1].desktopId});assert.equal((await api('export',{all:true})).bytes>0,true);execFileSync('tasklist.exe',['/FI','PID eq '+appPid],{windowsHide:true});
+  const button=panel.getByRole('button',{name:'导出已保留的桌面日志',exact:true});await button.waitFor();const download=page.waitForEvent('download');await button.click();const saved=await download;await saved.saveAs(join(out,'closed-desktop-logs.zip'));assert.equal((await readFile(join(out,'closed-desktop-logs.zip'))).readUInt32LE(0),0x04034b50);
   assert.match(execFileSync('tasklist.exe',['/FO','CSV','/NH','/FI','PID eq '+appPid],{encoding:'utf8',windowsHide:true}),new RegExp(String(appPid)));
  });
  assert.deepEqual(evidence.errors,[]);

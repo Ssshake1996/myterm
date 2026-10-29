@@ -112,8 +112,32 @@ function execute(command, args, { cwd, capture = false, allowFailure = false } =
 
 const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 
+// Native binaries are compiled again by CI. Verify the actual release bytes,
+// rather than treating a separately compiled local candidate as byte-identical.
+async function verifyPublishedAssets({ repository, version, digest, fetchImpl }) {
+  const read = async (name, limit) => {
+    const url = `https://github.com/${repository}/releases/download/${tagName(version)}/${name}`;
+    const response = await fetchImpl(url, { headers: { "User-Agent": "dsh-remote-ops-release-script" }, signal: AbortSignal.timeout(60_000) });
+    if (!response.ok) throw new Error(`Release asset ${name} returned HTTP ${response.status}`);
+    const chunks = []; let size = 0;
+    for await (const chunk of response.body) {
+      size += chunk.length;
+      if (size > limit) throw Object.assign(new Error(`Release asset ${name} exceeds its size limit`), { fatal: true });
+      chunks.push(Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+  };
+  const checksum = (await read(checksumName(version), 8192)).toString("utf8").trim();
+  const match = /^([a-f0-9]{64})\s+\*?(\S+)$/i.exec(checksum);
+  if (!match || match[2] !== artifactName(version)) throw Object.assign(new Error("RELEASE_CHECKSUM_INVALID: expected one checksum for the versioned tgz"), { fatal: true });
+  const bytes = await read(artifactName(version), 256 * 1024 * 1024);
+  const actual = createHash("sha256").update(bytes).digest("hex");
+  if (actual !== match[1].toLowerCase() || (digest && actual !== digest)) throw Object.assign(new Error("RELEASE_CHECKSUM_MISMATCH: downloaded tgz, checksum file and GitHub digest do not agree"), { fatal: true });
+  return actual;
+}
+
 // Polls the GitHub Release created by the tag workflow until both assets exist, then compares the tarball digest.
-export async function waitForRelease({ repository, version, expectedSha256, requiredAssets = [], token, timeoutMs, intervalMs = 10_000, fetchImpl = fetch, log = () => {} }) {
+export async function waitForRelease({ repository, version, expectedSha256, verifyPublishedChecksum = false, requiredAssets = [], token, timeoutMs, intervalMs = 10_000, fetchImpl = fetch, log = () => {} }) {
   const tag = tagName(version);
   const headers = { Accept: "application/vnd.github+json", "User-Agent": "dsh-remote-ops-release-script", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   const deadline = Date.now() + timeoutMs;
@@ -132,8 +156,10 @@ export async function waitForRelease({ repository, version, expectedSha256, requ
         else if (!archive || !sums || requiredAssets.some(name => !assets.some(asset => asset.name === name))) lastProblem = `assets incomplete (${assets.map((asset) => asset.name).join(", ") || "none"})`;
         else {
           const digest = typeof archive.digest === "string" ? archive.digest.replace(/^sha256:/, "") : undefined;
-          if (digest && digest !== expectedSha256) throw Object.assign(new Error(`RELEASE_DIGEST_MISMATCH: published ${digest} but the local package is ${expectedSha256}`), { fatal: true });
-          return { url: release.html_url, digestVerified: Boolean(digest), assets: assets.map((asset) => asset.name) };
+          if (digest && expectedSha256 && digest !== expectedSha256) throw Object.assign(new Error(`RELEASE_DIGEST_MISMATCH: published ${digest} but the local package is ${expectedSha256}`), { fatal: true });
+          const publishedSha256 = verifyPublishedChecksum ? await verifyPublishedAssets({ repository, version, digest, fetchImpl }) : digest;
+          if (expectedSha256 && publishedSha256 && expectedSha256 !== publishedSha256) throw Object.assign(new Error("RELEASE_DIGEST_MISMATCH: downloaded release differs from the local package"), { fatal: true });
+          return { url: release.html_url, digestVerified: Boolean(digest), checksumVerified: verifyPublishedChecksum, publishedSha256, assets: assets.map((asset) => asset.name) };
         }
       }
     } catch (error) {
@@ -225,8 +251,9 @@ export async function runRelease(options, { root = resolve(dirname(fileURLToPath
   }
   const loaded = await import(`${pathToFileURL(join(plugin, "lib", "version.js")).href}?release=${Date.now()}`);
   log("== Waiting for the GitHub Release (published by the tag workflow) ==");
-  const release = await waitForRelease({ repository: loaded.RELEASE_REPOSITORY, version, expectedSha256: digest, token: githubToken(), timeoutMs: options.waitMinutes * 60_000, intervalMs, fetchImpl, log });
-  log(`Release: ${release.url}${release.digestVerified ? " (asset digest verified)" : " (asset digest not reported by GitHub)"}`);
+  const nativeBuild = existsSync(join(plugin, "desktop", "runtime", "manifest.json"));
+  const release = await waitForRelease({ repository: loaded.RELEASE_REPOSITORY, version, expectedSha256: nativeBuild ? undefined : digest, verifyPublishedChecksum: true, token: githubToken(), timeoutMs: options.waitMinutes * 60_000, intervalMs, fetchImpl, log });
+  log(`Release: ${release.url} (downloaded tgz and SHA256 verified: ${release.publishedSha256})`);
   return { version, tag, digest, artifactPath, pushed: true, release };
 }
 

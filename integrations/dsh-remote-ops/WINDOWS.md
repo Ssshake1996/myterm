@@ -59,4 +59,4 @@
 
 Windows `3221225794`（`0xC0000142`）表示 [DLL 初始化失败](https://winprotocoldoc.z19.web.core.windows.net/MS-ERREF/%5BMS-ERREF%5D.pdf)；它不是已成功执行的脚本结果。记录实际 Shell、OpenSSH 版本和服务端日志。SFTP 仅对这一启动失败在发送文件请求前再尝试一次，重复失败仍报错；命令和文件变更不自动重放。
 
-当前阶段提供 OpenSSH。WinRM 的执行记录和对象结果展示见仓库分阶段设计。
+需要打开软件窗口、点击按钮或填写图形界面时，使用插件“桌面”工作区与 `remote-ops-desktop` skill，详见 [Windows 桌面指南](DESKTOP.md)。命令行巡检、脚本和文件处理继续使用上述 OpenSSH 工具。WinRM 的执行记录和对象结果展示见仓库分阶段设计。

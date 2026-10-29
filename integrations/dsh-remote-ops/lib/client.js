@@ -2417,6 +2417,7 @@ window.__ModuleLoader__.load({
         };
         const connect=()=>run(async()=>{const result=await post('connect',{environment,...(windowsSession?{windowsSessionId:Number(windowsSession)}:{})});setObservation(null);setSessions([]);setShowConnect(false);return result;});
         const inspect=()=>run(async()=>{const result=await post('inspect',{environment});setSessions(result.sessions??[]);if(result.sessions?.length===1)setWindowsSession(String(result.sessions[0].sessionId));});
+        const exportLogs=()=>run(async()=>{const result=await post('export',{all:true});const link=document.createElement('a');link.href=result.url;link.download=result.filename;link.click();});
         const keyboard=event=>{
           if(event.isComposing||event.key==='Process')return;
           const named={Enter:'ENTER',Tab:'TAB',Escape:'ESC',Backspace:'BACKSPACE',Delete:'DELETE',ArrowLeft:'LEFT',ArrowRight:'RIGHT',ArrowUp:'UP',ArrowDown:'DOWN',Home:'HOME',End:'END',' ':'SPACE'};
@@ -2433,6 +2434,7 @@ window.__ModuleLoader__.load({
           h('div',{className:'dsh-remote-ops__desktopBar'},h('button',{type:'submit',disabled:busy},'打开'),h('button',{type:'button',onClick:()=>setShowLaunch(false)},'返回画面'))):null;
         return h('section',{className:'dsh-remote-ops__desktop','aria-label':'Windows 桌面'},h('style',null,styles),
           !current||showConnect?h(React.Fragment,null,
+            current&&showConnect?h('button',{onClick:()=>setShowConnect(false)},'返回窗口'):state.retainedCount?h('button',{disabled:busy,onClick:exportLogs},'导出已保留的桌面日志'):null,
             h('div',{className:'dsh-remote-ops__desktopBar'},h('select',{'aria-label':'桌面环境',value:environment,onChange:e=>{setEnvironment(e.target.value);setSessions([]);setWindowsSession('');}},state.localAvailable?h('option',{value:'local'},'本机 Windows'):h('option',{value:''},'选择 Windows 环境'),available.map(e=>h('option',{key:e.id,value:e.id},e.name))),h('button',{disabled:busy||!environment,onClick:connect},busy?'连接中…':'连接桌面'),h('button',{disabled:busy||!environment,onClick:inspect},'检查会话')),
             sessions.length?h('select',{'aria-label':'Windows 登录会话',value:windowsSession,onChange:e=>setWindowsSession(e.target.value)},h('option',{value:''},'选择登录会话'),sessions.map(s=>h('option',{key:s.sessionId,value:s.sessionId,disabled:s.state!=='active'},`${s.user} · 会话 ${s.sessionId} · ${s.state}`))):null):
           h('div',{className:'dsh-remote-ops__desktopBar'},

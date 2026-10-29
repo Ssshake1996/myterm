@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -238,6 +239,46 @@ test("a published package that differs from the local one fails immediately", as
   const { impl, calls } = scripted([{ body: releaseJson({ assets: [{ name: "dsh-remote-ops-v1.2.3.tgz", digest: "sha256:different" }, { name: "SHA256SUMS-dsh-remote-ops-v1.2.3.txt" }] }) }]);
   await assert.rejects(wait(impl), /RELEASE_DIGEST_MISMATCH: published different but the local package is abc/);
   assert.equal(calls.length, 1, "a mismatch is not retried");
+});
+
+const nativeRelease = ({ corrupted = false, checksumNameOverride, githubDigest = true } = {}) => {
+  const bytes = Buffer.from("CI compiled desktop runtime package");
+  const digest = createHash("sha256").update(bytes).digest("hex"), calls = [];
+  const impl = async (url, init) => {
+    calls.push({ url, init });
+    if (url.startsWith("https://api.github.com/")) return Response.json(releaseJson({ assets: [
+      { name: artifactName("1.2.3"), ...(githubDigest ? { digest: `sha256:${digest}` } : {}) },
+      { name: checksumName("1.2.3") }
+    ] }));
+    if (url.endsWith(".txt")) return new Response(`${digest}  ${checksumNameOverride ?? artifactName("1.2.3")}\n`);
+    return new Response(corrupted ? "corrupt download" : bytes);
+  };
+  return { digest, calls, impl };
+};
+
+test("CI native rebuild verifies downloaded bytes against both published SHA256 sources", async () => {
+  const fixture = nativeRelease();
+  const result = await wait(fixture.impl, { expectedSha256: undefined, verifyPublishedChecksum: true });
+  assert.equal(result.publishedSha256, fixture.digest);
+  assert.equal(result.checksumVerified, true);
+  assert.equal(fixture.calls.length, 3);
+  for (const call of fixture.calls.slice(1)) assert.equal(call.init.headers.Authorization, undefined, "GitHub API token is not forwarded to asset download URLs");
+});
+
+test("native release fails on corrupt downloaded bytes or a checksum for the wrong package", async () => {
+  for (const options of [{ corrupted: true }, { checksumNameOverride: "another-plugin.tgz" }]) {
+    const fixture = nativeRelease(options);
+    await assert.rejects(wait(fixture.impl, { expectedSha256: undefined, verifyPublishedChecksum: true }), /RELEASE_CHECKSUM_(?:MISMATCH|INVALID)/);
+    assert.ok(fixture.calls.length <= 3, "integrity failures are not retried");
+  }
+});
+
+test("download verification still works when GitHub omits its optional digest", async () => {
+  const fixture = nativeRelease({ githubDigest: false });
+  const result = await wait(fixture.impl, { expectedSha256: undefined, verifyPublishedChecksum: true });
+  assert.equal(result.digestVerified, false);
+  assert.equal(result.checksumVerified, true);
+  assert.equal(result.publishedSha256, fixture.digest);
 });
 
 test('release accepts the tgz and checksum without requiring a Windows bundle', async () => {
