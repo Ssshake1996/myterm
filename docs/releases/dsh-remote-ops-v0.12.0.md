@@ -10,4 +10,4 @@
 
 目标需要 Windows 11 x64 或带 Desktop Experience 的 Windows Server、.NET Framework 4.8+ 和已登录解锁的用户会话。远程连接还需 OpenSSH SFTP、PowerShell 与本地 TCP 转发权限。
 
-发布资产只有插件 `.tgz` 和 `SHA256SUMS` 校验文件，桌面运行时包含在 tgz 内。验证证据见 [验收记录](../testing/dsh-remote-ops-v0.12.0-acceptance.md)。
+发布资产只有插件 `.tgz` 和 `SHA256SUMS` 校验文件，桌面运行时包含在 tgz 内。验证证据见 [验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.12.0-acceptance.md)。
