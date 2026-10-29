@@ -1,0 +1,5 @@
+[
+  {"id":"flaui.core","version":"5.0.0","framework":"net48","dll":"FlaUI.Core.dll","sha256":"191cc65ea82036b77f1872e6d4ebf743d3d120895bba2fa5248d126cd6f568a7"},
+  {"id":"flaui.uia3","version":"5.0.0","framework":"net48","dll":"FlaUI.UIA3.dll","sha256":"d5d2e083539a04bf6c9053781dfd47332854a76faeb8e9c3c68cc82109f711f2"},
+  {"id":"interop.uiautomationclient","version":"10.19041.0","framework":"net45","dll":"Interop.UIAutomationClient.dll","sha256":"0d2ed17db2cb13a262f0580ab992db87577651c25a9899053df4114b4d9ff3b1"}
+]

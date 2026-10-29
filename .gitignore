@@ -24,3 +24,7 @@ output/
 *.swp
 .DS_Store
 Thumbs.db
+
+# Reproducible Windows desktop runtime (built and included inside the plugin tgz)
+integrations/dsh-remote-ops/desktop/runtime/
+integrations/dsh-remote-ops/desktop/test-app/*.exe

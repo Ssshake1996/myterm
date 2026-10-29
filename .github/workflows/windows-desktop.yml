@@ -1,0 +1,37 @@
+name: Windows desktop acceptance
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/windows-desktop]
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --prefix integrations/dsh-remote-ops
+      - name: Build pinned desktop runtime
+        shell: powershell
+        run: ./integrations/dsh-remote-ops/scripts/build-desktop.ps1
+      - name: Desktop session facts
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,ProductType
+          & ./integrations/dsh-remote-ops/desktop/runtime/RemoteOpsDesktop.exe probe
+      - name: Real interactive desktop gate
+        working-directory: integrations/dsh-remote-ops
+        env:
+          DESKTOP_OUTPUT: ${{ github.workspace }}/output/desktop-live
+        run: node test/desktop-live.mjs
+        timeout-minutes: 4
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-${{ matrix.os }}
+          path: output/desktop-live/
