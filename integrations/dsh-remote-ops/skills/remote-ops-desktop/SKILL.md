@@ -17,6 +17,19 @@ Use the installed plugin tools; do not modify Agent, core prompts, or runtime fi
 
 The target needs an unlocked interactive user session, .NET Framework 4.8+, x64 Windows, and permission to run the bundled worker. Remote targets also need OpenSSH SFTP, PowerShell, and local TCP forwarding through SSH. The SSH account must match the logged-on user. Remote worker startup uses an InteractiveToken scheduled task in that exact session. Its authenticated endpoint binds only to `127.0.0.1`; no inbound desktop firewall port is needed. Server must have Desktop Experience. If Windows is locked, a session is disconnected, or UAC is active, explain the observed condition and wait for the user; do not auto-logon, unlock, weaken UAC, or substitute Session 0.
 
+Remote setup also requires write access to the account's SFTP initial directory and permission to create/run/remove its own interactive scheduled task. Software opens on the target user's desktop; SSH authentication alone does not create that desktop session. An environment missing from the desktop selector must first be saved with `platform:"windows"`. A passing SSH environment test does not prove desktop readiness. The worker and dependencies deploy from the plugin; do not install another DSH, Python or Playwright on the remote target for this task.
+
+## Example: open Notepad, enter Chinese text and save
+
+For a request such as “Use WIN-DEMO to open Notepad, enter three supplied lines, save a new UTF-8 file and verify it”:
+
+1. Inspect and select the same-account active session, then connect. If several eligible sessions exist and the user has not selected one, ask which to use.
+2. Use `remote_terminal_open` and `remote_command_execute` for the same saved environment to query the actual `USERPROFILE` and installed executable path. Create the requested example directory if authorized. Choose a timestamped new filename and check for collisions; do not assume a local DSH path is a remote path.
+3. Launch the absolute executable via `remote_desktop_launch`. Observe the resulting window; if the application hands off to another process, list windows again instead of relying on the launch PID. Create a fresh document using the actual UI, preserving existing unsaved documents.
+4. Enter the supplied text through desktop actions. Observe again to operate the actual Save / Save As dialog, choose the new absolute path and UTF-8 encoding, and verify the dialog result. Do not replace a requested GUI input/save demonstration with `Set-Content` or a file upload.
+5. Independently read the resulting file over the same SSH environment with `remote_command_execute`, `shell:"windows-powershell"`, and an explicit path parameter. `Get-Content -LiteralPath $path -Raw -Encoding UTF8` supplies text to compare with the requested content. Distinguish an existing file, accepted save click and correct contents; report observed differences.
+6. Report the actual path and verification result. If requested, export only this connection with `remote_desktop_log_export({desktopId})` and return its URL/SHA256. Leave the application open when requested. Notepad versions vary: use fresh refs and observed dialogs, not fixed coordinates or copied element IDs.
+
 ## Execute typed actions
 
 `steps` must be a real JSON array of action objects, not a JSON string or dictionary. Inspect tool schemas before calling. Validate the entire intended action batch before sending it.

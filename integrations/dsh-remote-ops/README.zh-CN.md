@@ -8,6 +8,8 @@
 
 执行器和依赖包含在 tgz 内，安装后原生发现 `remote-ops-desktop` skill。目标需要已登录、解锁的 Windows 11 或带 Desktop Experience 的 Server；远程账号需对应此用户会话。热加载会等待桌面任务完成，并保留连接与日志。具体准备步骤、工具参数和恢复方式见 [Windows 桌面指南](DESKTOP.md)。
 
+首次使用可按 [远程 Windows 配置步骤](DESKTOP.md#远程电脑的一次性配置) 启用 OpenSSH，再复制 [让 Agent 打开记事本、输入并保存的完整示例](DESKTOP.md#完整示例打开记事本输入并保存)。示例通过软件界面输入和保存，再独立读取文件核对内容。
+
 ## 更新后热加载
 
 从 v0.11.0 起，在 **设置 → 更新** 点击“检查并更新”，插件完成下载、SHA256 校验和安装后，会等待任务结束并自动应用新版，无需重启 DSH。等待范围包括各对话的执行任务、终端等待及独立命令、文件传输、网页操作、浏览器安装和 API 请求。批量上传等待整批完成或取消，文件之间的请求间隙也不会触发重载。界面会显示等待原因。
@@ -71,14 +73,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.12.0.tgz
-  SHA256SUMS-dsh-remote-ops-v0.12.0.txt
+  dsh-remote-ops-v0.12.1.tgz
+  SHA256SUMS-dsh-remote-ops-v0.12.1.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.0.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.1.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -190,7 +192,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.12.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.12.1.tgz
 dsh web
 ```
 

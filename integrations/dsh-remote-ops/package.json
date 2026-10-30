@@ -1,13 +1,13 @@
 {
   "name": "@dsh/remote-ops",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "private": false,
   "type": "module",
   "description": "DeepSeek Harness plugin for SSH, Windows desktop, SFTP, visible web operations and RESTful API environments",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
-    "./client": "./lib/client-v0.12.0.js",
+    "./client": "./lib/client-v0.12.1.js",
     "./locale/en.json": "./locale/en.json",
     "./locale/zh.json": "./locale/zh.json",
     "./cordis.patch.yml": "./cordis.patch.yml",

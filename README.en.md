@@ -24,6 +24,8 @@ The **桌面** workspace shows real Windows application windows. Connect the DSH
 
 The tgz includes the pinned worker and dependencies plus the native `remote-ops-desktop` skill. Use a logged-on, unlocked Windows 11 or Windows Server Desktop Experience session; the SSH account must match that desktop user. Hot reload waits for active desktop work and retains connections and logs. See the [Windows desktop guide](integrations/dsh-remote-ops/DESKTOP.md).
 
+Start with [remote Windows setup](integrations/dsh-remote-ops/DESKTOP.md#远程电脑的一次性配置), then copy the [complete Notepad task](integrations/dsh-remote-ops/DESKTOP.md#完整示例打开记事本输入并保存) into DSH (guide in Chinese). It opens a new document, enters text and saves through the application UI, then reads the saved file independently over SSH to verify its contents.
+
 ## Hot reload after updates
 
 Starting with v0.11.0, **设置 → 更新 → 检查并更新** downloads, verifies and installs a newer release, then automatically applies it when work is idle. DSH keeps running. The update view explains waits for conversation activity, terminal waits and independent commands, transfers, browser jobs/runtime installation, and API requests. Browser uploads defer reload until the whole batch finishes or is cancelled, including the gaps between file requests.
@@ -82,14 +84,14 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 ## Manual intranet HTTP/HTTPS updates
 
-Current version: [v0.11.0](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.11.0). See the [installation and UI acceptance scope](docs/testing/dsh-remote-ops-v0.10.2-acceptance.md).
+Current version: [v0.12.1](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.12.1), with expanded desktop usage instructions. See the [v0.12.0 desktop, installation and hot-reload acceptance scope](docs/testing/dsh-remote-ops-v0.12.0-acceptance.md) for the underlying desktop capability.
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.12.0.tgz` and `SHA256SUMS-dsh-remote-ops-v0.12.0.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.12.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.12.1.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.0.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.1.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -201,7 +203,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from the [latest stable release](https://github.com/Ssshake1996/myterm/releases/latest), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.12.0.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.12.1.tgz
 dsh web
 ```
 
@@ -248,15 +250,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.12.0
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.12.1
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.12.0
-node scripts/release-dsh-remote-ops.mjs 0.12.0 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.12.1
+node scripts/release-dsh-remote-ops.mjs 0.12.1 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and
