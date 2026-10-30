@@ -58,11 +58,22 @@ DSH 0.2.0-rc.2，独立 `DSH_HOME`，真实 Chrome 与真实 Windows 测试窗�
 
 ## 发布验证
 
-正式发布后补记资产摘要、发布工作流和重新下载安装的验证结果。正式资产限定为插件 tgz 与 SHA256 文件；原生执行器及许可证包含在 tgz 内。
+[v0.12.0 Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.12.0) 已由[发布工作流](https://github.com/Ssshake1996/myterm/actions/runs/40916542075)发布，GitHub `/releases/latest` 实际返回 `dsh-remote-ops-v0.12.0`，非 draft/prerelease。
+
+- 标签始终指向 `868c3aa5850df8dd4633724522ca30a87be652dd`，未移动。首次发布工作流将 prepack 检查日志误当成文件名，打包重命名失败，未公开资产；修正工作流后明确检出该原始标签，重新完成 Windows、打包和发布门禁。
+- 仅上传 `dsh-remote-ops-v0.12.0.tgz`（640630 字节）和 `SHA256SUMS-dsh-remote-ops-v0.12.0.txt`。原生执行器及许可证包含在 tgz 内。
+- 正式 tgz 的 SHA256：`83633da9dfe276f4c14e1969e7465c4dcead565696b02ea09fd53be7fbee5431`。重新下载的文件、SHA256 文件和 GitHub asset digest 三方一致。
+- 包含 96 个文件：85 个源码/文档/生成客户端文件逐项匹配发布标签，8 个固定依赖/配置/许可证匹配构建材料，2 个 CI 编译的执行器由运行时 manifest 校验，另有该 manifest。共 7 个随包 skill，客户端为 `lib/client-v0.12.0.js`。证据 `output/release0120-official/audit.json`。
+- Windows 11 的独立 DSH profile 安装正式 tgz，桌面四组验收全部通过，包摘要与上述正式资产一致；证据 `output/desktop-native-official0120/evidence.json`。
+- [正式包 Server 桌面验证](https://github.com/Ssshake1996/myterm/actions/runs/40917285038)：Server 2022 和 Server 2025 均直接下载、校验并安装同一个正式 tgz，原生 DSH 桌面四组全部通过。该工作流前面的本机 10 项与 SSH 9 项使用同源重新编译的执行器，不冒充正式 tgz 安装层。证据 `output/desktop-server-official/`。
+- [正式包 Server 原有功能验证](https://github.com/Ssshake1996/myterm/actions/runs/40917292662)：两个 Server 的原生 DSH 终端各 8 项、热加载与失败恢复各 8 项通过，安装输入均为同一正式摘要。证据 `output/desktop-existing-official/`。
+- Windows 11 上从正式 v0.11.0 热更新到上述原封不动的正式 v0.12.0：同一 DSH 进程保留对话、SSH、网页和 API，新桌面入口与接口出现；新建真实桌面连接后，后续更新仍保持相同桌面 ID、执行器 ID，并能继续实际观察窗口。八项通过，证据 `output/desktop-upgrade0110-official0120-verified/evidence.json`。后续 v0.12.1/v0.12.2 仅为本地连续更新和启动失败夹具，未发布。
+
+追加本机安装试验曾因系统提交内存不足导致 pnpm 自身退出，资源恢复后完成以上正式包安装和跨版本验证。另一次扩展验收误从仅列窗口的快照读取执行器 ID，改为核对连接信息及真实观察请求后通过；这些失败输出保留，均未据此削弱产品断言或修改 Agent。
 
 ## 验证边界
 
 - 首版需要已登录且解锁的同账号会话；Windows Server 需要 Desktop Experience。无人登录、锁屏、UAC 安全桌面及 Server Core 不属于本次成功验收场景。
 - 本次真实应用为标准 WinForms 测试程序。不同业务软件、自绘控件、受保护窗口、跨权限应用、多用户 RDP 重连仍需按具体目标验收，不能据此声称所有 Windows 软件均兼容。
-- 本次桌面任务阻挡热加载有自动化回归，原生 DSH 验证涵盖连接与交互；现有连接沿用创建时的传输实现，新连接使用新版。重启 DSH 后不恢复运行期日志。
+- 桌面任务阻挡热加载有自动化回归，原生 DSH 跨版本升级已验证桌面连接保留；现有连接沿用创建时的传输实现，新连接使用新版。重启 DSH 后不恢复运行期日志。
 - 桌面预览是定时窗口截图，不是实时视频；窗口文字和截图作为任务数据，操作完成与业务结果验证分别报告。
