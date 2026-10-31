@@ -21,5 +21,8 @@ SSH 目标是本地隔离测试服务。上述结果证明插件界面、传输�
 - 正式附件安装到新的隔离 `DSH_HOME`，实际运行版本为 0.12.2；13 项原生 DSH 验收再次全部通过，页面运行时异常 0。证据：`output/playwright/v0.12.2-official-native/evidence.json` 和同目录截图。
 - 正式安装的版本化客户端与本次验证源文件 SHA256 一致：`0edf610340466ebd32f5451f65e0932b093aaf1570f105dff3821c4048de71e7`。
 - [发布工作流](https://github.com/Ssshake1996/myterm/actions/runs/41160927544) 的 Windows 检查及实际桌面门禁、Linux 检查与打包、上传与 Latest 验证全部通过；[浏览器工作流](https://github.com/Ssshake1996/myterm/actions/runs/41160925515) 和 [Linux CI](https://github.com/Ssshake1996/myterm/actions/runs/41160927507) 通过。
+- 附加 [Windows 桌面验收](https://github.com/Ssshake1996/myterm/actions/runs/41160925622) 的 Server 2022 / 2025 两组通过；[Windows OpenSSH 验收](https://github.com/Ssshake1996/myterm/actions/runs/41160925502) 的两组最终通过，包括原生 DSH 操作、对话隔离、热加载和启动失败恢复。
+
+OpenSSH 的 Server 2025 首轮在原生 DSH 的系统探测阶段超时（`WINDOWS_PROBE_FAILED`），当时 SSH 认证和 SFTP 成功，独立的 12 项 PTY / exec / SFTP 等检查均通过。保留失败日志与证据于 `output/playwright/v0.12.2-windows-ssh-failed.log` 和 `output/playwright/v0.12.2-windows-ssh-first-attempt/`。只重跑失败的 Server 2025 job 一次，未修改代码、超时或断言；第 2 次完整通过，首轮超时未复现，未据此认定已查明超时根因。本版未修改 Windows SSH 执行实现。
 
 上述正式包验收使用同一 Windows 11 / DSH 0.2.0-rc.2 / Chrome 156.0.8078.74 组合与隔离测试服务，不复用候选包安装目录。
