@@ -38,4 +38,11 @@ v0.12.2 及更早版本正在执行的更新代码，无法被尚未加载的新
 
 已保存配置和对话持久化保留；完整进程重启不会保留内存连接。测试没有访问用户另一台电脑、真实内网更新服务器或生产设备，不能据此确认其代理、证书、缓存或设备连接均正常。Windows Server 结果以本次 CI 实际记录为准。
 
-正式 Release 包和候选包分别校验；发布后的下载摘要与独立安装验收在下节补记。
+## 正式 Release 下载与安装验收
+
+- [v0.12.3 Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.12.3) 已发布，Latest API 与 Release 列表首位均为 `dsh-remote-ops-v0.12.3`。不可变标签对应提交 `0ebd8d7ab578a4f0dacbeac2ccbf3bd3bbac3a33`。
+- 附件恰好两个：`dsh-remote-ops-v0.12.3.tgz`（665556 字节）与 `SHA256SUMS-dsh-remote-ops-v0.12.3.txt`（93 字节）。直接下载的 tgz、校验文件和 GitHub asset digest 三方一致：`defc28858dd1d564d9b26a9c9116dd7613b1c00745f11e35efebc9dc5cbb0cc8`。
+- CI 重建桌面运行时，因此正式包与本地候选包摘要不同。正式包中的客户端源文件、版本化客户端、热加载实现、更新逻辑、错误诊断和随包更新 skill 均逐字节匹配已验证源文件。证据：`output/update-reload-v0.12.3/official-package/verification.json`。
+- 正式附件安装到新的隔离目录，在真实 DSH **0.2.1-rc.5** 中完成 **9/9** 项热加载验收；在真实 DSH **0.2.1-rc.2** 中从旧版正式 v0.12.2 迁移到本版，再完成后续连续更新与回退，**10/10** 项通过。两轮页面运行时错误均为 0，同一 SSH 连接未重建。证据：`output/update-reload-v0.12.3/official-native-rc5/evidence.json` 和 `output/update-reload-v0.12.3/official-native-rc2-migration/evidence.json`。
+- [发布工作流](https://github.com/Ssshake1996/myterm/actions/runs/41192788420) 的 Windows 构建、回归和实际桌面门禁、Linux 打包、资产校验、Latest 推广均通过。[Linux CI](https://github.com/Ssshake1996/myterm/actions/runs/41192788390) 与 [浏览器回归](https://github.com/Ssshake1996/myterm/actions/runs/41192785956) 通过。
+- [Windows OpenSSH 验收](https://github.com/Ssshake1996/myterm/actions/runs/41192785978) 的 Server 2022、Server 2025 两组全部通过，包括原生 DSH 和热加载检查；[Windows 桌面验收](https://github.com/Ssshake1996/myterm/actions/runs/41192786026) 的两组亦全部通过。本轮无需重跑失败 job。
