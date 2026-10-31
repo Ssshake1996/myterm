@@ -2,11 +2,13 @@
 
 ## 真实 DSH 热加载验收
 
-Windows 主机可运行 `node e2e/runner/hot-reload-native.mjs <tgz>`，设置 `DSH_CLI` 为 DSH 0.2.0-rc.2 的 `lib/bin.js`，并先安装插件与 `e2e` 的依赖。可用 `HOT_RELOAD_OUTPUT` 指定证据目录，`NPM_CLI` 覆盖 npm 的 `bin/npm-cli.js` 路径。
+Windows 主机可运行 `node e2e/runner/hot-reload-native.mjs <tgz>`，设置 `DSH_CLI` 为待验收 DSH 的 `lib/bin.js`，并先安装插件与 `e2e` 的依赖。升级回归需分别覆盖 0.2.0-rc.2、0.2.1-rc.2 与 0.2.1-rc.5。可用 `HOT_RELOAD_OUTPUT` 指定证据目录，`NPM_CLI` 覆盖 npm 的 `bin/npm-cli.js` 路径；设置 `BOOTSTRAP_PACKAGE` 为旧版正式 tgz，可验证先通过 DSH CLI 迁移到修复版，再执行后续热加载。
 
-测试安装传入包到独立 `DSH_HOME`，使用真实 DSH、Chrome、确定性模型和本地 SSH/网页/API 服务；临时合成后续版本以验证等待任务结束、前后端同步生效、连接与记录保留、同进程第二次升级及启动失败恢复。合成版本仅为测试夹具，不会发布。证据包含版本、包 SHA256、原生 Agent 工具结果检查与截图；不代表连接用户的生产设备。Windows Server CI 同时运行此验收。
+测试安装传入包到独立 `DSH_HOME`，使用真实 DSH、Chrome、确定性模型和本地 SSH/网页/API 服务；从真实更新按钮提交，临时合成后续版本以验证等待任务结束、前后端同步生效、连接与记录保留、同进程第二次升级及启动失败恢复，并注入短暂 404 与状态读取失败以验证恢复时不重复安装。回退后先等待原对话重新绑定，再核验同一 SSH ID 和连接次数；不会自动重连掩盖连接丢失。合成版本仅为测试夹具，不会发布。证据包含版本、包 SHA256、原生 Agent 工具结果检查与截图；不代表连接用户的生产设备。Windows Server CI 同时运行此验收。
 
-这一层在真实 Chrome 里跑生产 `client.js`。后端是生产插件，SSH 连到进程内的假设备。它不启动完整的 DSH 宿主，所以不覆盖宿主登录、工作区选择和侧栏服务本身。
+## 浏览器回归（隔离插件后端）
+
+以下 `npm run e2e` 在真实 Chrome 里跑生产 `client.js`。后端是生产插件，SSH 连到进程内的假设备。它不启动完整的 DSH 宿主，所以不覆盖宿主登录、工作区选择和侧栏服务本身；上面的原生验收单独覆盖宿主集成。
 
 ## 运行
 

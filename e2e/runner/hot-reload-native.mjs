@@ -11,12 +11,13 @@ import { chromium } from "../../integrations/dsh-remote-ops/node_modules/playwri
 import { startFakeDevice } from "../harness/fake-device.mjs";
 
 const cli = process.env.DSH_CLI, pkg = resolve(process.argv[2] ?? "");
+const bootstrapPackage = process.env.BOOTSTRAP_PACKAGE && resolve(process.env.BOOTSTRAP_PACKAGE);
 if (!cli || !process.argv[2]) throw new Error("Set DSH_CLI; pass the candidate or downloaded official tgz");
 const out = resolve(process.env.HOT_RELOAD_OUTPUT ?? `output/hot-reload-native-${Date.now()}`);
 await mkdir(out, { recursive: true });
 const home = join(out, "home"), profile = join(home, "profiles/web");
 const env = { ...process.env, DSH_HOME: home, DSH_TELEMETRY_DISABLED: "1", REMOTE_OPS_ACCEPTANCE_KEY: "isolated-test-fixture" };
-const evidence = { kind: "real-dsh-hot-reload-with-local-services", packageSha256: createHash("sha256").update(await readFile(pkg)).digest("hex"), steps: [], errors: [] };
+const evidence = { kind: "real-dsh-hot-reload-with-local-services", hostVersion: JSON.parse(await readFile(join(dirname(cli), "../package.json"), "utf8")).version, packageSha256: createHash("sha256").update(await readFile(pkg)).digest("hex"), steps: [], errors: [] };
 const until = async (fn, timeout = 90000) => { const end = Date.now() + timeout; while (Date.now() < end) { const value = await fn(); if (value) return value; await new Promise(r => setTimeout(r, 200)); } throw Error("Native hot reload did not settle"); };
 const run = (exe, args, options = {}) => new Promise((yes, no) => {
   const p = spawn(exe, args, { env, windowsHide: true, ...options }); let output = "";
@@ -25,7 +26,7 @@ const run = (exe, args, options = {}) => new Promise((yes, no) => {
 });
 const step = async (name, work) => { await work(); evidence.steps.push({ name, passed: true }); console.log("PASS " + name); };
 const ssh = await startFakeDevice({ name: "Hot reload SSH" });
-let host, browser, page, owner, sshId, browserId, apiId, slowResponse, feed, baseVersion, releaseSlow;
+let host, browser, page, owner, sshId, browserId, apiId, slowResponse, feed, baseVersion, releaseSlow, readState;
 const proofs = new Map(), errors = [], moduleRequests = [];
 const decode = value => {
   if (typeof value === "string") { try { return decode(JSON.parse(value)); } catch { return value; } }
@@ -59,9 +60,9 @@ try {
   await new Promise(r => server.listen(0, "127.0.0.1", r)); const origin = `http://127.0.0.1:${server.address().port}`;
   await mkdir(profile, { recursive: true });
   await writeFile(join(profile, "cordis.patch.yml"), `- id: ui-settings-general\n  config:\n    welcomeNoticeVersion: 2026-09-28.1\n- id: agent-default-model\n  config:\n    provider: remote-ops-acceptance\n    model: native-test\n- id: llm-pi-ai\n  config:\n    providers:\n      remote-ops-acceptance:\n        api: openai-completions\n        baseURL: ${origin}/v1\n        apiKeyEnv: REMOTE_OPS_ACCEPTANCE_KEY\n        models:\n          - id: native-test\n            name: Hot reload acceptance\n            contextWindow: 262144\n            maxTokens: 4096\n            input: [text]\n`);
-  await writeFile(join(out, "install.log"), await run(process.execPath, [cli, "plugin", "--profile", "web", "add", pkg]));
-  baseVersion = JSON.parse(await readFile(join(profile, "node_modules/@dsh/remote-ops/package.json"), "utf8")).version;
-  evidence.installedVersion = baseVersion;
+  await writeFile(join(out, "install.log"), await run(process.execPath, [cli, "plugin", "--profile", "web", "add", bootstrapPackage ?? pkg]));
+  baseVersion = JSON.parse(await run("tar", ["-xOf", pkg, "package/package.json"])).version;
+  evidence.installedVersion = JSON.parse(await readFile(join(profile, "node_modules/@dsh/remote-ops/package.json"), "utf8")).version;
   async function nextPackage(index, broken = false) {
     const parts = baseVersion.split(".").map(Number); parts[2] += index; const version = parts.join(".");
     const dir = join(out, "fixture-" + version); await mkdir(dir, { recursive: true });
@@ -88,6 +89,29 @@ try {
   await page.getByRole("button", { name: "Remote Ops", exact: true }).click(); await page.getByLabel("终端输出", { exact: true }).waitFor();
   const api = (path, body) => page.evaluate(async ({ path, body }) => { const response = await fetch("/api/dsh-remote-ops/" + path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}); const value = await response.json(); if (!response.ok) throw Error(JSON.stringify(value)); return value; }, { path, body });
   const state = () => api("state?sessionId=" + owner), update = () => api("update");
+  readState = state;
+  const boundState = () => until(async () => { const value = await state(); if (!value.bound) evidence.temporaryUnboundReads = (evidence.temporaryUnboundReads ?? 0) + 1; return value.bound && value; });
+  if (bootstrapPackage) await step("old plugin migrates through DSH plugin installation before using the fixed updater", async () => {
+    const originalOwner = owner;
+    await api("update", { action: "settings", settings: { source: "custom", url: origin + "/feed/" } });
+    await editor.fill("首次迁移保留的对话草稿");
+    await writeFile(join(out, "bootstrap-install.log"), await run(process.execPath, [cli, "plugin", "--profile", "web", "add", pkg]));
+    const installed = await update();
+    assert.equal(installed.installedVersion, baseVersion);
+    if (installed.currentVersion !== baseVersion) {
+      // CLI changes the files, not the running host. Apply the already installed
+      // package through the old runtime's activation-only path, without another
+      // installBundle transaction or process restart.
+      await page.locator(".dsh-remote-ops__headAction").filter({ hasText: "设置" }).click();
+      await page.getByRole("tab", { name: "更新", exact: true }).click();
+      await page.getByRole("button", { name: "重试应用已安装版本", exact: true }).click();
+    }
+    await until(async () => { try { const value = await state(); return value.bound && value.pluginVersion === baseVersion; } catch { return false; } });
+    if (await page.getByRole("button", { name: "返回工作区", exact: true }).count()) await page.getByRole("button", { name: "返回工作区", exact: true }).click();
+    assert.equal(host.exitCode, null); assert.equal(owner, originalOwner);
+    assert.match(await editor.innerText(), /首次迁移保留的对话草稿/);
+    assert.equal((await update()).settings.source, "custom");
+  });
   await step("installed package exposes hot reload in real DSH", async () => { assert.equal((await update()).hotReload.supported, true); });
   await step("real Agent opens SSH and saved configurations are established", async () => {
     await api("action", { action: "environment.save", environment: { id: "hot-ssh", name: "Hot reload SSH", group: "native", host: ssh.host, port: ssh.port, username: ssh.username }, password: ssh.password });
@@ -104,12 +128,26 @@ try {
   await step("update waits for an active API request instead of cancelling it", async () => {
     pendingRequest = api("api", { action: "request", sessionId: owner, args: { environment: apiId, path: "slow", requestId: "slow-before-update" } }); await until(() => slowResponse);
     before = await state(); await editor.fill("对话草稿在热加载后保留");
-    const clientLoadsBefore = moduleRequests.length; const value = await api("update", { action: "install" }); assert.equal(value.hotReload.pending, true); assert.equal(value.restartRequired, false);
+    await page.locator(".dsh-remote-ops__headAction").filter({hasText:"设置"}).click();
+    await page.getByRole("tab", { name: "更新", exact: true }).click();
+    const clientLoadsBefore = moduleRequests.length;
+    const submitted = page.waitForResponse(response => { try { return response.url().endsWith('/api/dsh-remote-ops/update') && response.request().postDataJSON()?.action === 'install'; } catch { return false; } });
+    await page.getByRole("button", { name: "检查并更新", exact: true }).click();
+    const accepted = await submitted; assert.equal(accepted.status(), 202); assert.equal((await accepted.json()).accepted, true);
+    const value = await until(async () => { const status = await update(); return status.hotReload.pending && status; });
+    assert.equal(value.restartRequired, false);
     await new Promise(r => setTimeout(r, 1800)); assert.equal((await state()).runtimeId, before.runtimeId); assert.ok((await update()).hotReload.blockers.includes("API 请求执行中")); assert.equal(moduleRequests.length, clientLoadsBefore, "frontend must wait for running work too");
+    let gaps = 0;
+    const updatePattern = "**/api/dsh-remote-ops/update";
+    await page.route(updatePattern, route => route.request().method() === "GET" && gaps++ < 2 ? route.fulfill({ status: 404, body: "not found" }) : route.continue());
+    try {
+      await until(() => gaps >= 3);
+      assert.equal(await page.getByText(/更新状态读取失败|终端输出刷新失败|状态刷新失败/).count(), 0, "temporary update gaps must not become a red error banner");
+    } finally { await page.unroute(updatePattern); }
     releaseSlow(); await pendingRequest;
   });
   await step("backend and browser module update without restarting DSH or replacing connections", async () => {
-    const after = await until(async () => { try { const s = await state(); return s.pluginVersion === feed.version && s; } catch {} });
+    const after = await until(async () => { try { const s = await state(); return s.bound && s.pluginVersion === feed.version && s; } catch {} });
     assert.notEqual(after.runtimeId, before.runtimeId); assert.equal(host.exitCode, null);
     assert.equal(after.sessions.find(s => s.sessionId === "local-cmd").outputCursor.streamId, before.sessions.find(s => s.sessionId === "local-cmd").outputCursor.streamId);
     assert.equal(after.sessions.find(s => s.sessionId === sshId).outputCursor.streamId, before.sessions.find(s => s.sessionId === sshId).outputCursor.streamId);
@@ -117,17 +155,30 @@ try {
     const apiState = await api("api?sessionId=" + owner); assert.equal(apiState.sessions.length, 1); assert.equal(apiState.records.find(r => r.id === "slow-before-update").state, "completed");
     assert.equal((await update()).settings.source, "custom");
     assert.ok(moduleRequests.length >= 2); evidence.moduleReloads = moduleRequests.length;
-    await page.locator(".dsh-remote-ops__headAction").filter({hasText:"设置"}).click();
+    if (!await page.getByRole("tab", { name: "更新", exact: true }).count()) await page.locator(".dsh-remote-ops__headAction").filter({hasText:"设置"}).click();
     await page.getByRole("tab", { name: "更新", exact: true }).click();
     await page.getByText(`NATIVE_CLIENT_${feed.version}`, { exact: false }).waitFor();
     await page.getByRole("button", { name: "检查并更新", exact: true }).waitFor();
     await page.getByText("新版已生效，无需重启 DSH", { exact: true }).waitFor();
     await page.screenshot({ path: join(out, "updated.png") });
+    assert.equal(await page.getByText(/终端输出刷新失败|状态刷新失败/).count(), 0);
+  });
+  await step("failed update status reads show details and recover with GET instead of reinstalling", async () => {
+    const pattern = "**/api/dsh-remote-ops/update"; let posts = 0;
+    await page.route(pattern, route => { if (route.request().method() === "POST") { posts++; return route.continue(); } return route.fulfill({ status: 404, body: "native status fixture not found" }); });
+    await page.getByRole("button", { name: "刷新更新状态", exact: true }).click();
+    await page.getByRole("alert").filter({ hasText: "更新状态读取失败" }).waitFor();
+    await page.unroute(pattern);
+    await page.getByRole("button", { name: "刷新更新状态", exact: true }).click();
+    await until(async () => await page.getByRole("alert").filter({ hasText: "更新状态读取失败" }).count() === 0);
+    assert.equal(posts, 0);
+    assert.equal((await update()).currentVersion, feed.version);
   });
   await step("Agent tools work after handoff and keep earlier browser/API identities", async () => {
     await editor.fill("HOT_NATIVE_AFTER"); await editor.press("Enter"); const proof = await until(() => proofs.get("AFTER"));
     assert.equal(proof.length, 3); assert.match(JSON.stringify(proof[0]), /HOT_RELOAD_EXEC/); assert.doesNotMatch(JSON.stringify(proof), /Error:|PRIVATE|Cannot read private/);
     evidence.agentToolsAfter = proof.map((_, index) => ["remote_command_execute", "remote_browser_read", "remote_api_records"][index]);
+    assert.equal((await boundState()).sessions.find(s => s.sessionId === sshId)?.status.kind, "running", "SSH remains usable after the next Agent turn");
   });
   await step("second update waits across a batch upload gap and preserves both files", async () => {
     const uploadRoot = join(out, "uploaded"); await mkdir(uploadRoot, { recursive: true });
@@ -150,6 +201,7 @@ try {
       await until(() => held); assert.equal(await readFile(join(uploadRoot, "gap-one.txt"), "utf8"), "gap-one.txt contents");
       const beforeBatch = await state(), clientLoads = moduleRequests.length;
       feed = await nextPackage(2); await api("update", { action: "install" });
+      await until(async () => (await update()).hotReload.pending);
       await new Promise(r => setTimeout(r, 1800));
       assert.equal((await state()).runtimeId, beforeBatch.runtimeId); assert.equal(moduleRequests.length, clientLoads);
       assert.ok((await update()).hotReload.blockers.includes("浏览器批量上传中"));
@@ -157,6 +209,7 @@ try {
       await until(async () => { try { return await readFile(join(uploadRoot, "gap-two.txt"), "utf8") === "gap-two.txt contents"; } catch { return false; } });
       await until(async () => { try { return (await state()).pluginVersion === feed.version; } catch {} });
       assert.equal(ssh.log.connections, 1); assert.equal(host.exitCode, null);
+      assert.equal((await boundState()).sessions.find(s => s.sessionId === sshId)?.status.kind, "running", "SSH remains usable after the second update");
     } finally { release(); await page.unroute(pattern); }
   });
   await step("host profile recomposition keeps the committed runtime and frontend", async () => {
@@ -165,18 +218,21 @@ try {
     await new Promise(r => setTimeout(r, 3000));
     assert.equal((await state()).pluginVersion, feed.version);
     assert.equal(await page.getByRole("button", { name: "Remote Ops", exact: true }).count(), 1);
+    assert.equal((await boundState()).sessions.find(s => s.sessionId === sshId)?.status.kind, "running", "SSH remains usable after profile recomposition");
   });
   await step("candidate startup failure rolls back without replaying requests or dropping SSH", async () => {
     const previous = feed.version; feed = await nextPackage(3, true); await api("update", { action: "install" });
     const failed = await until(async () => { try { const s = await update(); return s.phase === "reload-failed" && s; } catch {} });
     assert.equal(failed.currentVersion, previous); assert.equal(failed.installedVersion, feed.version); assert.match(failed.error, /已恢复旧运行版本/);
-    assert.equal((await state()).sessions.find(s => s.sessionId === sshId).status.kind, "running"); assert.equal(ssh.log.connections, 1);
+    assert.equal((await boundState()).sessions.find(s => s.sessionId === sshId)?.status.kind, "running"); assert.equal(ssh.log.connections, 1);
     const command = await api("workspace", { action: "command-execute", sessionId: owner, session: sshId, command: "echo ROLLBACK_OK" }); assert.match(JSON.stringify(command), /ROLLBACK_OK/);
     await page.screenshot({ path: join(out, "rollback.png") });
   });
   evidence.browserErrors = errors; assert.deepEqual(errors, []);
 } catch (error) {
   evidence.error = error.stack; process.exitCode = 1; console.error(error);
+  evidence.failedState = await readState?.().catch(error => ({ error: String(error) }));
+  evidence.failedOwner = owner; evidence.sshId = sshId; evidence.sshConnections = ssh.log.connections;
   if (page) { evidence.failedView = await page.locator("body").innerText().catch(() => "unavailable"); await page.screenshot({ path: join(out, "failure.png"), timeout: 5000 }).catch(() => {}); }
 } finally {
   evidence.status = process.exitCode ? "failed" : "passed"; evidence.finishedAt = new Date().toISOString();

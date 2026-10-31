@@ -4,8 +4,22 @@ import { sessionError } from "../common.js";
 import { PLUGIN_VERSION } from "../version.js";
 import { UPDATE_PACKAGE, UPDATE_CACHE_MS, compareVersions, normalizeUpdateSettings, readUpdateSettings, writeUpdateSettings, fetchLatestRelease, downloadRelease } from "../release.js";
 
+export async function monitorInstall(state, operation, timeoutMs = 10 * 60 * 1000) {
+  const timer = setTimeout(() => {
+    if (state.disposed) return;
+    state.updatePhase = "install-stalled";
+    state.updateError = "安装耗时超出预期，结果尚未确认。请刷新更新状态或查看 DSH 插件管理日志；不会自动重复安装。";
+  }, timeoutMs);
+  timer.unref?.();
+  try { return await operation; } finally { clearTimeout(timer); }
+}
+
 // All network checks and installation are explicit user actions. GET reads local state only.
 export const withUpdates = (Base) => class UpdatesLayer extends Base {
+  updateProgress() {
+    return { ...this.release, phase: this.updatePhase ?? "idle", operationId: this.updateOperationId ?? null,
+      startedAt: this.updateStartedAt ?? null, busy: Boolean(this.updatePromise || this.releaseCheckPromise || this.updateSettingsWrite || this.reloadGate || ["waiting", "preparing", "reloading"].includes(this.updatePhase)) };
+  }
   async loadUpdateSettings() {
     if (!this.updateSettingsPromise) this.updateSettingsPromise = readUpdateSettings(this.base).then(value => this.updateSettings = value).catch(error => { this.updateSettingsPromise = undefined; throw error; });
     return this.updateSettingsPromise;
@@ -17,8 +31,8 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
     const bundles = await this.updateManager?.listBundles();
     const installedVersion = bundles?.find(bundle => bundle.name === UPDATE_PACKAGE)?.version ?? PLUGIN_VERSION;
     const needsActivation = installedVersion !== PLUGIN_VERSION;
-    const pending = needsActivation && Boolean(this.hotReload?.supported) && ["waiting", "preparing", "reloading"].includes(this.updatePhase);
-    return { ...this.release, settings, currentVersion: PLUGIN_VERSION, installedVersion, needsActivation,
+    const pending = Boolean(this.hotReload?.supported) && (needsActivation && ["waiting", "preparing", "reloading"].includes(this.updatePhase) || ["waiting-install", "preparing-install"].includes(this.updatePhase));
+    return { ...this.updateProgress(), settings, currentVersion: PLUGIN_VERSION, installedVersion, needsActivation,
       restartRequired: needsActivation && (!this.hotReload?.supported || this.updatePhase === "restart-required"),
       hotReload: { supported: Boolean(this.hotReload?.supported), pending, blockers: pending ? reloadBlockers(this) : [] },
       phase: this.updatePhase ?? "idle", busy: Boolean(this.updatePromise || this.releaseCheckPromise || this.updateSettingsWrite || this.reloadGate || pending), checkedAt: this.releaseCheckedAt ? new Date(this.releaseCheckedAt).toISOString() : null, canInstall: Boolean(this.updateManager), error: settingsError ?? this.updateError ?? null, requestFailure: settingsError ? null : this.updateFailure ?? null };
@@ -57,6 +71,7 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
 
   upgrade() {
     if (this.updatePromise) return this.updatePromise;
+    this.updateOperationId = randomUUID(); this.updateStartedAt = new Date().toISOString();
     this.updatePromise = this.performUpgrade().then(value => ({ ...value, busy: Boolean(value.hotReload?.pending) })).catch(error => { this.updatePhase = "failed"; this.updateError = error.message; this.updateFailure = error.requestFailure ?? null; throw error; }).finally(() => { this.updatePromise = undefined; });
     return this.updatePromise;
   }
@@ -78,9 +93,11 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
     if (compareVersions(bundle.version, release.latestVersion) >= 0) return { ...await this.updateStatus(), updated: false };
     const downloaded = await downloadRelease(release, this.base, { signal: this.updateDownloadAbort.signal, onPhase: phase => this.updatePhase = phase });
     if (this.disposed) throw sessionError("UPDATE_CANCELLED", "插件已关闭，未执行安装");
+    await this.hotReload?.prepareInstall?.();
     this.updatePhase = "installing";
     this.updateInstallId = `remote-ops-update-${randomUUID()}`;
-    const result = await manager.installBundle(downloaded.path, { requestId: this.updateInstallId });
+    const result = await monitorInstall(this, manager.installBundle(downloaded.path, { requestId: this.updateInstallId }));
+    if (this.disposed) throw sessionError("UPDATE_CANCELLED", "插件已关闭，请重新打开插件查看已安装版本");
     if (result.application === "failed" || result.application === "cancelled" || result.packageResult?.exitCode) {
       const reason = result.pendingBuilds?.length ? `依赖构建脚本等待批准：${result.pendingBuilds.join(", ")}。请在 DSH 插件管理中处理后重试。` : result.error?.code ?? result.packageResult?.kind ?? result.application;
       throw sessionError("UPDATE_INSTALL_FAILED", `安装失败：${reason}。详情见 DSH 插件管理日志${result.packageResult?.logPath ? ` ${result.packageResult.logPath}` : ""}`);

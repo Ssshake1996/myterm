@@ -401,6 +401,36 @@ window.__ModuleLoader__.load({
       };
     }
 
+    // Only an explicitly started update permits a short reconnect window. Keep
+    // separate failure clocks so successful state reads cannot hide a broken
+    // terminal route, and persist the clocks across client hot replacement.
+    function createUpdateRecovery(storage, now = () => Date.now(), graceMs = 30000) {
+      const key = 'remote-ops.update-recovery';
+      let saved = { active: false, seenAt: 0, failures: {} };
+      try { const value = JSON.parse(storage?.getItem(key) ?? 'null'); if (typeof value?.active === 'boolean' && Number.isFinite(value.seenAt) && value.failures && typeof value.failures === 'object') saved = value; } catch { /* Optional browser storage. */ }
+      const save = () => { try { storage?.setItem(key, JSON.stringify(saved)); } catch { /* Optional browser storage. */ } };
+      const active = () => saved.active && now() - saved.seenAt < 15 * 60 * 1000;
+      return {
+        active,
+        begin() { saved = { active: true, seenAt: now(), failures: {} }; save(); },
+        observe(value) {
+          if (typeof value?.phase !== 'string') return;
+          saved.active = Boolean(value.busy) || ['checking', 'downloading', 'verifying', 'waiting-install', 'preparing-install', 'installing', 'install-stalled', 'ready', 'waiting', 'preparing', 'reloading'].includes(value.phase);
+          saved.seenAt = now();
+          if (!saved.active) saved.failures = {};
+          save();
+        },
+        success(stage) { if (stage in saved.failures) { delete saved.failures[stage]; save(); } },
+        recovering(stage) { return active() && Number.isFinite(saved.failures[stage]) && now() - saved.failures[stage] < graceMs; },
+        shouldRecover(error) {
+          const failure = error?.requestFailure;
+          if (!active() || !['state-refresh', 'terminal-output', 'update-status'].includes(failure?.stage) || ![null, 404, 503].includes(failure.status) || error.code && error.code !== 'UPDATE_RELOADING') return false;
+          if (!Number.isFinite(saved.failures[failure.stage])) { saved.failures[failure.stage] = now(); save(); }
+          return now() - saved.failures[failure.stage] < graceMs;
+        },
+      };
+    }
+
     // END generated HTTP diagnostics
     const failureMessage = (value, status) => [value.title, `HTTP ${status}`, value.code, value.stage, value.error, value.details ?? value.stack, value.cleanupError].filter(Boolean).join("\n");
     async function request(path, init) {
@@ -411,10 +441,14 @@ window.__ModuleLoader__.load({
         let action; try { action = JSON.parse(init?.body ?? "{}").action; } catch { /* The server validates request bodies. */ }
         stage = { settings: "update-settings", check: "update-check", install: "update-install" }[action] ?? "update-status";
       }
+      if (stage === "update-install") updateRecovery.begin();
+      const timeoutMs = stage === "terminal-output" ? 35000 : ["state-refresh", "update-status", "update-install"].includes(stage) ? 15000 : ["update-check", "update-settings"].includes(stage) ? 45000 : 0;
+      const timeout = timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined;
+      const options = timeout ? { ...init, signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout } : init;
       let response, text;
-      try { response = await fetch(path, init); text = await response.text(); }
+      try { response = await fetch(path, options); text = await response.text(); }
       catch (cause) {
-        if (cause?.name === "AbortError") throw cause;
+        if (cause?.name === "AbortError" && !timeout?.aborted) throw cause;
         const diagnostic = requestFailure({ url: path, base, method, stage, status: response?.status, cause: cause?.message ?? String(cause) });
         throw Object.assign(new Error(formatRequestFailure(diagnostic)), { requestFailure: diagnostic });
       }
@@ -428,11 +462,15 @@ window.__ModuleLoader__.load({
         error.message = formatRequestFailure(diagnostic) + (value?.code ? `\n错误代码：${safeDiagnosticText(value.code, 120)}` : "") + (upstream ? `\n插件接口：${transport.method} ${transport.url}（HTTP ${transport.status}）` : "");
         throw error;
       }
+      updateRecovery.success(stage);
+      if (stage === "state-refresh") updateRecovery.observe(value.update);
+      else if (stage.startsWith("update-")) updateRecovery.observe(value);
       return value;
     }
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
+    const updateRecovery = createUpdateRecovery((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.12.2", update: { currentVersion: "0.12.2", latestVersion: "0.12.2", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.12.3", update: { currentVersion: "0.12.3", latestVersion: "0.12.3", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -1160,9 +1198,16 @@ window.__ModuleLoader__.load({
     function UpdateDialog({ onClose, onStatus, embedded = false, visible = true }) {
       const [data, setData] = useState(null), [draft, setDraft] = useState({ source: "github", url: "" });
       const [pending, setPending] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
+      const [pollError, setPollError] = useState(""), [statusPending, setStatusPending] = useState(false);
       const alive = useRef(true), actionLock = useRef(false);
       const changeDraft = value => { setDraft(value); setNotice(""); setError(""); };
-      const accept = value => { if (alive.current) { setData(value); onStatus(value); } };
+      const accept = value => { if (alive.current) { setData(value); onStatus(value); setPollError(""); if (value.phase === "applied") { setError(""); setNotice(""); } } };
+      const refreshStatus = async () => {
+        setStatusPending(true);
+        try { const value = await request("/api/dsh-remote-ops/update"); accept(value); if (!data) setDraft(value.settings); }
+        catch (cause) { if (alive.current) setPollError(cause.message); }
+        finally { if (alive.current) setStatusPending(false); }
+      };
       useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
       useEffect(() => {
         if (!visible) return;
@@ -1170,15 +1215,15 @@ window.__ModuleLoader__.load({
         request("/api/dsh-remote-ops/update").then(value => { if (!cancelled && alive.current) {
           accept(value);
           setDraft(current => data?.settings && ["source", "url"].some(key => current[key] !== data.settings[key]) ? current : value.settings);
-        } }).catch(cause => { if (!cancelled && alive.current) setError(cause.message); });
+        } }).catch(cause => { if (!cancelled && alive.current && !updateRecovery.shouldRecover(cause)) setPollError(cause.message); });
         return () => { cancelled = true; };
       }, [visible]);
       useEffect(() => {
-        if (!pending && !data?.busy) return;
+        if (!pending && !data?.busy && !updateRecovery.active()) return;
         let stopped = false, timer;
         const poll = async () => {
           try { const value = await request("/api/dsh-remote-ops/update"); if (!stopped) accept(value); }
-          catch { /* The action response reports failures; polling never retries installation. */ }
+          catch (cause) { if (!stopped && alive.current && !updateRecovery.shouldRecover(cause)) setPollError(cause.message); }
           if (!stopped) timer = setTimeout(poll, 1000);
         };
         timer = setTimeout(poll, 500);
@@ -1192,6 +1237,7 @@ window.__ModuleLoader__.load({
           if (!alive.current) return;
           accept(value);
           if (action === "settings") { setDraft(value.settings); setNotice("更新来源已保存"); }
+          else if (value.accepted) setNotice("更新已提交，可切换工作区。这里只查询进度，不会重复安装。");
           else if (value.hotReload?.pending) setNotice(`已安装 v${value.installedVersion}，任务结束后自动应用，无需重启 DSH`);
           else if (value.restartRequired) setNotice(`已安装 v${value.installedVersion}，请在任务结束后手动重启 DSH 并刷新网页`);
           else setNotice(value.updateAvailable ? `发现新版本 v${value.latestVersion}` : `当前已是最新版本 v${value.currentVersion}`);
@@ -1203,8 +1249,8 @@ window.__ModuleLoader__.load({
       };
       const busy = pending || data?.busy;
       const dirty = data && ["source", ...(draft.source === "custom" ? ["url"] : [])].some(key => draft[key] !== data.settings[key]);
-      const phases = { checking: "正在检查版本…", downloading: "正在下载安装包…", verifying: "正在校验安装包…", installing: "正在安装，请稍候…", ready: "安装完成", waiting: "等待任务结束后自动应用…", preparing: "正在准备新版运行环境…", reloading: "正在应用新版…", applied: "新版已生效，无需重启 DSH", "reload-failed": "热加载未完成", "restart-required": "此版本需要重启 DSH", failed: "更新未完成", idle: "" };
-      const updateError = error || (data?.error ? data.requestFailure ? formatRequestFailure(data.requestFailure) : `插件更新失败\n${safeDiagnosticText(data.error)}` : "");
+      const phases = { checking: "正在检查版本…", downloading: "正在下载安装包…", verifying: "正在校验安装包…", "waiting-install": "等待当前任务结束后开始安装…", "preparing-install": "正在保留当前连接和运行状态…", installing: "正在安装，请稍候…", "install-stalled": "安装结果尚未确认，请刷新更新状态", ready: "安装完成", waiting: "等待任务结束后自动应用…", preparing: "正在准备新版运行环境…", reloading: "正在切换运行环境，连接将自动恢复…", applied: "新版已生效，无需重启 DSH", "reload-failed": "热加载未完成", "restart-required": "此版本需要重启 DSH", failed: "更新未完成", idle: "" };
+      const updateError = error || pollError || (data?.error ? data.requestFailure ? formatRequestFailure(data.requestFailure) : `插件更新失败\n${safeDiagnosticText(data.error)}` : "");
       return h(embedded ? "section" : ModalDialog, embedded ? { className: "dsh-remote-ops__settingsBody", "aria-label": "插件更新" } : { title: "插件更新", onClose },
         h("p", { className: "dsh-remote-ops__muted" }, "手动检查并安装更新。任务结束后自动热加载，保留当前对话、连接和已保存配置。"),
         data ? h(React.Fragment, null,
@@ -1222,8 +1268,9 @@ window.__ModuleLoader__.load({
             h("button", { type: "button", disabled: busy || dirty || data.restartRequired, onClick: () => void run("check") }, "仅检查版本")),
           dirty ? h("p", { className: "dsh-remote-ops__muted" }, "请先保存更新来源。") : null,
           !data.canInstall ? h("p", null, "当前 DSH 未提供插件管理服务，可检查版本并通过 dsh plugin 手动安装。") : null,
-          busy || data.phase === "applied" ? h("p", { role: "status", "aria-live": "polite" }, phases[data.phase] || "正在处理…") : null
-        ) : h("p", { role: "status" }, error ? "无法读取更新配置" : "正在读取更新配置…"),
+          busy || data.phase === "applied" ? h("p", { role: "status", "aria-live": "polite" }, pollError ? "暂时无法确认更新状态，请使用下方按钮重新查询。" : phases[data.phase] || "正在处理…") : null
+        ) : h("p", { role: "status" }, error || pollError ? "无法读取更新配置" : "正在读取更新配置…"),
+        h("button", { type: "button", disabled: statusPending, onClick: () => void refreshStatus() }, statusPending ? "正在刷新更新状态…" : "刷新更新状态"),
         notice ? h("p", { role: "status" }, notice) : null,
         updateError ? h("div", { role: "alert", className: "dsh-remote-ops__dangerAction", style: { overflowWrap: "anywhere" } }, requestErrorDetails(updateError)) : null,
       );
@@ -1752,10 +1799,10 @@ window.__ModuleLoader__.load({
               if (value.update) setUpdate(value.update);
             }
             setError(current => current.startsWith("状态刷新失败\n") ? "" : current);
-            setActionNotice(current => current === "刷新失败" ? "" : current);
+            setActionNotice(current => current === "刷新失败" || current === "更新后正在恢复连接…" ? "" : current);
             return true;
           } catch (cause) {
-            if (viewOwner.current === sessionId && refreshNotices.shouldNotify(cause, task.manual)) setError(cause instanceof Error ? cause.message : String(cause));
+            if (viewOwner.current === sessionId && !updateRecovery.shouldRecover(cause) && refreshNotices.shouldNotify(cause, task.manual)) setError(cause instanceof Error ? cause.message : String(cause));
             return false;
           }
         })();
@@ -1782,7 +1829,7 @@ window.__ModuleLoader__.load({
         } catch (cause) { if (isCurrent()) setError(cause.message); return undefined; }
         finally { if (isCurrent() && changesConnection) setBusy(false); }
       }, [sessionId, refresh]);
-      const refreshNow = useCallback(async () => { if (refreshBusy) return; setRefreshBusy(true); setActionNotice(""); const ok = await refresh(true); setActionNotice(ok ? "已刷新" : "刷新失败"); setRefreshBusy(false); }, [refresh, refreshBusy]);
+      const refreshNow = useCallback(async () => { if (refreshBusy) return; setRefreshBusy(true); setActionNotice(""); const ok = await refresh(true); setActionNotice(ok ? "已刷新" : updateRecovery.recovering("state-refresh") ? "更新后正在恢复连接…" : "刷新失败"); setRefreshBusy(false); }, [refresh, refreshBusy]);
       useEffect(() => { if (!selectedEnv && snapshot.environments[0]) setSelectedEnv(snapshot.environments[0].id); if (!activeSessionId && snapshot.sessions.length) setActiveSessionId((snapshot.sessions.find(item => item.kind !== "local") ?? snapshot.sessions[0]).sessionId); }, [activeSessionId, selectedEnv, snapshot]);
       useEffect(() => { try { localStorage.setItem("remote-ops.quick-open", String(quickOpen)); } catch { /* Browser storage is optional. */ } }, [quickOpen]);
       const action = useCallback(async (body) => {
@@ -1913,7 +1960,7 @@ window.__ModuleLoader__.load({
               if (cancelled || cause?.name === "AbortError") break;
               setOutputConnection("retrying");
               if (String(cause?.message).includes("TERMINAL_CURSOR_MISMATCH")) delete terminalFramesRef.current[activeFrameKey];
-              if (refreshNotices.shouldNotify(cause)) setError(cause instanceof Error ? cause.message : String(cause));
+              if (!updateRecovery.shouldRecover(cause) && refreshNotices.shouldNotify(cause)) setError(cause instanceof Error ? cause.message : String(cause));
               void refresh();
               await new Promise((resolve) => window.setTimeout(resolve, retryDelay(attempt++)));
             }

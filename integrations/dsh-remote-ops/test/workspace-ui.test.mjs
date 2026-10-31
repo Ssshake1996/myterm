@@ -23,7 +23,7 @@ function fixture(storage=new Map()) {
   const store={getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)};
   const window={__ModuleLoader__:{load:def=>{plugin=def.factory(name=>name==="react"?React:{});}},addEventListener(){},removeEventListener(){},setTimeout:()=>1,clearTimeout(){},requestAnimationFrame:fn=>fn()};
   vm.runInNewContext(source.replace("return { inject, apply };","return { inject, apply, RemoteOpsPanel, ModalDialog: typeof ModalDialog === 'undefined' ? null : ModalDialog };"),{
-    window,document:doc,localStorage:store,sessionStorage:store,URLSearchParams,AbortController,
+    window,document:doc,localStorage:store,sessionStorage:store,URLSearchParams,AbortController,AbortSignal,
     setTimeout:()=>1,clearTimeout(){},crypto:{randomUUID:()=>"id"},
     fetch:async (url,init)=>({ok:true,text:async()=>JSON.stringify(url.includes("/update")?{currentVersion:"0.4.0"}:init?.body&&JSON.parse(init.body).action==="enter"?{sessionId:"ssh-test"}:catalog)}),
   });

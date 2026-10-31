@@ -30,6 +30,27 @@ export { buildSshShellOptions } from "./terminal-sessions.js";
 export { defaultPasswordRef, normalizeGroupName, summarizeError, toLosslessJson, validateEnvironment } from "./common.js";
 export { RemoteOpsState } from "./state/index.js";
 
+export async function disposeState(state, ctx) {
+  state.disposed = true;
+  state.updateDownloadAbort?.abort();
+  if (state.updateInstallId) await state.updateManager?.cancelInstall(state.updateInstallId).catch(() => {});
+  // The host's applying phase may itself await this disposal. Joining the
+  // installation here creates a cycle even when cancelInstall says too-late.
+  await state.releaseCheckPromise?.catch(() => {});
+  await state.api.dispose();
+  await state.desktop.dispose();
+  await state.browser.dispose();
+  for (const job of state.commands.values()) job.controller.abort();
+  await Promise.allSettled([...state.commands.values()].map((job) => job.done));
+  state.commandHistory?.clear();
+  await state.transfers.close();
+  await state.localSession?.close("dsh-remote-ops disposed").catch(() => {});
+  for (const record of state.sessions.values()) await ctx.terminals.kill(record.owner, record.sessionId, "dsh-remote-ops disposed").catch(() => {});
+  state.sessions.clear();
+  state.terminalLogs?.clear();
+  state.logExports?.clear();
+}
+
 export function apply(ctx) {
   const handoff = peekHandoff(ctx);
   const state = handoff?.state ?? new RemoteOpsState(ctx);
@@ -58,22 +79,7 @@ export function apply(ctx) {
   state.desktop ??= new DesktopWorkspace(state);
   ctx.effect(() => async () => {
     if (peekHandoff(ctx)?.state === state) return;
-    state.disposed = true;
-    state.updateDownloadAbort?.abort();
-    if (state.updateInstallId) await state.updateManager?.cancelInstall(state.updateInstallId).catch(() => {});
-    await Promise.allSettled([state.updatePromise, state.releaseCheckPromise].filter(Boolean));
-    await state.api.dispose();
-    await state.desktop.dispose();
-    await state.browser.dispose();
-    for (const job of state.commands.values()) job.controller.abort();
-    await Promise.allSettled([...state.commands.values()].map((job) => job.done));
-    state.commandHistory?.clear();
-    await state.transfers.close();
-    await state.localSession?.close("dsh-remote-ops disposed").catch(() => {});
-    for (const record of state.sessions.values()) await ctx.terminals.kill(record.owner, record.sessionId, "dsh-remote-ops disposed").catch(() => {});
-    state.sessions.clear();
-    state.terminalLogs?.clear();
-    state.logExports?.clear();
+    await disposeState(state, ctx);
   }, "dsh-remote-ops cleanup");
   registerWorkspaceRoutes(ctx, state);
   ctx.effect(() => ctx.terminals.registerBackend({ type: "ssh", spawn: (spec) => state.spawnBackend(spec) }), "dsh-remote-ops SSH backend");

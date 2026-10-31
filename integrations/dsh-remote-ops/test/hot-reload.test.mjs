@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
 import { HotReload, HOT_RELOAD_PROTOCOL, peekHandoff, reloadBlockers, runtimeOperation, retainDownload, registerRuntimeFetch, registerRuntimeTool, stageRuntime, uploadBatch } from "../lib/hot-reload.js";
 import { RemoteOpsState } from "../lib/state/index.js";
+import * as plugin from "../lib/index.js";
 
 async function fixture(t, protocol = HOT_RELOAD_PROTOCOL) {
   const root = await mkdtemp(join(tmpdir(), "remote-ops-reload-"));
@@ -128,4 +129,45 @@ test("command receipts still work after a runtime prototype handoff without priv
   const state = Object.create(RemoteOpsState.prototype);
   state.commandHistory = new Map([["kept", { requestId: "kept", owner: "dialog", target: "local-cmd", status: "completed" }]]);
   assert.equal(state.commandJob({ id: "dialog" }, "kept").status, "completed");
+});
+
+test("native package installation first isolates the live module graph without losing connections", async t => {
+  const { root } = await fixture(t);
+  const state = { release: { currentVersion: "99.0.0" }, updatePromise: Promise.resolve(), commands: new Map(), localSession: { marker: "keep" } };
+  const local = state.localSession;
+  let patch, activations = 0;
+  const entry = { options: { name: "@dsh/remote-ops" }, fiber: { state: 2, await: async () => {} }, update: async options => {
+    Object.assign(entry.options, options);
+    if (options.disabled) return;
+    activations++;
+    const handoff = peekHandoff(ctx);
+    assert.equal(handoff.state, state);
+    handoff.adopted = true;
+    state.hotReload = new HotReload(state, ctx);
+  } };
+  const ctx = { fiber: { entry }, hmr: { runExclusive: work => work(), reconcileProfile: async () => {} }, profileContext: { dir: root }, on: (_name, listener) => patch = listener };
+  state.ctx = ctx;
+  const reload = new HotReload(state, ctx);
+  await reload.prepareInstall();
+  assert.equal(activations, 1);
+  assert.equal(state.localSession, local);
+  assert.equal(state.reloadGate, false);
+  assert.equal(peekHandoff(ctx), undefined);
+  const pinned = entry.options.name;
+  assert.match(pinned, /\.remote-ops-runtime/);
+  entry.options.name = "@dsh/remote-ops";
+  patch(entry, () => {});
+  assert.equal(entry.options.name, pinned, "host package reconciliation must keep the running graph until the idle activation");
+  await state.hotReload.prepareInstall();
+  assert.equal(activations, 1, "an already isolated runtime must not reload before each install");
+});
+
+test("disposal does not wait for an installation that itself waits for disposal", async () => {
+  let finishInstall, closed = 0;
+  const state = { updateInstallId: "install", updatePromise: new Promise(resolve => finishInstall = resolve), updateManager: { cancelInstall: async () => ({ status: "too-late" }) }, api: { dispose: async () => {} }, desktop: { dispose: async () => {} }, browser: { dispose: async () => {} }, commands: new Map(), transfers: { close: async () => {} }, localSession: { close: async () => { closed++; } }, sessions: new Map() };
+  try {
+    await Promise.race([plugin.disposeState(state, { terminals: {} }), new Promise((_, reject) => setTimeout(() => reject(Error("lifecycle deadlock")), 250))]);
+    assert.equal(state.disposed, true);
+    assert.equal(closed, 1);
+  } finally { finishInstall(); }
 });

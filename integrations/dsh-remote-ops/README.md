@@ -12,13 +12,15 @@ Start with [remote Windows setup](DESKTOP.md#远程电脑的一次性配置), th
 
 ## Hot reload after updates
 
+v0.12.3 also supports hosts that reload plugins during package installation. When needed, it first waits for active work and preserves the running state before installing; final activation still waits for idle. Update submission returns immediately while the operation continues in the background. Brief connection gaps recover automatically; persistent failures show the request address and details. **刷新更新状态** reads progress without repeating installation. An installation that has not returned after 10 minutes explicitly reports an unconfirmed result.
+
 Starting with v0.11.0, **设置 → 更新 → 检查并更新** downloads, verifies and installs a newer release, then automatically applies it when work is idle. DSH keeps running. The update view explains waits for conversation activity, terminal waits and independent commands, transfers, browser jobs/runtime installation, and API requests. Browser uploads defer reload until the whole batch finishes or is cancelled, including the gaps between file requests.
 
 The handoff preserves the current conversation and draft, saved settings, live terminal/browser connections, terminal logs, and API authentication and records. No command or request is replayed. Output silence is not treated as proof that a manual terminal command finished: its connection is retained. New connections use the new implementation; existing transports retain the implementation they were created with.
 
 A failed startup restores the previous runtime and exposes **重试应用已安装版本** (retry activation). Running and installed versions remain distinct. Missing host reload APIs or an incompatible runtime state format produce an explicit restart requirement.
 
-**The first upgrade from v0.10.x or earlier still needs one DSH restart to load this capability.** Subsequent compatible updates from the plugin dialog apply automatically. After installing through the CLI or host plugin manager, use the plugin's retry-activation button. Refreshing the browser alone does not update the backend. See the [v0.11.0 acceptance record](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.11.0-acceptance.md).
+**For the first migration from v0.12.2 or earlier, finish active work and install this tgz through DSH plugin management or the CLI.** After CLI installation, if the running version is still old and the page responds, use **重试应用已安装版本** in the update settings to activate the installed package without reinstalling it. Hosts without hot-reload support need a restart. If the old updater is already stuck, check the host installation log and installed version, then restart DSH once after installation completes; do not submit another install. Subsequent compatible updates from the fixed runtime can hot reload. A full restart requires reconnecting terminals and webpages but preserves saved configuration and conversations. Refreshing the browser alone does not update the backend. See the [v0.12.3 acceptance record](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.12.3-acceptance.md).
 
 ## SSH tab status and close all
 
@@ -68,10 +70,10 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.12.2.tgz` and `SHA256SUMS-dsh-remote-ops-v0.12.2.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.12.3.tgz` and `SHA256SUMS-dsh-remote-ops-v0.12.3.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.2.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.3.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -79,7 +81,7 @@ The installed package also includes `scripts/create-update-manifest.mjs`. An opt
 - HTTP(S): use a directly readable directory URL or `latest.json` URL containing the scheme, host and path. All files and redirects must remain on that origin; the server must allow the DSH host to download them directly. Trust internal HTTPS certificates in the DSH Node process.
 - Dependencies use the DSH registry, proxy and build-approval configuration. Provide an accessible internal npm registry when needed. Chromium can be installed on demand.
 
-Verified packages are cached on the DSH host and installed by the current profile's native DSH plugin manager. Source settings live in `$DSH_HOME/remote-ops/update-settings.json` and are shared within that DSH home; installation affects the current profile. Installation errors provide a reason and log location. Failed hot reload restores the previous runtime and allows an explicit activation retry. Older installations need one restart after their first upgrade; a full restart does not restore process-local connections or records. The bundled `remote-ops-updates` skill covers configuration, feed generation and diagnostics.
+Verified packages are cached on the DSH host and installed by the current profile's native DSH plugin manager. Source settings live in `$DSH_HOME/remote-ops/update-settings.json` and are shared within that DSH home; installation affects the current profile. Installation errors provide a reason and log location. Failed hot reload restores the previous runtime and allows an explicit activation retry. Follow the activation or restart steps above for the first migration; a full restart does not restore process-local connections or records. The bundled `remote-ops-updates` skill covers configuration, feed generation and diagnostics.
 
 ## Saved RESTful environments and execution workspace
 
@@ -191,11 +193,11 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.12.2.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.12.3.tgz
 dsh web
 ```
 
-CLI installation must use the same user, DSH_HOME and profile as the running host. The first upgrade from an older version needs one restart. Prefer the plugin update dialog for subsequent upgrades, and verify that both running and installed versions show the target version. A full DSH restart does not restore in-memory tasks or connections.
+CLI installation must use the same user, DSH_HOME and profile as the running host. After CLI installation, use the activation-only button if the running version remains old. If the old updater is stuck or hot reload is unsupported, restart once after installation completes. Prefer the plugin update dialog for subsequent upgrades, and verify that both running and installed versions show the target version. A full DSH restart does not restore in-memory tasks or connections.
 
 For a package obtained from a registry, the package name is:
 

@@ -24,7 +24,7 @@ const PUBLIC_METHODS = [
   "load", "readJson",
   "groupDir", "envFile", "saveGroup", "normalizeEnvironment", "groupList", "createGroup", "renameGroup", "deleteGroup", "saveEnvironment", "updateEnvironment", "allEnvironments", "findEnvironment", "findEnvironmentBySessionName", "deleteEnvironment",
   "quickGroupDir", "quickFile", "saveQuickGroup", "quickGroupList", "createQuickGroup", "renameQuickGroup", "deleteQuickGroup", "saveQuickCommand", "moveQuickCommand", "deleteQuickCommand", "dispatchQuick",
-  "loadUpdateSettings", "updateStatus", "saveUpdateSettings", "checkForUpdate", "performUpgrade", "upgrade",
+  "loadUpdateSettings", "updateProgress", "updateStatus", "saveUpdateSettings", "checkForUpdate", "performUpgrade", "upgrade",
   "localSnapshot", "catalog", "connectionSnapshot", "snapshot", "outputCursor", "workspaceActivity", "controlSnapshot", "terminalOperation", "toolReceipt", "recordToolReceipt", "event",
   "activeRemoteSessions", "getSession", "reconcileHostSessions", "resolvePassword", "storePassword", "spawnBackend", "open", "openDirect", "resolveOwner", "enter", "recordDisconnect", "resize", "close", "closeMany",
   "ensureLocalSession", "startLocalSession",

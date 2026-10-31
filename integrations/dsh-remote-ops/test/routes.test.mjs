@@ -59,7 +59,7 @@ test("update route stores an HTTP source, reads local status and checks only aft
   const unavailable = await call({ action: "check" }); assert.equal((await unavailable.json()).code, "UPDATE_METADATA_INVALID");
   available = true;
   const checked = await call({ action: "check" }); assert.equal((await checked.json()).updateAvailable, false);
-  const installed = await call({ action: "install" }); assert.equal((await installed.json()).updated, false);
+  const installed = await call({ action: "install" }); assert.equal(installed.status, 202); assert.equal((await installed.json()).accepted, true);
   assert.equal((await call({ action: "unexpected" })).status, 400);
   assert.equal((await call({action:'settings',settings:{source:'filesystem',path:'/releases'}})).status,400);
   assert.equal((await call({action:'settings',settings:{source:'sftp',path:'/releases',environment:'ssh'}})).status,400);

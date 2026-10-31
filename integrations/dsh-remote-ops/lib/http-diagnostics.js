@@ -58,3 +58,33 @@ export function createRefreshNoticeGate(storage) {
     },
   };
 }
+
+// Only an explicitly started update permits a short reconnect window. Keep
+// separate failure clocks so successful state reads cannot hide a broken
+// terminal route, and persist the clocks across client hot replacement.
+export function createUpdateRecovery(storage, now = () => Date.now(), graceMs = 30000) {
+  const key = 'remote-ops.update-recovery';
+  let saved = { active: false, seenAt: 0, failures: {} };
+  try { const value = JSON.parse(storage?.getItem(key) ?? 'null'); if (typeof value?.active === 'boolean' && Number.isFinite(value.seenAt) && value.failures && typeof value.failures === 'object') saved = value; } catch { /* Optional browser storage. */ }
+  const save = () => { try { storage?.setItem(key, JSON.stringify(saved)); } catch { /* Optional browser storage. */ } };
+  const active = () => saved.active && now() - saved.seenAt < 15 * 60 * 1000;
+  return {
+    active,
+    begin() { saved = { active: true, seenAt: now(), failures: {} }; save(); },
+    observe(value) {
+      if (typeof value?.phase !== 'string') return;
+      saved.active = Boolean(value.busy) || ['checking', 'downloading', 'verifying', 'waiting-install', 'preparing-install', 'installing', 'install-stalled', 'ready', 'waiting', 'preparing', 'reloading'].includes(value.phase);
+      saved.seenAt = now();
+      if (!saved.active) saved.failures = {};
+      save();
+    },
+    success(stage) { if (stage in saved.failures) { delete saved.failures[stage]; save(); } },
+    recovering(stage) { return active() && Number.isFinite(saved.failures[stage]) && now() - saved.failures[stage] < graceMs; },
+    shouldRecover(error) {
+      const failure = error?.requestFailure;
+      if (!active() || !['state-refresh', 'terminal-output', 'update-status'].includes(failure?.stage) || ![null, 404, 503].includes(failure.status) || error.code && error.code !== 'UPDATE_RELOADING') return false;
+      if (!Number.isFinite(saved.failures[failure.stage])) { saved.failures[failure.stage] = now(); save(); }
+      return now() - saved.failures[failure.stage] < graceMs;
+    },
+  };
+}

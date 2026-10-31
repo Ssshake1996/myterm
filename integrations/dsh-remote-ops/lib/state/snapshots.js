@@ -24,7 +24,7 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
       pluginName: PLUGIN_NAME,
       pluginVersion: PLUGIN_VERSION,
       runtimeId: this.runtimeId,
-      update: this.release,
+      update: this.updateProgress(),
     };
   }
 
@@ -90,7 +90,7 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
       const connectionCount = remoteSessions.filter((session) => session.environmentId === x.id && session.status.kind !== "exited").length;
       return { ...x, passwordRef: x.passwordRef ? "configured" : undefined, active: connectionCount > 0, running: connectionCount > 0, status: connectionCount > 0 ? "running" : "idle", connectionCount, maxConnections: MAX_SESSIONS_PER_ENVIRONMENT };
     });
-    return { groups: this.groupList(), environments, quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, activity: this.workspaceActivity(id), events: this.events.get(id) ?? [], ...(this.disconnects.get(id)?.length ? { disconnects: this.disconnects.get(id) } : {}), localError: this.localError || undefined, pluginName: PLUGIN_NAME, pluginVersion: PLUGIN_VERSION, runtimeId: this.runtimeId, update: this.release };
+    return { groups: this.groupList(), environments, quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, activity: this.workspaceActivity(id), events: this.events.get(id) ?? [], ...(this.disconnects.get(id)?.length ? { disconnects: this.disconnects.get(id) } : {}), localError: this.localError || undefined, pluginName: PLUGIN_NAME, pluginVersion: PLUGIN_VERSION, runtimeId: this.runtimeId, update: this.updateProgress() };
   }
 
   controlSnapshot(session) {

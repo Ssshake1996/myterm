@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { normalizeUpdateSettings, readUpdateSettings, writeUpdateSettings, compareVersions, fetchLatestRelease, downloadRelease, fetchUpdateBytes, expectedChecksum, inspectUpdatePackage, UPDATE_PACKAGE } from "../lib/release.js";
 import { PLUGIN_VERSION } from "../lib/version.js";
-import { withUpdates } from "../lib/state/updates.js";
+import { withUpdates, monitorInstall } from "../lib/state/updates.js";
 import { createUpdateManifest } from "../scripts/create-update-manifest.mjs";
 
 const next = PLUGIN_VERSION.split('.').map(Number); next[2]++; const nextVersion = next.join('.');
@@ -158,6 +158,21 @@ test('supported runtime schedules activation; retrying an installed version neve
   await assert.rejects(state.checkForUpdate(true),/UPDATE_BUSY/);
   const network=f.requests.length;state.updatePhase='reload-failed';await state.upgrade();
   assert.equal(f.requests.length,network);assert.equal(installs.length,1);assert.deepEqual(scheduled,[nextVersion,nextVersion]);
+});
+
+test('live graph preparation finishes before DSH is allowed to replace package files',async t=>{
+  const f=await feed(t),{state,installs}=await stateFor(t,f);let prepared=false;
+  state.hotReload={supported:true,prepareInstall:async()=>{assert.equal(installs.length,0);prepared=true;},schedule:()=>true};
+  await state.upgrade();assert.equal(prepared,true);assert.equal(installs.length,1);
+  const blocked=await stateFor(t,f);blocked.state.hotReload={prepareInstall:async()=>{throw Error('cannot preserve running graph');}};
+  await assert.rejects(blocked.state.upgrade(),/cannot preserve/);assert.equal(blocked.installs.length,0);
+});
+
+test('a stalled install reports an unknown result without starting or cancelling another installation',async()=>{
+  let complete;const state={updatePhase:'installing'};
+  const pending=monitorInstall(state,new Promise(resolve=>complete=resolve),5);
+  await new Promise(resolve=>setTimeout(resolve,20));assert.equal(state.updatePhase,'install-stalled');assert.match(state.updateError,/不会自动重复安装/);
+  complete({application:'applied'});assert.equal((await pending).application,'applied');
 });
 
 test('DSH failures are reported without automatic retries, approvals or hot reload',async t=>{

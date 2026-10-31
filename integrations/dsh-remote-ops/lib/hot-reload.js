@@ -2,6 +2,7 @@ import { cp, mkdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import { sessionError } from "./common.js";
 
 // Bump when in-memory state can no longer be adopted by another plugin version.
@@ -125,6 +126,7 @@ export class HotReload {
     this.supported = Boolean(this.entry?.update && this.hmr?.runExclusive && this.profileDir);
     const activeName = this.entry?.options.name;
     const snapshotPrefix = this.profileDir && pathToFileURL(join(this.profileDir, ".remote-ops-runtime")).href + "/";
+    this.isolated = Boolean(snapshotPrefix && activeName?.startsWith(snapshotPrefix));
     // Profile recomposition reintroduces the package alias. Keep this live row
     // on its committed graph; changing other host settings must not roll it back
     // to Node's cached alias or to the initial browser artifact metadata.
@@ -143,6 +145,46 @@ export class HotReload {
     return true;
   }
   stop() { clearTimeout(this.timer); this.timer = undefined; }
+  async prepareInstall() {
+    // Newer hosts reconcile package changes inside installBundle(). First move
+    // this live runtime to an immutable graph so that reconciliation cannot
+    // dispose the installer or interrupt work before our idle activation.
+    if (!this.supported || this.isolated || typeof this.hmr.reconcileProfile !== "function") return;
+    const state = this.state, version = state.release.currentVersion;
+    let target;
+    for (;;) {
+      if (state.disposed) throw sessionError("UPDATE_CANCELLED", "插件已关闭，未执行安装");
+      state.updateDownloadAbort?.signal.throwIfAborted();
+      if (reloadBlockers(state).length) {
+        state.updatePhase = "waiting-install";
+        await delay(250, undefined, { signal: state.updateDownloadAbort?.signal });
+        continue;
+      }
+      state.updatePhase = "preparing-install";
+      target ??= await stageRuntime(this.profileDir, version);
+      if ((await import(target)).HOT_RELOAD_PROTOCOL !== HOT_RELOAD_PROTOCOL) throw sessionError("UPDATE_RUNTIME_INCOMPATIBLE", "无法保留当前运行状态，尚未安装新版");
+      const prepared = await this.hmr.runExclusive(async () => {
+        if (state.disposed) throw sessionError("UPDATE_CANCELLED", "插件已关闭，未执行安装");
+        if (reloadBlockers(state).length) return false;
+        const previous = this.entry.options.name, handoff = { state, adopted: false, version };
+        state.reloadGate = true; state.updatePhase = "reloading";
+        handoffs().set(this.entry, handoff);
+        try {
+          await this.switchTo(target);
+          if (!handoff.adopted || state.release.currentVersion !== version) throw new Error("Running state was not retained before installation");
+          return true;
+        } catch (error) {
+          handoff.adopted = false;
+          await this.switchTo(previous);
+          throw error;
+        } finally {
+          state.reloadGate = false;
+          handoffs().delete(this.entry);
+        }
+      });
+      if (prepared) return;
+    }
+  }
   async tick() {
     const state = this.state;
     if (state.disposed || this.running) return;
