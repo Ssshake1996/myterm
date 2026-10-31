@@ -15,6 +15,8 @@ The top **终端 / 网页 / 文件 / API** tabs form a compact group on the left
 
 Open **环境 → SSH** for saved SSH configurations or **环境 → API** for API configurations. The **返回工作区** button at the top left returns to the previous terminal, webpage or API draft without releasing SSH connections. Local CMD and SSH sessions share one terminal tab strip; the selected tab is the visible terminal, while tools must still use the exact session ID returned by the plugin.
 
+The environment page has group navigation (a dropdown in narrow panels), search, and an environment list. SSH rows expose **进入 / 编辑 / 测试**. Row **更多环境操作** contains **新建独立连接** and **删除环境**. The selected SSH group's **分组操作** menu renames it or deletes an empty group. **批量管理** reveals checkboxes; **删除所选** confirms exact names and addresses, and partial failures retain the failed selection with its reason. UI deletion closes the deleted environment's existing SSH connections; **返回工作区** only leaves the management page. Keep this distinction when explaining the UI to a user.
+
 ## Select an existing environment
 
 Call `remote_environment_list`. Match the requested environment and reuse its returned internal `id` for updates/deletion, especially after renaming or moving groups. Names are accepted too; an exact ID takes precedence over a name. Clarify genuinely ambiguous targets. The list also contains connection/session information; a saved entry is not evidence of a successful SSH connection.

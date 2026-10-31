@@ -69,7 +69,8 @@ test("entering an environment from Web returns to its terminal workspace",async(
   const view=f.mount("RemoteOpsPanel",{sessionId:"a"});await tick();view.render();
   view.find(n=>n.props.role==="tab"&&n.props["aria-label"]==="网页").props.onClick();view.render();
   view.find(n=>n.props["aria-label"]==="环境管理").props.onClick();view.render();
-  view.find(n=>n.type==="button"&&n.children.includes("进入")).props.onClick();await tick();view.render();
+  const manager=view.find(n=>n.type?.name==="EnvironmentManager");assert.ok(manager);
+  manager.props.onPrimary(manager.props.environments[0]);await tick();view.render();
   assert.equal(view.find(n=>n.props["data-module"]).props["data-module"],"terminal");
 });
 

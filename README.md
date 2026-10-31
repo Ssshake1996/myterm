@@ -137,7 +137,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 ## 界面与交互
 
 - 终端、网页、文件及环境、快捷命令、诊断采用统一的字号、间距、控件和深浅色层次。顶部保留工作区标签，版本、诊断和“界面密度”收进“设置 → 通用”，更新位于“设置 → 更新”；舒适/紧凑密度在本浏览器中保存。
-- 本地 CMD 和 SSH 终端始终使用同一标签栏；地址和工具位于下方。标签较多时横向滚动，方向键及 Home/End 可切换并定位当前终端。
+- 本地 CMD 和 SSH 共用一行标签，搜索、导出等工具固定在右侧。标签放不下时，两端显示左右箭头，点击即可滚动查看更早或更新的标签，到达边界时对应箭头置灰；无需关闭连接。方向键及 Home/End 可切换并定位当前终端，后台输出和状态刷新保留手动滚动位置。
 - 网页以地址和实时画面为主。“设置 → 网页”统一管理引擎、Chromium 安装、视口与缩放；“收藏”管理网站与流程；“操作记录”在画面下方展开。返回工作区保留地址草稿和当前网页。
 - 已打开网页切换“插件内 / 独立窗口”时先确认，取消不会派发切换；确认后会重载页面，未提交表单可能丢失。执行中禁止重复切换。
 - 文件列表选中项目后才显示复制、删除等操作；上传入口与其他按钮统一，浏览器上传展示字节进度。切换模块保留选择、草稿与后台任务，目录完成刷新继续合并。
@@ -155,6 +155,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 
 ## 工作区与交互
 
+- 环境管理采用“分组导航 + 环境列表”：宽栏左侧选择分组，窄栏改用下拉框。SSH 行直接显示“进入 / 编辑 / 测试”，API 行直接显示“使用 / 编辑”；删除与新建独立 SSH 连接位于行尾“更多”。“批量管理”才显示选择框，删除前列出所选名称与地址，取消不修改配置，部分失败会保留失败项并显示原因。SSH 分组菜单支持重命名及删除空分组；API 分组在环境编辑表单中设置。左上角“返回工作区”保留原工作区内容。
 - 顶部“终端 / 网页 / 文件 / API”标签支持方向键、Home/End；环境管理独立展开在插件内，“设置 → 通用”收纳诊断和刷新，更新位于“设置 → 更新”。左侧入口仍打开 DSH 原生右栏，不替换主对话。
 - 当前模块、选中终端和环境筛选按 DSH 对话恢复，关闭再打开面板及网页刷新均可恢复。文件路径、排序、滚动及书签沿用原有存储；文件筛选、路径草稿和仍存在的选中项在同一网页内跨模块/面板切换保留，整页刷新后重新读取目录，不恢复旧选择。
 - “设置 → 终端”统一管理字号、换行、高亮及当前 SSH 连接尺寸。终端标签旁可直接搜索和导出当前日志，“更多”提供独立命令和全部日志打包；路径与技术状态位于底部状态栏。普通日志使用快速解析，光标控制、Unicode 和全屏程序使用 VT 屏幕模型。
@@ -201,7 +202,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 从 [最新稳定版](https://github.com/Ssshake1996/myterm/releases/latest) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.12.1.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.12.2.tgz
 dsh web
 ```
 
@@ -219,7 +220,7 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ## 内网 HTTP/HTTPS 手动更新
 
-当前版本为 [v0.12.1](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.12.1)。本版补齐桌面操作说明，桌面能力、安装与热加载的验证范围见 [v0.12.0 验收记录](docs/testing/dsh-remote-ops-v0.12.0-acceptance.md)。
+当前版本为 [v0.12.2](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.12.2)。本版统一 SSH / API 环境管理布局，增加批量管理和终端标签左右滚动；详见 [发布说明](docs/releases/dsh-remote-ops-v0.12.2.md)。桌面能力、安装与热加载的验证范围见 [v0.12.0 验收记录](docs/testing/dsh-remote-ops-v0.12.0-acceptance.md)。
 
 Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后显示等待原因，任务结束后自动热加载；“新版已生效”与运行版本共同确认结果。
 
@@ -228,14 +229,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.12.1.tgz
-  SHA256SUMS-dsh-remote-ops-v0.12.1.txt
+  dsh-remote-ops-v0.12.2.tgz
+  SHA256SUMS-dsh-remote-ops-v0.12.2.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.2.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -278,14 +279,14 @@ SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.12.1
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.12.2
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.12.1            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.12.1 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.12.2            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.12.2 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后下载正式包，核对其实际 SHA256、校验文件及 GitHub 提供的摘要。

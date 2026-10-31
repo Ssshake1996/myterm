@@ -18,7 +18,7 @@ export function jsonTreeRows(value, expanded, limit=500) {
   }
   return {rows,more:stack.length>0};
 }
-export function createApiPanel(React, request) {
+export function createApiPanel(React, request, EnvironmentManager) {
   const {createElement:h,useState,useEffect,useCallback,useRef}=React;
   const style=`
     .ro-api{display:flex;flex-direction:column;gap:14px;padding:16px;min-width:0;height:100%;overflow:auto;box-sizing:border-box}
@@ -44,7 +44,7 @@ export function createApiPanel(React, request) {
         h('span',{className:'ro-api__jsonValue','data-type':row.value===null?'null':typeof row.value},row.container?(Array.isArray(row.value)?'['+row.count+']':'{'+row.count+'}')+(row.depthLimited?' · 更深内容见原文':''):JSON.stringify(row.value)))),
       tree.more?h('div',null,h('p',null,'已显示 '+limit+' 个节点，可收起分支或查看原文。'),limit<2000?h('button',{type:'button',onClick:()=>setLimit(n=>Math.min(n+500,2000))},'显示更多节点'):null):null);
   }
-  return function ApiPanel({sessionId,sshEnvironments=[],mode='workspace',onManage}) {
+  return function ApiPanel({sessionId,sshEnvironments=[],mode='workspace',onManage,onUse,askPanel}) {
     const [draft,setDraft]=useState(()=>drafts.get(sessionId)??{environment:'',method:'GET',path:'',body:'',headers:'{}'});
     const [data,setData]=useState({environments:[],sessions:[],records:[]});
     const [error,setError]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true);
@@ -66,7 +66,7 @@ export function createApiPanel(React, request) {
     const post=async body=>{setBusy(true);setError('');try{const value=await request(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,...body})});if(alive.current)await refresh();return value.result;}catch(err){if(alive.current)setError(err.message);return undefined;}finally{if(alive.current)setBusy(false);}};
     const edit=env=>{
       setError('');setPassword('');onManage?.();
-      setForm(env?{...env,headersText:JSON.stringify(env.headers,null,2),advancedText:JSON.stringify({headerRefs:env.headerRefs,caPem:env.caPem,auth:Object.fromEntries(Object.entries(env.auth).filter(([k])=>!['mode','username','passwordRef','loginPath','bodyFormat','tokenPointer','cookieName'].includes(k)))},null,2)}:{name:'',group:'default',baseUrl:'',sshEnvironmentId:'',timeoutMs:30000,auth:{mode:'token',username:'',passwordRef:'',loginPath:'login',bodyFormat:'json',tokenPointer:'/token',cookieName:''},headersText:'{}',advancedText:'{}'});
+      setForm(env?{...env,headersText:JSON.stringify(env.headers,null,2),advancedText:JSON.stringify({headerRefs:env.headerRefs,caPem:env.caPem,auth:Object.fromEntries(Object.entries(env.auth).filter(([k])=>!['mode','username','passwordRef','loginPath','bodyFormat','tokenPointer','cookieName'].includes(k)))},null,2)}:{name:'',group:envGroup||'default',baseUrl:'',sshEnvironmentId:'',timeoutMs:30000,auth:{mode:'token',username:'',passwordRef:'',loginPath:'login',bodyFormat:'json',tokenPointer:'/token',cookieName:''},headersText:'{}',advancedText:'{}'});
     };
     const field=(label,key,options={})=>h('label',{className:options.wide?'ro-api__wide':undefined},label,h('input',{...options,wide:undefined,'aria-label':label,value:form[key]??'',onChange:e=>setForm({...form,[key]:options.type==='number'?Number(e.target.value):e.target.value})}));
     const authField=(label,key,placeholder)=>h('label',null,label,h('input',{'aria-label':label,value:form.auth[key]??'',placeholder,onChange:e=>setForm({...form,auth:{...form.auth,[key]:e.target.value}})}));
@@ -100,14 +100,15 @@ export function createApiPanel(React, request) {
       h('p',null,'配置修改后需重新登录。密码留空保留；Token 与 Cookie 仅在当前对话、本次 DSH 进程中保存。'),h('button',{className:'ro-api__primary',type:'submit',disabled:busy},busy?'保存中…':'保存 API 环境')):null;
     const responseBody=detail?.response&&Object.hasOwn(detail.response,'body')?detail.response.body:detail?.response;
     const httpBadge=code=>code?h('span',{className:'ro-api__http','data-kind':code>=200&&code<300?'ok':code>=400?'error':'other'},'HTTP '+code):null;
-    const environmentList=data.environments.filter(env=>(!envGroup||env.group===envGroup)&&(!envSearch||[env.name,env.group,env.baseUrl].join(' ').toLowerCase().includes(envSearch.toLowerCase())));
     return h('section',{className:'ro-api','aria-label':manage?'API 环境管理':'API 工作区'},h('style',null,style),
       error?h('div',{className:'ro-api__error',role:'alert'},error,button('刷新',()=>{setError('');void refresh();})):null,
       loading?h('div',{role:'status'},'正在读取 API 环境…'):null,
-      h('div',{hidden:!manage},formView??h(React.Fragment,null,
-        h('div',{className:'ro-api__bar'},h('input',{type:'search','aria-label':'搜索 API 环境',placeholder:'搜索名称、分组或地址',value:envSearch,onChange:e=>setEnvSearch(e.target.value)}),h('select',{'aria-label':'API 环境分组',value:envGroup,onChange:e=>setEnvGroup(e.target.value)},h('option',{value:''},'全部分组'),[...new Set(data.environments.map(env=>env.group))].map(group=>h('option',{key:group},group))),button('新建 API 环境',()=>edit())),
-        environmentList.map(env=>h('article',{key:env.id,className:'ro-api__environment'},h('div',null,h('strong',null,env.name),h('small',null,env.group+' · '+env.baseUrl)),button('编辑',()=>edit(env),{'aria-label':'编辑 API 环境 '+env.name}),h('details',null,h('summary',null,'删除'),h('p',null,'删除配置与登录会话，保留执行记录和 DSH 凭据。'),button('确认删除 API 环境',async()=>{const result=await post({action:'environment.delete',environment:env.id});if(result&&draft.environment===env.id)patch({environment:''});},{disabled:busy})))),
-        !environmentList.length?h('p',null,data.environments.length?'没有匹配的环境':'还没有 API 环境。保存地址和认证配置后即可使用。'):null)),
+      h('div',{hidden:!manage},formView??h(EnvironmentManager,{
+        kind:'api',environments:data.environments,groups:[...new Set(data.environments.map(env=>env.group))].sort(),search:envSearch,onSearch:setEnvSearch,group:envGroup,onGroup:setEnvGroup,busy,hidden:!manage,ask:askPanel,
+        onCreate:()=>edit(),onEdit:edit,onPrimary:env=>{patch({environment:env.id});onUse?.();},primaryLabel:'使用',
+        onDelete:async env=>{const value=await request(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'environment.delete',environment:env.id,sessionId})});if(alive.current){await refresh();if(value.result?.deleted&&draft.environment===env.id)patch({environment:''});}return !!value.result?.deleted;},
+        describe:env=>env.baseUrl+' · '+(env.auth.mode==='none'?'无需登录':data.sessions.some(session=>session.environment===env.id)?'已登录':'未登录'),
+      })),
       h('div',{hidden:manage,className:'ro-api__work'},
         h('div',{className:'ro-api__bar'},h('select',{'aria-label':'API 环境',value:draft.environment,onChange:e=>patch({environment:e.target.value})},h('option',{value:''},'选择 API 环境'),data.environments.map(env=>h('option',{value:env.id,key:env.id},env.group+' / '+env.name))),selected?badge(loggedIn?'completed':'idle',selected.auth.mode==='none'?'无需登录':loggedIn?'已登录':'未登录'):null,selected&&selected.auth.mode!=='none'?button(loggedIn?'重新登录':'登录',()=>void execute('login'),{disabled:busy||!sessionId}):null),
         !loading&&!data.environments.length?h('div',{className:'ro-api__empty'},h('h2',null,'从一个 API 环境开始'),h('p',null,'保存地址与登录配置，Agent 和你共享请求过程与响应。'),button('新建 API 环境',()=>edit(),{className:'ro-api__primary'})):null,

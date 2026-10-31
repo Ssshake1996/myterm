@@ -73,14 +73,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.12.1.tgz
-  SHA256SUMS-dsh-remote-ops-v0.12.1.txt
+  dsh-remote-ops-v0.12.2.tgz
+  SHA256SUMS-dsh-remote-ops-v0.12.2.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.2.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -129,7 +129,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 ## 界面与交互
 
 - 终端、网页、文件及环境、快捷命令、诊断采用统一的字号、间距、控件和深浅色层次。顶部保留工作区标签，版本、诊断和“界面密度”收进“设置 → 通用”，更新位于“设置 → 更新”；舒适/紧凑密度在本浏览器中保存。
-- 本地 CMD 和 SSH 终端始终使用同一标签栏；地址和工具位于下方。标签较多时横向滚动，方向键及 Home/End 可切换并定位当前终端。
+- 本地 CMD 和 SSH 共用一行标签，搜索、导出等工具固定在右侧。标签放不下时，两端显示左右箭头，点击即可滚动查看更早或更新的标签，到达边界时对应箭头置灰；无需关闭连接。方向键及 Home/End 可切换并定位当前终端，后台输出和状态刷新保留手动滚动位置。
 - 网页以地址和实时画面为主。“设置 → 网页”统一管理引擎、Chromium 安装、视口与缩放；“收藏”管理网站与流程；“操作记录”在画面下方展开。返回工作区保留地址草稿和当前网页。
 - 已打开网页切换“插件内 / 独立窗口”时先确认，取消不会派发切换；确认后会重载页面，未提交表单可能丢失。执行中禁止重复切换。
 - 文件列表选中项目后才显示复制、删除等操作；上传入口与其他按钮统一，浏览器上传展示字节进度。切换模块保留选择、草稿与后台任务，目录完成刷新继续合并。
@@ -147,6 +147,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 
 ## 工作区与交互
 
+- 环境管理采用“分组导航 + 环境列表”：宽栏左侧选择分组，窄栏改用下拉框。SSH 行直接显示“进入 / 编辑 / 测试”，API 行直接显示“使用 / 编辑”；删除与新建独立 SSH 连接位于行尾“更多”。“批量管理”才显示选择框，删除前列出所选名称与地址，取消不修改配置，部分失败会保留失败项并显示原因。SSH 分组菜单支持重命名及删除空分组；API 分组在环境编辑表单中设置。左上角“返回工作区”保留原工作区内容。
 - 顶部“终端 / 网页 / 文件 / API”标签支持方向键、Home/End；环境管理独立展开在插件内，“设置 → 通用”收纳诊断和刷新，更新位于“设置 → 更新”。左侧入口仍打开 DSH 原生右栏，不替换主对话。
 - 当前模块、选中终端和环境筛选按 DSH 对话恢复，关闭再打开面板及网页刷新均可恢复。文件路径、排序、滚动及书签沿用原有存储；文件筛选、路径草稿和仍存在的选中项在同一网页内跨模块/面板切换保留，整页刷新后重新读取目录，不恢复旧选择。
 - “设置 → 终端”统一管理字号、换行、高亮及当前 SSH 连接尺寸。终端标签旁可直接搜索和导出当前日志，“更多”提供独立命令和全部日志打包；路径与技术状态位于底部状态栏。普通日志使用快速解析，光标控制、Unicode 和全屏程序使用 VT 屏幕模型。
@@ -192,7 +193,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.12.1.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.12.2.tgz
 dsh web
 ```
 

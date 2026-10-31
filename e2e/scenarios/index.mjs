@@ -5,6 +5,8 @@ import { apiScenario } from './api-workspace.mjs';
 import { updateScenario } from './plugin-updates.mjs';
 import { layoutSimplificationScenario } from './layout-simplification.mjs';
 import { terminalTabsScenario } from './terminal-tabs.mjs';
+import { terminalTabScrollScenario } from './terminal-tab-scroll.mjs';
+import { environmentManagerScenario } from './environment-manager.mjs';
 const pause = (page, ms) => page.waitForTimeout(ms);
 
 async function openPanel(t) {
@@ -37,7 +39,7 @@ async function createDeviceEnvironment(t, name) {
   });
 }
 
-export const scenarios = [requestErrorsScenario,terminalTabsScenario,layoutSimplificationScenario,updateScenario,workspaceUiScenario,liveBrowserScenario,
+export const scenarios = [environmentManagerScenario,requestErrorsScenario,terminalTabsScenario,terminalTabScrollScenario,layoutSimplificationScenario,updateScenario,workspaceUiScenario,liveBrowserScenario,
   websiteScenario,
   {
     id: "sftp-narrow",

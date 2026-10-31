@@ -11,6 +11,8 @@ The result area has **响应 / 记录** tabs. Expand JSON arrows, then click a f
 
 Use the top-left **返回工作区** button to leave environment management and restore the current API request draft. Choose a Token extraction pointer from the actual login response.
 
+In **环境 → API**, filter by group or search, then choose **使用** to select the environment and return to the request workspace; this alone does not log in or send a request. **编辑** stays visible; set the group in the edit form. **更多环境操作 → 删除环境** opens a confirmation, and **批量管理 → 删除所选** confirms the selected names and addresses. Deletion removes configuration and login sessions but keeps execution records; an environment with an active request is retained with an error. Read the result before retrying failed items.
+
 ## Fast path
 
 1. `remote_api_environment_list {}`. Pick the exact API environment ID, base URL and group. Do not invent IDs or use an SSH environment ID as the API ID.

@@ -68,10 +68,10 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.12.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.12.1.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.12.2.tgz` and `SHA256SUMS-dsh-remote-ops-v0.12.2.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.2.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -120,7 +120,7 @@ Viewing alone never changes the credential: saving other fields preserves it; ty
 ## Interface and interaction
 
 - Terminal, web, files, environments, saved commands and diagnostics share consistent typography, spacing, controls and host-aware light/dark surfaces. Workspace tabs stay at the top; version, diagnostics and comfortable/compact density live under **设置 → 通用**. Updates live under **设置 → 更新**. Density persists in this browser.
-- Local CMD and SSH always use the same terminal tab strip, with the address and tools below. The strip scrolls horizontally when needed; arrows and Home/End select a terminal and bring its tab into view.
+- Local CMD and SSH share one tab row with search and export fixed on the right. When tabs overflow, left and right buttons scroll to earlier or later tabs without closing connections; each button is disabled at its boundary. Arrow keys and Home/End select and reveal a terminal. Background output and status refreshes preserve manual scrolling.
 - The web workspace prioritizes the address and live page. **设置 → 网页** contains engines, Chromium installation, viewport and zoom. **收藏** manages sites and flows; **操作记录** expands below the live page. Returning to the workspace retains the URL draft and current page.
 - Switching an open page between embedded and independent display requires confirmation. Cancel dispatches nothing; confirming reloads the page and may lose unsent form content. Switching cannot be submitted repeatedly while pending.
 - File batch actions appear after selection. Upload controls match other buttons, and browser uploads show byte progress. Module switches retain selection, drafts and background jobs; completed transfers still use coalesced directory refreshes.
@@ -138,6 +138,7 @@ Browsers run on the DSH host. Install Chromium on demand through the plugin tool
 
 ## Workspaces and interaction
 
+- Environment management separates group navigation from the environment list: wide panels use a left group column; narrow panels use a dropdown. SSH rows expose Enter / Edit / Test, and API rows expose Use / Edit. Row More menus contain deletion and new independent SSH connections. Batch management reveals selection boxes and confirms the selected names and addresses before deletion; cancellation leaves configuration intact, and partial failures retain failed selections with reasons. SSH group menus rename or delete empty groups; API groups are set in the environment form. The top-left Back to workspace restores the previous workspace contents.
 - **终端 / 网页 / 文件 / API** workspace tabs support arrows and Home/End. Environment management opens inside the panel; **设置 → 通用** contains diagnostics and refresh, while **设置 → 更新** handles updates. The native DSH right Sidebar and the main conversation are preserved.
 - The module, selected terminal and environment filter recover per conversation after closing/reopening or refreshing. File path/sort/scroll/bookmarks keep their existing persistence. File filters, path drafts and reconciled selections survive module/panel switches within one webpage; a full reload fetches fresh entries and does not restore old selections.
 - **设置 → 终端** contains font size, wrapping, highlighting and the active SSH connection size. Search and current transcript export are directly beside the session tabs; **更多** contains independent commands and all-log ZIP export. The path and technical status sit in the bottom status bar. ASCII/SGR logs use a fast parser; cursor control, Unicode and full-screen programs retain the VT model.
@@ -190,7 +191,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.12.1.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.12.2.tgz
 dsh web
 ```
 
