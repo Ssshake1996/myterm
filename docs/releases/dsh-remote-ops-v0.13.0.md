@@ -1,4 +1,6 @@
-# dsh-remote-ops v0.13.0
+# dsh-remote-ops v0.13.0（未发布候选）
+
+Linux CI 发现协议测试没有等待服务端收齐应答，发布流程已取消。修复测试后以 [v0.13.1](dsh-remote-ops-v0.13.1.md) 正式发布；保留此标签与原验收记录，不上传 v0.13.0 附件。
 
 Remote Ops 新增 Telnet 环境与可见终端。用户和 Agent 共用同一连接，沿用标签、状态、日志和热加载流程。
 
