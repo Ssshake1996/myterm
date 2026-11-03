@@ -11,4 +11,6 @@ Remote Ops 新增 Telnet 环境与可见终端。用户和 Agent 共用同一连
 
 Telnet 使用明文连接。命令是否成功仍以设备业务结果为准；提示符、静默和运行中的连接不代表成功。设备特殊登录提示可在环境高级设置中调整。
 
-安装附件为 `dsh-remote-ops-v0.13.1.tgz` 和 `SHA256SUMS-dsh-remote-ops-v0.13.1.txt`。验证范围与证据见 [验收记录](../testing/dsh-remote-ops-v0.13.1-acceptance.md)；用法见 [Telnet 指南](../../integrations/dsh-remote-ops/TELNET.md)。
+安装附件为 `dsh-remote-ops-v0.13.1.tgz` 和 `SHA256SUMS-dsh-remote-ops-v0.13.1.txt`。本地 467 项测试、24 个浏览器场景及正式包真实 DSH 6 项验收通过；热加载保持同一 Telnet 连接且不重放命令。Windows/Linux 发布门禁与 Server 2022/2025 回归通过。
+
+验证范围与证据见 [验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.13.1-acceptance.md)；用法见 [Telnet 指南](https://github.com/Ssshake1996/myterm/blob/main/integrations/dsh-remote-ops/TELNET.md)。真实宿主验证连接隔离测试设备，尚未代替具体厂商硬件验收。

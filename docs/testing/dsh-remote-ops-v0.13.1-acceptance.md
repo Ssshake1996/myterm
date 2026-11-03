@@ -27,4 +27,11 @@ node e2e/runner/telnet-native.mjs path-to-release.tgz
 
 具体设备仍需核实登录提示符、权限、编码和命令语义；本地脚本化设备不等于真实厂商硬件验收。Telnet 明文连接，提示符/静默不证明命令成功。自动密码原样回显会在可读输出和日志前过滤；任意手动输入和设备输出仍需检查敏感内容。
 
-正式附件发布后，下载校验与安装验收结果追加于下方。
+## 正式发布、下载和安装验收
+
+- [v0.13.1 Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.13.1) 已发布。Latest API 与列表首位均为 `dsh-remote-ops-v0.13.1`。标签指向 `e49b96fa88cd5d3c5d40a971c9892995385b389a`。
+- 附件恰好两个：`dsh-remote-ops-v0.13.1.tgz`（677439 字节）及 `SHA256SUMS-dsh-remote-ops-v0.13.1.txt`（93 字节）。下载包、校验文件和 GitHub asset digest 一致：`f6ccf1abd8b7a825432cd03f5f2d2e1993d139b89ca8d974edafd0e84fc578a6`。
+- 正式包重新构建了 Windows 桌面运行时，因此整体摘要与候选包不同；79 个运行时源码、客户端、随包 skill 和说明文件与已验证源文件逐字节一致。桌面运行时 manifest 校验通过。证据：`output/telnet-dev/official/verification.json`。
+- 直接从 GitHub 下载的正式附件安装到新的隔离 DSH **0.2.1-rc.5** 后完成 **6/6** 项验收，页面运行时错误 **0**。热加载前后 TCP 连接、登录和密码提交仍各 **1** 次；相同 sessionId/streamId、草稿和日志保留。证据：`output/playwright/telnet-v0.13.1-official/evidence.json`。
+- [发布工作流](https://github.com/Ssshake1996/myterm/actions/runs/41568766908) 的 Windows 构建/桌面门禁、Linux 打包、资产校验和 Latest 推广全部通过。
+- 发布提交的 [Linux CI](https://github.com/Ssshake1996/myterm/actions/runs/41568766859)、[浏览器回归](https://github.com/Ssshake1996/myterm/actions/runs/41568758444)、[Windows 桌面验收](https://github.com/Ssshake1996/myterm/actions/runs/41568758456)、[Windows OpenSSH 验收](https://github.com/Ssshake1996/myterm/actions/runs/41568758318) 全部通过；后两项均包含 Server 2022 和 Server 2025。
