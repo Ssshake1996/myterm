@@ -59,6 +59,9 @@ test('fragmented IAC negotiation is removed from output; duplicate offers do not
   assert.equal(session.login.state, 'ready');
   assert.equal(session.output.includes('\ufffd'), false);
   assert.match(session.output, /device> /);
+  // Client login output and server receipt are independent socket callbacks.
+  // Wait for the last negotiated response before inspecting what the server received.
+  await until(() => Buffer.concat(dev.received).includes(Buffer.from([255,254,99])));
   const raw = Buffer.concat(dev.received);
   assert.equal(raw.toString('hex').split('fffd01').length - 1, 1);
   assert.ok(raw.includes(Buffer.from([255,251,31])));
