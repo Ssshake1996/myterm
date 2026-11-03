@@ -3,8 +3,9 @@ import { join } from "node:path";
 import { normalizeCliProfile, normalizeTerminalSize } from "../cli-profile.js";
 import { SESSION_NAME_PREFIX } from "../constants.js";
 import { newEnvironmentId, normalizeGroupName, ownerId, sessionError, validateEnvironment } from "../common.js";
+import { storeNewPassword, validateNewPassword } from "../environment-password.js";
 
-const UPDATE_FIELDS = new Set(["name", "host", "username", "group", "port", "privateKeyPath", "passwordRef", "encoding", "cliProfile", "terminal", "transport", "platform", "shell", "readyTimeoutMs", "hostKeySha256", "telnet"]);
+const UPDATE_FIELDS = new Set(["name", "host", "username", "group", "port", "privateKeyPath", "passwordRef", "password", "encoding", "cliProfile", "terminal", "transport", "platform", "shell", "readyTimeoutMs", "hostKeySha256", "telnet"]);
 
 export function sanitizeStoredEnvironment(item) {
   if (!item || typeof item !== "object") return item;
@@ -59,6 +60,15 @@ export const withEnvironments = (Base) => class EnvironmentsLayer extends Base {
     return this.findEnvironment(normalized.id);
   }
 
+  async saveEnvironmentWithPassword(value, password) {
+    const environment = this.normalizeEnvironment(value);
+    const validation = validateEnvironment(environment);
+    if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", "));
+    if (this.allEnvironments().some(item => item.id !== environment.id && item.name === environment.name)) throw sessionError("REMOTE_ENV_NAME_EXISTS", "Environment name already exists");
+    if (password != null) environment.passwordRef = await storeNewPassword(this.ctx.credentials, environment.id, password);
+    return this.saveEnvironment(environment);
+  }
+
   async updateEnvironment(idOrName, changes) {
     await this.ready;
     if (typeof idOrName !== "string" || !idOrName.trim()) throw sessionError("REMOTE_ENV_INVALID", "environment must be an existing environment id or name");
@@ -69,6 +79,9 @@ export const withEnvironments = (Base) => class EnvironmentsLayer extends Base {
     // Optional nulls are omission, not an instruction to erase persisted settings.
     const patch = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined && value !== null));
     if (!Object.keys(patch).length) throw sessionError("REMOTE_ENV_UPDATE_EMPTY", "Provide at least one field to update; omitted or null fields keep their saved values");
+    const password = patch.password;
+    validateNewPassword(password, patch.passwordRef);
+    delete patch.password;
     for (const key of ["name", "host", "group", ...((patch.transport ?? previous.transport) === "telnet" ? [] : ["username"])]) {
       if (Object.hasOwn(patch, key) && (typeof patch[key] !== "string" || !patch[key].trim())) throw sessionError("REMOTE_ENV_INVALID", `${key} must be a non-empty string`);
     }
@@ -77,7 +90,7 @@ export const withEnvironments = (Base) => class EnvironmentsLayer extends Base {
     const validation = validateEnvironment(value);
     if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", "));
     // Saving replaces the definition; live connections keep the settings captured when they opened.
-    return this.saveEnvironment(value);
+    return this.saveEnvironmentWithPassword(value, password);
   }
 
   allEnvironments() { return [...this.environments.entries()].flatMap(([group, values]) => values.map((value) => ({ ...value, group }))); }

@@ -23,17 +23,19 @@ In **环境 → API**, filter by group or search, then choose **使用** to sele
 
 ## Environment example
 
-The password must already exist in DSH credentials under the named reference. Otherwise ask the user to enter it in **环境 → API → 编辑 → API 密码**. Do not ask for passwords in chat or put them in tool arguments, headers, extraBody or URLs.
+When the user explicitly supplies an account/password for this environment, call `remote_api_environment_save` with `auth.username` and a **top-level `password`**. Do not redirect them to the GUI or put the password inside `auth`, headers, extraBody or URLs. The plugin writes it to DSH credentials and saves only its reference; the GUI remains an alternative. Use only the supplied password, preserving spaces and special characters, never the example placeholder.
+
+Create and update accept `password` (1–8192 characters). Omit/null keeps the saved credential; empty string is rejected. To replace only the password, pass the exact `id` and `password`. Alternatively pass an existing `auth.passwordRef` and omit `password`; supplying both is rejected. Password replacement uses a separate reference so other environments are unaffected, and invalidates this API environment's login sessions. Log in again before the next request. Plugin results/configuration omit the password; the host still manages conversation and tool-call history.
 
 ```json
 {
   "name": "Lab device API",
   "group": "lab",
   "baseUrl": "https://device.example/api/v1",
+  "password": "user-supplied-password",
   "auth": {
     "mode": "token",
     "username": "operator",
-    "passwordRef": "LAB_API_PASSWORD",
     "loginPath": "login",
     "bodyFormat": "json",
     "usernameField": "username",

@@ -1,7 +1,7 @@
 import { registerRuntimeFetch } from "./hot-reload.js";
 import { describeFailure } from "./diagnostics.js";
 import { LOCAL_SESSION_ID } from "./constants.js";
-import { defaultPasswordRef, normalizeGroupName, sessionError, summarizeError, validateEnvironment } from "./common.js";
+import { normalizeGroupName, sessionError, summarizeError } from "./common.js";
 
 const registerRoute = (ctx, state, label, definition) => ctx.effect(() => registerRuntimeFetch(ctx, state, definition), label);
 
@@ -11,15 +11,8 @@ const connectionSummary = (opened, extra = {}) => ({ sessionId: opened.sessionId
 
 async function saveEnvironmentAction(state, body) {
   const environment = state.normalizeEnvironment({ ...body.environment, group: normalizeGroupName(body.environment?.group) });
-  const password = typeof body.password === "string" ? body.password : "";
-  const validation = validateEnvironment(environment);
-  if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", "));
-  if (password) {
-    const previous = state.findEnvironment(environment.id);
-    const reference = String(environment.passwordRef ?? "").trim() || previous?.passwordRef || defaultPasswordRef(environment.id);
-    environment.passwordRef = await state.storePassword(reference, password);
-  }
-  return { saved: true, environment: await state.saveEnvironment(environment) };
+  const password = body.password === "" ? undefined : body.password;
+  return { saved: true, environment: await state.saveEnvironmentWithPassword(environment, password) };
 }
 
 const ACTIONS = {

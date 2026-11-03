@@ -53,7 +53,7 @@ export function toLosslessJson(value) {
 export function validateEnvironment(value) {
   const errors = [];
   if (!value || typeof value !== "object") return { ok: false, errors: ["environment must be an object"] };
-  if (Object.hasOwn(value, "password")) errors.push("Use a passwordRef or the environment password form; plaintext passwords must not be stored in environment definitions");
+  if (Object.hasOwn(value, "password")) errors.push("Pass password as a tool/save argument so it is stored in DSH credentials; environment definitions contain only passwordRef");
   const telnet = value.transport === "telnet";
   for (const field of ["id", "name", "host", ...(!telnet || value.telnet?.loginMode === "username-password" ? ["username"] : [])]) {
     if (typeof value[field] !== "string" || value[field].trim().length === 0) errors.push(`${field} is required`);

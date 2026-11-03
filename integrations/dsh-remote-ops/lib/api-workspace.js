@@ -5,6 +5,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { CookieJar } from 'tough-cookie';
 import { apiError, normalizeApiConfig, endpoint, headersMap, object, pointer, redact, methods } from './api-config.js';
+import { storeNewPassword } from './environment-password.js';
 
 const MAX_RESPONSE = 128 * 1024, MAX_RECORDS = 100, MAX_OWNERS = 100;
 const stamp = () => new Date().toISOString();
@@ -30,7 +31,7 @@ export class ApiWorkspace {
       const previous=input?.id?this.config(input.id):undefined;
       const env=normalizeApiConfig(input,previous);
       if([...next.values()].some(other=>other.id!==env.id&&other.name===env.name&&other.group===env.group)) throw apiError('API_ENV_NAME_EXISTS','Name already exists in this group');
-      if(password != null && password !== '') { if(typeof password!=='string'||password.length>8192) throw apiError('API_PASSWORD_INVALID','Invalid password'); if(!this.credentials?.set) throw apiError('API_CREDENTIALS_UNAVAILABLE','DSH credentials unavailable'); env.auth.passwordRef ||= 'DSH_API_'+env.id.replace(/[^a-z0-9]/gi,'_').toUpperCase(); await this.credentials.set(env.auth.passwordRef,password); }
+      if(password != null && password !== '') env.auth.passwordRef = await storeNewPassword(this.credentials, env.id, password, 'API');
       next.set(env.id,env); return structuredClone(env);
     });
   }
@@ -47,7 +48,7 @@ export class ApiWorkspace {
   }
   publicRecord(record,detail=true) {const {controller,done,fingerprint,privateSecrets,...value}=record; if(!detail){const {response,request,...summary}=value;return structuredClone(summary);}return structuredClone(value);}
   read(owner,id) {const record=this.owners.get(owner)?.records.get(id);if(!record)throw apiError('API_RECORD_NOT_FOUND','No request with this ID in the current conversation');return this.publicRecord(record);}
-  async credential(ref) {const result=await this.credentials?.resolve?.(ref);if(typeof result?.value!=='string'||!result.value)throw apiError('API_CREDENTIAL_MISSING','Configure the saved credential in the environment editor or DSH credentials');return result.value;}
+  async credential(ref) {const result=await this.credentials?.resolve?.(ref);if(typeof result?.value!=='string'||!result.value)throw apiError('API_CREDENTIAL_MISSING','Save a user-supplied password with remote_api_environment_save (id and top-level password), or use the environment editor or DSH credentials');return result.value;}
   async login(owner,args,options={}) { return this.run(owner,'login',args,options); }
   async request(owner,args,options={}) { return this.run(owner,'request',args,options); }
   async run(owner,kind,args,{signal}={}) {

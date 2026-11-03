@@ -2,6 +2,12 @@
 
 DeepSeek Harness plugin for SSH, Windows desktop, web and RESTful API operations. Users and Agents share visible terminals, application windows, webpages and request records.
 
+## Save environment credentials from chat (v0.13.2)
+
+When you explicitly provide an account/password for an environment, the Agent can create or update it directly. SSH/Telnet use `username` and `password` in `remote_environment_create/update`; API uses `auth.username` and a top-level `password` in `remote_api_environment_save`. GUI entry remains optional.
+
+Passwords go to DSH credentials; environment files store references and tool results omit plaintext. Replacing a password affects only that environment. Omit/null preserves it; an empty string is rejected. Choose either password or passwordRef. Existing terminals stay connected; API environments require login again after edits. DSH manages its own conversation and tool-call history.
+
 ## Telnet terminals (v0.13.1)
 
 Choose **Environment → SSH / Telnet → Add environment**, select Telnet, and save the host, port (default 23) and login mode. Supports username/password, password-only, no-login and manual terminal login. Automatic credentials are submitted once; a failed login leaves the output available for inspection.
@@ -78,10 +84,10 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.13.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.13.1.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.13.2.tgz` and `SHA256SUMS-dsh-remote-ops-v0.13.2.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.13.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.13.2.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -191,8 +197,8 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 - The quick-command dock can be resized by dragging its top boundary (double-click
   to restore the default height). The environment form hides the internal Harness
   credential reference; SSH passwords are stored through the Harness credentials service.
-- Connection errors remain visible until dismissed; credential references through Harness credentials and plaintext passwords are
-  never persisted.
+- Connection errors remain visible until dismissed. Passwords are stored through Harness credentials;
+  environment files contain references, not plaintext passwords. The host manages conversation and tool-call history.
 
 ## Installation
 
@@ -201,7 +207,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.13.1.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.13.2.tgz
 dsh web
 ```
 
@@ -274,7 +280,7 @@ An update changes only supplied non-null fields. For example, call `remote_envir
 
 Supported fields: `name`, `host`, `username`, `group`, `port`, `privateKeyPath`, `passwordRef`, `encoding`, `cliProfile`, `terminal`. The ID stays fixed. Omission/null retains the old field; an entirely empty update rejects. Non-empty text is required for name/host/username/group. Port must be an integer 1–65535. Name conflicts, unknown fields, invalid nested options and the credential display marker `configured` reject before writing. Exact IDs take precedence over matching display names.
 
-`cliProfile` and `terminal` replace their entire respective sections when supplied; `{}` resets a section to defaults. Empty `passwordRef`/`privateKeyPath` strings clear that setting without deleting the stored credential or key file. These tools accept credential references, not literal passwords; new passwords can be entered in the environment form. Omit the masked `passwordRef: "configured"` returned by listing when retaining authentication.
+`cliProfile` and `terminal` replace their entire respective sections when supplied; `{}` resets a section to defaults. Empty `passwordRef`/`privateKeyPath` strings clear that setting without deleting the stored credential or key file. These tools accept a user-supplied password or an existing credential reference. The plugin stores new passwords through DSH credentials; GUI entry is optional. Omit the masked `passwordRef: "configured"` returned by listing when retaining authentication.
 
 Saved changes apply to new SSH connections. Existing connections retain their captured name, address, authentication and CLI/terminal defaults; the tool does not disconnect or reconnect them. `saved: true` confirms persistence, not connectivity. Environment deletion removes the saved definition and closes connections owned by the calling conversation, leaving other conversations' already-open connections intact. A group move creates an absent target group and leaves the old group present.
 

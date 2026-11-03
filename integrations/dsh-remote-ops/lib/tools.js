@@ -3,6 +3,7 @@ import { normalizeGroupName, ownerId, sessionError, summarizeError, toLosslessJs
 import { MAX_SESSIONS_PER_ENVIRONMENT } from "./constants.js";
 import { MAX_SCRIPT_STEPS, runScript } from "./terminal-script.js";
 import { toolParameters } from "./tool-schema.js";
+import { validateNewPassword } from "./environment-password.js";
 
 const output = { schema: { type: "object", additionalProperties: true }, render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }] };
 const stringParam = (description, required = false) => ({ type: "string", description, ...(required ? { required: true } : {}) });
@@ -140,7 +141,7 @@ export function registerTools(ctx, state) {
   // keep the tool available without them instead of failing the whole plugin.
   registerWithFallback(ctx, state, (withNested) => ({
     name: "remote_environment_create",
-    description: "Create one saved SSH/Telnet environment. The plugin generates the internal id; omit the display name to use the remote host. Use passwordRef instead of plaintext passwords.",
+    description: "Create one saved SSH/Telnet environment. Accept a password explicitly supplied by the user in the conversation: the plugin stores it in DSH credentials and saves only a reference. GUI entry is optional. Pass either password or an existing passwordRef, not both. The plugin generates the internal id; name defaults to host. Saving does not connect.",
     parameters: {
       name: stringParam("Display name; defaults to the remote host"),
       host: stringParam("remote host", true),
@@ -149,22 +150,25 @@ export function registerTools(ctx, state) {
       port: numberParam("Port; defaults to 22 for SSH or 23 for Telnet"),
       privateKeyPath: stringParam("Local private key path"),
       passwordRef: stringParam("Harness credential reference"),
+      password: { oneOf: [stringParam("User-supplied login password, 1-8192 characters, preserved exactly. Stored in DSH credentials, never in environment JSON or tool results. Omit/null keeps the credential"), { type: "null" }] },
       ...SSH_ENVIRONMENT_PARAMETERS,
       ...(withNested ? { cliProfile: CLI_PROFILE_SCHEMA, terminal: TERMINAL_SIZE_SCHEMA, telnet: TELNET_SCHEMA } : {}),
     },
     execute: async (args, exec) => {
       await state.ready;
-      const value = state.normalizeEnvironment({ ...args, group: normalizeGroupName(args.group) });
+      const { password, ...fields } = args;
+      validateNewPassword(password, fields.passwordRef);
+      const value = state.normalizeEnvironment({ ...fields, group: normalizeGroupName(fields.group) });
       const validation = validateEnvironment(value);
       if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", "));
-      const saved = await state.saveEnvironment(value);
+      const saved = await state.saveEnvironmentWithPassword(value, password);
       state.event(owner(exec), "environment.create", { environment: value.name });
-      return { saved: true, environment: saved };
+      return { saved: true, environment: { ...saved, passwordRef: saved.passwordRef ? "configured" : undefined } };
     },
   }));
   registerWithFallback(ctx, state, (withNested) => ({
     name: "remote_environment_update",
-    description: "Update one saved SSH/Telnet environment by its exact existing id (preferred) or name. Only supplied non-null fields change; the internal id stays fixed. Omit passwordRef to retain its credential; never send the list's 'configured' marker. Empty passwordRef/privateKeyPath clears that setting. A supplied cliProfile/terminal object replaces that section; {} resets it. Existing connections stay open with their original settings; open a new connection to use updated defaults. Saving does not test connectivity.",
+    description: "Update one saved SSH/Telnet environment by exact id (preferred) or name. Accept a user-supplied password directly; GUI entry is optional. A new password gets a separate DSH credential reference for this environment. Omit/null password keeps the saved credential; never send it together with passwordRef or copy the list's configured marker. Empty passwordRef/privateKeyPath clears that setting. Other supplied non-null fields change; id stays fixed. cliProfile/terminal/telnet objects replace their section; {} resets it. Existing connections stay open; new connections use saved settings. Saving does not test connectivity.",
     strictParameters: true,
     parameters: {
       environment: stringParam("Existing environment id (preferred) or exact name", true),
@@ -176,6 +180,7 @@ export function registerTools(ctx, state) {
         port: numberParam("Port, integer 1-65535; SSH defaults to 22 and Telnet to 23"),
         privateKeyPath: stringParam("Private key path on the DSH host; empty string clears it"),
         passwordRef: stringParam("Existing Harness credential reference; empty string clears it. Never pass a password or the display marker configured"),
+        password: stringParam("New user-supplied login password, 1-8192 characters, preserved exactly. Omit/null keeps the saved password; empty string is rejected"),
         ...SSH_ENVIRONMENT_PARAMETERS,
         ...(withNested ? { cliProfile: CLI_PROFILE_SCHEMA, terminal: TERMINAL_SIZE_SCHEMA, telnet: TELNET_SCHEMA } : {}),
       }).map(([key, schema]) => [key, { description: "Omitted or null keeps the saved value. " + (schema.description ?? ""), oneOf: [schema, { type: "null" }] }])),

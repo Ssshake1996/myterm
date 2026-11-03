@@ -7,7 +7,7 @@ description: Manage saved SSH and Telnet connection environments and groups in t
 
 For RESTful/API environments use **remote-ops-api** and `remote_api_environment_list/save/delete`. API environments require baseUrl, not SSH host/username fields. Their IDs are distinct; sshEnvironmentId links the API configuration to an existing SSH environment without sharing credentials. Use `remote_api_login/request/records` for visible API execution rather than terminal tools.
 
-Use the installed `remote_environment_*` tools for the user's requested configuration changes. Manage definitions through these tools and passwords through the environment form so persistence and credential handling stay consistent. Saved environments are shared within this DSH home. Remote terminal connections belong to conversations.
+Use the installed `remote_environment_*` tools for the user's requested configuration changes. If the user explicitly supplies a username/password in the conversation for an environment, pass them directly to create/update; do not redirect them to the GUI. The plugin saves the password through DSH credentials and stores only its reference in the environment. GUI entry remains an option. Saved environments are shared within this DSH home. Remote terminal connections belong to conversations.
 
 ## Visible workspace
 
@@ -25,7 +25,7 @@ Call `remote_environment_list`. Match the requested environment and reuse its re
 
 ## Create and update
 
-`remote_environment_create` needs `host`; SSH also requires `username`. It generates the internal ID; `name` defaults to the host and `group` defaults to `default`. Optional settings include `port`, `passwordRef`, `privateKeyPath`, `cliProfile`, `terminal`, `platform`, `shell`, `encoding`, `readyTimeoutMs` and `hostKeySha256`. Transport defaults to SSH. Telnet uses `transport: "telnet"`; username is only required for username-password login. This saves a definition without connecting.
+`remote_environment_create` needs `host`; SSH also requires `username`. It generates the internal ID; `name` defaults to the host and `group` defaults to `default`. Optional settings include `port`, `password` or `passwordRef`, `privateKeyPath`, `cliProfile`, `terminal`, `platform`, `shell`, `encoding`, `readyTimeoutMs` and `hostKeySha256`. Transport defaults to SSH. Telnet uses `transport: "telnet"`; username is only required for username-password login. This saves a definition without connecting.
 
 Example tool invocation (replace example values with the user's target):
 
@@ -36,6 +36,7 @@ Example tool invocation (replace example values with the user's target):
     "name": "storage-lab",
     "host": "storage.example",
     "username": "operator",
+    "password": "user-supplied-password",
     "group": "lab",
     "port": 22
   }
@@ -59,7 +60,8 @@ For an existing entry use `remote_environment_update`, with `environment` plus o
 - The internal ID is preserved. `name`, `host` and `group` must be non-empty strings. `username` is required for SSH and Telnet username-password login; other Telnet modes allow it to be empty. Name collisions are rejected. Moving to an absent group creates that group; the old group remains, possibly empty.
 - `port` is an integer from 1 to 65535; use 22 to restore the normal SSH port. `encoding` accepts `utf-8`, `gb18030`, `big5`, `windows-1252` or `iso-8859-1`.
 - A provided `cliProfile` or `terminal` object replaces that entire section; `{}` resets that section to defaults. Preserve any other section fields the user wants to keep. `cliProfile` supports `autoQuitMore`, `autoSigint`, `stripAnsi`, `headTailChars`; `terminal` supports `rows` (10–200) and `cols` (40–500).
-- Use an existing Harness `passwordRef` or a private key path on the DSH host. These tools do not accept or store a literal SSH password. If a new password must be stored, the user can enter it in the plugin environment form, which uses the Harness credentials service. Do not ask them to paste it into the conversation.
+- `password` accepts the exact password explicitly supplied by the user (1–8192 characters); preserve spaces and special characters. Create and update both support it for SSH and Telnet. Omit it or use null to retain the current password; an empty string is rejected. Do not invent a password or send the example placeholder. If using an existing `passwordRef`, omit `password`; supplying both is rejected.
+- A new password creates a separate DSH credential reference for this environment, preserving other environments that shared the old reference. Tool results and plugin environment files contain no password. Existing terminal connections remain open; new connections use the new credential. DSH's conversation/tool-call history is managed by the host; do not claim that a chat-supplied password has been removed from that history.
 - If the user wants to see a saved password, direct them to **环境 → SSH / Telnet → the environment's 编辑 → the eye button beside the password field**. It resolves the current credential only on that click; hiding it or closing the editor/drawer clears the revealed value. Viewing and saving other fields preserves the password. If the credential is missing, the user can re-enter it there. Keep password viewing in this user-facing flow; environment tools expose the configured marker. Do not read credential files or call the UI reveal route from an Agent tool.
 - An empty string for `passwordRef` or `privateKeyPath` clears that setting only; it does not delete the credential/key itself. Omission keeps it. Do not clear a credential when merely renaming or moving an environment.
 

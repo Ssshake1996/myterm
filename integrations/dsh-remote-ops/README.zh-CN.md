@@ -2,6 +2,12 @@
 
 面向 DeepSeek Harness 的终端、网页、Windows 桌面与 RESTful API 运维插件。用户与 Agent 共享可见终端、软件窗口、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
 
+## 通过对话保存环境账号密码（v0.13.2）
+
+将目标地址、账号和密码明确提供给 Agent 后，可以直接创建或修改 SSH、Telnet 和 API 环境，无需切换到 GUI 输入。SSH/Telnet 使用 `remote_environment_create/update` 的 `username`、`password`；API 使用 `remote_api_environment_save` 的 `auth.username` 和顶层 `password`。
+
+密码通过 DSH credentials 保存，环境配置只保存引用，工具结果不回传明文。修改密码只作用于目标环境；省略或传 null 保留原密码，空字符串会报错。`password` 和 `passwordRef` 不同时提供。已有终端连接保持；API 修改后重新登录。GUI 录入和现有密码查看入口继续可用。DSH 自身仍管理对话和工具调用记录。
+
 ## Telnet 终端（v0.13.1）
 
 在 **环境 → SSH / Telnet → + 环境** 选择 Telnet，保存地址、端口及登录方式。支持用户名和密码、仅密码、免登录及在终端中手动登录；默认端口 23，自动登录凭据各提交一次，失败后保留回显。
@@ -83,14 +89,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.13.1.tgz
-  SHA256SUMS-dsh-remote-ops-v0.13.1.txt
+  dsh-remote-ops-v0.13.2.tgz
+  SHA256SUMS-dsh-remote-ops-v0.13.2.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.13.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.13.2.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -203,7 +209,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.13.1.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.13.2.tgz
 dsh web
 ```
 
@@ -248,7 +254,7 @@ DSH Web 启动后，点击左侧底部 `Remote Ops` 打开原生右侧 Sidebar�
 
 可修改 `name`、`host`、`username`、`group`、`port`、`privateKeyPath`、`passwordRef`、`encoding`、`cliProfile`、`terminal`。内部 ID 不变，省略或传 null 的字段保持原值；没有任何非 null 修改时拒绝。名称、地址、用户、分组必须是非空字符串，端口为 1–65535 整数。重名、非法嵌套设置、未声明字段和凭据显示标记 `configured` 在写入前拒绝。精确 ID 优先于相同的显示名称。
 
-提供 `cliProfile` 或 `terminal` 时替换整个对应区块，`{}` 重置该区块为默认值。`passwordRef`、`privateKeyPath` 传空字符串可清除该项，但不会删除凭据本体或密钥文件。工具不接收明文密码，新密码可在环境表单中输入并交给宿主凭据服务保存。列表中的 `passwordRef: "configured"` 仅表示已配置，保留认证时应省略该字段。
+提供 `cliProfile` 或 `terminal` 时替换整个对应区块，`{}` 重置该区块为默认值。`passwordRef`、`privateKeyPath` 传空字符串可清除该项，但不会删除凭据本体或密钥文件。工具接受用户明确提供的 password 并交给宿主凭据服务保存，也可使用现有 passwordRef；GUI 录入仍可用。列表中的 `passwordRef: "configured"` 仅表示已配置，保留认证时应省略该字段。
 
 修改配置不会断开、重连或切换现有 SSH 连接；已有连接继续使用打开时的名称、地址、认证及 CLI/终端预设，新配置用于新建连接。`saved: true` 仅代表保存成功，不代表连通性通过。删除环境会移除保存定义并关闭当前调用对话拥有的连接，不关闭其他对话已打开的连接。迁移分组会自动创建不存在的目标分组，原分组保留。
 

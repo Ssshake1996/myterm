@@ -1,9 +1,8 @@
 import { createServer } from 'node:net';
 
 // Loopback-only test device. This parser is intentionally independent of the plugin.
-export async function startTelnetDevice({mode='username-password'}={}) {
+export async function startTelnetDevice({mode='username-password',username='operator',password='local-telnet-fixture-password'}={}) {
   const sockets=new Set(), commands=[], stats={connections:0,logins:0,passwordAttempts:0,windows:[]};
-  const username='operator',password='local-telnet-fixture-password';
   const server=createServer(socket=>{
     stats.connections++;sockets.add(socket);socket.on('close',()=>sockets.delete(socket));socket.on('error',()=>{});
     let phase=mode==='none'?'command':mode==='password'?'password':'username', line='',state=0,sub=[];

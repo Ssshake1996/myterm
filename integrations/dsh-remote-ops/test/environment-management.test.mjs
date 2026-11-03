@@ -68,7 +68,7 @@ test("invalid environment updates reject before changing memory or persisted fil
     [{ username: 42 }, "REMOTE_ENV_INVALID"], [{ group: {} }, "REMOTE_ENV_INVALID"], [{ port: 0 }, "REMOTE_ENV_INVALID"],
     [{ port: "22" }, "REMOTE_ENV_INVALID"], [{ encoding: "guess" }, "REMOTE_ENV_INVALID"],
     [{ cliProfile: { autoConfirm: true } }, "REMOTE_ENV_INVALID"], [{ terminal: { rows: 1 } }, "REMOTE_ENV_INVALID"],
-    [{ passwordRef: "configured" }, "REMOTE_ENV_INVALID"], [{ password: "do-not-store" }, "REMOTE_ENV_INVALID"],
+    [{ passwordRef: "configured" }, "REMOTE_ENV_INVALID"], [{ password: 42 }, "REMOTE_PASSWORD_INVALID"],
     [{ id: "replace-identity" }, "REMOTE_ENV_INVALID"], [{ unknownField: true }, "REMOTE_ENV_INVALID"],
     [{}, "REMOTE_ENV_UPDATE_EMPTY"], [{ host: null }, "REMOTE_ENV_UPDATE_EMPTY"],
   ];
@@ -109,7 +109,7 @@ test("registered update Schema and bundled skill examples agree, including optio
   assert.equal(validate({ environment: "env-1", host: null, cliProfile: null, terminal: {} }), true);
   assert.equal(validate({ name: "missing-target" }), false);
   assert.equal(validate({ environment: "env-1", port: "22" }), false);
-  assert.equal(validate({ environment: "env-1", password: "not-accepted" }), false);
+  assert.equal(validate({ environment: "env-1", password: "user-supplied" }), true);
   assert.equal(validate({ environment: "env-1", id: "replacement" }), false);
   const skill = await readFile(new URL("../skills/remote-ops-environments/SKILL.md", import.meta.url), "utf8");
   const examples = [...skill.matchAll(/```json\r?\n([\s\S]*?)\r?\n```/g)].map(match => JSON.parse(match[1]));

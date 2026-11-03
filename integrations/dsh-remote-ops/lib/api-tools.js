@@ -1,6 +1,7 @@
 import { registerRuntimeTool } from "./hot-reload.js";
 import { ownerId, toLosslessJson } from './common.js';
 import { apiError } from './api-config.js';
+import { validateNewPassword } from './environment-password.js';
 
 const str = description => ({type:'string',description});
 const obj = (properties,required=[]) => ({type:'object',properties,required,additionalProperties:false});
@@ -23,7 +24,7 @@ const requestId=str('Unique operation ID (1–120 chars). Identical ID/arguments
 const body={oneOf:[{type:'object',properties:{},additionalProperties:true},{type:'array',items:{oneOf:[{type:'object',properties:{},additionalProperties:true},{type:'string'},{type:'number'},{type:'boolean'},{type:'null'}]}},{type:'string'},{type:'null'}]};
 export const API_TOOL_SCHEMAS={
   remote_api_environment_list:obj({}),
-  remote_api_environment_save:obj({id:nullable(str('Omit to create; exact API environment ID to update. Omitted/null fields keep previous values.')), ...optional(API_ENVIRONMENT_FIELDS)}),
+  remote_api_environment_save:obj({id:nullable(str('Omit to create; exact API environment ID to update. Omitted/null fields keep previous values.')), password:nullable(str('User-supplied login password, 1-8192 characters, preserved exactly. Use this top-level field with auth.username; DSH credentials stores it. Omit/null keeps the saved password. Do not also supply auth.passwordRef. GUI entry is optional.')), ...optional(API_ENVIRONMENT_FIELDS)}),
   remote_api_environment_delete:obj({environment},['environment']),
   remote_api_login:obj({environment,requestId},['environment','requestId']),
   remote_api_request:obj({environment,requestId,path:str('Relative to base URL; /items also preserves the base prefix. Absolute URLs and ../ are rejected.'),method:nullable({type:'string',enum:['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS']}),headers:nullable(dict('Non-secret request headers; auth is injected from the environment')),body},['environment','requestId','path']),
@@ -33,7 +34,7 @@ export function registerApiTools(ctx,state) {
   const workspace=state.api;
   const definitions=[
     ['remote_api_environment_list','List saved RESTful environments and login state for this conversation. Read remote-ops-api skill for login/request examples.',async(_args,owner)=>workspace.snapshot(owner)],
-    ['remote_api_environment_save','Create/update a saved RESTful environment. Create requires name/baseUrl. Supports username/password login to Token or Cookie. Password must be a DSH credential reference; user can enter it in the API environment editor. No HTTP request is sent.',async(args)=>{const clean=Object.fromEntries(Object.entries(args).filter(([,v])=>v!=null));if(clean.sshEnvironmentId&&!state.findEnvironment(clean.sshEnvironmentId))throw apiError('API_SSH_ENV_NOT_FOUND','Linked SSH environment does not exist');return {environment:await workspace.save(clean)};}],
+    ['remote_api_environment_save','Create/update a saved RESTful environment. Create requires name/baseUrl. Accept a user-supplied top-level password and auth.username for Token/Cookie login; GUI entry is optional. A new password is stored in a separate DSH credential for this environment; configuration/results contain only its reference. Omit/null password retains the saved credential; do not also supply auth.passwordRef. No HTTP request is sent.',async(args)=>{const {password,...fields}=args;validateNewPassword(password,fields.auth?.passwordRef,'API');const clean=Object.fromEntries(Object.entries(fields).filter(([,v])=>v!=null));if(clean.sshEnvironmentId&&!state.findEnvironment(clean.sshEnvironmentId))throw apiError('API_SSH_ENV_NOT_FOUND','Linked SSH environment does not exist');return {environment:await workspace.save(clean,password)};}],
     ['remote_api_environment_delete','Delete an API environment configuration and invalidate its login sessions. Credentials and retained request records remain.',async args=>workspace.remove(args.environment)],
     ['remote_api_login','POST the configured username/password login, retain Token/Cookie only in this conversation and DSH process. Returns a redacted receipt, never credentials. Does not dispatch a business request or automatically retry.',(args,owner,exec)=>workspace.login(owner,args,{signal:exec.signal})],
     ['remote_api_request','Execute one HTTP request from the DSH host against an exact saved API environment. Login first when required. Returns HTTP status, duration and redacted response. No automatic redirects, login retry or request replay. state=unknown means the device may have applied the operation; verify with a read-only request before any retry.',(args,owner,exec)=>workspace.request(owner,args,{signal:exec.signal})],

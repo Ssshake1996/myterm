@@ -31,6 +31,12 @@
 
 ---
 
+## 通过对话保存环境账号密码（v0.13.2）
+
+将目标地址、账号和密码明确提供给 Agent 后，可以直接创建或修改 SSH、Telnet 和 API 环境，无需切换到 GUI 输入。SSH/Telnet 使用 `remote_environment_create/update` 的 `username`、`password`；API 使用 `remote_api_environment_save` 的 `auth.username` 和顶层 `password`。
+
+密码通过 DSH credentials 保存，环境配置只保存引用，工具结果不回传明文。修改密码只作用于目标环境；省略或传 null 保留原密码，空字符串会报错。`password` 和 `passwordRef` 不同时提供。已有终端连接保持；API 修改后重新登录。GUI 录入和现有密码查看入口继续可用。DSH 自身仍管理对话和工具调用记录。
+
 ## Telnet 终端（v0.13.1）
 
 在 **环境 → SSH / Telnet → + 环境** 选择 Telnet，保存地址、端口及登录方式。支持用户名和密码、仅密码、免登录及在终端中手动登录；默认端口 23，自动登录凭据各提交一次，失败后保留回显。
@@ -141,7 +147,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 
 - `remote_environment_update`：按已有环境 ID 或名称修改名称、地址、端口、用户、分组、凭据引用、编码及 CLI/终端预设。只修改明确提供的非 null 字段，保留内部 ID 和其他配置；重复名称、非法值和未声明字段在写入前拒绝。
 - 随包 `remote-ops-environments` skill 通过 DSH 原生服务自动注册，可自动加载或使用 `/remote-ops-environments`。
-- 更新保存配置不会中断或改变现有 SSH 连接，新配置用于新连接。`passwordRef: "configured"` 仅为显示标记，更新时省略该字段即可保留凭据；新密码仍通过环境表单写入凭据服务。
+- 更新保存配置不会中断或改变现有 SSH 连接，新配置用于新连接。`passwordRef: "configured"` 仅为显示标记，更新时省略该字段即可保留凭据；用户提供的新密码可通过环境工具或表单写入凭据服务。
 - 前端环境管理与 Agent 使用同一份持久化数据。接口及安装说明见 [插件 README](integrations/dsh-remote-ops/README.zh-CN.md)。
 
 ## 界面与交互
@@ -212,7 +218,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 从 [最新稳定版](https://github.com/Ssshake1996/myterm/releases/latest) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.13.1.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.13.2.tgz
 dsh web
 ```
 
@@ -230,7 +236,7 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ## 内网 HTTP/HTTPS 手动更新
 
-当前版本为 [v0.13.1](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.13.1)。本版新增 Telnet 环境、共享终端与日志；详见 [发布说明](docs/releases/dsh-remote-ops-v0.13.1.md) 和 [验收记录](docs/testing/dsh-remote-ops-v0.13.1-acceptance.md)。
+当前版本为 [v0.13.2](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.13.2)。本版支持通过 Agent 直接保存、修改 SSH／Telnet 和 API 环境的账号密码；详见 [发布说明](docs/releases/dsh-remote-ops-v0.13.2.md) 和 [验收记录](docs/testing/dsh-remote-ops-v0.13.2-acceptance.md)。
 
 Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后显示等待原因，任务结束后自动热加载；“新版已生效”与运行版本共同确认结果。
 
@@ -239,14 +245,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.13.1.tgz
-  SHA256SUMS-dsh-remote-ops-v0.13.1.txt
+  dsh-remote-ops-v0.13.2.tgz
+  SHA256SUMS-dsh-remote-ops-v0.13.2.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.13.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.13.2.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -283,20 +289,20 @@ remote-ops/
 └─ update-settings.json     # 更新源配置
 ```
 
-SSH 密码和私钥不写入 JSON；密码通过 Sidebar 表单保存到 Harness credentials，环境文件只保存引用。
+SSH/Telnet 密码可通过 Agent 环境工具或 Sidebar 表单保存到 Harness credentials，环境文件只保存引用；私钥内容不写入环境 JSON。
 
 ## 发布
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.13.1
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.13.2
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.13.1            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.13.1 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.13.2            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.13.2 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后下载正式包，核对其实际 SHA256、校验文件及 GitHub 提供的摘要。
