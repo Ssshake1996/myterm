@@ -37,7 +37,7 @@ export const withLogs = Base => class LogsLayer extends Base {
     if (!session.remoteLogId) session.remoteLogId = session.outputBuffer.streamId;
     if (!this.terminalLogs.has(session.remoteLogId)) this.terminalLogs.set(session.remoteLogId, {
       logId: session.remoteLogId, ownerId: sessionId === LOCAL_SESSION_ID ? null : ownerKey(owner), sessionId, session,
-      name: environment.name, host: environment.host, port: environment.port ?? 22, kind: sessionId === LOCAL_SESSION_ID ? "local" : "ssh", adopted,
+      name: environment.name, host: environment.host, port: environment.port ?? (environment.transport === "telnet" ? 23 : 22), kind: sessionId === LOCAL_SESSION_ID ? "local" : environment.transport ?? "ssh", adopted,
     });
     this.pruneTerminalLogs();
   }

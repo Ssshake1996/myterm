@@ -2,6 +2,14 @@
 
 面向 DeepSeek Harness 的终端、网页、Windows 桌面与 RESTful API 运维插件。用户与 Agent 共享可见终端、软件窗口、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
 
+## Telnet 终端（v0.13.0）
+
+在 **环境 → SSH / Telnet → + 环境** 选择 Telnet，保存地址、端口及登录方式。支持用户名和密码、仅密码、免登录及在终端中手动登录；默认端口 23，自动登录凭据各提交一次，失败后保留回显。
+
+用户与 Agent 共用可见终端，沿用多标签、状态提示、命令显示、日志导出和当前对话全部关闭。连接和登录状态分别显示，命令结果以实际回显为准。总设置可调整终端尺寸，高级配置可设置编码、换行和登录提示符。Telnet 使用明文连接，文件传输仍选择 SSH/SFTP 环境。
+
+Agent 使用现有 `remote_environment_*` 和 `remote_terminal_*` 工具；随包 skill 已补充协议选择、登录状态和日志打包流程，无需修改 Agent。具体步骤见 [Telnet 使用指南](TELNET.md)。
+
 ## Windows 桌面操作
 
 新增“桌面”工作区：连接本机 Windows 或保存的 Windows SSH 环境，在插件中查看真实软件窗口，让 Agent 打开程序、填写内容、点击按钮并核实结果。用户可随时在同一画面操作，停止任务沿用 DSH 停止对话。支持按当前对话导出桌面记录和最后窗口图。
@@ -22,9 +30,9 @@ v0.12.3 兼容 DSH 安装时自动重载插件的流程：必要时先等待当�
 
 **首次从 v0.12.2 及更早版本迁移，建议先结束任务，通过 DSH 自带插件管理或 CLI 安装本版 tgz。** CLI 安装后，若运行版本仍旧且页面可操作，在“设置 → 更新”点击“重试应用已安装版本”，这一步只应用磁盘上的包。若不具备热加载能力则重启一次。如果旧版更新页面已经卡住，核对宿主安装日志和已安装版本，安装完成后重启 DSH 一次，不要重复提交安装。修复版之后的兼容更新可自动热加载。完整重启需要重新连接终端与网页；已保存配置和对话保留。仅刷新浏览器不代表后端已更新。详见 [v0.12.3 验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.12.3-acceptance.md)。
 
-## SSH 标签状态与全部关闭
+## 远程标签状态与全部关闭
 
-终端标签栏直接提供“全部关闭”：只关闭点击时当前对话中的全部 SSH 标签及对应连接，保留本地 CMD、保存的环境和其他对话连接。存在连接或已知执行任务时集中确认一次，并显示正在操作的数量；仅清理没有执行任务的已断开标签时直接完成。关闭失败的标签保留并列出原因，可核对后重试。确认期间新开的标签不加入本次关闭。
+终端标签栏直接提供“全部关闭”：只关闭点击时当前对话中的全部 SSH / Telnet 标签及对应连接，保留本地 CMD、保存的环境和其他对话连接。存在连接或已知执行任务时集中确认一次，并显示正在操作的数量；仅清理没有执行任务的已断开标签时直接完成。关闭失败的标签保留并列出原因，可核对后重试。确认期间新开的标签不加入本次关闭。
 
 | 提示 | 含义 |
 | --- | --- |
@@ -38,7 +46,7 @@ v0.12.3 兼容 DSH 安装时自动重载插件的流程：必要时先等待当�
 
 ## Windows OpenSSH
 
-Windows 桌面与 Server 沿用现有 SSH 环境、终端、文件和日志入口。在“环境 → SSH”中选择目标系统与 Shell，可使用服务器默认、CMD、Windows PowerShell 5.1 或目标已安装的 PowerShell 7。“测试”会分别报告身份验证、系统识别、PTY 和 SFTP，并显示主机指纹。
+Windows 桌面与 Server 沿用现有 SSH 环境、终端、文件和日志入口。在“环境 → SSH / Telnet”中选择目标系统与 Shell，可使用服务器默认、CMD、Windows PowerShell 5.1 或目标已安装的 PowerShell 7。“测试”会分别报告身份验证、系统识别、PTY 和 SFTP，并显示主机指纹。
 
 Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；`remote_command_execute` 接受 Windows Shell、字面工作目录及 PowerShell 命名参数，返回退出码和独立错误流。Windows 独立命令使用单独的 SSH 连接，保留可见终端。SFTP 支持盘符、中文和空格路径，文件与多终端日志沿用原有接口。
 
@@ -60,7 +68,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 
 ## 工作区布局
 
-- 四个工作区共用一个“设置”入口：通用、终端、网页、更新。环境入口统一管理 SSH / API，表单与凭据仍分别保存。
+- 四个工作区共用一个“设置”入口：通用、终端、网页、更新。环境入口统一管理 SSH / Telnet / API，表单与凭据仍分别保存。
 - 本地 CMD 与 SSH 使用同一终端标签栏，当前标签通过底色、边框和加粗文字突出，支持方向键切换；SSH 和 API 环境页左上角常驻“返回工作区”，滚动时保持可见，返回后保留原终端或请求草稿。终端栏直接显示全部关闭、搜索、当前 TXT 导出和“更多”；快捷命令默认显示紧凑条，展开或进入“命令库”管理。
 - 顶部标签提示终端新输出、文件传输和网页执行状态；查看对应终端后清除新输出。传输总量可靠时显示百分比，否则显示“传输中”。
 - API 结果按“响应 / 记录”切换。JSON 树可折叠，点击字段名复制 JSON Pointer；复制失败可手动选择路径。HTTP 状态码带颜色和文字，2xx 提示“请检查业务结果”。大响应按节点分批显示，原文仍可查看。
@@ -75,14 +83,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.12.3.tgz
-  SHA256SUMS-dsh-remote-ops-v0.12.3.txt
+  dsh-remote-ops-v0.13.0.tgz
+  SHA256SUMS-dsh-remote-ops-v0.13.0.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.3.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.13.0.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -195,7 +203,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.12.3.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.13.0.tgz
 dsh web
 ```
 

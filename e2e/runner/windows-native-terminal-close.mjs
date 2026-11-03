@@ -8,7 +8,7 @@ export async function verifyTerminalClose({ p, url, editor, owner, closeProof, u
   await p.setViewportSize({ width: 1500, height: 1000 });
   const primaryOwner = owner(), panel = p.locator(".dsh-remote-ops");
   const tabs = panel.getByRole("tablist", { name: "终端会话" });
-  const all = () => panel.getByRole("button", { name: "全部关闭 SSH 标签", exact: true });
+  const all = () => panel.getByRole("button", { name: "全部关闭远程标签", exact: true });
   const state = (page, id) => page.evaluate(id => fetch("/api/dsh-remote-ops/state?sessionId=" + encodeURIComponent(id), { headers: { "X-Remote-Ops-Acceptance": "read-only-observation" } }).then(r => r.json()), id);
   const send = async (field, text) => { await until(() => field.isEditable()); await field.fill(text); await field.press("Enter"); };
   let otherOwner, otherConnection;
@@ -90,7 +90,7 @@ export async function verifyTerminalClose({ p, url, editor, owner, closeProof, u
       const input = q.getByLabel("终端输入", { exact: true }); await until(() => input.isEditable()); await input.focus(); await q.keyboard.type("exit"); await q.keyboard.press("Enter");
       await until(async () => await otherTabs.locator('[data-state="disconnected"]').count() === 1);
       await q.screenshot({ path: join(out, "terminal-gray-disconnected.png"), animations: "disabled" });
-      const clear = q.getByRole("button", { name: "全部关闭 SSH 标签", exact: true }); await clear.focus(); await q.keyboard.press("Enter");
+      const clear = q.getByRole("button", { name: "全部关闭远程标签", exact: true }); await clear.focus(); await q.keyboard.press("Enter");
       await until(async () => await otherTabs.getByRole("tab").count() === 1); assert.equal(await q.getByRole("dialog").count(), 0);
       await selectConversation(primaryOwner); await send(editor, "WINDOWS_CLOSE_LOGS"); await until(() => closeProof.has("LOGS"));
       assert.match(JSON.stringify(closeProof.get("LOGS")), /Windows 原生验收/);

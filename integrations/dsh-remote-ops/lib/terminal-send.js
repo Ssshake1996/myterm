@@ -107,7 +107,7 @@ export async function performSend(state, owner, target, args) {
   const rendered = options.stripAnsi || options.headTailChars ? renderOutput(page, options) : undefined;
   const delta = {
     sessionId: record.sessionId, name: environment.name,
-    kind: target === LOCAL_SESSION_ID ? "local" : "ssh", status: session.status(), completion: "unknown", format: "terminal-stream",
+    kind: target === LOCAL_SESSION_ID ? "local" : record.environment.transport ?? "ssh", status: session.status(), completion: "unknown", format: "terminal-stream",
     ...page,
     ...(replaced ? { reset: true, truncated: true } : {}),
     ...(rendered ? { text: rendered.text, nextOffset: rendered.nextOffset, hasMore: rendered.hasMore } : {}),

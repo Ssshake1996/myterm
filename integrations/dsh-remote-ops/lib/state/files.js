@@ -26,6 +26,7 @@ export const withFiles = (Base) => class FilesLayer extends Base {
     if (endpoint.kind !== "ssh") throw sessionError("SFTP_ENDPOINT_INVALID", "Select the DSH host or an SSH environment");
     const environment = this.findEnvironment(endpoint.environment);
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", `Environment not found: ${endpoint.environment}`);
+    if (environment.transport === "telnet") throw sessionError("TELNET_SFTP_UNSUPPORTED", "File transfer requires an SSH/SFTP environment; no connection was attempted.");
     let client;
     try {
       ({ client } = await this.connectSshEnvironment(environment, signal));
@@ -52,6 +53,7 @@ export const withFiles = (Base) => class FilesLayer extends Base {
     await this.ready;
     const environment = this.findEnvironment(environmentId);
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", `Environment not found: ${environmentId}`);
+    if (environment.transport === "telnet") throw sessionError("TELNET_SFTP_UNSUPPORTED", "Select an SSH/SFTP environment for files; no file operation was started.");
     if (action === "upload" || action === "download") {
       const upload = action === "upload";
       const remote = normalizeSftpPath(String(args.remotePath), isWindowsEnvironment(environment));

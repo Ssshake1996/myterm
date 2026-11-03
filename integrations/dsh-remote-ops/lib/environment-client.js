@@ -46,7 +46,7 @@ export function createEnvironmentManager(React) {
     const [batch, setBatch] = useState(false), [selected, setSelected] = useState([]), [pending, setPending] = useState(false);
     const [menu, setMenu] = useState(null), [notice, setNotice] = useState('');
     const root = useRef(null), trigger = useRef(null), alive = useRef(true), deleting = useRef(false);
-    const title = kind === 'ssh' ? 'SSH' : 'API', locked = busy || pending;
+    const title = kind === 'ssh' ? 'SSH / Telnet' : 'API', locked = busy || pending;
     const matches = environments.filter(env => (!group || env.group === group) && (!search || [env.name, env.group, describe(env)].join(' ').toLowerCase().includes(search.toLowerCase())));
     const visibleKeys = matches.map(env => env.id).join('\n');
     useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -76,7 +76,7 @@ export function createEnvironmentManager(React) {
       if (!items.length || deleting.current || locked) return;
       deleting.current = true;
       try {
-        const impact = kind === 'ssh' ? '删除保存配置，并关闭该环境的现有 SSH 连接。远程设备与已保留日志不删除。' : '删除配置与登录会话，保留执行记录。正在执行请求的环境会保留并报告原因。';
+        const impact = kind === 'ssh' ? '删除保存配置，并关闭该环境的现有远程终端连接。远程设备与已保留日志不删除。' : '删除配置与登录会话，保留执行记录。正在执行请求的环境会保留并报告原因。';
         if (!await ask(`删除${items.length === 1 ? '环境“' + items[0].name + '”' : '所选 ' + items.length + ' 个环境'}？\n${items.map(env => env.name + ' · ' + describe(env)).join('\n')}\n${impact}`) || !alive.current) return;
         setPending(true); setNotice(''); const failed = []; let removed = 0;
         for (const item of items) {

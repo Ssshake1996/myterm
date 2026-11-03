@@ -7,7 +7,7 @@ const registerRoute = (ctx, state, label, definition) => ctx.effect(() => regist
 
 const OWNERLESS_ACTIONS = new Set(["group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "environment.test", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]);
 
-const connectionSummary = (opened, extra = {}) => ({ sessionId: opened.sessionId, environment: opened.environment.name, status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024), ...extra });
+const connectionSummary = (opened, extra = {}) => ({ sessionId: opened.sessionId, environment: opened.environment.name, transport: opened.environment.transport ?? "ssh", ...(opened.session.login ? { login: { ...opened.session.login } } : {}), status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024), ...extra });
 
 async function saveEnvironmentAction(state, body) {
   const environment = state.normalizeEnvironment({ ...body.environment, group: normalizeGroupName(body.environment?.group) });

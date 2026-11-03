@@ -4,6 +4,7 @@ import { AdoptedTerminalSession, SshTerminalSession, buildSshShellOptions } from
 import { interactiveWindowsCommand, windowsProbeCommand, isWindowsEnvironment } from "../windows-shell.js";
 import { sshChannel, closeSshClient } from "../ssh-connection.js";
 import { executeCommand } from "../commands.js";
+import { connectTelnet } from "../telnet-connection.js";
 
 // SSH connections: spawning, opening, reconciling with the host, credentials, resize and disconnect records.
 export const withConnections = (Base) => class ConnectionsLayer extends Base {
@@ -19,7 +20,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
     list.push(entry);
     while (list.length > 10) list.shift();
     this.disconnects.set(record.ownerId, list);
-    this.event(record.owner, "ssh.disconnected", { sessionId: record.sessionId, environment: record.environment.name, reason: entry.reason });
+    this.event(record.owner, `${record.environment.transport ?? "ssh"}.disconnected`, { sessionId: record.sessionId, environment: record.environment.name, reason: entry.reason });
   }
 
   async resize(owner, target, rows, cols) {
@@ -29,8 +30,8 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
     if (typeof record.session.resize !== "function") throw sessionError("TERMINAL_RESIZE_UNSUPPORTED", "This connection is held by the DSH host (adopted after a plugin reload) and cannot be resized; open a new connection");
     const size = record.session.resize(rows, cols);
     record.session.outputBuffer.notify();
-    this.event(owner, "ssh.resize", { sessionId: record.sessionId, environment: record.environment.name, ...size });
-    return { sessionId: record.sessionId, environment: record.environment.name, ...size, note: "Applied to the remote PTY; full-screen programs repaint at the new size, the stream already printed is not reflowed" };
+    this.event(owner, `${record.environment.transport ?? "ssh"}.resize`, { sessionId: record.sessionId, environment: record.environment.name, ...size });
+    return { sessionId: record.sessionId, environment: record.environment.name, ...size, note: record.environment.transport === "telnet" ? "Telnet window size updated locally; NAWS is sent only when negotiated. The device may ignore it; existing output is not reflowed" : "Applied to the remote PTY; full-screen programs repaint at the new size, the stream already printed is not reflowed" };
   }
 
   async resolvePassword(environment) {
@@ -56,6 +57,11 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
     await this.ready;
     const environment = spec.environment ?? this.directEnvironments.get(spec.name) ?? this.findEnvironment(spec.name) ?? this.findEnvironmentBySessionName(spec.name);
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", `Environment not found: ${spec.name}`);
+    if (environment.transport === "telnet") {
+      const session = await connectTelnet(environment, { password: await this.resolvePassword(environment) });
+      this.backendSessions.set(spec.sessionId, session);
+      return session;
+    }
     let client;
     try {
       const connected = await this.connectSshEnvironment(environment);
@@ -95,14 +101,14 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
       this.reconcileHostSessions(owner);
       const active = this.activeRemoteSessions(id, environment.id);
       if (active.length >= MAX_SESSIONS_PER_ENVIRONMENT) throw sessionError("REMOTE_SESSION_LIMIT", `Environment ${environment.name} already has ${active.length} active connections; maximum is ${MAX_SESSIONS_PER_ENVIRONMENT}`);
-      const spawned = await this.ctx.terminals.spawn(owner, { type: "ssh", name: newSessionName(environment.id), environment });
+      const spawned = await this.ctx.terminals.spawn(owner, { type: environment.transport ?? "ssh", name: newSessionName(environment.id), environment });
       const session = this.backendSessions.get(spawned.sessionId);
-      if (!session) throw new Error("SSH backend did not return a session");
+      if (!session) throw new Error("Remote terminal backend did not return a session");
       const record = { sessionId: spawned.sessionId, ownerId: id, owner, environment, session };
       this.sessions.set(record.sessionId, record);
       this.trackTerminalLog(owner, record.sessionId, session, environment);
       session.onClose = (info) => this.recordDisconnect(record, info);
-      this.event(owner, "ssh.open", { sessionId: record.sessionId, environment: environment.name });
+      this.event(owner, `${environment.transport ?? "ssh"}.open`, { sessionId: record.sessionId, environment: environment.name });
       return record;
     })();
     this.openings.set(key, opening);
@@ -136,20 +142,20 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
     const hostSessions = this.ctx.terminals.list(owner);
     const liveIds = new Set();
     for (const snapshot of hostSessions) {
-      if (snapshot?.type !== "ssh" || snapshot.status?.kind === "exited") continue;
+      if (!["ssh", "telnet"].includes(snapshot?.type) || snapshot.status?.kind === "exited") continue;
       const environment = this.findEnvironmentBySessionName(snapshot.name);
       if (!environment) continue;
       liveIds.add(snapshot.sessionId);
       const current = this.sessions.get(snapshot.sessionId);
       if (current) continue;
       this.sessions.set(snapshot.sessionId, { sessionId: snapshot.sessionId, ownerId: id, owner, environment, session: new AdoptedTerminalSession(this.ctx, owner, snapshot), adopted: true });
-      this.event(owner, "ssh.reconciled", { sessionId: snapshot.sessionId, environment: environment.name });
+      this.event(owner, `${environment.transport ?? "ssh"}.reconciled`, { sessionId: snapshot.sessionId, environment: environment.name });
     }
     for (const [sessionId, record] of this.sessions) {
       if (record.ownerId === id && !record.direct && !liveIds.has(sessionId)) {
         if ([...this.commands.values()].some(job => job.owner === id && job.target === sessionId && job.status === "running")) continue;
         this.sessions.delete(sessionId);
-        this.event(owner, "ssh.reconciled.closed", { sessionId, environment: record.environment.name });
+        this.event(owner, `${record.environment.transport ?? "ssh"}.reconciled.closed`, { sessionId, environment: record.environment.name });
       }
     }
     return [...this.sessions.values()].filter((record) => record.ownerId === id && record.session.status().kind !== "exited");
@@ -162,7 +168,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
     const port = Number(spec?.port ?? 22);
     if (!host || !username || !Number.isInteger(port) || port < 1 || port > 65535) throw sessionError("REMOTE_SSH_COMMAND_INVALID", "SSH command must include a valid host, username and port");
     const id = ownerId(owner);
-    const existing = [...this.sessions.values()].find((x) => x.ownerId === id && x.environment.host === host && x.environment.username === username && Number(x.environment.port ?? 22) === port && x.session.status().kind !== "exited");
+    const existing = [...this.sessions.values()].find((x) => x.ownerId === id && x.environment.transport !== "telnet" && x.environment.host === host && x.environment.username === username && Number(x.environment.port ?? 22) === port && x.session.status().kind !== "exited");
     if (existing) return existing;
     const environment = { id: `direct-${Date.now().toString(36)}`, name: `${username}@${host}:${port}`, host, username, port };
     if (spec.privateKeyPath) environment.privateKeyPath = String(spec.privateKeyPath).trim();
@@ -189,8 +195,8 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
       if (matches.length > 1) throw sessionError("REMOTE_SESSION_REQUIRED", `Environment ${sessionIdOrEnvironment} has ${matches.length} active connections; use an explicit session id`);
       return matches[0];
     })();
-    if (!record) throw sessionError("REMOTE_SESSION_NOT_FOUND", `No SSH session for ${sessionIdOrEnvironment}`);
-    if (record.ownerId !== id) throw sessionError("FOREIGN_SESSION", "SSH session belongs to another agent");
+    if (!record) throw sessionError("REMOTE_SESSION_NOT_FOUND", `No remote terminal session for ${sessionIdOrEnvironment}`);
+    if (record.ownerId !== id) throw sessionError("FOREIGN_SESSION", "Remote terminal session belongs to another conversation");
     return record;
   }
 
@@ -217,7 +223,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
   }
 
   async closeMany(owner, targets) {
-    if (!Array.isArray(targets) || !targets.length || targets.length > 128 || targets.some(id => typeof id !== "string" || !id || id === LOCAL_SESSION_ID) || new Set(targets).size !== targets.length) throw sessionError("REMOTE_CLOSE_INVALID", "Provide 1-128 distinct SSH session IDs; the shared local terminal cannot be closed here");
+    if (!Array.isArray(targets) || !targets.length || targets.length > 128 || targets.some(id => typeof id !== "string" || !id || id === LOCAL_SESSION_ID) || new Set(targets).size !== targets.length) throw sessionError("REMOTE_CLOSE_INVALID", "Provide 1-128 distinct remote session IDs; the shared local terminal cannot be closed here");
     if (!owner?.id) throw sessionError("REMOTE_SESSION_REQUIRED", "Select the current conversation");
     const id = ownerId(owner);
     // Validate the whole selection before dispatch. Never resolve environment names,

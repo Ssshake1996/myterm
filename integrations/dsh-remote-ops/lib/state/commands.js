@@ -10,6 +10,7 @@ function beginCommand(owner, target, args, retained = false) {
   if (!owner?.id || this.disposed) throw sessionError("COMMAND_OWNER_REQUIRED", "An active Harness session is required");
   validateCommand(args.command, (args.timeoutSeconds ?? 30) * 1000, args.maxBytes ?? 65536);
   const record = target === LOCAL_SESSION_ID ? null : this.getSession(owner, target);
+  if (record?.environment.transport === "telnet") throw sessionError("TELNET_EXEC_UNSUPPORTED", "Telnet has no independent exec channel or command exit status. Use remote_terminal_send/read/script on this visible terminal; nothing was dispatched.");
   if (record?.session.closing) throw sessionError("REMOTE_SESSION_CLOSING", "This SSH terminal is closing; no command was dispatched");
   if (record && (record.session.status().kind === "exited" || !record.session.client?.exec)) throw sessionError("COMMAND_CHANNEL_UNAVAILABLE", "This connection cannot open an independent SSH exec channel");
   const shell = args.shell ?? record?.environment.shell ?? "server-default";

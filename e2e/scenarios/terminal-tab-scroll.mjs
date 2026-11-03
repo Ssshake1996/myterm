@@ -95,7 +95,7 @@ export async function verifyTerminalTabScroll(t, { open, send }) {
     await p.getByRole('dialog').getByRole('button', { name: '确认', exact: true }).click();
     await until(async () => await tabs().count() === 12);
     await until(() => inside(strip.locator('[aria-selected=true]')));
-    await panel.getByRole('button', { name: '全部关闭 SSH 标签', exact: true }).click();
+    await panel.getByRole('button', { name: '全部关闭远程标签', exact: true }).click();
     await p.getByRole('dialog').getByRole('button', { name: '确认', exact: true }).click();
     await until(async () => await tabs().count() === 1);
     await until(async () => await left.count() === 0 && await right.count() === 0);

@@ -4,7 +4,7 @@ import { normalizeCliProfile, normalizeTerminalSize } from "../cli-profile.js";
 import { SESSION_NAME_PREFIX } from "../constants.js";
 import { newEnvironmentId, normalizeGroupName, ownerId, sessionError, validateEnvironment } from "../common.js";
 
-const UPDATE_FIELDS = new Set(["name", "host", "username", "group", "port", "privateKeyPath", "passwordRef", "encoding", "cliProfile", "terminal", "transport", "platform", "shell", "readyTimeoutMs", "hostKeySha256"]);
+const UPDATE_FIELDS = new Set(["name", "host", "username", "group", "port", "privateKeyPath", "passwordRef", "encoding", "cliProfile", "terminal", "transport", "platform", "shell", "readyTimeoutMs", "hostKeySha256", "telnet"]);
 
 export function sanitizeStoredEnvironment(item) {
   if (!item || typeof item !== "object") return item;
@@ -69,7 +69,7 @@ export const withEnvironments = (Base) => class EnvironmentsLayer extends Base {
     // Optional nulls are omission, not an instruction to erase persisted settings.
     const patch = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined && value !== null));
     if (!Object.keys(patch).length) throw sessionError("REMOTE_ENV_UPDATE_EMPTY", "Provide at least one field to update; omitted or null fields keep their saved values");
-    for (const key of ["name", "host", "username", "group"]) {
+    for (const key of ["name", "host", "group", ...((patch.transport ?? previous.transport) === "telnet" ? [] : ["username"])]) {
       if (Object.hasOwn(patch, key) && (typeof patch[key] !== "string" || !patch[key].trim())) throw sessionError("REMOTE_ENV_INVALID", `${key} must be a non-empty string`);
     }
     if (patch.passwordRef === "configured") throw sessionError("REMOTE_ENV_INVALID", "passwordRef 'configured' is a display marker. Omit it to keep the current credential, use a real reference to replace it, or an empty string to clear it");

@@ -14,7 +14,7 @@ export async function verifyEnvironmentManager(t, { api, device, apiUrl }) {
   await api('action', { action: 'group.create', name: '布局空分组' });
   for (const suffix of ['A', 'B']) await api('api', { action: 'environment.save', environment: { name: '布局 API ' + suffix, group: '布局 API', baseUrl: apiUrl, auth: { mode: 'none' } } });
   await panel.getByRole('button', { name: '环境管理', exact: true }).click();
-  await p.getByRole('tab', { name: 'SSH', exact: true }).click();
+  await p.getByRole('tab', { name: 'SSH / Telnet', exact: true }).click();
   await t.step('SSH 分组与环境分区，常用操作外露，删除仅在更多菜单中', async () => {
     await manager().getByRole('button', { name: '筛选分组 布局生产', exact: true }).click();
     assert.equal(await manager().locator('[data-environment-row]').count(), 2);
@@ -29,16 +29,16 @@ export async function verifyEnvironmentManager(t, { api, device, apiUrl }) {
     await more.click();
     await manager().getByRole('button', { name: '删除环境', exact: true }).click();
     assert.match(await p.getByRole('dialog').innerText(), /布局生产 A/);
-    assert.match(await p.getByRole('dialog').innerText(), /SSH 连接/);
+    assert.match(await p.getByRole('dialog').innerText(), /现有远程终端连接/);
     await p.getByRole('button', { name: '取消', exact: true }).click();
     assert.equal(await manager().locator('[data-environment-row]').count(), 2);
   });
   await t.step('编辑返回保留搜索与分组，非空分组不可误删', async () => {
-    await manager().getByLabel('搜索 SSH 环境', { exact: true }).fill('生产 A');
+    await manager().getByLabel('搜索 SSH / Telnet 环境', { exact: true }).fill('生产 A');
     await row('布局生产 A').getByRole('button', { name: '编辑', exact: true }).click();
     await p.getByRole('button', { name: '取消', exact: true }).click();
-    assert.equal(await manager().getByLabel('搜索 SSH 环境', { exact: true }).inputValue(), '生产 A');
-    await manager().getByLabel('搜索 SSH 环境', { exact: true }).fill('');
+    assert.equal(await manager().getByLabel('搜索 SSH / Telnet 环境', { exact: true }).inputValue(), '生产 A');
+    await manager().getByLabel('搜索 SSH / Telnet 环境', { exact: true }).fill('');
     await manager().getByRole('button', { name: '分组操作 布局生产', exact: true }).click();
     assert.equal(await manager().getByRole('button', { name: '删除空分组', exact: true }).isDisabled(), true);
     await p.keyboard.press('Escape');

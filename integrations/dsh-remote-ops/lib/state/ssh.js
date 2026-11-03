@@ -5,6 +5,7 @@ import { sessionError } from "../errors.js";
 import { executeCommand } from "../commands.js";
 import { buildSshShellOptions } from "../terminal-sessions.js";
 import { interactiveWindowsCommand, isWindowsEnvironment, windowsProbeCommand } from "../windows-shell.js";
+import { connectTelnet } from "../telnet-connection.js";
 
 export const withSsh = Base => class SshLayer extends Base {
   async verifySshHost(environment, fingerprint) {
@@ -42,6 +43,7 @@ export const withSsh = Base => class SshLayer extends Base {
   }
 
   async connectSshEnvironment(environment, signal) {
+    if (environment.transport === "telnet") throw sessionError("TELNET_SFTP_UNSUPPORTED", "This operation requires an SSH environment. Telnet supports terminal input/output only.");
     return connectSsh(environment, { password: await this.resolvePassword(environment), signal, verifyHost: fingerprint => this.verifySshHost(environment, fingerprint) });
   }
 
@@ -49,6 +51,18 @@ export const withSsh = Base => class SshLayer extends Base {
     await this.ready;
     const environment = this.findEnvironment(id);
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", String(id));
+    if (environment.transport === "telnet") {
+      const result = { environmentId: id, transport: "telnet", endpoint: `${environment.host}:${environment.port ?? 23}`, checkedAt: new Date().toISOString(), stages: [], capabilities: { terminal: true, exec: false, sftp: false, encrypted: false } };
+      let session;
+      try {
+        session = await connectTelnet(environment, { password: await this.resolvePassword(environment), signal });
+        result.stages.push({ stage: "connection", ok: true });
+        if ((environment.telnet?.loginMode ?? "manual") !== "manual") { await session.loginReady; result.stages.push({ stage: "login-prompt", ok: true }); }
+        else result.stages.push({ stage: "login-prompt", ok: null, message: "Manual login: TCP connected; login was not tested. Open the terminal to continue." });
+        return { ...result, ok: true, login: { ...session.login } };
+      } catch (error) { return { ...result, ok: false, stages: [...result.stages, { stage: error.stage ?? "login-prompt", ok: false, code: error.code, message: error.message }] }; }
+      finally { await session?.close(); }
+    }
     const result = { environmentId: environment.id, endpoint: sshEndpoint(environment), checkedAt: new Date().toISOString(), stages: [], capabilities: {} };
     let client;
     const run = async (stage, work) => {

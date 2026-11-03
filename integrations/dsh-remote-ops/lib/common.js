@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { CREDENTIAL_REF_RE, ID_RE, SESSION_NAME_PREFIX, TERMINAL_ENCODINGS } from "./constants.js";
 import { validateCliProfile, validateTerminalSize } from "./cli-profile.js";
 import { WINDOWS_SHELLS } from "./windows-shell.js";
+import { validateTelnet } from "./telnet-config.js";
 
 export { sessionError, summarizeError } from "./errors.js";
 
@@ -52,12 +53,17 @@ export function toLosslessJson(value) {
 export function validateEnvironment(value) {
   const errors = [];
   if (!value || typeof value !== "object") return { ok: false, errors: ["environment must be an object"] };
-  for (const field of ["id", "name", "host", "username"]) {
+  if (Object.hasOwn(value, "password")) errors.push("Use a passwordRef or the environment password form; plaintext passwords must not be stored in environment definitions");
+  const telnet = value.transport === "telnet";
+  for (const field of ["id", "name", "host", ...(!telnet || value.telnet?.loginMode === "username-password" ? ["username"] : [])]) {
     if (typeof value[field] !== "string" || value[field].trim().length === 0) errors.push(`${field} is required`);
   }
   if (typeof value.id === "string" && !ID_RE.test(value.id)) errors.push("id must contain only letters, numbers, dot, underscore or hyphen");
   if (value.port !== undefined && (!Number.isInteger(value.port) || value.port < 1 || value.port > 65535)) errors.push("port must be 1-65535");
-  if (value.transport !== undefined && value.transport !== "ssh") errors.push("transport must be ssh");
+  if (value.transport !== undefined && !["ssh", "telnet"].includes(value.transport)) errors.push("transport must be ssh or telnet");
+  if (value.username !== undefined && typeof value.username !== "string") errors.push("username must be a string");
+  errors.push(...validateTelnet(value.telnet));
+  if (telnet && (value.privateKeyPath || value.hostKeySha256 || value.shell && value.shell !== "server-default")) errors.push("Telnet uses the device CLI; SSH keys, fingerprints and Windows shell selection require SSH");
   if (value.platform !== undefined && !["auto", "windows", "posix"].includes(value.platform)) errors.push("platform must be auto, windows or posix");
   if (value.shell !== undefined && !WINDOWS_SHELLS.includes(value.shell)) errors.push("shell must be server-default, cmd, windows-powershell or pwsh");
   if (value.platform === "posix" && value.shell && value.shell !== "server-default") errors.push("Windows shells require platform windows or auto");

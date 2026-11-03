@@ -21,7 +21,7 @@ export const withTerminalIo = (Base) => class TerminalIoLayer extends Base {
       session = record.session;
       environmentId = record.environment.id;
       name = record.environment.name;
-      kind = "ssh";
+      kind = record.environment.transport ?? "ssh";
     }
     if (session instanceof AdoptedTerminalSession) {
       await session.refresh();
@@ -34,10 +34,11 @@ export const withTerminalIo = (Base) => class TerminalIoLayer extends Base {
       name,
       kind,
       status: session.status(),
+      ...(session.login ? { login: { ...session.login } } : {}),
       size: session.size ?? { rows: DEFAULT_TERMINAL_ROWS, cols: DEFAULT_TERMINAL_COLS },
       activity: session.active ? "waiting" : session.lastWaitReason ?? "unobserved",
       control: this.controlSnapshot(session),
-      operation: this.terminalOperation(session, target, kind === "ssh" ? owner?.id : undefined),
+      operation: this.terminalOperation(session, target, kind !== "local" ? owner?.id : undefined),
       toolReceipt: this.toolReceipt(owner, session),
       completion: "unknown",
       commandAnnotations: session.outputBuffer.commandAnnotations ?? [],
@@ -105,7 +106,7 @@ export const withTerminalIo = (Base) => class TerminalIoLayer extends Base {
     if (record.session.closing) throw sessionError("REMOTE_SESSION_CLOSING", "This SSH terminal is closing; no input was dispatched");
     this.claimInput(record.session, actor, streamId);
     const result = await record.session.writeInput(text);
-    this.event(owner, "ssh.input", { sessionId: record.sessionId, environment: record.environment.name, inputBytes: result.bytes });
+    this.event(owner, `${record.environment.transport ?? "ssh"}.input`, { sessionId: record.sessionId, environment: record.environment.name, inputBytes: result.bytes });
     return { sessionId: record.sessionId, environment: record.environment.name, ...result };
   }
 

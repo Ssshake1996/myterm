@@ -59,7 +59,7 @@ test("resize, size reporting and disconnect reasons are wired end to end", async
   assert.match(client, /snapshot\.disconnects/);
   assert.match(server, /"resize": \(\{ state, body, agent \}\)/);
   assert.match(await readToolSource("remote_terminal_resize"), /state\.resize/);
-  assert.match(server, /ssh\.disconnected/);
+  assert.match(server, /record\.environment\.transport \?\? "ssh"\}\.disconnected/);
   assert.match(server, /Nothing was replayed/);
 });
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 export const terminalCloseScenario = { id: 'terminal-close', title: 'SSH 黄绿灰状态、批量关闭、取消与部分失败', async run(t) {
   const p = t.page, info = await t.info(), panel = p.locator('.dsh-remote-ops');
   const tabs = p.getByRole('tablist', { name: '终端会话' });
-  const all = () => p.getByRole('button', { name: '全部关闭 SSH 标签', exact: true });
+  const all = () => p.getByRole('button', { name: '全部关闭远程标签', exact: true });
   const tool = (name, args) => p.evaluate(async ({name,args}) => {
     const response = await fetch('/e2e/agent', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({tool:name,args,timeoutMs:30000}) });
     const result = await response.json(); if (!response.ok) throw Error(result.error); return result;

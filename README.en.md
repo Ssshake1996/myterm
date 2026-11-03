@@ -18,6 +18,14 @@
 
 These screenshots show v0.9.2 installed in real DSH 0.2.0-rc.2; the installed package matches the official Release SHA256. A deterministic test provider drives real tools against isolated local SSH, web and API services.
 
+## Telnet terminals (v0.13.0)
+
+Choose **Environment → SSH / Telnet → Add environment**, select Telnet, and save the host, port (default 23) and login mode. Supports username/password, password-only, no-login and manual terminal login. Automatic credentials are submitted once; a failed login leaves the output available for inspection.
+
+Users and Agents share the visible terminal, tabs, status indicators and log exports. Close all now includes this conversation's SSH and Telnet tabs while keeping local CMD. Connection, login readiness and command results are separate. Configure encoding, line endings and prompt patterns for device CLIs. Telnet is unencrypted; file transfer uses SSH/SFTP.
+
+Existing `remote_environment_*` and `remote_terminal_*` tools and bundled skills cover the flow without Agent changes. See the [Telnet guide](integrations/dsh-remote-ops/TELNET.md).
+
 ## Windows desktop operations
 
 The **桌面** workspace shows real Windows application windows. Connect the DSH Windows host or a saved Windows SSH environment, launch software, inspect UIA controls, fill fields, click buttons and verify outcomes. Users can operate the same window; native DSH cancellation stops later steps. Export this conversation's desktop records and last captured windows as a ZIP.
@@ -38,7 +46,7 @@ A failed startup restores the previous runtime and exposes **重试应用已安�
 
 **For the first migration from v0.12.2 or earlier, finish active work and install this tgz through DSH plugin management or the CLI.** After CLI installation, if the running version is still old and the page responds, use **重试应用已安装版本** in the update settings to activate the installed package without reinstalling it. Hosts without hot-reload support need a restart. If the old updater is already stuck, check the host installation log and installed version, then restart DSH once after installation completes; do not submit another install. Subsequent compatible updates from the fixed runtime can hot reload. A full restart requires reconnecting terminals and webpages but preserves saved configuration and conversations. Refreshing the browser alone does not update the backend. See the [v0.12.3 acceptance record](docs/testing/dsh-remote-ops-v0.12.3-acceptance.md).
 
-## SSH tab status and close all
+## Remote tab status and close all
 
 The terminal strip exposes **全部关闭** (close all). It closes the current conversation's SSH tabs and their connections captured when clicked, preserving local CMD, saved environments and other conversations. Live connections or known running commands receive one combined confirmation with an active-operation count; disconnected tabs without running commands clear immediately. Failed closures remain visible with a reason. Connections opened during confirmation are excluded from that selection.
 
@@ -86,14 +94,14 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 ## Manual intranet HTTP/HTTPS updates
 
-Current version: [v0.12.3](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.12.3), with coordinated installation and hot reload, bounded reconnect handling and explicit update-status recovery. See the [release notes](docs/releases/dsh-remote-ops-v0.12.3.md) and the [v0.12.0 desktop, installation and hot-reload acceptance scope](docs/testing/dsh-remote-ops-v0.12.0-acceptance.md) for the underlying desktop capability.
+Current version: [v0.13.0](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.13.0), adding Telnet environments, shared terminals and logs. See the [release notes](docs/releases/dsh-remote-ops-v0.13.0.md) and [acceptance record](docs/testing/dsh-remote-ops-v0.13.0-acceptance.md).
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.12.3.tgz` and `SHA256SUMS-dsh-remote-ops-v0.12.3.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.13.0.tgz` and `SHA256SUMS-dsh-remote-ops-v0.13.0.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.12.3.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.13.0.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -206,7 +214,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from the [latest stable release](https://github.com/Ssshake1996/myterm/releases/latest), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.12.3.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.13.0.tgz
 dsh web
 ```
 
@@ -253,15 +261,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.12.3
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.13.0
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.12.3
-node scripts/release-dsh-remote-ops.mjs 0.12.3 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.13.0
+node scripts/release-dsh-remote-ops.mjs 0.13.0 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and
