@@ -13,3 +13,5 @@ Agent 可以直接使用用户在对话中明确提供的账号密码创建、�
 已通过 475 项回归及 smoke、24 个浏览器场景/106 步骤、真实 DSH 0.2.1-rc.5 的 5 项安装验证。设备、API 和模型响应使用本地隔离测试服务，实际经过 DSH 工具与凭据服务，完成 SSH/Telnet 和 HTTP 登录请求。
 
 详见[验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.13.2-acceptance.md)。
+
+正式 GitHub 附件已重新下载并安装验证，5/5 场景通过；下载包、SHA256 校验文件及 GitHub asset digest 一致。v0.13.2 已设为 Latest。
