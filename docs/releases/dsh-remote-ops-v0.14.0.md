@@ -7,3 +7,5 @@ Agent 使用 `remote_serial_ports` 列出端口，通过 `remote_environment_cre
 安装附件为 `dsh-remote-ops-v0.14.0.tgz` 和 `SHA256SUMS-dsh-remote-ops-v0.14.0.txt`。
 
 Windows 已验证真实 COM 枚举和保存配置，Linux 已在真实 DSH 中用内核伪终端验证用户与 Agent 收发、日志下载、关闭释放和重新连接。详见[验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.14.0-acceptance.md)。
+
+安装正式包后，DSH 会话会发现随包的 `remote-ops-environments` 和 `remote-ops-terminal-logs`。已通过宿主的 `skill` 工具读取两份说明，并实际执行串口建环境示例。正式下载包已通过 SHA256 校验。

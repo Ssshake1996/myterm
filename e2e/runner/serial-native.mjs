@@ -34,9 +34,18 @@ function decode(value) {
 }
 let phase='boot',plan=[],proof,fixture,host,browser,page;
 const lines=[];
+const skillNames=['remote-ops-environments','remote-ops-terminal-logs'];
+const advertisedSkills=new Set(), availableTools=new Set();
 const model=createServer(async(req,res)=>{
   let raw=''; for await(const chunk of req) raw+=chunk;
   const body=JSON.parse(raw), messages=body.messages??[], at=messages.findLastIndex(m=>m.role==='user');
+  for(const tool of body.tools??[]) availableTools.add(tool.function?.name);
+  for(const message of messages){
+    const content=typeof message.content==='string'?message.content:(message.content??[]).map(part=>part.text??'').join('\n');
+    for(const [,catalog] of content.matchAll(/<available_skills>([\s\S]*?)<\/available_skills>/g)){
+      for(const name of skillNames) if(catalog.includes('`'+name+'`')) advertisedSkills.add(name);
+    }
+  }
   const results=messages.slice(at+1).filter(m=>m.role==='tool').map(m=>decode(m.content));
   res.writeHead(200,{'Content-Type':'text/event-stream'});
   const emit=(delta,reason=null)=>res.write('data: '+JSON.stringify({id:'serial-acceptance',object:'chat.completion.chunk',created:1,model:'serial-test',choices:[{index:0,delta,finish_reason:reason}]})+'\n\n');
@@ -82,7 +91,10 @@ try {
     await until(()=>proof,'No native tool results for '+name);
     assert.equal(proof.length,tools.length,JSON.stringify(proof));
     await page.getByText('DONE_'+name,{exact:true}).last().waitFor();
-    for(const item of proof)assert.equal(typeof item,'object',JSON.stringify(item));
+    for(const [index,item] of proof.entries()){
+      if(tools[index][0]==='skill') assert.match(String(item),/<skill_content name=/);
+      else assert.equal(typeof item,'object',JSON.stringify(item));
+    }
     return proof;
   };
   await agent('BOOT',[]);
@@ -90,6 +102,24 @@ try {
   if(!await panel.isVisible())await page.getByRole('button',{name:'Remote Ops',exact:true}).click();
   const row=()=>panel.locator('[data-environment-row]').filter({hasText:'Serial lab'});
   let id,sessionId;
+  await step('Native skill catalog, loading both guides and executing the serial create example',async()=>{
+    assert.deepEqual([...advertisedSkills].sort(),[...skillNames].sort());
+    const [environmentGuide,logGuide]=await agent('SKILLS',skillNames.map(name=>['skill',{name}]));
+    assert.ok(environmentGuide.includes('<skill_content name="remote-ops-environments">'));
+    assert.ok(logGuide.includes('<skill_content name="remote-ops-terminal-logs">'));
+    const calls=['remote_serial_ports','remote_environment_create','remote_terminal_open','remote_terminal_log_read','remote_terminal_log_export'];
+    for(const name of calls){assert.ok(availableTools.has(name),name);assert.ok((environmentGuide+logGuide).includes(name),name);}
+    assert.ok(logGuide.includes('serialPath'));
+    const examples=[...environmentGuide.matchAll(/```json\r?\n([\s\S]*?)\r?\n```/g)].map(match=>JSON.parse(match[1]));
+    const sample=examples.find(example=>example.tool==='remote_environment_create'&&example.arguments.transport==='serial');
+    assert.ok(sample,'The loaded skill must provide a runnable serial example');
+    const args=structuredClone(sample.arguments);args.name='Skill example console';
+    args.serial.path=windows?'COM249':path;
+    const [created]=await agent('EXAMPLE',[[sample.tool,args]]);
+    assert.equal(created.environment.serial.path,args.serial.path);
+    assert.equal(created.environment.serial.baudRate,sample.arguments.serial.baudRate);
+    evidence.skills={advertised:[...advertisedSkills],loaded:skillNames,verifiedTools:calls,executedExample:sample.tool};
+  });
   await step('Three protocol choices, native enumeration and a saved serial environment',async()=>{
     const [result]=await agent('PORTS',[['remote_serial_ports',{}]]);
     assert.ok(Array.isArray(result.ports));evidence.enumerated=result.ports.map(x=>x.path);

@@ -24,3 +24,11 @@ node e2e/runner/serial-native.mjs path-to-package.tgz
 ```
 
 原生验收需要 Chrome、pnpm 和已安装的 DSH，Linux 另需 Python 3 创建 PTY。Windows 路径只枚举端口，并用已确认为空的设备号验证故障提示。发布工作流从 Windows 构建桌面运行时，将最终 tgz 和 SHA256 文件交给 Linux 原生验收任务，通过后才上传 Release 附件。
+
+## 正式包与随包 skill 验收
+
+- [v0.14.0 Release](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.14.0) 是 Latest，列表首位和 Latest API 一致。标签指向 `b409fa9537b49b8da02b4618078fae0d4e74b180`。仅有 tgz（687644 字节）和 SHA256 文件（93 字节）两个附件。
+- 正式下载包、校验文件、GitHub asset digest 和发布前 Linux 原生验收所用包的 SHA256 均为 `3427e23645da61cdbd5663e6ebabe0ac828f1a2810ea03f367130266a331134e`。84 个客户端、运行时源码、说明和 skill 文件与验证源文件逐字节一致。桌面执行器清单通过校验。
+- [发布工作流](https://github.com/Ssshake1996/myterm/actions/runs/41795709455) 对该正式 tgz 完成 Linux 真实 DSH 的 4 项测试，页面错误 0。[浏览器回归](https://github.com/Ssshake1996/myterm/actions/runs/41795701813)、[Windows OpenSSH](https://github.com/Ssshake1996/myterm/actions/runs/41795701945)、[Windows 桌面](https://github.com/Ssshake1996/myterm/actions/runs/41795701864) 均通过。Windows 两项覆盖 Server 2022 和 Server 2025。
+- 将正式附件安装到新的 Windows DSH 0.2.1-rc.5 后，3 项原生验收通过，页面错误 0。会话发送给模型的 `<available_skills>` 目录列出了 `remote-ops-environments` 和 `remote-ops-terminal-logs`。测试通过宿主的 `skill({name})` 工具分别加载两份正文，核对其中的枚举、建环境、打开终端、读取及导出日志工具均已注册，并从实际读出的 JSON 示例中提取建环境调用，更换测试端口和环境名后成功执行。其余两项验证三个协议的表单、枚举、保存、修改及缺失端口诊断。
+- 本地证据位于 `output/serial-v0.14.0/official/verification.json`、`output/serial-v0.14.0/linux-release/evidence.json`、`output/serial-v0.14.0/windows-official-skills/evidence.json`。
