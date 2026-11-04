@@ -46,7 +46,7 @@ export function createEnvironmentManager(React) {
     const [batch, setBatch] = useState(false), [selected, setSelected] = useState([]), [pending, setPending] = useState(false);
     const [menu, setMenu] = useState(null), [notice, setNotice] = useState('');
     const root = useRef(null), trigger = useRef(null), alive = useRef(true), deleting = useRef(false);
-    const title = kind === 'ssh' ? 'SSH / Telnet' : 'API', locked = busy || pending;
+    const title = kind === 'ssh' ? '终端环境' : 'API', locked = busy || pending;
     const matches = environments.filter(env => (!group || env.group === group) && (!search || [env.name, env.group, describe(env)].join(' ').toLowerCase().includes(search.toLowerCase())));
     const visibleKeys = matches.map(env => env.id).join('\n');
     useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);

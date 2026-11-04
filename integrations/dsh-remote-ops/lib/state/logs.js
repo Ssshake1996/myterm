@@ -12,7 +12,7 @@ const safeName = name => String(name).replace(/[\x00-\x1f<>:"/\\|?*]/gu, "_").re
 const closed = (state, record) => record.session.status().kind === "exited" || (record.sessionId === LOCAL_SESSION_ID ? state.localSession !== record.session : !state.sessions.has(record.sessionId));
 const metadata = (state, record) => {
   const buffer = record.session.outputBuffer;
-  return { logId: record.logId, sessionId: record.sessionId, name: record.name, kind: record.kind, host: record.host, port: record.port,
+  return { logId: record.logId, sessionId: record.sessionId, name: record.name, kind: record.kind, host: record.host, port: record.port, ...(record.serialPath ? {serialPath:record.serialPath} : {}),
     shared: record.ownerId === null, archived: closed(state, record), status: record.session.status(), streamId: buffer.streamId,
     startedAt: buffer.createdAt, lastOutputAt: buffer.updatedAt, retainedBytes: buffer.byteLength,
     startOffset: buffer.startOffset, endOffset: buffer.endOffset, truncated: buffer.startOffset > 0 || record.adopted,
@@ -24,7 +24,7 @@ const getLog = (state, owner, id) => {
   return record;
 };
 const transcript = (item, raw, exportedAt) => [
-  "Remote Ops terminal transcript", `Terminal: ${logText(item.name)}`, `Target: ${logText(item.host)}:${item.port}`, `Session: ${item.sessionId}`, `Log: ${item.logId}`,
+  "Remote Ops terminal transcript", `Terminal: ${logText(item.name)}`, `Target: ${item.serialPath ? logText(item.serialPath) : logText(item.host) + ":" + item.port}`, `Session: ${item.sessionId}`, `Log: ${item.logId}`,
   `Stream: ${item.streamId}`, `Started: ${item.startedAt}`, `Last output: ${item.lastOutputAt}`, `Exported: ${exportedAt}`,
   `Raw offsets: ${item.startOffset}-${item.endOffset}`, `Truncated: ${item.truncated ? "yes (earlier output is unavailable)" : "no"}`,
   "Source: retained terminal output; raw input is not logged. Progress frames are separated by newlines; this is not a VT screen replay.",
@@ -37,7 +37,7 @@ export const withLogs = Base => class LogsLayer extends Base {
     if (!session.remoteLogId) session.remoteLogId = session.outputBuffer.streamId;
     if (!this.terminalLogs.has(session.remoteLogId)) this.terminalLogs.set(session.remoteLogId, {
       logId: session.remoteLogId, ownerId: sessionId === LOCAL_SESSION_ID ? null : ownerKey(owner), sessionId, session,
-      name: environment.name, host: environment.host, port: environment.port ?? (environment.transport === "telnet" ? 23 : 22), kind: sessionId === LOCAL_SESSION_ID ? "local" : environment.transport ?? "ssh", adopted,
+      name: environment.name, host: environment.host, serialPath: environment.serial?.path, port: environment.transport === "serial" ? undefined : environment.port ?? (environment.transport === "telnet" ? 23 : 22), kind: sessionId === LOCAL_SESSION_ID ? "local" : environment.transport ?? "ssh", adopted,
     });
     this.pruneTerminalLogs();
   }

@@ -5,7 +5,7 @@ import { SESSION_NAME_PREFIX } from "../constants.js";
 import { newEnvironmentId, normalizeGroupName, ownerId, sessionError, validateEnvironment } from "../common.js";
 import { storeNewPassword, validateNewPassword } from "../environment-password.js";
 
-const UPDATE_FIELDS = new Set(["name", "host", "username", "group", "port", "privateKeyPath", "passwordRef", "password", "encoding", "cliProfile", "terminal", "transport", "platform", "shell", "readyTimeoutMs", "hostKeySha256", "telnet"]);
+const UPDATE_FIELDS = new Set(["name", "host", "username", "group", "port", "privateKeyPath", "passwordRef", "password", "encoding", "cliProfile", "terminal", "transport", "platform", "shell", "readyTimeoutMs", "hostKeySha256", "telnet", "serial"]);
 
 export function sanitizeStoredEnvironment(item) {
   if (!item || typeof item !== "object") return item;
@@ -25,7 +25,14 @@ export const withEnvironments = (Base) => class EnvironmentsLayer extends Base {
   normalizeEnvironment(value) {
     const input = value && typeof value === "object" ? value : {};
     const host = String(input.host ?? "").trim();
-    return { ...input, id: String(input.id ?? "").trim() || newEnvironmentId(host), name: String(input.name ?? "").trim() || host, host, username: String(input.username ?? "").trim(), group: normalizeGroupName(input.group) };
+    const endpoint = input.transport === "serial" ? String(input.serial?.path ?? "").trim() : host;
+    const normalized = { ...input, id: String(input.id ?? "").trim() || newEnvironmentId(endpoint), name: String(input.name ?? "").trim() || endpoint, host, username: String(input.username ?? "").trim(), group: normalizeGroupName(input.group) };
+    if (input.transport === "serial") {
+      for (const key of ["host", "port", "username", "passwordRef", "privateKeyPath", "platform", "shell", "hostKeySha256", "telnet"]) delete normalized[key];
+    } else {
+      delete normalized.serial;
+    }
+    return normalized;
   }
 
   groupList() { return [...this.environments.keys()].sort((a, b) => a.localeCompare(b)); }
@@ -48,7 +55,7 @@ export const withEnvironments = (Base) => class EnvironmentsLayer extends Base {
       if (next.length !== list.length) { this.environments.set(name, next); previousGroups.push(name); }
     }
     if (!this.environments.has(group)) this.environments.set(group, []);
-    const saved = { ...previous, ...normalized, group };
+    const saved = this.normalizeEnvironment({ ...previous, ...normalized, group });
     // A supplied profile/size replaces the stored one; an empty (all-default) value clears it; an absent field keeps it.
     for (const [key, normalize] of [["cliProfile", normalizeCliProfile], ["terminal", normalizeTerminalSize]]) {
       if (!Object.hasOwn(normalized, key)) continue;
@@ -65,6 +72,7 @@ export const withEnvironments = (Base) => class EnvironmentsLayer extends Base {
     const validation = validateEnvironment(environment);
     if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", "));
     if (this.allEnvironments().some(item => item.id !== environment.id && item.name === environment.name)) throw sessionError("REMOTE_ENV_NAME_EXISTS", "Environment name already exists");
+    if (environment.transport === "serial" && password != null) throw sessionError("REMOTE_ENV_INVALID", "Serial consoles accept login input in the terminal and have no saved transport password");
     if (password != null) environment.passwordRef = await storeNewPassword(this.ctx.credentials, environment.id, password);
     return this.saveEnvironment(environment);
   }
@@ -82,7 +90,9 @@ export const withEnvironments = (Base) => class EnvironmentsLayer extends Base {
     const password = patch.password;
     validateNewPassword(password, patch.passwordRef);
     delete patch.password;
-    for (const key of ["name", "host", "group", ...((patch.transport ?? previous.transport) === "telnet" ? [] : ["username"])]) {
+    if (patch.serial && typeof patch.serial === "object" && !Array.isArray(patch.serial)) patch.serial = { ...previous.serial, ...patch.serial };
+    const protocol = patch.transport ?? previous.transport ?? "ssh";
+    for (const key of ["name", "group", ...(protocol === "serial" ? [] : ["host"]), ...(protocol === "ssh" ? ["username"] : [])]) {
       if (Object.hasOwn(patch, key) && (typeof patch[key] !== "string" || !patch[key].trim())) throw sessionError("REMOTE_ENV_INVALID", `${key} must be a non-empty string`);
     }
     if (patch.passwordRef === "configured") throw sessionError("REMOTE_ENV_INVALID", "passwordRef 'configured' is a display marker. Omit it to keep the current credential, use a real reference to replace it, or an empty string to clear it");

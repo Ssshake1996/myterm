@@ -470,7 +470,7 @@ window.__ModuleLoader__.load({
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const updateRecovery = createUpdateRecovery((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.13.2", update: { currentVersion: "0.13.2", latestVersion: "0.13.2", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.14.0", update: { currentVersion: "0.14.0", latestVersion: "0.14.0", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -750,10 +750,21 @@ window.__ModuleLoader__.load({
       rows: environment?.terminal?.rows ? String(environment.terminal.rows) : "",
       cols: environment?.terminal?.cols ? String(environment.terminal.cols) : "",
     });
-    const environmentConnectionValues = environment => ({ transport: environment?.transport ?? "ssh", platform: environment?.platform ?? "auto", shell: environment?.shell ?? "server-default", encoding: environment?.encoding ?? "utf-8", readyTimeoutMs: String(environment?.readyTimeoutMs ?? 15000), hostKeySha256: environment?.hostKeySha256 ?? "", telnetLoginMode: environment?.telnet?.loginMode ?? "manual", telnetLineEnding: environment?.telnet?.lineEnding ?? "crlf", telnetUsernamePrompt: environment?.telnet?.usernamePrompt ?? "", telnetPasswordPrompt: environment?.telnet?.passwordPrompt ?? "", telnetShellPrompt: environment?.telnet?.shellPrompt ?? "" });
+    const environmentConnectionValues = environment => ({ transport: environment?.transport ?? "ssh",
+      serialPath: environment?.serial?.path ?? "", serialBaudRate: String(environment?.serial?.baudRate ?? 9600),
+      serialDataBits: String(environment?.serial?.dataBits ?? 8), serialStopBits: String(environment?.serial?.stopBits ?? 1),
+      serialParity: environment?.serial?.parity ?? "none", serialFlow: environment?.serial?.flowControl ?? "none", serialEnding: environment?.serial?.lineEnding ?? "cr",
+      platform: environment?.platform ?? "auto", shell: environment?.shell ?? "server-default", encoding: environment?.encoding ?? "utf-8", readyTimeoutMs: String(environment?.readyTimeoutMs ?? 15000), hostKeySha256: environment?.hostKeySha256 ?? "", telnetLoginMode: environment?.telnet?.loginMode ?? "manual", telnetLineEnding: environment?.telnet?.lineEnding ?? "crlf", telnetUsernamePrompt: environment?.telnet?.usernamePrompt ?? "", telnetPasswordPrompt: environment?.telnet?.passwordPrompt ?? "", telnetShellPrompt: environment?.telnet?.shellPrompt ?? "" });
     const environmentConnectionFromForm = form => {
       const readyTimeoutMs = Number(form.readyTimeoutMs);
       if (!Number.isInteger(readyTimeoutMs) || readyTimeoutMs < 1000 || readyTimeoutMs > 120000) return { error: "连接超时必须是 1000-120000 毫秒的整数" };
+      if (form.transport === "serial") {
+        const path = form.serialPath.trim(), baudRate = Number(form.serialBaudRate);
+        if (!path) return {error:"请填写串口号或设备路径"};
+        if (!Number.isInteger(baudRate) || baudRate < 1 || baudRate > 4000000) return {error:"波特率必须是 1–4000000 的整数"};
+        return { transport:"serial", serial:{path, baudRate, dataBits:Number(form.serialDataBits), stopBits:Number(form.serialStopBits),
+          parity:form.serialParity, flowControl:form.serialFlow, lineEnding:form.serialEnding}, encoding:form.encoding, readyTimeoutMs };
+      }
       if (form.transport === "telnet") {
         const telnet = { loginMode: form.telnetLoginMode ?? "manual", lineEnding: form.telnetLineEnding ?? "crlf" };
         for (const [key, field] of [["usernamePrompt", "telnetUsernamePrompt"], ["passwordPrompt", "telnetPasswordPrompt"], ["shellPrompt", "telnetShellPrompt"]]) {
@@ -869,7 +880,7 @@ window.__ModuleLoader__.load({
       return { state: "connected", label: item.kind === "local" ? "本地终端就绪" : "已连接 · 不代表命令已完成" };
     };
     const terminalCloseSelection = (tabs, frames = {}) => {
-      const targets = tabs.filter(item => ["ssh", "telnet"].includes(item.kind));
+      const targets = tabs.filter(item => ["ssh", "telnet", "serial"].includes(item.kind));
       return { targets, connected: targets.filter(item => !item.disconnected && item.status?.kind !== "exited").length, operating: targets.filter(item => terminalTabStatus(item, frames[item.sessionId]).state === "busy").length };
     };
     const terminalCloseResult = (targets, results = []) => ({
@@ -1665,6 +1676,35 @@ window.__ModuleLoader__.load({
             session.screenshotAt ? h("details", null, h("summary", null, `最近截图 · ${new Date(session.screenshotAt).toLocaleTimeString()}`), h("img", { alt: "当前网页截图，输入框及已知密码已遮罩", src: `/api/dsh-remote-ops/browser/screenshot?sessionId=${encodeURIComponent(sessionId)}&browserId=${encodeURIComponent(session.id)}&v=${encodeURIComponent(session.screenshotAt)}` })) : null,
             session.history.length > 1 ? h("details", null, h("summary", null, "近期运行"), session.history.slice(0, -1).reverse().map(item => h("p", { key: item.id }, `${browserStatus[item.status]} · ${item.index}/${item.count} · ${new Date(item.startedAt).toLocaleTimeString()}`))) : null)) : null);
     }
+    function SerialFields({form, change}) {
+      const [ports,setPorts] = useState([]), [notice,setNotice] = useState(""), [refresh,setRefresh] = useState(0);
+      const [loading,setLoading] = useState(false);
+      const listId = React.useId();
+      useEffect(() => {
+        const controller = new AbortController();
+        setLoading(true); setNotice("");
+        request("/api/dsh-remote-ops/action", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({action:"serial.ports"}), signal:controller.signal})
+          .then(result => {
+            if (controller.signal.aborted) return;
+            setPorts(result.ports);
+            if (!result.ports.length) setNotice("未枚举到串口，可手动填写设备路径。");
+          }).catch(error => { if (!controller.signal.aborted) setNotice("枚举失败，可手动填写串口。" + error.message); })
+          .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+        return () => controller.abort();
+      }, [refresh]);
+      const select = (label,key,options) => h("label", {key}, label,
+        h("select", {"aria-label":label,value:form[key],onChange:event=>change(key,event.target.value)},
+          options.map(([value,title])=>h("option",{key:value,value},title))));
+      return h(React.Fragment, null,
+        h("label",null,"串口号 / 设备路径",h("input",{"aria-label":"串口号 / 设备路径",list:listId,value:form.serialPath,placeholder:"COM3 或 /dev/ttyUSB0",onChange:event=>change("serialPath",event.target.value)})),
+        h("datalist",{id:listId},ports.map(port=>h("option",{key:port.path,value:port.path},port.manufacturer || port.path))),
+        h("div",{className:"dsh-remote-ops__row"},h("button",{type:"button",className:"dsh-remote-ops__tiny",disabled:loading,onClick:()=>setRefresh(value=>value+1)},loading?"正在读取串口…":"刷新串口"),h("small",{role:"status"},notice || (ports.length ? "发现 " + ports.length + " 个串口" : ""))),
+        h("label",null,"波特率",h("input",{"aria-label":"波特率",inputMode:"numeric",value:form.serialBaudRate,onChange:event=>change("serialBaudRate",event.target.value)})),
+        h("div",{className:"dsh-remote-ops__row"},select("数据位","serialDataBits",["5","6","7","8"].map(n=>[n,n])),select("停止位","serialStopBits",[["1","1"],["2","2"]]),select("校验位","serialParity",[["none","无"],["even","偶校验"],["odd","奇校验"]])),
+        h("div",{className:"dsh-remote-ops__row"},select("流控","serialFlow",[["none","无"],["rtscts","RTS/CTS"],["xonxoff","XON/XOFF"]]),select("回车换行","serialEnding",[["cr","CR"],["lf","LF"],["crlf","CRLF"]]))
+      );
+    }
+
     function EnvironmentPasswordField({ id, environmentId, configured, value, onChange }) {
       const [visible, setVisible] = useState(false), [saved, setSaved] = useState("");
       const [loading, setLoading] = useState(false), [error, setError] = useState("");
@@ -2036,7 +2076,26 @@ window.__ModuleLoader__.load({
       const editGroup = async (group) => { const name = await askPanel("新的环境分组名称", group); if (name && name !== group) { const result = await action({ action: "group.rename", group, name }); if (result) setEnvironmentGroup(result.group); } };
       const openEnvironmentForm = (initial) => { setEnvironmentError(""); setEnvironmentTest(null); setEnvironmentForm({ mode: initial ? "edit" : "create", id: initial?.id ?? "", name: initial?.name ?? "", host: initial?.host ?? "", username: initial?.username ?? "root", group: initial?.group ?? (environmentGroup || snapshot.groups[0] || "default"), port: String(initial?.port ?? (initial?.transport === "telnet" ? 23 : 22)), passwordRef: initial?.passwordRef === "configured" ? "" : initial?.passwordRef ?? "", password: "", privateKeyPath: initial?.privateKeyPath ?? "", credentialConfigured: initial?.passwordRef === "configured", ...environmentProfileValues(initial), ...environmentConnectionValues(initial) }); };
       const updateEnvironmentForm = (field, value) => setEnvironmentForm((current) => current ? { ...current, [field]: value } : current);
-      const saveEnvironmentForm = async (event) => { event.preventDefault(); if (!environmentForm) return; const required = [["主机地址", environmentForm.host], ...(environmentForm.transport !== "telnet" || environmentForm.telnetLoginMode === "username-password" ? [["用户名", environmentForm.username]] : [])]; const missing = required.find(([, value]) => !String(value ?? "").trim()); if (missing) { setEnvironmentError(`${missing[0]}不能为空`); return; } const port = Number(environmentForm.port); if (!Number.isInteger(port) || port < 1 || port > 65535) { setEnvironmentError("端口必须是 1-65535 的整数"); return; } const advanced = environmentProfileFromForm(environmentForm), connection = environmentConnectionFromForm(environmentForm); if (advanced.error || connection.error) { setEnvironmentError(advanced.error || connection.error); return; } const environment = { ...(environmentForm.id ? { id: environmentForm.id.trim() } : {}), name: environmentForm.name.trim() || environmentForm.host.trim(), host: environmentForm.host.trim(), username: environmentForm.username.trim(), group: environmentForm.group.trim() || "default", port, ...connection }; if (environmentForm.transport !== "telnet" && environmentForm.privateKeyPath.trim()) environment.privateKeyPath = environmentForm.privateKeyPath.trim(); environment.cliProfile = advanced.cliProfile; environment.terminal = advanced.terminal; const body = { action: "environment.save", environment }; if (environmentForm.password) body.password = environmentForm.password; const value = await action(body); if (value) { setEnvironmentForm(null); setEnvironmentTest(null); } };
+      const saveEnvironmentForm = async event => {
+        event.preventDefault();
+        if (!environmentForm) return;
+        const form = environmentForm, serial = form.transport === "serial";
+        const connection = environmentConnectionFromForm(form), advanced = environmentProfileFromForm(form);
+        if (connection.error || advanced.error) { setEnvironmentError(connection.error || advanced.error); return; }
+        const environment = { ...(form.id ? {id:form.id} : {}), name: form.name.trim(), group: form.group.trim() || "default",
+          ...connection, cliProfile:advanced.cliProfile, terminal:advanced.terminal };
+        if (!serial) {
+          if (!form.host.trim()) { setEnvironmentError("主机地址不能为空"); return; }
+          if ((form.transport === "ssh" || form.telnetLoginMode === "username-password") && !form.username.trim()) { setEnvironmentError("用户名不能为空"); return; }
+          const port = Number(form.port);
+          if (!Number.isInteger(port) || port < 1 || port > 65535) { setEnvironmentError("端口必须是 1-65535 的整数"); return; }
+          Object.assign(environment, {host:form.host.trim(), username:form.username.trim(), port});
+          if (form.transport === "ssh" && form.privateKeyPath.trim()) environment.privateKeyPath = form.privateKeyPath.trim();
+        }
+        const body = {action:"environment.save", environment};
+        if (!serial && form.password) body.password = form.password;
+        if (await action(body)) { setEnvironmentForm(null); setEnvironmentTest(null); }
+      };
       const testSavedEnvironment = async environment => { const value = await action({ action: "environment.test", environment: environment.id }); if (value) setEnvironmentTest(value); };
       const previewInput = async (text, target = activeSession) => {
         if (!target) { setError("TERMINAL_TARGET_REQUIRED: 请先选择终端"); return; }
@@ -2130,31 +2189,31 @@ window.__ModuleLoader__.load({
         if (value?.sessionId) { dismissTab(previous); setActiveSessionId(value.sessionId); }
       };
       const renderEnvironmentConnections = (env) => {
-        const connections = snapshot.sessions.filter((item) => ["ssh", "telnet"].includes(item.kind) && item.environmentId === env.id);
+        const connections = snapshot.sessions.filter((item) => ["ssh", "telnet", "serial"].includes(item.kind) && item.environmentId === env.id);
         return connections.length ? h("details", null, h("summary", null, `${connections.length} 个连接`), h("div", { className: "dsh-remote-ops__envConnections" }, connections.map((session, index) => h("div", { className: "dsh-remote-ops__envConnection", key: session.sessionId }, h("button", { className: "dsh-remote-ops__connectionLink", title: `会话：${session.ownerId} · 最近活动：${session.lastActivity ? new Date(session.lastActivity).toLocaleString() : "暂无"}`, onClick: () => { setActiveSessionId(session.sessionId); setSelectedEnv(env.id); setModule("terminal"); setDrawer(false); } }, `连接 ${index + 1} · ${session.status?.kind === "running" ? "已连接" : "已退出"}`), h("button", { className: "dsh-remote-ops__tiny dsh-remote-ops__dangerAction", disabled: busy, title: "释放这个具体连接", onClick: () => void releaseSession(session) }, "释放"))))) : null;
       };
       const environmentFormView = environmentForm ? h("form", { className: "dsh-remote-ops__form", onSubmit: saveEnvironmentForm },
         h("strong", null, environmentForm.mode === "edit" ? "编辑环境" : "新增环境"),
-        h("label", null, "连接协议", h("select", { "aria-label": "连接协议", value: environmentForm.transport, onChange: event => { const transport = event.target.value; setEnvironmentForm(current => ({ ...current, transport, port: ["22", "23"].includes(current.port) ? transport === "telnet" ? "23" : "22" : current.port })); } }, h("option", { value: "ssh" }, "SSH"), h("option", { value: "telnet" }, "Telnet"))),
+        h("label", null, "连接协议", h("select", { "aria-label": "连接协议", value: environmentForm.transport, onChange: event => { const transport = event.target.value; setEnvironmentForm(current => ({ ...current, transport, port: ["22", "23"].includes(current.port) ? transport === "telnet" ? "23" : "22" : current.port })); } }, h("option", { value: "ssh" }, "SSH"), h("option", { value: "telnet" }, "TELNET"), h("option", { value: "serial" }, "SERIAL"))),
         environmentForm.transport === "telnet" ? h("div", { className: "dsh-remote-ops__formNote" }, "Telnet 使用明文连接。终端与日志沿用当前工作区，文件传输请选择 SSH 环境。") : null,
         environmentForm.transport === "telnet" ? h("label", null, "Telnet 登录方式", h("select", { "aria-label": "Telnet 登录方式", value: environmentForm.telnetLoginMode, onChange: event => updateEnvironmentForm("telnetLoginMode", event.target.value) }, [["manual", "在终端中登录"], ["username-password", "用户名和密码"], ["password", "仅密码"], ["none", "无需登录，等待设备提示符"]].map(([value,label]) => h("option", { key: value, value }, label)))) : null,
         environmentError ? h("div", { role: "alert", className: "dsh-remote-ops__dangerAction" }, environmentError) : null,
         h("label", null, "显示名称", h("input", { value: environmentForm.name, onChange: (event) => updateEnvironmentForm("name", event.target.value), placeholder: "生产环境" })),
-        h("label", null, "主机地址", h("input", { value: environmentForm.host, onChange: (event) => updateEnvironmentForm("host", event.target.value), placeholder: "192.168.1.10" })),
-        h("div", { className: "dsh-remote-ops__row" },
+        environmentForm.transport === "serial" ? h(SerialFields, {form:environmentForm, change:updateEnvironmentForm}) : h("label", null, "主机地址", h("input", { value: environmentForm.host, onChange: (event) => updateEnvironmentForm("host", event.target.value), placeholder: "192.168.1.10" })),
+        environmentForm.transport === "serial" ? null : h("div", { className: "dsh-remote-ops__row" },
           h("label", { style: { flex: 1 } }, "用户名", h("input", { autoComplete: "username", value: environmentForm.username, onChange: (event) => updateEnvironmentForm("username", event.target.value), placeholder: "root" })),
           h("label", { style: { width: "72px" } }, "端口", h("input", { value: environmentForm.port, onChange: (event) => updateEnvironmentForm("port", event.target.value), inputMode: "numeric" })),
         ),
         h("label", null, "环境分组", h("input", { value: environmentForm.group, onChange: (event) => updateEnvironmentForm("group", event.target.value), placeholder: "default" })),
-        environmentForm.transport !== "telnet" ? h("label", null, "目标系统", h("select", { "aria-label": "目标系统", value: environmentForm.platform, onChange: event => { updateEnvironmentForm("platform", event.target.value); if (event.target.value === "posix") updateEnvironmentForm("shell", "server-default"); } }, [["auto", "自动 / 设备 CLI"], ["windows", "Windows 桌面 / Server"], ["posix", "Linux / Unix"]].map(([value, label]) => h("option", { key: value, value }, label)))) : null,
-        environmentForm.transport !== "telnet" ? h("label", null, "SSH Shell", h("select", { "aria-label": "SSH Shell", value: environmentForm.shell, disabled: environmentForm.platform === "posix", onChange: event => updateEnvironmentForm("shell", event.target.value) }, [["server-default", "服务器默认"], ["cmd", "CMD"], ["windows-powershell", "Windows PowerShell 5.1"], ["pwsh", "PowerShell 7（需目标已安装）"]].map(([value, label]) => h("option", { key: value, value }, label)))) : null,
-        h("details", { className: "dsh-remote-ops__formAdvanced" }, h("summary", null, environmentForm.transport === "telnet" ? "连接、编码与登录提示符" : "连接、编码与主机指纹"), h("div", { className: "dsh-remote-ops__formAdvancedBody" },
+        environmentForm.transport === "ssh" ? h("label", null, "目标系统", h("select", { "aria-label": "目标系统", value: environmentForm.platform, onChange: event => { updateEnvironmentForm("platform", event.target.value); if (event.target.value === "posix") updateEnvironmentForm("shell", "server-default"); } }, [["auto", "自动 / 设备 CLI"], ["windows", "Windows 桌面 / Server"], ["posix", "Linux / Unix"]].map(([value, label]) => h("option", { key: value, value }, label)))) : null,
+        environmentForm.transport === "ssh" ? h("label", null, "SSH Shell", h("select", { "aria-label": "SSH Shell", value: environmentForm.shell, disabled: environmentForm.platform === "posix", onChange: event => updateEnvironmentForm("shell", event.target.value) }, [["server-default", "服务器默认"], ["cmd", "CMD"], ["windows-powershell", "Windows PowerShell 5.1"], ["pwsh", "PowerShell 7（需目标已安装）"]].map(([value, label]) => h("option", { key: value, value }, label)))) : null,
+        h("details", { className: "dsh-remote-ops__formAdvanced" }, h("summary", null, environmentForm.transport === "telnet" ? "连接、编码与登录提示符" : environmentForm.transport === "serial" ? "连接与编码" : "连接、编码与主机指纹"), h("div", { className: "dsh-remote-ops__formAdvancedBody" },
           h("label", null, "连接超时（毫秒）", h("input", { value: environmentForm.readyTimeoutMs, inputMode: "numeric", onChange: event => updateEnvironmentForm("readyTimeoutMs", event.target.value) })),
           h("label", null, "默认 Shell 输入 / 输出编码", h("select", { "aria-label": "默认 Shell 输入 / 输出编码", value: environmentForm.encoding, onChange: event => updateEnvironmentForm("encoding", event.target.value) }, ["utf-8", "gb18030", "big5", "windows-1252", "iso-8859-1"].map(value => h("option", { key: value, value }, value)))),
-          environmentForm.transport !== "telnet" ? h("label", null, "已核对的主机指纹（可选）", h("input", { value: environmentForm.hostKeySha256, placeholder: "SHA256:…", onChange: event => updateEnvironmentForm("hostKeySha256", event.target.value) })) : null,
+          environmentForm.transport === "ssh" ? h("label", null, "已核对的主机指纹（可选）", h("input", { value: environmentForm.hostKeySha256, placeholder: "SHA256:…", onChange: event => updateEnvironmentForm("hostKeySha256", event.target.value) })) : null,
           environmentForm.transport === "telnet" ? h("div", null, h("label", null, "回车换行", h("select", { "aria-label": "Telnet 回车换行", value: environmentForm.telnetLineEnding, onChange: event => updateEnvironmentForm("telnetLineEnding", event.target.value) }, ["crlf", "cr", "lf"].map(value => h("option", { value, key: value }, value.toUpperCase())))), [["telnetUsernamePrompt", "用户名提示符"], ["telnetPasswordPrompt", "密码提示符"], ["telnetShellPrompt", "就绪提示符"]].map(([field, label]) => h("label", { key: field }, label, h("input", { "aria-label": "Telnet " + label, value: environmentForm[field], placeholder: "留空使用内置规则", onChange: event => updateEnvironmentForm(field, event.target.value) }))), h("p", { className: "dsh-remote-ops__formNote" }, "提示符填写正则表达式。默认识别 login/username、password，以及行尾的 >、#、$；提示符匹配不等于命令成功。自动登录凭据仅提交一次，失败后保留回显。")) : h("p", { className: "dsh-remote-ops__formNote" }, "指定 Windows Shell 时使用 UTF-8，仅影响新连接。未固定指纹时首次连接记录主机密钥，后续变化会拒绝连接；可向管理员核对后填写指纹。"))),
-        h(EnvironmentPasswordField, { key: environmentForm.id || "new", id: "remote-ops-password-" + encodeURIComponent(sessionId ?? "local"), environmentId: environmentForm.id, configured: environmentForm.credentialConfigured, value: environmentForm.password, onChange: value => updateEnvironmentForm("password", value) }),
-        environmentForm.transport !== "telnet" ? h("label", null, "私钥路径", h("input", { value: environmentForm.privateKeyPath, onChange: (event) => updateEnvironmentForm("privateKeyPath", event.target.value), placeholder: "可选，本机路径" })) : null,
+        environmentForm.transport === "serial" ? null : h(EnvironmentPasswordField, { key: environmentForm.id || "new", id: "remote-ops-password-" + encodeURIComponent(sessionId ?? "local"), environmentId: environmentForm.id, configured: environmentForm.credentialConfigured, value: environmentForm.password, onChange: value => updateEnvironmentForm("password", value) }),
+        environmentForm.transport === "ssh" ? h("label", null, "私钥路径", h("input", { value: environmentForm.privateKeyPath, onChange: (event) => updateEnvironmentForm("privateKeyPath", event.target.value), placeholder: "可选，本机路径" })) : null,
         environmentAdvancedFields(environmentForm, updateEnvironmentForm),
         h("div", { className: "dsh-remote-ops__formNote" }, `${environmentForm.credentialConfigured ? "凭据已配置；密码留空保持原密码，输入新密码会更新凭据。" : "输入密码后由系统自动保存到 Harness credentials；凭据引用由系统管理。"} 名称留空时使用主机地址。`),
         h("div", { className: "dsh-remote-ops__formActions" },
@@ -2165,13 +2224,13 @@ window.__ModuleLoader__.load({
       const envDrawer = drawer && environmentKind === "ssh" ? h("aside", { className: "dsh-remote-ops__drawer" },
         h("div", { className: "dsh-remote-ops__drawerBody" },
           environmentFormView ?? h(React.Fragment, null,
-            environmentTest ? h("section", { className: "dsh-remote-ops__form", "aria-label": "SSH 连接诊断", role: "status" }, h("strong", null, `${environmentTest.endpoint} · ${environmentTest.ok ? "检测通过" : "部分能力未通过"}`), environmentTest.detected ? h("p", null, `${environmentTest.detected.osName} ${environmentTest.detected.osVersion ?? ""} · ${environmentTest.detected.cwd ?? ""}`) : null, environmentTest.identity ? h("p", { style: { overflowWrap: "anywhere" } }, `主机指纹 ${environmentTest.identity.fingerprint} · ${environmentTest.identity.trust === "first-use" ? "首次记录，请核对" : environmentTest.identity.trust === "pinned" ? "已固定" : "与记录一致"}`) : null, environmentTest.stages.map((item, index) => h("div", { key: index }, `${item.ok ? "✓" : "×"} ${({ connection: "SSH 连接", authentication: "身份验证", platform: "系统识别", shell: "交互 Shell", sftp: "SFTP", "sftp-path": "SFTP 路径", "host-key": "主机身份" })[item.stage] ?? item.stage}${item.message ? " · " + item.message : ""}`)), h("button", { type: "button", onClick: () => setEnvironmentTest(null) }, "收起诊断")) : null,
+            environmentTest ? h("section", { className: "dsh-remote-ops__form", "aria-label": environmentTest.transport === "serial" ? "串口连接诊断" : "SSH 连接诊断", role: "status" }, h("strong", null, `${environmentTest.endpoint} · ${environmentTest.ok ? "检测通过" : "部分能力未通过"}`), environmentTest.detected ? h("p", null, `${environmentTest.detected.osName} ${environmentTest.detected.osVersion ?? ""} · ${environmentTest.detected.cwd ?? ""}`) : null, environmentTest.identity ? h("p", { style: { overflowWrap: "anywhere" } }, `主机指纹 ${environmentTest.identity.fingerprint} · ${environmentTest.identity.trust === "first-use" ? "首次记录，请核对" : environmentTest.identity.trust === "pinned" ? "已固定" : "与记录一致"}`) : null, environmentTest.stages.map((item, index) => h("div", { key: index }, `${item.ok ? "✓" : "×"} ${({ connection: "SSH 连接", authentication: "身份验证", platform: "系统识别", shell: "交互 Shell", sftp: "SFTP", "sftp-path": "SFTP 路径", "host-key": "主机身份" })[item.stage] ?? item.stage}${item.message ? " · " + item.message : ""}`)), h("button", { type: "button", onClick: () => setEnvironmentTest(null) }, "收起诊断")) : null,
             h(EnvironmentManager, { kind: "ssh", environments: snapshot.environments, groups: snapshot.groups, search, onSearch: setSearch, group: environmentGroup, onGroup: setEnvironmentGroup, busy, ask: askPanel,
               onCreate: () => openEnvironmentForm(), onCreateGroup: addGroup, onRenameGroup: editGroup, onDeleteGroup: group => action({ action: "group.delete", group }), onEdit: openEnvironmentForm,
               onPrimary: env => void connect(env), primaryLabel: "进入", primaryDisabled: () => !sessionId, onTest: env => void testSavedEnvironment(env),
-              extraActions: env => [{ label: "新建独立连接", disabled: !sessionId || (env.connectionCount ?? 0) >= (env.maxConnections ?? 3), run: () => void connect(env, true) }],
+              extraActions: env => env.transport === "serial" ? [] : [{ label: "新建独立连接", disabled: !sessionId || (env.connectionCount ?? 0) >= (env.maxConnections ?? 3), run: () => void connect(env, true) }],
               onDelete: async env => { const result = await request("/api/dsh-remote-ops/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "environment.delete", environment: env.id, sessionId }) }); await refresh(); return !!result.deleted; },
-              describe: env => `${env.transport === "telnet" ? "Telnet" : "SSH"} · ${env.username ? env.username + "@" : ""}${env.host}:${env.port ?? (env.transport === "telnet" ? 23 : 22)} · ${env.connectionCount ? "已连接 " + env.connectionCount : "未连接"}`, renderDetails: renderEnvironmentConnections,
+              describe: env => (env.transport === "serial" ? `SERIAL · ${env.serial.path} · ${env.serial.baudRate ?? 9600} baud` : `${env.transport === "telnet" ? "TELNET" : "SSH"} · ${env.username ? env.username + "@" : ""}${env.host}:${env.port ?? (env.transport === "telnet" ? 23 : 22)}`) + (env.connectionCount ? " · 已连接 " + env.connectionCount : " · 未连接"), renderDetails: renderEnvironmentConnections,
             })))) : null;
       const quickPanel = h(QuickCommands, { commands: snapshot.quickCommands, groups: snapshot.quickGroups, owner: sessionId, target: activeSession, frame: activeTerminalFrame, ready: terminalReady, open: quickOpen, setOpen: setQuickOpen, height: quickHeight, setHeight: setQuickHeight, action, workspaceAction, onSending: value => { quickSending.current = value; }, hidden: module !== "terminal" || drawer || diagnosticsOpen || !!settingsTab, inputPending: () => Boolean(pasteSending.current || rawInputSending.current || rawInputQueue.current.length || composingRef.current || terminalInputRef.current?.value || manualDrafts.current.get(`${sessionId ?? ""}:${activeTerminalId}:${activeTerminalFrame?.streamId}`)) });
       const markUserScrollIntent = (event) => {
@@ -2197,13 +2256,13 @@ window.__ModuleLoader__.load({
             onClick: event => { selectTerminal(item); revealTerminalTab(event.currentTarget.parentElement); if (event.detail > 0) terminalInputRef.current?.focus({ preventScroll: true }); },
             onKeyDown: event => { const next = { ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length, Home: 0, End: tabs.length - 1 }[event.key]; if (next !== undefined) { event.preventDefault(); selectTerminal(tabs[next]); const target = terminalTabsRef.current?.querySelectorAll('[role="tab"]')[next]; target?.focus({ preventScroll: true }); revealTerminalTab(target?.parentElement); } }
           }, h("span", { className: "dsh-remote-ops__connectionState", "data-state": status.state, "aria-hidden": true }), h("span", { className: "dsh-remote-ops__tabName" }, item.name), item.disconnected || terminalUnread[item.sessionId] ? h("span", { className: "dsh-remote-ops__tabState", "aria-hidden": true }, item.disconnected ? "已断开" : "●") : null),
-          ["ssh", "telnet"].includes(item.kind) ? h("button", { type: "button", className: "dsh-remote-ops__tabClose", title: status.state === "busy" ? "关闭标签并取消关联等待" : item.disconnected ? "关闭记录" : "释放此连接", "aria-label": `释放${item.name}`, disabled: busy, onClick: event => { event.stopPropagation(); void releaseSession(item); } }, h(IconCloseOutline16, { "aria-hidden": true })) : null); }));
-      const terminalLocation = localActive ? activeSession.workingDirectory : connectedEndpoint ? `${connectedEndpoint.username ? connectedEndpoint.username + "@" : ""}${connectedEndpoint.host}:${connectedEndpoint.port ?? (activeSession?.kind === "telnet" ? 23 : 22)}` : activeSession?.sessionId;
+          ["ssh", "telnet", "serial"].includes(item.kind) ? h("button", { type: "button", className: "dsh-remote-ops__tabClose", title: status.state === "busy" ? "关闭标签并取消关联等待" : item.disconnected ? "关闭记录" : "释放此连接", "aria-label": `释放${item.name}`, disabled: busy, onClick: event => { event.stopPropagation(); void releaseSession(item); } }, h(IconCloseOutline16, { "aria-hidden": true })) : null); }));
+      const terminalLocation = localActive ? activeSession.workingDirectory : activeSession?.kind === "serial" ? (connectedEndpoint?.path ?? activeEnvironment?.serial?.path) : connectedEndpoint ? `${connectedEndpoint.username ? connectedEndpoint.username + "@" : ""}${connectedEndpoint.host}:${connectedEndpoint.port ?? (activeSession?.kind === "telnet" ? 23 : 22)}` : activeSession?.sessionId;
       const terminal = h("section", { className: "dsh-remote-ops__terminal", hidden: module !== "terminal" || drawer || diagnosticsOpen || !!settingsTab },
         h("div", { className: "dsh-remote-ops__terminalHead" },
           h("div", { className: "dsh-remote-ops__tabNavigation" }, terminalTabScrollButton("left"), terminalTabs, terminalTabScrollButton("right")),
         h("div", { className: "dsh-remote-ops__toolbar dsh-remote-ops__terminalActions" },
-          tabs.some(item => ["ssh", "telnet"].includes(item.kind)) ? h("button", { type: "button", className: "dsh-remote-ops__closeAll", title: "关闭当前对话全部远程标签，保留本地 CMD", "aria-label": "全部关闭远程标签", "aria-busy": closingAll, disabled: busy || closingAll || !sessionId, onClick: () => void releaseAll() }, closingAll ? "关闭中…" : "全部关闭") : null,
+          tabs.some(item => ["ssh", "telnet", "serial"].includes(item.kind)) ? h("button", { type: "button", className: "dsh-remote-ops__closeAll", title: "关闭当前对话全部远程标签，保留本地 CMD", "aria-label": "全部关闭远程标签", "aria-busy": closingAll, disabled: busy || closingAll || !sessionId, onClick: () => void releaseAll() }, closingAll ? "关闭中…" : "全部关闭") : null,
           h("button", { title: "搜索输出", "aria-label": "搜索输出", "aria-expanded": searchOpen, onClick: () => setSearchOpen(value => !value) }, h(IconSearchOutline16)),
           h("button", { title: "导出当前终端 TXT", "aria-label": "导出当前终端 TXT", disabled: logExporting || !activeSession, onClick: () => void exportLogs(false) }, h(IconDownloadOutline16)),
           h("details", { className: "dsh-remote-ops__terminalLook dsh-remote-ops__operationMenu", onKeyDown: event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } } },
@@ -2231,13 +2290,13 @@ window.__ModuleLoader__.load({
           h("span", null, "你与 Agent 共享此终端"),
           h("span", { title: "Agent 绑定状态，不代表 Agent 已读取当前输出" }, snapshot.bound ? "Agent 已绑定" : "Agent 未绑定"),
           h("span", { title: activeTerminalFrame?.toolReceipt ? JSON.stringify(activeTerminalFrame.toolReceipt) : "尚未产生此输出流的工具读取回执" }, activeTerminalFrame?.toolReceipt ? "工具已返回 · " + new Date(activeTerminalFrame.toolReceipt.at).toLocaleTimeString() + (activeTerminalFrame.toolReceipt.newOutput ? " · 有新输出" : "") : "工具未读取"),
-          h("span", { className: "dsh-remote-ops__sessionIdentity", title: activeTerminalId }, activeTerminalId ? `${localActive ? "本地" : activeSession?.kind === "telnet" ? "Telnet" : "SSH"} · ${activeTerminalId.slice(-12)}` : ""),
+          h("span", { className: "dsh-remote-ops__sessionIdentity", title: activeTerminalId }, activeTerminalId ? `${localActive ? "本地" : activeSession?.kind === "serial" ? "SERIAL" : activeSession?.kind === "telnet" ? "Telnet" : "SSH"} · ${activeTerminalId.slice(-12)}` : ""),
           activityLabel ? h("span", { title: "PTY 存活与命令完成是不同状态" }, activityLabel) : null,
           activeTerminalFrame?.truncated ? h("span", { title: "历史已截断或输出流已重建" }, "历史已重置") : null)),
         ),
       );
       const closeFiles = useCallback(() => setModule("terminal"), []);
-      const sftpWorkspace = filesVisited ? h(MemoFileWorkspace, { key: sessionId, sessionId, environments: snapshot.environments.filter(env => env.transport !== "telnet"), initialEnvironment: activeEnvironment?.transport === "telnet" ? undefined : activeEnvironment?.id, onError: setError, onClose: closeFiles, visible: module === "sftp" && !drawer && !diagnosticsOpen && !settingsTab }) : null;
+      const sftpWorkspace = filesVisited ? h(MemoFileWorkspace, { key: sessionId, sessionId, environments: snapshot.environments.filter(env => (env.transport ?? "ssh") === "ssh"), initialEnvironment: (activeEnvironment?.transport ?? "ssh") !== "ssh" ? undefined : activeEnvironment?.id, onError: setError, onClose: closeFiles, visible: module === "sftp" && !drawer && !diagnosticsOpen && !settingsTab }) : null;
       const aux = diagnosticsOpen ? h("section", { className: "dsh-remote-ops__diagnostics", "aria-label": "诊断" },
         h("div", { className: "dsh-remote-ops__drawerHead" }, h("strong", null, "诊断"), h("button", { onClick: async () => { const report = await workspaceAction({ action: "diagnostics" }); if (report) setDiagnosticPreview(JSON.stringify(report, null, 2)); } }, "预览导出"), h("button", { className: "dsh-remote-ops__drawerClose", "aria-label": "关闭诊断", onClick: () => setDiagnosticsOpen(false) }, h(IconCloseOutline16))),
         h("div", { className: "dsh-remote-ops__diagnosticEvents" }, (snapshot.events ?? []).slice().reverse().map((item, index) => h("details", { key: index }, h("summary", null, h("span", null, item.kind ?? item.type ?? item.event ?? "事件"), h("time", null, item.at ? new Date(item.at).toLocaleTimeString() : ""), item.status ? h("span", null, item.status) : null), h("pre", null, JSON.stringify(item, null, 2)))), !(snapshot.events ?? []).length ? h("div", { className: "dsh-remote-ops__empty" }, "暂无事件") : null)) : null;
@@ -2277,7 +2336,7 @@ window.__ModuleLoader__.load({
             h("p", { className: "dsh-remote-ops__muted" }, "仅调整当前连接；已输出内容不会重排。")) : h("p", { className: "dsh-remote-ops__muted" }, "选中已连接的远程终端后，可在此调整连接尺寸。")));
       const environmentsHead = drawer ? h("section", {className:"dsh-remote-ops__utilityHead",id:"remote-ops-environments-"+uiKey},
         h("div",{className:"dsh-remote-ops__drawerHead dsh-remote-ops__environmentHead"},h("button",{className:"dsh-remote-ops__environmentBack","aria-label":"返回工作区",onClick:returnToWorkspace},h(IconChevronLeftOutline14,{"aria-hidden":true}),"返回工作区"),h("strong",null,"环境管理")),
-        h("div",{className:"dsh-remote-ops__subTabs",role:"tablist","aria-label":"环境类型"},["ssh","api"].map((kind,index)=>h("button",{key:kind,role:"tab",id:"environment-tab-"+uiKey+"-"+kind,"aria-selected":environmentKind===kind,"aria-controls":"environment-panel-"+uiKey+"-"+kind,tabIndex:environmentKind===kind?0:-1,onClick:()=>openEnvironments(kind),onKeyDown:event=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(event.key)){event.preventDefault();const next=event.key==="Home"?0:event.key==="End"?1:1-index;openEnvironments(next?"api":"ssh");event.currentTarget.parentElement.children[next]?.focus();}}},kind === "ssh" ? "SSH / Telnet" : "API")))) : null;
+        h("div",{className:"dsh-remote-ops__subTabs",role:"tablist","aria-label":"环境类型"},["ssh","api"].map((kind,index)=>h("button",{key:kind,role:"tab",id:"environment-tab-"+uiKey+"-"+kind,"aria-selected":environmentKind===kind,"aria-controls":"environment-panel-"+uiKey+"-"+kind,tabIndex:environmentKind===kind?0:-1,onClick:()=>openEnvironments(kind),onKeyDown:event=>{if(["ArrowLeft","ArrowRight","Home","End"].includes(event.key)){event.preventDefault();const next=event.key==="Home"?0:event.key==="End"?1:1-index;openEnvironments(next?"api":"ssh");event.currentTarget.parentElement.children[next]?.focus();}}},kind === "ssh" ? "终端环境" : "API")))) : null;
       return h("div", { className: "dsh-remote-ops", "data-density": density },
         h("div", { className: "dsh-remote-ops__head" },
           h("strong", null, "Remote Ops"),
@@ -2296,7 +2355,7 @@ window.__ModuleLoader__.load({
           terminal,
           h("div",{className:"dsh-remote-ops__moduleHost",hidden:module!=="desktop"||drawer||diagnosticsOpen||!!settingsTab},desktopVisited?h(DesktopWorkspacePanel,{key:sessionId,sessionId,environments:snapshot.environments,visible:module==="desktop"&&!drawer&&!diagnosticsOpen&&!settingsTab}):null),
           h("div",{className:"dsh-remote-ops__moduleHost",hidden:!(settingsTab==="browser"||module==="browser"&&!drawer&&!diagnosticsOpen&&!settingsTab),role:settingsTab==="browser"?"tabpanel":undefined,id:"settings-panel-"+uiKey+"-browser","aria-labelledby":settingsTab==="browser"?"settings-tab-"+uiKey+"-browser":undefined},browserVisited?h(BrowserWorkspacePanel,{key:sessionId,sessionId,visible:module==="browser"&&!drawer&&!diagnosticsOpen&&!settingsTab,settings:settingsTab==="browser"}):null),
-          h("div",{className:"dsh-remote-ops__moduleHost",hidden:!(drawer&&environmentKind==="api"||module==="api"&&!drawer&&!diagnosticsOpen&&!settingsTab),role:drawer&&environmentKind==="api"?"tabpanel":undefined,id:"environment-panel-"+uiKey+"-api","aria-labelledby":drawer&&environmentKind==="api"?"environment-tab-"+uiKey+"-api":undefined},apiVisited?h(ApiWorkspacePanel,{key:sessionId,sessionId,sshEnvironments:snapshot.environments.filter(env=>env.transport!=="telnet"),mode:drawer&&environmentKind==="api"?"environments":"workspace",onManage:()=>openEnvironments("api"),onUse:()=>{setModule("api");setDrawer(false);},askPanel}):null),
+          h("div",{className:"dsh-remote-ops__moduleHost",hidden:!(drawer&&environmentKind==="api"||module==="api"&&!drawer&&!diagnosticsOpen&&!settingsTab),role:drawer&&environmentKind==="api"?"tabpanel":undefined,id:"environment-panel-"+uiKey+"-api","aria-labelledby":drawer&&environmentKind==="api"?"environment-tab-"+uiKey+"-api":undefined},apiVisited?h(ApiWorkspacePanel,{key:sessionId,sessionId,sshEnvironments:snapshot.environments.filter(env=>(env.transport??"ssh")==="ssh"),mode:drawer&&environmentKind==="api"?"environments":"workspace",onManage:()=>openEnvironments("api"),onUse:()=>{setModule("api");setDrawer(false);},askPanel}):null),
           h("div", { className: "dsh-remote-ops__fileHost", hidden: module !== "sftp" || drawer || diagnosticsOpen || !!settingsTab }, sftpWorkspace),
           quickPanel)));
 
@@ -2350,7 +2409,7 @@ window.__ModuleLoader__.load({
         const [batch, setBatch] = useState(false), [selected, setSelected] = useState([]), [pending, setPending] = useState(false);
         const [menu, setMenu] = useState(null), [notice, setNotice] = useState('');
         const root = useRef(null), trigger = useRef(null), alive = useRef(true), deleting = useRef(false);
-        const title = kind === 'ssh' ? 'SSH / Telnet' : 'API', locked = busy || pending;
+        const title = kind === 'ssh' ? '终端环境' : 'API', locked = busy || pending;
         const matches = environments.filter(env => (!group || env.group === group) && (!search || [env.name, env.group, describe(env)].join(' ').toLowerCase().includes(search.toLowerCase())));
         const visibleKeys = matches.map(env => env.id).join('\n');
         useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);

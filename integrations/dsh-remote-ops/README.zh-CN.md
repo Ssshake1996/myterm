@@ -2,6 +2,12 @@
 
 面向 DeepSeek Harness 的终端、网页、Windows 桌面与 RESTful API 运维插件。用户与 Agent 共享可见终端、软件窗口、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
 
+## 串口终端（v0.14.0）
+
+进入 **环境 → 终端环境 → + 环境**，在「连接协议」中选择 **SERIAL**。从候选列表选择串口，或填入插件所在主机可访问的设备路径，例如 `COM3`、`/dev/ttyUSB0`、`/dev/cu.usbserial-001`。按设备手册设置波特率、数据位、停止位、校验位、流控、编码和回车换行。默认值为 9600、8N1、无流控、CR。保存后点击「进入」，串口会出现在原有终端标签栏。
+
+用户和 Agent 共享设备回显及输入。Agent 可用 `remote_serial_ports` 枚举端口，再用 `remote_environment_create` 保存 `transport: "serial"` 及 `serial.path`，通过现有终端工具打开、收发和导出日志。同一端口一次只供一个连接使用，关闭标签后释放。连接测试只打开并关闭端口，判断命令是否成功需查看设备回显。
+
 ## 通过对话保存环境账号密码（v0.13.2）
 
 将目标地址、账号和密码明确提供给 Agent 后，可以直接创建或修改 SSH、Telnet 和 API 环境，无需切换到 GUI 输入。SSH/Telnet 使用 `remote_environment_create/update` 的 `username`、`password`；API 使用 `remote_api_environment_save` 的 `auth.username` 和顶层 `password`。
@@ -89,14 +95,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.13.2.tgz
-  SHA256SUMS-dsh-remote-ops-v0.13.2.txt
+  dsh-remote-ops-v0.14.0.tgz
+  SHA256SUMS-dsh-remote-ops-v0.14.0.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.13.2.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.14.0.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -209,7 +215,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.13.2.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.14.0.tgz
 dsh web
 ```
 

@@ -1,0 +1,60 @@
+name: Installed DSH serial terminal
+
+on:
+  workflow_call:
+    inputs:
+      package_artifact:
+        type: string
+        default: ''
+      source_ref:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  native-serial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: integrations/dsh-remote-ops/package-lock.json
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
+      - run: npm ci --prefix integrations/dsh-remote-ops
+      - run: npm install --prefix "$RUNNER_TEMP/serial-host" @deepseek-ai/dsh@0.2.1-rc.5
+      - if: inputs.package_artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.package_artifact }}
+          path: output/serial-package
+      - if: inputs.package_artifact != ''
+        run: sha256sum --check SHA256SUMS-*.txt
+        working-directory: output/serial-package
+      - if: inputs.package_artifact == ''
+        name: Pack Linux CI candidate for serial testing
+        working-directory: integrations/dsh-remote-ops
+        run: |
+          mkdir -p ../../output/serial-package
+          node scripts/prepare-client.mjs
+          npm pack --ignore-scripts --silent --pack-destination ../../output/serial-package
+      - name: Native DSH, Chrome and isolated kernel PTY
+        run: |
+          export DSH_CLI="$RUNNER_TEMP/serial-host/node_modules/@deepseek-ai/dsh/lib/bin.js"
+          node e2e/runner/serial-native.mjs output/serial-package/*.tgz
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: serial-native-evidence
+          path: |
+            output/serial-native/evidence.json
+            output/serial-native/*.png
+          if-no-files-found: ignore

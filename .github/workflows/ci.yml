@@ -5,6 +5,9 @@ on:
   pull_request:
 
 jobs:
+  serial-terminal:
+    if: github.ref_type != 'tag'
+    uses: ./.github/workflows/serial-terminal.yml
   verify-plugin:
     runs-on: ubuntu-latest
     steps:

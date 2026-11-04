@@ -1,6 +1,6 @@
 ---
 name: remote-ops-terminal-logs
-description: Read, collect or export Remote Ops SSH and local terminal logs, including packaging multiple terminal records into one downloadable archive through the plugin tools.
+description: Read, collect or export Remote Ops SSH, TELNET, SERIAL and local terminal logs, including packaging multiple terminal records into one downloadable archive through the plugin tools.
 ---
 
 # Remote Ops terminal logs
@@ -9,7 +9,7 @@ Use the plugin's log tools when the user asks for execution records, a terminal 
 
 ## Discover and read
 
-Call `remote_terminal_logs {}` to obtain the actual `logId` values, terminal names, host/port, session IDs, status and raw stream ranges. SSH and Telnet logs belong to the calling conversation; the local terminal is shared. Recently closed terminals may remain available.
+Call `remote_terminal_logs {}` to obtain the actual `logId` values, terminal names, host/port, session IDs, status and raw stream ranges. For SERIAL logs use `serialPath` instead of host/port. SSH, Telnet and Serial logs belong to the calling conversation; the local terminal is shared. Recently closed terminals may remain available.
 
 To inspect a log, call `remote_terminal_log_read` with its `logId`. Omit `cursor` to start at the earliest retained output. Continue with the returned `nextOffset` as `cursor` and the returned `streamId` until `hasMore` is false. These offsets refer to the raw stream, not the cleaned text length. `gap`, `truncated` and `evictedLogs` mean some history is unavailable; do not rerun device commands to recreate it.
 

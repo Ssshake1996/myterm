@@ -5,6 +5,7 @@ import { sessionError } from "../errors.js";
 import { executeCommand } from "../commands.js";
 import { buildSshShellOptions } from "../terminal-sessions.js";
 import { interactiveWindowsCommand, isWindowsEnvironment, windowsProbeCommand } from "../windows-shell.js";
+import { connectSerial } from "../serial-connection.js";
 import { connectTelnet } from "../telnet-connection.js";
 
 export const withSsh = Base => class SshLayer extends Base {
@@ -43,6 +44,7 @@ export const withSsh = Base => class SshLayer extends Base {
   }
 
   async connectSshEnvironment(environment, signal) {
+    if (environment.transport === "serial") throw sessionError("SERIAL_SFTP_UNSUPPORTED", "Serial is a terminal connection. File transfer requires SSH.");
     if (environment.transport === "telnet") throw sessionError("TELNET_SFTP_UNSUPPORTED", "This operation requires an SSH environment. Telnet supports terminal input/output only.");
     return connectSsh(environment, { password: await this.resolvePassword(environment), signal, verifyHost: fingerprint => this.verifySshHost(environment, fingerprint) });
   }
@@ -51,6 +53,19 @@ export const withSsh = Base => class SshLayer extends Base {
     await this.ready;
     const environment = this.findEnvironment(id);
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", String(id));
+    if (environment.transport === "serial") {
+      const result = {environmentId:id, transport:"serial", endpoint:environment.serial.path, checkedAt:new Date().toISOString(), stages:[], capabilities:{terminal:true,exec:false,sftp:false}};
+      try {
+        const session = await connectSerial(environment, {leases:this.serialLeases ??= new Set(), signal});
+        await session.close();
+        result.ok = true;
+        result.stages.push({stage:"serial-open-close",ok:true});
+      } catch (error) {
+        result.ok = false;
+        result.stages.push({stage:"serial-open-close",ok:false,code:error.code,message:error.message});
+      }
+      return result;
+    }
     if (environment.transport === "telnet") {
       const result = { environmentId: id, transport: "telnet", endpoint: `${environment.host}:${environment.port ?? 23}`, checkedAt: new Date().toISOString(), stages: [], capabilities: { terminal: true, exec: false, sftp: false, encrypted: false } };
       let session;

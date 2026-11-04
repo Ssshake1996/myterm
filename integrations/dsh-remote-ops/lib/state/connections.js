@@ -4,6 +4,7 @@ import { AdoptedTerminalSession, SshTerminalSession, buildSshShellOptions } from
 import { interactiveWindowsCommand, windowsProbeCommand, isWindowsEnvironment } from "../windows-shell.js";
 import { sshChannel, closeSshClient } from "../ssh-connection.js";
 import { executeCommand } from "../commands.js";
+import { connectSerial } from "../serial-connection.js";
 import { connectTelnet } from "../telnet-connection.js";
 
 // SSH connections: spawning, opening, reconciling with the host, credentials, resize and disconnect records.
@@ -57,6 +58,11 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
     await this.ready;
     const environment = spec.environment ?? this.directEnvironments.get(spec.name) ?? this.findEnvironment(spec.name) ?? this.findEnvironmentBySessionName(spec.name);
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", `Environment not found: ${spec.name}`);
+    if (environment.transport === "serial") {
+      const session = await connectSerial(environment, { leases: this.serialLeases ??= new Set() });
+      this.backendSessions.set(spec.sessionId, session);
+      return session;
+    }
     if (environment.transport === "telnet") {
       const session = await connectTelnet(environment, { password: await this.resolvePassword(environment) });
       this.backendSessions.set(spec.sessionId, session);
@@ -142,7 +148,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
     const hostSessions = this.ctx.terminals.list(owner);
     const liveIds = new Set();
     for (const snapshot of hostSessions) {
-      if (!["ssh", "telnet"].includes(snapshot?.type) || snapshot.status?.kind === "exited") continue;
+      if (!["ssh", "telnet", "serial"].includes(snapshot?.type) || snapshot.status?.kind === "exited") continue;
       const environment = this.findEnvironmentBySessionName(snapshot.name);
       if (!environment) continue;
       liveIds.add(snapshot.sessionId);
@@ -168,7 +174,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
     const port = Number(spec?.port ?? 22);
     if (!host || !username || !Number.isInteger(port) || port < 1 || port > 65535) throw sessionError("REMOTE_SSH_COMMAND_INVALID", "SSH command must include a valid host, username and port");
     const id = ownerId(owner);
-    const existing = [...this.sessions.values()].find((x) => x.ownerId === id && x.environment.transport !== "telnet" && x.environment.host === host && x.environment.username === username && Number(x.environment.port ?? 22) === port && x.session.status().kind !== "exited");
+    const existing = [...this.sessions.values()].find((x) => x.ownerId === id && (x.environment.transport ?? "ssh") === "ssh" && x.environment.host === host && x.environment.username === username && Number(x.environment.port ?? 22) === port && x.session.status().kind !== "exited");
     if (existing) return existing;
     const environment = { id: `direct-${Date.now().toString(36)}`, name: `${username}@${host}:${port}`, host, username, port };
     if (spec.privateKeyPath) environment.privateKeyPath = String(spec.privateKeyPath).trim();
@@ -230,7 +236,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
     // include new connections, or operate on another conversation's sessions.
     for (const target of targets) {
       const record = this.sessions.get(target);
-      if (record && record.ownerId !== id) throw sessionError("FOREIGN_SESSION", "SSH session belongs to another conversation");
+      if (record && record.ownerId !== id) throw sessionError("FOREIGN_SESSION", "Remote terminal session belongs to another conversation");
     }
     const results = new Array(targets.length);
     let cursor = 0;

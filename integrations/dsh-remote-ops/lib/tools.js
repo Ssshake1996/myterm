@@ -3,6 +3,7 @@ import { normalizeGroupName, ownerId, sessionError, summarizeError, toLosslessJs
 import { MAX_SESSIONS_PER_ENVIRONMENT } from "./constants.js";
 import { MAX_SCRIPT_STEPS, runScript } from "./terminal-script.js";
 import { toolParameters } from "./tool-schema.js";
+import { listSerialPorts } from "./serial-connection.js";
 import { validateNewPassword } from "./environment-password.js";
 
 const output = { schema: { type: "object", additionalProperties: true }, render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }] };
@@ -10,12 +11,23 @@ const stringParam = (description, required = false) => ({ type: "string", descri
 const numberParam = (description) => ({ type: "number", description });
 const boolParam = (description) => ({ type: "boolean", description });
 const SSH_ENVIRONMENT_PARAMETERS = {
-  transport: { type: "string", enum: ["ssh", "telnet"], description: "Connection protocol; defaults to ssh. Telnet is unencrypted, uses a visible terminal and has no independent exec/SFTP channel" },
+  transport: { type: "string", enum: ["ssh", "telnet", "serial"], description: "Terminal protocol. SSH (default) and Telnet require host. Serial requires serial.path; list ports with remote_serial_ports. Telnet and Serial support visible terminal I/O only" },
   platform: { type: "string", enum: ["auto", "windows", "posix"], description: "Target platform intent; auto preserves server-default behavior, not local DSH OS" },
   shell: { type: "string", enum: ["server-default", "cmd", "windows-powershell", "pwsh"], description: "Shell for new SSH connections. Explicit Windows shells use UTF-8 for this process only" },
   readyTimeoutMs: { type: "number", description: "Connection timeout and, for Telnet, a separate login-prompt timeout, integer 1000-120000 milliseconds each; default 15000" },
   hostKeySha256: stringParam("Optional independently verified OpenSSH SHA256 fingerprint. Without a pin, first use is remembered and subsequent key changes are rejected"),
   encoding: { type: "string", enum: ["utf-8", "gb18030", "big5", "windows-1252", "iso-8859-1"], description: "Input/output encoding for server-default shell; explicit Windows shells use UTF-8" },
+};
+const SERIAL_SCHEMA = {
+  type: "object", additionalProperties: false,
+  description: "Serial console. Set path on create. Updates keep omitted serial fields. Defaults to 9600 baud, 8N1, no flow control, CR.",
+  properties: {
+    path: stringParam("Device path accessible to the plugin, e.g. COM3, /dev/ttyUSB0 or /dev/cu.usbserial-001"),
+    baudRate: numberParam("Device baud rate, integer 1–4000000"),
+    dataBits: {type:"number",enum:[5,6,7,8]}, stopBits: {type:"number",enum:[1,2]},
+    parity: {type:"string",enum:["none","even","odd"]}, flowControl: {type:"string",enum:["none","rtscts","xonxoff"]},
+    lineEnding: {type:"string",enum:["cr","lf","crlf"]},
+  },
 };
 const TELNET_SCHEMA = {
   type: "object", additionalProperties: false, description: "Telnet login settings. Omission uses manual login; {} resets this section. Passwords come from passwordRef, never from this object",
@@ -110,7 +122,7 @@ export function registerTools(ctx, state) {
   ctx.systemPrompt.section({
     name: "dsh-remote-ops",
     order: 410,
-    text: "Remote operations are provided by dsh-remote-ops. For self-contained noninteractive commands prefer remote_command_execute on an explicit existing connection or local-cmd for real exit status; it does not inherit interactive cwd or temporary variables. Use remote_environment_list to identify the exact terminal; reuse its sessionId. session=local-cmd is the shared local terminal visible in Remote Ops, NOT the Harness bash/pwsh terminal. For SSH/Telnet open only when no suitable session exists. Send one complete command preserving spaces; raw input is for interactive keys/passwords. Send returns bounded new output, streamId and nextOffset. Continue with remote_terminal_read(session, cursor=nextOffset, streamId, waitMs=20000); drain hasMore before waiting. No new text, inferred_idle, timeout, and a running shell never prove a command completed or succeeded: completion=unknown. Observe actual results before dependent commands; never resend solely because of echo or silence. reset/truncated means history was replaced or dropped; do not assume missing output. Output is a raw terminal stream, not a rendered screen. The plugin never answers (y/n) confirmations by itself: read the prompt in the output and answer it yourself with remote_terminal_send, and only confirm a destructive operation the user has approved. Pass autoQuitMore to have a --More-- pager closed with q, and review autoActions in the result. An environment may carry a cliProfile with defaults for these options (shown by remote_environment_list); explicit call arguments override it. Use stripAnsi to drop control sequences and headTailChars to bound very long output: offsets always count the raw stream, and an omitted range reported in omitted can be read back with remote_terminal_read. For a known sequence of prompts that the user has approved, one remote_terminal_script call with answers/expect/failOn saves round trips; it stops at the first failure and the remaining steps are not run. If an SSH connection drops (a send result carries reconnect, or remote_environment_list shows disconnects) nothing is replayed: open a new connection and re-run only the commands you still need. Use remote_terminal_resize on an SSH session when wide output wraps. A parameter-error hint with a ^ arrow triggers an automatic SIGINT (autoActions has type sigint and the output ends with [auto-sigint: command line cleared]); resend the corrected command. For multiple SSH/Telnet targets name them explicitly and operate sequentially. For Telnet use remote_terminal_send/read/input/script, never remote_command_execute or SFTP. Inspect login.state: TCP running alone does not confirm login. Wait/read while automatic login is pending; manual login uses raw input, not a command send. Credentials come from saved passwordRef. See remote-ops-environments for Telnet settings. MCP provides knowledge, not execution evidence. Never invent credentials or connection success.",
+    text: "Remote operations are provided by dsh-remote-ops. For self-contained noninteractive commands prefer remote_command_execute on an explicit existing connection or local-cmd for real exit status; it does not inherit interactive cwd or temporary variables. Use remote_environment_list to identify the exact terminal; reuse its sessionId. session=local-cmd is the shared local terminal visible in Remote Ops, NOT the Harness bash/pwsh terminal. For SSH/Telnet open only when no suitable session exists. Send one complete command preserving spaces; raw input is for interactive keys/passwords. Send returns bounded new output, streamId and nextOffset. Continue with remote_terminal_read(session, cursor=nextOffset, streamId, waitMs=20000); drain hasMore before waiting. No new text, inferred_idle, timeout, and a running shell never prove a command completed or succeeded: completion=unknown. Observe actual results before dependent commands; never resend solely because of echo or silence. reset/truncated means history was replaced or dropped; do not assume missing output. Output is a raw terminal stream, not a rendered screen. The plugin never answers (y/n) confirmations by itself: read the prompt in the output and answer it yourself with remote_terminal_send, and only confirm a destructive operation the user has approved. Pass autoQuitMore to have a --More-- pager closed with q, and review autoActions in the result. An environment may carry a cliProfile with defaults for these options (shown by remote_environment_list); explicit call arguments override it. Use stripAnsi to drop control sequences and headTailChars to bound very long output: offsets always count the raw stream, and an omitted range reported in omitted can be read back with remote_terminal_read. For a known sequence of prompts that the user has approved, one remote_terminal_script call with answers/expect/failOn saves round trips; it stops at the first failure and the remaining steps are not run. If an SSH connection drops (a send result carries reconnect, or remote_environment_list shows disconnects) nothing is replayed: open a new connection and re-run only the commands you still need. Use remote_terminal_resize on an SSH session when wide output wraps. A parameter-error hint with a ^ arrow triggers an automatic SIGINT (autoActions has type sigint and the output ends with [auto-sigint: command line cleared]); resend the corrected command. For multiple SSH/Telnet targets name them explicitly and operate sequentially. For Telnet use remote_terminal_send/read/input/script, never remote_command_execute or SFTP. Inspect login.state: TCP running alone does not confirm login. Wait/read while automatic login is pending; manual login uses raw input, not a command send. Credentials come from saved passwordRef. For serial use remote_serial_ports, save transport=serial and serial.path, open once, then use remote_terminal_read/input/send/script. Other sessions cannot share the physical port. Close to release. See remote-ops-environments for transport settings. MCP provides knowledge, not execution evidence. Never invent credentials or connection success.",
   });
 
   const owner = (exec) => exec.agent;
@@ -130,7 +142,7 @@ export function registerTools(ctx, state) {
   });
   registerTool(ctx, state, {
     name: "remote_environment_list",
-    description: "List saved SSH/Telnet environments and active owner-scoped sessions.",
+    description: "List saved SSH, TELNET and SERIAL terminal environments and active sessions in the current conversation.",
     parameters: {},
     execute: async (_args, exec) => {
       await state.ready;
@@ -141,10 +153,10 @@ export function registerTools(ctx, state) {
   // keep the tool available without them instead of failing the whole plugin.
   registerWithFallback(ctx, state, (withNested) => ({
     name: "remote_environment_create",
-    description: "Create one saved SSH/Telnet environment. Accept a password explicitly supplied by the user in the conversation: the plugin stores it in DSH credentials and saves only a reference. GUI entry is optional. Pass either password or an existing passwordRef, not both. The plugin generates the internal id; name defaults to host. Saving does not connect.",
+    description: "Create one saved SSH/Telnet/Serial terminal environment. Serial uses transport=serial and serial.path; omit network and credential fields. Accept a password explicitly supplied by the user in the conversation: the plugin stores it in DSH credentials and saves only a reference. GUI entry is optional. Pass either password or an existing passwordRef, not both. The plugin generates the internal id; name defaults to host. Saving does not connect.",
     parameters: {
       name: stringParam("Display name; defaults to the remote host"),
-      host: stringParam("remote host", true),
+      host: stringParam("Remote host required for SSH/Telnet; omit for serial", !withNested),
       username: stringParam("Required for SSH and Telnet username-password login; optional for other Telnet login modes"),
       group: stringParam("Environment group"),
       port: numberParam("Port; defaults to 22 for SSH or 23 for Telnet"),
@@ -152,7 +164,8 @@ export function registerTools(ctx, state) {
       passwordRef: stringParam("Harness credential reference"),
       password: { oneOf: [stringParam("User-supplied login password, 1-8192 characters, preserved exactly. Stored in DSH credentials, never in environment JSON or tool results. Omit/null keeps the credential"), { type: "null" }] },
       ...SSH_ENVIRONMENT_PARAMETERS,
-      ...(withNested ? { cliProfile: CLI_PROFILE_SCHEMA, terminal: TERMINAL_SIZE_SCHEMA, telnet: TELNET_SCHEMA } : {}),
+      ...(!withNested ? {transport:{...SSH_ENVIRONMENT_PARAMETERS.transport,enum:["ssh","telnet"]}} : {}),
+      ...(withNested ? { cliProfile: CLI_PROFILE_SCHEMA, terminal: TERMINAL_SIZE_SCHEMA, telnet: TELNET_SCHEMA, serial: SERIAL_SCHEMA } : {}),
     },
     execute: async (args, exec) => {
       await state.ready;
@@ -168,7 +181,7 @@ export function registerTools(ctx, state) {
   }));
   registerWithFallback(ctx, state, (withNested) => ({
     name: "remote_environment_update",
-    description: "Update one saved SSH/Telnet environment by exact id (preferred) or name. Accept a user-supplied password directly; GUI entry is optional. A new password gets a separate DSH credential reference for this environment. Omit/null password keeps the saved credential; never send it together with passwordRef or copy the list's configured marker. Empty passwordRef/privateKeyPath clears that setting. Other supplied non-null fields change; id stays fixed. cliProfile/terminal/telnet objects replace their section; {} resets it. Existing connections stay open; new connections use saved settings. Saving does not test connectivity.",
+    description: "Update one saved SSH/Telnet/Serial environment by exact id (preferred) or name. Accept a user-supplied password directly; GUI entry is optional. A new password gets a separate DSH credential reference for this environment. Omit/null password keeps the saved credential; never send it together with passwordRef or copy the list's configured marker. Empty passwordRef/privateKeyPath clears that setting. Other supplied non-null fields change; id stays fixed. cliProfile/terminal/telnet objects replace their section; {} resets it. Existing connections stay open; new connections use saved settings. Saving does not test connectivity.",
     strictParameters: true,
     parameters: {
       environment: stringParam("Existing environment id (preferred) or exact name", true),
@@ -182,7 +195,7 @@ export function registerTools(ctx, state) {
         passwordRef: stringParam("Existing Harness credential reference; empty string clears it. Never pass a password or the display marker configured"),
         password: stringParam("New user-supplied login password, 1-8192 characters, preserved exactly. Omit/null keeps the saved password; empty string is rejected"),
         ...SSH_ENVIRONMENT_PARAMETERS,
-        ...(withNested ? { cliProfile: CLI_PROFILE_SCHEMA, terminal: TERMINAL_SIZE_SCHEMA, telnet: TELNET_SCHEMA } : {}),
+        ...(withNested ? { cliProfile: CLI_PROFILE_SCHEMA, terminal: TERMINAL_SIZE_SCHEMA, telnet: TELNET_SCHEMA, serial: SERIAL_SCHEMA } : {}),
       }).map(([key, schema]) => [key, { description: "Omitted or null keeps the saved value. " + (schema.description ?? ""), oneOf: [schema, { type: "null" }] }])),
     },
     execute: async ({ environment, ...changes }, exec) => {
@@ -192,8 +205,11 @@ export function registerTools(ctx, state) {
     },
   }));
   registerTool(ctx, state, {
+    name: "remote_serial_ports", description: "List the serial ports reported by the DSH host without opening a port. Use a returned path or a known serial device path in remote_environment_create.", parameters: {}, execute: () => listSerialPorts(),
+  });
+  registerTool(ctx, state, {
     name: "remote_environment_test",
-    description: "Test one saved SSH/Telnet environment. SSH uses read-only OS/Shell probes and PTY/SFTP channels. Telnet tests TCP and configured login prompts only; manual login stays unconfirmed, capabilities.exec and capabilities.sftp are false. Returns actual detected OS, shell availability, paths, fingerprint and stage failures. Does not change the remote server; local first-use host identity is remembered. New first-use identity is not independently verified: compare the fingerprint with the administrator before sending sensitive commands. Does not test file writes or prove all Windows versions compatible.",
+    description: "Test one saved terminal environment. Serial opens and releases the port without sending a command. SSH uses read-only OS/Shell probes and PTY/SFTP channels. Telnet tests TCP and configured login prompts only; manual login stays unconfirmed, capabilities.exec and capabilities.sftp are false. Returns actual detected OS, shell availability, paths, fingerprint and stage failures. Does not change the remote server; local first-use host identity is remembered. New first-use identity is not independently verified: compare the fingerprint with the administrator before sending sensitive commands. Does not test file writes or prove all Windows versions compatible.",
     parameters: { environment: stringParam("Exact saved environment id or name", true) },
     execute: async (args, exec) => state.testEnvironment(args.environment, { signal: exec.signal }),
   });
@@ -226,7 +242,7 @@ export function registerTools(ctx, state) {
   });
   registerTool(ctx, state, {
     name: "remote_terminal_open",
-    description: `Open a new SSH/Telnet terminal for an environment. Each environment allows at most ${MAX_SESSIONS_PER_ENVIRONMENT} owner-scoped connections; use the returned sessionId for subsequent operations. Telnet returns login.state; read until ready before sending commands, or complete manual login with remote_terminal_input.`,
+    description: `Open a visible SSH/TELNET/SERIAL terminal. A serial device allows one open connection across conversations. Each network environment allows at most ${MAX_SESSIONS_PER_ENVIRONMENT} owner-scoped connections; use the returned sessionId for subsequent operations. Telnet returns login.state; read until ready before sending commands, or complete manual login with remote_terminal_input.`,
     parameters: { environment: stringParam("Environment id or name", true) },
     execute: async (_args, exec) => {
       const record = await state.open(owner(exec), _args.environment);
@@ -235,9 +251,9 @@ export function registerTools(ctx, state) {
   });
   registerTool(ctx, state, {
     name: "remote_terminal_send",
-    description: "Send exact text to a visible SSH/Telnet session or local-cmd and wait for new output. Returns bounded delta and a resumable cursor, not old history. Silence/timeout is NOT proof of completion. Continue reading, never resend to poll. For custom device CLIs: autoQuitMore sends q at --More-- pagers, and a parameter-error hint with a ^ arrow triggers an automatic SIGINT that clears the polluted command line (disable with autoSigint=false); applied steps are listed in autoActions. (y/n) confirmation prompts are never answered automatically: read the prompt and answer it yourself.",
+    description: "Send exact text to a visible SSH/Telnet/Serial session or local-cmd and wait for new output. Returns bounded delta and a resumable cursor, not old history. Silence/timeout is NOT proof of completion. Continue reading, never resend to poll. For custom device CLIs: autoQuitMore sends q at --More-- pagers, and a parameter-error hint with a ^ arrow triggers an automatic SIGINT that clears the polluted command line (disable with autoSigint=false); applied steps are listed in autoActions. (y/n) confirmation prompts are never answered automatically: read the prompt and answer it yourself.",
     parameters: {
-      session: stringParam("Existing SSH/Telnet session id or local-cmd"),
+      session: stringParam("Existing SSH/Telnet/Serial session id or local-cmd"),
       environment: stringParam("Environment id or name only when opening a new connection"),
       text: stringParam("Input text; preserve every separator", true),
       submit: boolParam("Append Enter; defaults true"),
@@ -263,7 +279,7 @@ export function registerTools(ctx, state) {
     name: "remote_terminal_read",
     description: "Read the same terminal stream shown in Remote Ops, including local-cmd. Omit cursor for recent history; then pass nextOffset as cursor and streamId to read only new output. waitMs long-polls without typing. hasMore requires another read; reset/truncated signals missing history. No output does not mean command completion. offset/count explicitly selects backward line history instead.",
     parameters: {
-      session: stringParam("SSH/Telnet session id or local-cmd", true),
+      session: stringParam("SSH/Telnet/Serial session id or local-cmd", true),
       cursor: numberParam("Absolute nextOffset from the previous send/read"),
       streamId: stringParam("Output stream identity from the previous send/read"),
       waitMs: numberParam("Wait for new output, 0-25000 milliseconds"),
@@ -294,9 +310,9 @@ export function registerTools(ctx, state) {
   });
   registerTool(ctx, state, {
     name: "remote_terminal_signal",
-    description: "Interrupt the foreground process in a visible SSH/Telnet terminal or local-cmd.",
+    description: "Interrupt the foreground process in a visible SSH/Telnet/Serial terminal or local-cmd.",
     parameters: {
-      session: stringParam("SSH/Telnet session id or local-cmd", true),
+      session: stringParam("SSH/Telnet/Serial session id or local-cmd", true),
       signal: stringParam("Signal such as SIGINT or SIGTERM; Telnet supports SIGINT/INT only", true),
     },
     execute: async (args, exec) => state.signal(owner(exec), args.session, args.signal),
@@ -330,6 +346,7 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => {
       await state.ready;
+      if (args.targets.some(target => state.findEnvironment(target)?.transport === "serial")) throw sessionError("SERIAL_BATCH_UNSUPPORTED", "Serial devices require an explicit terminal session. Use remote_terminal_open/read/send/script. Nothing was dispatched.");
       if (args.targets.some(target => state.findEnvironment(target)?.transport === "telnet")) throw sessionError("TELNET_LOGIN_REQUIRED", "Telnet requires an observed login before commands. Use remote_terminal_open/read, then send/script on the returned sessionId. No connection was opened and nothing was dispatched.");
       const results = [];
       for (const target of args.targets) { const opened = await state.open(owner(exec), target); const targetResults = []; for (const command of args.commands) targetResults.push(await state.send(owner(exec), opened.sessionId, { ...pickSendOptions(args), text: command, submit: true, signal: exec.signal })); results.push({ target, sessionId: opened.sessionId, results: targetResults }); } return withNotices(args, { results });
@@ -339,7 +356,7 @@ export function registerTools(ctx, state) {
     name: "remote_terminal_script",
     description: `Run up to ${MAX_SCRIPT_STEPS} ordered terminal steps on one exact remote session or local-cmd in a single call, for sequences whose prompts are known in advance and approved by the user (a command, then a confirmation, then a second confirmation). Each step types text, waits for the output to go quiet, may answer prompts (answers: regex pattern -> text), may require the output to end with expect and abort on failOn. The script stops at the first step that errors, times out, fails a check or ends the session, and returns every executed step; remaining steps are NOT run. A matched expect or an absent failOn only describes the text seen: completion stays unknown. Answers type the declared text whenever their pattern matches, including at confirmation prompts, so script only operations the user has approved. Use stripAnsi/headTailChars for chatty commands.`,
     parameters: {
-      session: stringParam("Exact existing SSH/Telnet session id or local-cmd", true),
+      session: stringParam("Exact existing SSH/Telnet/Serial session id or local-cmd", true),
       steps: { type: "array", required: true, description: "Steps in execution order", items: SCRIPT_STEP_SCHEMA },
       totalTimeoutSeconds: numberParam("Limit for the whole script, default 300, maximum 900"),
       timeoutSeconds: numberParam("Default wait limit per step in seconds, default 30"),

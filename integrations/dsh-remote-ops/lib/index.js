@@ -83,6 +83,7 @@ export function apply(ctx) {
   }, "dsh-remote-ops cleanup");
   registerWorkspaceRoutes(ctx, state);
   ctx.effect(() => ctx.terminals.registerBackend({ type: "ssh", spawn: (spec) => state.spawnBackend(spec) }), "dsh-remote-ops SSH backend");
+  ctx.effect(() => ctx.terminals.registerBackend({ type: "serial", spawn: spec => state.spawnBackend(spec) }), "dsh-remote-ops Serial backend");
   ctx.effect(() => ctx.terminals.registerBackend({ type: "telnet", spawn: (spec) => state.spawnBackend(spec) }), "dsh-remote-ops Telnet backend");
   registerTools(ctx, state);
   registerRoutes(ctx, state);

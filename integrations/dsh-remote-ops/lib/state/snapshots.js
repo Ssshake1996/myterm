@@ -14,7 +14,7 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
     const local = this.localSnapshot();
     return {
       groups: this.groupList(),
-      environments: this.allEnvironments().map((value) => ({ ...value, passwordRef: value.passwordRef ? "configured" : undefined, active: false, running: false, status: "idle", connectionCount: 0, maxConnections: MAX_SESSIONS_PER_ENVIRONMENT })),
+      environments: this.allEnvironments().map((value) => ({ ...value, passwordRef: value.passwordRef ? "configured" : undefined, active: false, running: false, status: "idle", connectionCount: 0, maxConnections: value.transport === "serial" ? 1 : MAX_SESSIONS_PER_ENVIRONMENT })),
       quickGroups: this.quickGroupList(),
       quickCommands: this.quickCommands,
       sessions: local ? [local] : [],
@@ -30,7 +30,7 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
 
   connectionSnapshot(record) {
     return { sessionId: record.sessionId, environmentId: record.environment.id, name: record.environment.name,
-      endpoint: { host: record.environment.host, port: record.environment.port ?? (record.environment.transport === "telnet" ? 23 : 22), username: record.environment.username },
+      endpoint: record.environment.transport === "serial" ? {path:record.environment.serial.path, baudRate:record.environment.serial.baudRate ?? 9600} : { host: record.environment.host, port: record.environment.port ?? (record.environment.transport === "telnet" ? 23 : 22), username: record.environment.username },
       kind: record.environment.transport ?? "ssh", status: record.session.status(), ...(record.session.login ? { login: { ...record.session.login } } : {}),
       platform: record.environment.platform ?? "auto", shell: record.environment.shell ?? "server-default", encoding: record.session.environment?.encoding ?? "utf-8", identity: record.session.identity ?? null, detected: record.session.detected ?? null,
       ownerId: record.ownerId, lastActivity: record.session.lastActivity ?? null, outputCursor: this.outputCursor(record.session), control: this.controlSnapshot(record.session), operation: this.terminalOperation(record.session, record.sessionId, record.ownerId), direct: Boolean(record.direct) };
@@ -88,7 +88,7 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
     const sessions = [...(local ? [local] : []), ...remoteSessions];
     const environments = this.allEnvironments().map((x) => {
       const connectionCount = remoteSessions.filter((session) => session.environmentId === x.id && session.status.kind !== "exited").length;
-      return { ...x, passwordRef: x.passwordRef ? "configured" : undefined, active: connectionCount > 0, running: connectionCount > 0, status: connectionCount > 0 ? "running" : "idle", connectionCount, maxConnections: MAX_SESSIONS_PER_ENVIRONMENT };
+      return { ...x, passwordRef: x.passwordRef ? "configured" : undefined, active: connectionCount > 0, running: connectionCount > 0, status: connectionCount > 0 ? "running" : "idle", connectionCount, maxConnections: x.transport === "serial" ? 1 : MAX_SESSIONS_PER_ENVIRONMENT };
     });
     return { groups: this.groupList(), environments, quickGroups: this.quickGroupList(), quickCommands: this.quickCommands, sessions, activity: this.workspaceActivity(id), events: this.events.get(id) ?? [], ...(this.disconnects.get(id)?.length ? { disconnects: this.disconnects.get(id) } : {}), localError: this.localError || undefined, pluginName: PLUGIN_NAME, pluginVersion: PLUGIN_VERSION, runtimeId: this.runtimeId, update: this.updateProgress() };
   }

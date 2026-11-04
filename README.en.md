@@ -18,6 +18,12 @@
 
 These screenshots show v0.9.2 installed in real DSH 0.2.0-rc.2; the installed package matches the official Release SHA256. A deterministic test provider drives real tools against isolated local SSH, web and API services.
 
+## Serial terminals (v0.14.0)
+
+In **Environments → Terminal environments → Add**, select **SERIAL** beside SSH and TELNET. Select a port or enter the device path available to the plugin host, such as `COM3`, `/dev/ttyUSB0`, or `/dev/cu.usbserial-001`. Set the baud rate, data bits, stop bits, parity, flow control, encoding and line ending to match the device. Defaults are 9600 baud, 8N1, no flow control and CR. Save and enter the environment to open its terminal tab.
+
+The user and Agent share input, device output and log exports. Agents can list ports with `remote_serial_ports`, save `transport: "serial"` with `serial.path` through `remote_environment_create`, then use the existing terminal tools. Only one connection can own a port at a time. Closing the tab releases it. The connection test opens and closes the port; inspect device output to verify commands.
+
 ## Save environment credentials from chat (v0.13.2)
 
 When you explicitly provide an account/password for an environment, the Agent can create or update it directly. SSH/Telnet use `username` and `password` in `remote_environment_create/update`; API uses `auth.username` and a top-level `password` in `remote_api_environment_save`. GUI entry remains optional.
@@ -100,14 +106,14 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 ## Manual intranet HTTP/HTTPS updates
 
-Current version: [v0.13.2](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.13.2), allowing Agent tools to save user-supplied environment passwords through DSH credentials. See the [release notes](docs/releases/dsh-remote-ops-v0.13.2.md) and [acceptance record](docs/testing/dsh-remote-ops-v0.13.2-acceptance.md).
+Current version: [v0.14.0](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.14.0), adding SERIAL beside SSH and TELNET in the shared terminal. See the [release notes](docs/releases/dsh-remote-ops-v0.14.0.md) and [acceptance record](docs/testing/dsh-remote-ops-v0.14.0-acceptance.md).
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.13.2.tgz` and `SHA256SUMS-dsh-remote-ops-v0.13.2.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.14.0.tgz` and `SHA256SUMS-dsh-remote-ops-v0.14.0.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.13.2.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.14.0.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -220,7 +226,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from the [latest stable release](https://github.com/Ssshake1996/myterm/releases/latest), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.13.2.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.14.0.tgz
 dsh web
 ```
 
@@ -267,15 +273,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.13.2
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.14.0
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.13.2
-node scripts/release-dsh-remote-ops.mjs 0.13.2 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.14.0
+node scripts/release-dsh-remote-ops.mjs 0.14.0 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

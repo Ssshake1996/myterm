@@ -108,7 +108,7 @@ try{
     assert.equal(ssh.log.connections,1);assert.equal(telnet.stats.connections,1);for(const secret of secrets)assert.ok(!JSON.stringify(unchanged).includes(secret));
   });
   await step('GUI 可查看 Agent 保存的新密码，页面刷新保持环境',async()=>{
-    const panel=page.locator('.dsh-remote-ops');await panel.getByRole('button',{name:'环境管理',exact:true}).click();await panel.getByRole('tab',{name:'SSH / Telnet',exact:true}).click();await panel.locator('[data-environment-row]').filter({hasText:'Chat SSH renamed'}).getByRole('button',{name:'编辑',exact:true}).click();
+    const panel=page.locator('.dsh-remote-ops');await panel.getByRole('button',{name:'环境管理',exact:true}).click();await panel.getByRole('tab',{name:'终端环境',exact:true}).click();await panel.locator('[data-environment-row]').filter({hasText:'Chat SSH renamed'}).getByRole('button',{name:'编辑',exact:true}).click();
     await panel.getByRole('button',{name:'显示 SSH 密码',exact:true}).click();await until(async()=>(await panel.locator('form input[type=text]').evaluateAll(nodes=>nodes.map(node=>node.value))).includes(replacement));
     await panel.getByRole('button',{name:'隐藏 SSH 密码',exact:true}).click();await panel.locator('form').getByRole('button',{name:'取消',exact:true}).click();await page.getByRole('button',{name:'返回工作区',exact:true}).click();await page.reload();await until(async()=>(await state()).environments.length===2);
     await page.getByRole('tablist',{name:'终端会话',exact:true}).getByRole('tab',{name:'Chat Telnet',exact:true}).click();

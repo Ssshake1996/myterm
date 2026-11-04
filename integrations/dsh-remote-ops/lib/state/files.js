@@ -26,6 +26,7 @@ export const withFiles = (Base) => class FilesLayer extends Base {
     if (endpoint.kind !== "ssh") throw sessionError("SFTP_ENDPOINT_INVALID", "Select the DSH host or an SSH environment");
     const environment = this.findEnvironment(endpoint.environment);
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", `Environment not found: ${endpoint.environment}`);
+    if (environment.transport === "serial") throw sessionError("SERIAL_SFTP_UNSUPPORTED", "File transfer requires SSH; no serial port was opened.");
     if (environment.transport === "telnet") throw sessionError("TELNET_SFTP_UNSUPPORTED", "File transfer requires an SSH/SFTP environment; no connection was attempted.");
     let client;
     try {
@@ -53,6 +54,7 @@ export const withFiles = (Base) => class FilesLayer extends Base {
     await this.ready;
     const environment = this.findEnvironment(environmentId);
     if (!environment) throw sessionError("REMOTE_ENV_NOT_FOUND", `Environment not found: ${environmentId}`);
+    if (environment.transport === "serial") throw sessionError("SERIAL_SFTP_UNSUPPORTED", "File transfer requires SSH; no serial port was opened.");
     if (environment.transport === "telnet") throw sessionError("TELNET_SFTP_UNSUPPORTED", "Select an SSH/SFTP environment for files; no file operation was started.");
     if (action === "upload" || action === "download") {
       const upload = action === "upload";

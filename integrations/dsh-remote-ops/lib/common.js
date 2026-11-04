@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { CREDENTIAL_REF_RE, ID_RE, SESSION_NAME_PREFIX, TERMINAL_ENCODINGS } from "./constants.js";
 import { validateCliProfile, validateTerminalSize } from "./cli-profile.js";
 import { WINDOWS_SHELLS } from "./windows-shell.js";
+import { validateSerial } from "./serial-config.js";
 import { validateTelnet } from "./telnet-config.js";
 
 export { sessionError, summarizeError } from "./errors.js";
@@ -55,12 +56,14 @@ export function validateEnvironment(value) {
   if (!value || typeof value !== "object") return { ok: false, errors: ["environment must be an object"] };
   if (Object.hasOwn(value, "password")) errors.push("Pass password as a tool/save argument so it is stored in DSH credentials; environment definitions contain only passwordRef");
   const telnet = value.transport === "telnet";
-  for (const field of ["id", "name", "host", ...(!telnet || value.telnet?.loginMode === "username-password" ? ["username"] : [])]) {
+  const serial = value.transport === "serial";
+  if (serial) errors.push(...validateSerial(value.serial));
+  for (const field of ["id", "name", ...(serial ? [] : ["host"]), ...(!serial && (!telnet || value.telnet?.loginMode === "username-password") ? ["username"] : [])]) {
     if (typeof value[field] !== "string" || value[field].trim().length === 0) errors.push(`${field} is required`);
   }
   if (typeof value.id === "string" && !ID_RE.test(value.id)) errors.push("id must contain only letters, numbers, dot, underscore or hyphen");
   if (value.port !== undefined && (!Number.isInteger(value.port) || value.port < 1 || value.port > 65535)) errors.push("port must be 1-65535");
-  if (value.transport !== undefined && !["ssh", "telnet"].includes(value.transport)) errors.push("transport must be ssh or telnet");
+  if (value.transport !== undefined && !["ssh", "telnet", "serial"].includes(value.transport)) errors.push("transport must be ssh, telnet or serial");
   if (value.username !== undefined && typeof value.username !== "string") errors.push("username must be a string");
   errors.push(...validateTelnet(value.telnet));
   if (telnet && (value.privateKeyPath || value.hostKeySha256 || value.shell && value.shell !== "server-default")) errors.push("Telnet uses the device CLI; SSH keys, fingerprints and Windows shell selection require SSH");
