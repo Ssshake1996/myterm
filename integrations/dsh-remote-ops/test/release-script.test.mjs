@@ -286,7 +286,7 @@ test('release accepts the tgz and checksum without requiring a Windows bundle', 
   const result=await wait(impl);
   assert.equal(calls.length,1);assert.deepEqual(result.assets,releaseJson().assets.map(asset=>asset.name));
   const workflow=readFileSync(join(repositoryRoot,'.github','workflows','release.yml'),'utf8');
-  assert.match(workflow,/needs: \[package, windows\]/);
+  assert.match(workflow,/needs: \[package, windows, serial-terminal\]/);
   assert.match(workflow,/dist-release\/\*\.tgz[\s\S]*dist-release\/SHA256SUMS-\*\.txt/);
   assert.doesNotMatch(workflow,/build-dsh-remote-ops-windows|dist-release\/\*\.zip/);
   const shared=readFileSync(join(repositoryRoot,'scripts','release-dsh-remote-ops.mjs'),'utf8');

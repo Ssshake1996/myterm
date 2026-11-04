@@ -137,8 +137,8 @@ test("environment, quick command, SFTP and update routes stay available", () => 
 
 test("environment form hides internal ids and defaults blank names to the host", () => {
   assert.doesNotMatch(client, /环境 ID/);
-  assert.match(client, /environmentForm\.name\.trim\(\) \|\| environmentForm\.host\.trim\(\)/);
-  assert.match(client, /environmentForm\.id \? \{ id: environmentForm\.id\.trim\(\) \} : \{\}/);
+  assert.match(client, /form\.name\.trim\(\) \|\| \(serial \? connection\.serial\.path : form\.host\.trim\(\)\)/);
+  assert.match(client, /form\.id \? \{id:form\.id\.trim\(\)\} : \{\}/);
   assert.match(server, /toLosslessJson\(await definition\.execute/);
   assert.doesNotMatch(server, /id: stringParam\("Stable environment id", true\)/);
 });

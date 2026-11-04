@@ -16,9 +16,9 @@ Passwords go to DSH credentials; environment files store references and tool res
 
 ## Telnet terminals (v0.13.1)
 
-Choose **Environment → SSH / Telnet → Add environment**, select Telnet, and save the host, port (default 23) and login mode. Supports username/password, password-only, no-login and manual terminal login. Automatic credentials are submitted once; a failed login leaves the output available for inspection.
+Choose **Environments → Terminal environments → Add**, select Telnet, and save the host, port (default 23) and login mode. Supports username/password, password-only, no-login and manual terminal login. Automatic credentials are submitted once; a failed login leaves the output available for inspection.
 
-Users and Agents share the visible terminal, tabs, status indicators and log exports. Close all now includes this conversation's SSH and Telnet tabs while keeping local CMD. Connection, login readiness and command results are separate. Configure encoding, line endings and prompt patterns for device CLIs. Telnet is unencrypted; file transfer uses SSH/SFTP.
+Users and Agents share the visible terminal, tabs, status indicators and log exports. Close all now includes this conversation's SSH, TELNET and SERIAL tabs while keeping local CMD. Connection, login readiness and command results are separate. Configure encoding, line endings and prompt patterns for device CLIs. Telnet is unencrypted; file transfer uses SSH/SFTP.
 
 Existing `remote_environment_*` and `remote_terminal_*` tools and bundled skills cover the flow without Agent changes. See the [Telnet guide](TELNET.md).
 
@@ -58,7 +58,7 @@ Closing cancels associated waits and independent commands and requests SSH chann
 
 ## Windows OpenSSH
 
-Windows desktop and Server use the existing SSH environment, terminal, file and log workspaces. Choose the target platform and server-default, CMD, Windows PowerShell 5.1 or an installed PowerShell 7 in **环境 → SSH**. **测试** reports authentication, detected system, PTY, SFTP and the host fingerprint separately.
+Windows desktop and Server use the existing SSH environment, terminal, file and log workspaces. Choose the target platform and server-default, CMD, Windows PowerShell 5.1 or an installed PowerShell 7 in **环境 → 终端环境 → SSH**. **测试** reports authentication, detected system, PTY, SFTP and the host fingerprint separately.
 
 `remote_environment_create/update/test` manages and diagnoses targets. `remote_command_execute` accepts a Windows shell, literal working directory and named PowerShell parameters, and returns exit status and separate error output. Windows independent commands authenticate a separate SSH connection while preserving the visible terminal. SFTP handles drive paths, Unicode and spaces; existing file and multi-terminal log tools remain available.
 

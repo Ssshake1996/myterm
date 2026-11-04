@@ -58,7 +58,9 @@ try {
     assert.match(path,/^\/dev\/(?:pts\/\d+|ttys\w+)$/);
   }
   await mkdir(profile,{recursive:true});
+  const documents = join(home,'fixture-documents'); await mkdir(documents,{recursive:true});
   await writeFile(join(profile,'cordis.patch.yml'),[
+    '- id: workspace-controller','  config:','    documentsDirectory: '+JSON.stringify(documents),
     '- id: ui-settings-general','  config:','    welcomeNoticeVersion: 2026-09-28.1',
     '- id: agent-default-model','  config:','    provider: serial-fixture','    model: serial-test',
     '- id: llm-pi-ai','  config:','    providers:','      serial-fixture:','        api: openai-completions',
@@ -144,6 +146,7 @@ try {
   assert.deepEqual(evidence.errors,[]); evidence.status='passed';
 }catch(error){
   evidence.status='failed';evidence.error=String(error.stack); console.error(error);
+  if (page) evidence.visibleText=(await page.locator('body').innerText().catch(()=> '')).slice(-3500);
   await page?.screenshot({path:join(out,'failure.png')}).catch(()=>{});process.exitCode=1;
 }finally{
   await writeFile(join(out,'evidence.json'),JSON.stringify(evidence,null,2));

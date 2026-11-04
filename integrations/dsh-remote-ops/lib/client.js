@@ -2082,8 +2082,10 @@ window.__ModuleLoader__.load({
         const form = environmentForm, serial = form.transport === "serial";
         const connection = environmentConnectionFromForm(form), advanced = environmentProfileFromForm(form);
         if (connection.error || advanced.error) { setEnvironmentError(connection.error || advanced.error); return; }
-        const environment = { ...(form.id ? {id:form.id} : {}), name: form.name.trim(), group: form.group.trim() || "default",
-          ...connection, cliProfile:advanced.cliProfile, terminal:advanced.terminal };
+        const environment = { ...(form.id ? {id:form.id.trim()} : {}), name: form.name.trim() || (serial ? connection.serial.path : form.host.trim()),
+          group: form.group.trim() || "default", ...connection };
+        environment.cliProfile = advanced.cliProfile;
+        environment.terminal = advanced.terminal;
         if (!serial) {
           if (!form.host.trim()) { setEnvironmentError("主机地址不能为空"); return; }
           if ((form.transport === "ssh" || form.telnetLoginMode === "username-password") && !form.username.trim()) { setEnvironmentError("用户名不能为空"); return; }
