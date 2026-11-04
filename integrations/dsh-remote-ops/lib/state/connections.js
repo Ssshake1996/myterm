@@ -122,7 +122,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
   }
 
   async resolveOwner(sessionId) {
-    if (!sessionId) throw sessionError("REMOTE_SESSION_REQUIRED", "Select an existing Harness session before SSH or SFTP operations");
+    if (!sessionId) throw sessionError("REMOTE_SESSION_REQUIRED", "Select an existing Harness conversation before terminal or SFTP operations");
     const live = this.ctx.agents?.get(sessionId);
     if (live) return live;
     if (!this.sessionController?.resolveAgent) throw sessionError("REMOTE_OWNER_UNAVAILABLE", "This Harness host cannot activate the selected session without a message");

@@ -103,7 +103,7 @@ export const withTerminalIo = (Base) => class TerminalIoLayer extends Base {
       return { sessionId: LOCAL_SESSION_ID, environment: session.environment.name, ...result };
     }
     const record = this.getSession(owner, target);
-    if (record.session.closing) throw sessionError("REMOTE_SESSION_CLOSING", "This SSH terminal is closing; no input was dispatched");
+    if (record.session.closing) throw sessionError("REMOTE_SESSION_CLOSING", "This terminal is closing; no input was dispatched");
     this.claimInput(record.session, actor, streamId);
     const result = await record.session.writeInput(text);
     this.event(owner, `${record.environment.transport ?? "ssh"}.input`, { sessionId: record.sessionId, environment: record.environment.name, inputBytes: result.bytes });

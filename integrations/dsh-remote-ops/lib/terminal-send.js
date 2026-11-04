@@ -9,7 +9,7 @@ import { AdoptedTerminalSession } from "./terminal-sessions.js";
 import { expectAgentEcho } from "./terminal-echo.js";
 
 async function resolveSendTarget(state, owner, target, args) {
-  if (!target && !args.environment) throw sessionError("REMOTE_SESSION_REQUIRED", "Pass session (SSH session id or local-cmd), or environment when opening on demand");
+  if (!target && !args.environment) throw sessionError("REMOTE_SESSION_REQUIRED", "Pass session (terminal session id or local-cmd), or environment when opening on demand");
   if (!target && args.environment) {
     state.reconcileHostSessions(owner);
     const environment = state.findEnvironment(args.environment);
@@ -30,7 +30,7 @@ function promptTail(session, streamId, scanFrom) {
 }
 
 function reconnectHint(environment, status) {
-  return { environment: environment.name, reason: status.reason ?? null, hint: `The SSH connection to ${environment.name} is gone${status.reason ? ` (${status.reason})` : ""}. Nothing is replayed automatically: open a new connection with remote_terminal_open and re-run only the commands you still need.` };
+  return { environment: environment.name, reason: status.reason ?? null, hint: `The ${(environment.transport ?? "ssh").toUpperCase()} connection to ${environment.name} is gone${status.reason ? ` (${status.reason})` : ""}. Nothing is replayed automatically: open a new connection with remote_terminal_open and re-run only the commands you still need.` };
 }
 
 export async function performSend(state, owner, target, args) {
@@ -53,7 +53,7 @@ export async function performSend(state, owner, target, args) {
   const timeoutMs = Math.max(1, Math.min(300_000, (Number(args.timeoutSeconds ?? 30) || 30) * 1000));
   const deadline = Date.now() + timeoutMs;
   const runSend = async (request) => {
-    if (session.closing) throw sessionError("REMOTE_SESSION_CLOSING", "This SSH terminal is closing; no command was dispatched");
+    if (session.closing) throw sessionError("REMOTE_SESSION_CLOSING", "This terminal is closing; no command was dispatched");
     if (args.actor !== "manual") expectAgentEcho(session.outputBuffer, request.text, request.submit);
     const operation = target === LOCAL_SESSION_ID ? session.startSend(request) : state.ctx.terminals.startSend(owner, record.sessionId, request);
     session.pendingSend = operation;

@@ -16,7 +16,7 @@ For opening visible software windows, clicking controls or typing into desktop a
 3. Use `remote_environment_test` with the environment ID. Inspect `stages`, `detected`, `capabilities` and `identity`. OS `productType` 1 means workstation, 2 domain controller and 3 Server; never infer the target system from the DSH host. PTY/exec/SFTP results only describe the tested channels, not file write permissions or every Windows release.
 4. An independently verified `hostKeySha256` pins the OpenSSH fingerprint. Without a pin, first use is recorded locally and later changes are rejected. `trust: "first-use"` is not independent verification; report the fingerprint for checking. On `SSH_HOST_KEY_CHANGED`, do not clear or replace it just to make the connection work. Confirm the expected identity with the user/administrator before changing the saved pin.
 
-Keep credentials in DSH credentials or an existing private key file on the DSH host. `passwordRef: "configured"` is a display marker; omit it when keeping an existing credential. Do not request passwords in the conversation. The user can enter or view them in **环境 → SSH → 编辑**.
+Keep credentials in DSH credentials or an existing private key file on the DSH host. `passwordRef: "configured"` is a display marker; omit it when keeping an existing credential. For a password supplied by the user, use the environment create/update tool as described in remote-ops-environments. The user can also enter or view it in **环境 → 终端环境 → 编辑**.
 
 ## Visible terminal
 

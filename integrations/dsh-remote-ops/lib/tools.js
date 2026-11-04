@@ -215,13 +215,13 @@ export function registerTools(ctx, state) {
   });
   registerTool(ctx, state, {
     name: "remote_environment_group_create",
-    description: "Create an empty saved SSH/Telnet environment group.",
+    description: "Create an empty saved terminal environment group.",
     parameters: { group: stringParam("Environment group", true) },
     execute: async (args) => state.createGroup(args.group),
   });
   registerTool(ctx, state, {
     name: "remote_environment_group_rename",
-    description: "Rename a saved SSH/Telnet environment group.",
+    description: "Rename a saved terminal environment group.",
     parameters: {
       group: stringParam("Existing group", true),
       name: stringParam("New group name", true),
@@ -230,13 +230,13 @@ export function registerTools(ctx, state) {
   });
   registerTool(ctx, state, {
     name: "remote_environment_group_delete",
-    description: "Delete an empty saved SSH/Telnet environment group.",
+    description: "Delete an empty saved terminal environment group.",
     parameters: { group: stringParam("Environment group", true) },
     execute: async (args) => state.deleteGroup(args.group),
   });
   registerTool(ctx, state, {
     name: "remote_environment_delete",
-    description: "Delete a saved SSH/Telnet environment and close its owner sessions.",
+    description: "Delete a saved terminal environment and close its owner sessions.",
     parameters: { environment: stringParam("Environment id or name", true) },
     execute: async (args, exec) => state.deleteEnvironment(owner(exec), args.environment),
   });
@@ -335,7 +335,7 @@ export function registerTools(ctx, state) {
   });
   registerTool(ctx, state, {
     name: "remote_terminal_batch",
-    description: "Open at most one owner-scoped SSH connection per target and execute complete commands sequentially on that explicit session. For Telnet, open/read each target to confirm login, then use send/script with its exact sessionId.",
+    description: "Open at most one owner-scoped SSH connection per target and execute complete commands sequentially on that explicit session. For Serial, open the requested port and use send/script on its exact sessionId. For Telnet, open/read each target to confirm login, then use send/script with its exact sessionId.",
     parameters: {
       targets: { type: "array", required: true, items: { type: "string" }, description: "Environment ids or names" },
       commands: { type: "array", required: true, items: { type: "string" }, description: "Complete commands in order" },

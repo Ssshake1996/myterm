@@ -2269,7 +2269,7 @@ window.__ModuleLoader__.load({
           h("button", { title: "导出当前终端 TXT", "aria-label": "导出当前终端 TXT", disabled: logExporting || !activeSession, onClick: () => void exportLogs(false) }, h(IconDownloadOutline16)),
           h("details", { className: "dsh-remote-ops__terminalLook dsh-remote-ops__operationMenu", onKeyDown: event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } } },
             h("summary", { "aria-label": "终端操作", title: "更多终端操作" }, "更多", h(IconChevronDownOutline14)), h("div", null,
-            h("button", { disabled: !sessionId || !activeSession || activeSession.disconnected, onClick: event => { const menu = event.currentTarget.closest("details"); menu.open = false; menu.querySelector("summary")?.focus(); setCommandTarget({ ...activeSession }); } }, "独立命令"),
+            h("button", { disabled: !sessionId || !activeSession || activeSession.disconnected || ["serial", "telnet"].includes(activeSession.kind), onClick: event => { const menu = event.currentTarget.closest("details"); menu.open = false; menu.querySelector("summary")?.focus(); setCommandTarget({ ...activeSession }); } }, "独立命令"),
             h("button", { disabled: logExporting, onClick: event => { event.currentTarget.closest("details").open = false; void exportLogs(true); } }, "一键打包本会话全部日志"),
             h("small", null, "包含仍保留的已关闭终端。"),
             h("button", { onClick: event => { event.currentTarget.closest("details").open = false; const details = outputRef.current?.closest("section")?.querySelector(".dsh-remote-ops__statusDetails"); if (details) { details.open = true; details.querySelector("summary")?.focus(); } } }, "连接与输出详情")))
