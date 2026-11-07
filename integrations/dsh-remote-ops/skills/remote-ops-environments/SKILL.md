@@ -31,6 +31,10 @@ Open **环境 → 终端环境** for saved terminal connections or **环境 → 
 
 The environment page has group navigation (a dropdown in narrow panels), search, and an environment list. SSH/Telnet rows expose **进入 / 编辑 / 测试**. Row **更多环境操作** contains **新建独立连接** and **删除环境**. The selected group's **分组操作** menu renames it or deletes an empty group. **批量管理** reveals checkboxes; **删除所选** confirms exact names and addresses, and partial failures retain the failed selection with its reason. UI deletion closes the deleted environment's existing remote terminal connections; **返回工作区** only leaves the management page. Keep this distinction when explaining the UI to a user.
 
+## Copy and paste in the shared terminal
+
+The visible local CMD, SSH, Telnet and Serial terminals support human copy/paste without a separate Agent tool. Select output and press `Ctrl+C`, or use the terminal right-click menu's **复制选中内容**. If there is no selection, `Ctrl+C` remains the foreground program's interrupt signal. `Ctrl+V` or **粘贴到终端** sends clipboard text to the exact active session; single-line text is sent directly, while multiline text opens a confirmation dialog before submission. **全选输出** selects the current transcript for copying. Clipboard colors/cursor decoration are never sent, and clipboard text is not added to retained logs. If the browser denies clipboard access, explain the displayed error and use a manual selection or input; do not replace this with a tool call or a second command.
+
 ## Select an existing environment
 
 Call `remote_environment_list`. Match the requested environment and reuse its returned internal `id` for updates/deletion, especially after renaming or moving groups. Names are accepted too; an exact ID takes precedence over a name. Clarify genuinely ambiguous targets. The list also contains connection/session information; a saved entry is not evidence of a successful SSH connection.

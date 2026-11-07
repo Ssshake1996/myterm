@@ -34,6 +34,10 @@ Return the real absolute `downloadUrl` as a Markdown download link, with the fil
 
 **全部关闭** only clears the selected current-conversation SSH, Telnet and Serial tabs and connections; it keeps local CMD and retained logs. Discover closed records through `remote_terminal_logs` and export their actual log IDs within the existing retention limits. Do not reconnect or rerun commands to recreate a closed transcript. Amber/green/gray tab indicators describe known operation/connection/disconnection state, not a command exit code.
 
+## Copy and paste in the visible terminal
+
+Human copy/paste is available directly in the visible terminal: select output and use `Ctrl+C` or the context menu, and use `Ctrl+V` for input. A selection is plain text; terminal colors, cursor decoration and clipboard contents are not part of the retained log. Multiline paste is confirmed in the UI before it is dispatched. Do not tell the user to copy screen text into a log export: use the plugin log tools for retained records.
+
 ## Interpret the record accurately
 
 - Terminal colors are display-only. Agent sends and visible manual/raw input after common CMD, PowerShell and `user@host` prompts receive command emphasis. Standard Windows `dir` rows distinguish directory and file names; custom prompts and bare listings may stay unclassified. The Catppuccin-inspired palette follows the host light/dark theme: purple commands, teal directories and blue files. Do not rewrite commands, issue extra listing commands or infer completion/file identity from these colors. Copying and log export preserve text without the semantic styling; disabling highlighting is a user display preference.

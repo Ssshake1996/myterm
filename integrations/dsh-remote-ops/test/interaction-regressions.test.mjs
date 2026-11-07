@@ -25,9 +25,13 @@ function inputFixture() {
     terminalInputRef: { current: null }, terminalInput: "", terminalReady: true,
     composingRef: { current: false }, setInputFocused() {}, setTerminalInput() {},
     queueRawInput: text => sent.push(text), previewInput: text => previews.push(text),
+    outputRef: { current: null }, window: { getSelection: () => null },
+    copyTerminalSelection: async () => true, setError() {},
   };
   vm.runInNewContext(
+    clientSection("const terminalSelectionText =", "\n    const terminalPreferences") + "\n" +
     clientSection("const keySequence =", "\n      const addGroup") + "\n" +
+    clientSection("const terminalKeyDown =", "\n      const dismissTabs") + "\n" +
     clientSection("const terminalInputCapture =", "\n      const jumpToLatest") +
     "\nglobalThis.input = terminalInputCapture;", context,
   );
@@ -162,7 +166,9 @@ test("switching owners resets the busy state left by the previous owner", () => 
   const busy = [];
   const context = {
     sessionId: "owner-b", useEffect: fn => fn(),
-    setPasteDraft() {}, setConnectionChoices() {}, setActiveSessionId() {}, setReviewStream() {},
+    terminalMenu: null,
+    terminalSelectionRef: { current: "" },
+    setPasteDraft() {}, setConnectionChoices() {}, setTerminalMenu() {}, setClipboardNotice() {}, setActiveSessionId() {}, setReviewStream() {},
     setBusy: value => busy.push(value),
   };
   vm.runInNewContext(clientSection("useEffect(() => { setPasteDraft(null)", "\n      const refresh ="), context);

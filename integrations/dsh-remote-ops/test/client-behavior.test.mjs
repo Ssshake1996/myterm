@@ -28,6 +28,8 @@ const environmentAdvancedFields = loadClientFunction("environmentAdvancedFields"
 const terminalSizeSelect = loadClientFunction("terminalSizeSelect", "\n    // end environment form helpers", "TERMINAL_SIZE_PRESETS", { h: uiNode });
 const terminalInputEnabled = loadClientFunction("terminalInputEnabled", "\n    function RemoteOpsPanel");
 const terminalInputCompositionValue = loadClientFunction("terminalInputCompositionValue", "\n    function RemoteOpsPanel");
+const terminalSelectionText = loadClientFunction("terminalSelectionText", "\n    const terminalShortcutAction");
+const terminalShortcutAction = loadClientFunction("terminalShortcutAction", "\n    const writeClipboard");
 const browserRuntimeSummary = loadClientFunction('browserRuntimeSummary', '\n    function BrowserWorkspacePanel');
 const terminalTabStatus = loadClientFunction("terminalTabStatus", "\n    const retryDelay");
 const terminalCloseSelection = loadClientFunction("terminalCloseSelection", "\n    const retryDelay", "terminalTabStatus");
@@ -308,6 +310,31 @@ test("browser failures retain HTTP status, phase, code and original stack", () =
 test("copy reports restricted browser clipboard access without an unhandled TypeError", async () => {
   const write = loadClientFunction("writeClipboard", "\n    const terminalPreferences", "writeClipboard", {navigator:{}});
   await assert.rejects(write("selected output"), /CLIPBOARD_UNAVAILABLE/);
+});
+
+test("terminal selection copy only accepts a non-empty selection inside the output", () => {
+  const child = {}, outside = {};
+  const root = { contains: node => node === child };
+  const selection = { isCollapsed: false, anchorNode: child, focusNode: child, toString: () => "dir output" };
+  assert.equal(terminalSelectionText(selection, root), "dir output");
+  assert.equal(terminalSelectionText({ ...selection, focusNode: outside }, root), "");
+  assert.equal(terminalSelectionText({ ...selection, isCollapsed: true }, root), "");
+  assert.equal(terminalSelectionText(null, root), "");
+});
+
+test("Ctrl+C copies only when output is selected; otherwise it remains terminal interrupt", () => {
+  assert.equal(terminalShortcutAction({ key: "c", ctrlKey: true }, true), "copy");
+  assert.equal(terminalShortcutAction({ key: "C", ctrlKey: true, shiftKey: true }, true), "copy");
+  assert.equal(terminalShortcutAction({ key: "c", metaKey: true }, true), "copy");
+  assert.equal(terminalShortcutAction({ key: "c", ctrlKey: true }, false), "input");
+  assert.equal(terminalShortcutAction({ key: "v", ctrlKey: true }, false), "paste");
+  assert.equal(terminalShortcutAction({ key: "v", metaKey: true }, false), "paste");
+  assert.equal(terminalShortcutAction({ key: "c", ctrlKey: true, altKey: true }, true), "input");
+});
+
+test("paste reports restricted browser clipboard access without an unhandled TypeError", async () => {
+  const read = loadClientFunction("readClipboard", "\n    const terminalPreferences", "readClipboard", {navigator:{}});
+  await assert.rejects(read(), /CLIPBOARD_UNAVAILABLE/);
 });
 
 test("file completion refreshes only the visible matching endpoint and directory", () => {

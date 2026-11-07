@@ -31,7 +31,7 @@
 
 ---
 
-## 串口终端（v0.14.0）
+## 串口终端（v0.14.1）
 
 进入 **环境 → 终端环境 → + 环境**，在「连接协议」中选择 **SERIAL**。从候选列表选择串口，或填入插件所在主机可访问的设备路径，例如 `COM3`、`/dev/ttyUSB0`、`/dev/cu.usbserial-001`。按设备手册设置波特率、数据位、停止位、校验位、流控、编码和回车换行。默认值为 9600、8N1、无流控、CR。保存后点击「进入」，串口会出现在原有终端标签栏。
 
@@ -141,6 +141,12 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 
 仅查看不会修改密码，查看后保存其他字段仍保留原凭据；输入新密码才会更新。未配置、凭据缺失或服务不可用时会明确提示，并可重试或重新输入。明文不写入浏览器持久存储、环境列表、诊断记录或 Agent 工具返回值。随包环境管理 skill 提供查看路径。
 
+## 终端复制与粘贴
+
+终端支持本地 CMD、SSH、Telnet 和 Serial 的统一复制粘贴：先用鼠标或触摸板选中回显，再按 `Ctrl+C`，或在终端内右键选择“复制选中内容”。没有选区时，`Ctrl+C` 仍向当前程序发送中断信号。`Ctrl+V` 和右键“粘贴到终端”会把剪贴板内容送入当前会话；单行文本直接输入，包含换行的内容会先打开确认框，确认后才提交，避免误执行多行命令。
+
+右键菜单还提供“全选输出”。复制的是纯文本，不包含颜色和光标装饰；剪贴板权限受浏览器限制时，界面会显示原因，可直接选择文本或手动输入。复制、粘贴不会改变 Agent 工具协议，也不会把内容写入终端日志。
+
 ## 终端日志
 
 - 终端标签右侧的下载按钮导出当前终端 UTF-8 TXT；“更多 → 一键打包本会话全部日志”导出 ZIP，包含仍保留的已关闭 SSH 记录和共享本地终端。ZIP 每个终端一个文件，附 `manifest.json` 标明来源、时间和保留范围。
@@ -224,7 +230,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 从 [最新稳定版](https://github.com/Ssshake1996/myterm/releases/latest) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.14.0.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.14.1.tgz
 dsh web
 ```
 
@@ -242,7 +248,7 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ## 内网 HTTP/HTTPS 手动更新
 
-当前版本为 [v0.14.0](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.14.0)。本版在现有终端协议中新增 SERIAL 串口，支持用户与 Agent 共享收发和日志；详见 [发布说明](docs/releases/dsh-remote-ops-v0.14.0.md) 和 [验收记录](docs/testing/dsh-remote-ops-v0.14.0-acceptance.md)。
+当前版本为 [v0.14.1](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.14.1)。本版在现有终端协议中新增 SERIAL 串口，支持用户与 Agent 共享收发和日志；详见 [发布说明](docs/releases/dsh-remote-ops-v0.14.1.md) 和 [验收记录](docs/testing/dsh-remote-ops-v0.14.1-acceptance.md)。
 
 Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后显示等待原因，任务结束后自动热加载；“新版已生效”与运行版本共同确认结果。
 
@@ -251,14 +257,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.14.0.tgz
-  SHA256SUMS-dsh-remote-ops-v0.14.0.txt
+  dsh-remote-ops-v0.14.1.tgz
+  SHA256SUMS-dsh-remote-ops-v0.14.1.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.14.0.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.14.1.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -301,14 +307,14 @@ SSH/Telnet 密码可通过 Agent 环境工具或 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.14.0
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.14.1
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.14.0            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.14.0 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.14.1            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.14.1 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后下载正式包，核对其实际 SHA256、校验文件及 GitHub 提供的摘要。

@@ -35,6 +35,7 @@ window.__ModuleLoader__.load({
         .dsh-remote-ops__quick{display:flex;flex:1;min-height:0;max-height:none;flex-direction:column;overflow:hidden;border:1px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:9px;background:var(--dsw-alias-bg-layer-1,#f8fafb)}.dsh-remote-ops__quickHead{display:flex;align-items:center;gap:6px;padding:7px 8px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);flex:none}.dsh-remote-ops__quickHead strong{flex:1}.dsh-remote-ops__quickBody{display:flex;gap:7px;min-height:0;max-height:none;flex:1;padding:7px;overflow:auto}.dsh-remote-ops__quickGroups{display:flex;flex:none;width:88px;flex-direction:column;gap:4px;overflow:auto;padding-right:5px;border-right:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__quickGroups button{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-color:transparent;background:transparent;padding:5px;font-size:12px}.dsh-remote-ops__quickGroups button[data-active=true]{border-color:color-mix(in srgb,var(--ro-accent) 28%,transparent);background:color-mix(in srgb,var(--ro-accent) 11%,transparent);color:var(--ro-accent);font-weight:600}.dsh-remote-ops__quickItems{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));align-content:start;gap:6px;min-width:0;flex:1;overflow:auto}.dsh-remote-ops__quickItem{display:flex;align-items:center;gap:4px;min-width:0;padding:6px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:7px;background:var(--dsw-alias-bg-base,#fff)}.dsh-remote-ops__quickItem span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__tiny{padding:3px 5px!important;font-size:11px!important}.dsh-remote-ops__drawer{left:0;width:min(270px,74%);border-right:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__drawerHead{display:flex;align-items:center;gap:5px;padding:8px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);flex:none}.dsh-remote-ops__drawerHead strong{flex:1}.dsh-remote-ops__tools{display:flex;gap:5px;margin-bottom:7px}.dsh-remote-ops__tools input{flex:1}.dsh-remote-ops__group{margin-bottom:10px}.dsh-remote-ops__groupTitle{display:flex;align-items:center;gap:4px;padding:3px;color:var(--dsw-alias-label-secondary,#667085);font-weight:650}.dsh-remote-ops__groupTitle span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__env{display:flex;align-items:center;gap:5px;padding:6px 4px;border-radius:7px}.dsh-remote-ops__env:hover{background:var(--dsw-alias-interactive-bg-hover,#edf1f5)}.dsh-remote-ops__dot{width:7px;height:7px;flex:none;border-radius:50%;background:#a5adba}.dsh-remote-ops__dot[data-connected=true]{background:#35a16c;box-shadow:0 0 0 3px rgba(53,161,108,.13)}.dsh-remote-ops__envInfo{flex:1;min-width:0;cursor:pointer}.dsh-remote-ops__envName,.dsh-remote-ops__envMeta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__envName{font-weight:600}.dsh-remote-ops__envMeta{font-size:11px;color:var(--dsw-alias-label-tertiary,#98a2b3)}.dsh-remote-ops__emptyList{padding:24px 8px;text-align:center;color:var(--dsw-alias-label-tertiary,#98a2b3)}.dsh-remote-ops__card{border:1px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:8px;padding:8px;margin-bottom:7px}.dsh-remote-ops__row{display:flex;align-items:center;gap:6px;min-width:0}.dsh-remote-ops__row span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__version{font-size:11px;color:var(--dsw-alias-label-tertiary,#98a2b3);white-space:nowrap}.dsh-remote-ops__update{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary,#35a16c) 46%,var(--dsw-alias-border-l3,#d8dce5));color:var(--dsw-alias-state-success-primary,#267c50);white-space:nowrap}.dsh-remote-ops__form{display:flex;flex-direction:column;gap:7px;margin-bottom:9px;padding:9px;border:1px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:8px;background:var(--dsw-alias-bg-layer-1,#f7f9fb)}.dsh-remote-ops__form label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--dsw-alias-label-secondary,#667085)}.dsh-remote-ops__formActions{display:flex;gap:6px;justify-content:flex-end}.dsh-remote-ops__formNote{font-size:11px;color:var(--dsw-alias-label-tertiary,#98a2b3)}.dsh-remote-ops__quickDock{display:flex;min-height:72px;max-height:50vh;min-width:0;flex-direction:column}.dsh-remote-ops__quickResize{height:9px;flex:none;display:grid;place-items:center;cursor:ns-resize;color:var(--dsw-alias-label-tertiary,#98a2b3);touch-action:none}.dsh-remote-ops__quickResize::before{content:"";width:38px;height:3px;border-radius:999px;background:var(--dsw-alias-border-l2,#c9d0db);transition:width .16s ease,background .16s ease}.dsh-remote-ops__quickResize:hover::before{width:54px;background:var(--ro-accent)}.dsh-remote-ops__headNotice{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--dsw-alias-state-success-primary,#267c50)}.dsh-remote-ops__headNotice[data-error=true]{color:var(--dsw-alias-state-error-primary,#d92d20)}.dsh-remote-ops__launchControl{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:36px;padding:8px;border:0;border-radius:8px;background:transparent;color:var(--dsw-alias-label-primary,#182230);font:inherit;cursor:pointer}.dsh-remote-ops__launchControl[data-wide=true]{justify-content:flex-start;text-align:start;padding-inline:10px}.dsh-remote-ops__launchControl:hover{background:var(--dsw-alias-interactive-bg-hover,#edf1f5)}.dsh-remote-ops__launchControl:focus-visible{outline:2px solid var(--ro-accent);outline-offset:-2px}.dsh-remote-ops__launchControl svg{flex:none}.dsh-remote-ops__error{display:flex;align-items:flex-start;gap:8px}.dsh-remote-ops__errorBody{flex:1;min-width:0;max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.dsh-remote-ops__errorClose{flex:none;padding:2px 6px!important;border-color:transparent!important;background:transparent!important;color:inherit!important;font-size:16px!important;line-height:1}.dsh-remote-ops__errorClose:hover{background:color-mix(in srgb,currentColor 10%,transparent)!important}.dsh-remote-ops__screenEmpty{cursor:text}.dsh-remote-ops__pendingCommand{margin:12px 0 0;padding:8px 10px;border:1px solid var(--dsw-alias-border-l2,#d8dce5);border-radius:7px;background:var(--dsw-alias-bg-layer-1,#f7f9fb);color:var(--dsw-alias-label-primary,#182230);font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;text-align:left}
 
 .dsh-remote-ops__head{flex-wrap:wrap}.dsh-remote-ops__headAction{min-height:36px!important;padding:7px 10px!important;font-size:12px!important;font-weight:650!important;white-space:nowrap}.dsh-remote-ops__drawerClose{min-width:36px;min-height:36px;padding:5px 9px!important;border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d92d20) 52%,transparent)!important;background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d92d20) 10%,var(--dsw-alias-bg-base,#fff))!important;color:var(--dsw-alias-state-error-primary,#d92d20)!important;font-size:20px!important;font-weight:700!important;line-height:1!important}.dsh-remote-ops__drawerClose:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#d92d20) 18%,var(--dsw-alias-bg-base,#fff))!important}
+.dsh-remote-ops__clipboardMenu{position:absolute;z-index:40;display:grid;min-width:176px;gap:2px;padding:4px;border:1px solid var(--dsw-alias-border-l2,#c9d0db);border-radius:8px;background:var(--dsw-alias-bg-base,#fff);box-shadow:0 8px 24px rgba(16,24,40,.2)}.dsh-remote-ops__clipboardMenu button{display:flex;align-items:center;justify-content:flex-start;gap:7px;width:100%;min-height:30px;padding:6px 8px;border:0;background:transparent;text-align:left;font-size:12px}.dsh-remote-ops__clipboardMenu button:hover{background:var(--dsw-alias-interactive-bg-hover,#edf1f5)}.dsh-remote-ops__clipboardMenu button:disabled{color:var(--dsw-alias-label-tertiary,#98a2b3);background:transparent}
 .dsh-remote-ops__inputCursor{display:inline-block;width:2px;height:1.15em;vertical-align:-.18em;background:var(--ro-accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--ro-accent) 18%,transparent);animation:dsh-remote-ops-caret 1s steps(1,end) infinite;pointer-events:none}@keyframes dsh-remote-ops-caret{0%,45%{opacity:1}46%,100%{opacity:0}}
 .dsh-remote-ops__formAdvanced{padding:6px 8px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:6px}.dsh-remote-ops__formAdvanced summary{cursor:pointer;font-weight:600;font-size:12px}.dsh-remote-ops__formAdvancedBody{display:flex;flex-direction:column;gap:7px;margin-top:7px}
 .dsh-remote-ops__main[data-module=sftp]{display:flex;padding:0;gap:0}.dsh-remote-ops__tab{display:flex;align-items:stretch;flex:none}.dsh-remote-ops__tab>button:first-child{border-radius:7px 0 0 7px}.dsh-remote-ops__tabClose{border-left:0!important;border-radius:0 7px 7px 0!important;padding:3px 6px!important}.dsh-remote-ops__dangerAction{color:var(--dsw-alias-state-error-primary,#d92d20)!important}.dsh-remote-ops__env{flex-wrap:wrap}.dsh-remote-ops__envConnections{width:100%;display:flex;flex-direction:column;gap:3px;margin:2px 0 0 13px;padding-left:7px;border-left:2px solid color-mix(in srgb,var(--ro-accent) 22%,transparent)}.dsh-remote-ops__envConnection{display:flex;align-items:center;gap:5px;min-width:0}.dsh-remote-ops__connectionLink{flex:1;min-width:0;padding:2px 4px!important;border:0!important;background:transparent!important;text-align:left;font-size:11px!important;color:var(--dsw-alias-label-secondary,#667085)!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__sftpWorkspace{display:flex;min-width:0;min-height:0;flex:1;flex-direction:column;background:var(--dsw-alias-bg-base,#fff)}.dsh-remote-ops__sftpHead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);flex:none}.dsh-remote-ops__sftpHead strong{flex:none}.dsh-remote-ops__sftpHead select{min-width:170px;max-width:260px;padding:6px 8px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:6px;background:var(--dsw-alias-bg-base,#fff);color:inherit;font:inherit}.dsh-remote-ops__sftpHead .dsh-remote-ops__muted{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__sftpSplit{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-height:0;flex:1}.dsh-remote-ops__sftpPane{display:flex;min-width:0;min-height:0;flex-direction:column}.dsh-remote-ops__sftpPane+ .dsh-remote-ops__sftpPane{border-left:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__sftpPaneHead{display:flex;align-items:center;gap:5px;padding:8px;border-bottom:1px solid var(--dsw-alias-border-l2,#d8dce5);flex:none}.dsh-remote-ops__sftpPaneHead strong{flex:1}.dsh-remote-ops__sftpPath{padding:8px;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb);flex:none}.dsh-remote-ops__sftpEntries{min-height:0;flex:1;overflow:auto;padding:7px}.dsh-remote-ops__sftpEntry{display:flex;align-items:center;gap:6px;padding:6px 5px;border-bottom:1px solid var(--dsw-alias-border-l3,#eef0f3)}.dsh-remote-ops__sftpEntry:hover{background:var(--dsw-alias-interactive-bg-hover,#edf1f5)}.dsh-remote-ops__sftpName{display:flex;align-items:center;gap:6px;flex:1;min-width:0;border:0!important;background:transparent!important;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__sftpLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dsh-remote-ops__sftpIcon{display:inline-grid;place-items:center;width:18px;flex:none;font-size:15px;font-weight:700;line-height:1}.dsh-remote-ops__sftpIcon[data-type=directory]{color:#c78100}.dsh-remote-ops__sftpIcon[data-type=file]{color:#3e72c4}.dsh-remote-ops__sftpSize{width:70px;text-align:right;color:var(--dsw-alias-label-tertiary,#98a2b3);font-size:11px}.dsh-remote-ops__sftpEmpty{padding:24px 8px;text-align:center;color:var(--dsw-alias-label-tertiary,#98a2b3)}@media (max-width:720px){.dsh-remote-ops__sftpSplit{grid-template-columns:1fr;grid-template-rows:minmax(220px,1fr) minmax(220px,1fr)}.dsh-remote-ops__sftpPane+ .dsh-remote-ops__sftpPane{border-left:0;border-top:1px solid var(--dsw-alias-border-l2,#d8dce5)}.dsh-remote-ops__sftpHead{flex-wrap:wrap}.dsh-remote-ops__sftpHead .dsh-remote-ops__muted{flex-basis:100%;order:3}}
@@ -56,7 +57,7 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__output{font-size:13px;line-height:1.55;outline:none}
       .dsh-remote-ops__screen[data-focused=false] .dsh-remote-ops__inputCursor{animation:none;opacity:.35}
       .dsh-remote-ops__terminalStatus{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:5px 10px;min-height:22px;border-top:1px solid var(--dsw-alias-border-l3,#e5e7eb);font-size:11px;color:var(--dsw-alias-label-secondary,#667085);flex:none}
-      .dsh-remote-ops__terminalStatus [data-state=connected]{color:var(--dsw-alias-state-success-primary,#267c50)}
+      .dsh-remote-ops__terminalStatus [data-state=connected]{color:var(--dsw-alias-state-success-primary,#267c50)}.dsh-remote-ops__clipboardNotice{color:var(--ro-accent);font-weight:600}
       .dsh-remote-ops__terminalStatus [data-state=retrying]{color:var(--dsw-alias-state-error-primary,#d92d20)}
       .dsh-remote-ops__sessionIdentity{font-family:ui-monospace,Consolas,monospace;overflow-wrap:anywhere}
       .dsh-remote-ops__newOutput{position:absolute;right:24px;bottom:12px;z-index:3;min-height:32px!important;border-color:var(--ro-accent)!important;background:var(--dsw-alias-bg-base,#fff)!important;box-shadow:0 2px 6px #0002}
@@ -470,7 +471,7 @@ window.__ModuleLoader__.load({
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const updateRecovery = createUpdateRecovery((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.14.0", update: { currentVersion: "0.14.0", latestVersion: "0.14.0", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.14.1", update: { currentVersion: "0.14.1", latestVersion: "0.14.1", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -851,9 +852,27 @@ window.__ModuleLoader__.load({
         if (positions.current.size > 20) positions.current.delete(positions.current.keys().next().value);
       };
     };
+    const terminalSelectionText = (selection, root) => {
+      if (!selection || selection.isCollapsed || !root) return "";
+      const contains = node => node === root || Boolean(node && root.contains?.(node));
+      if (!contains(selection.anchorNode) || !contains(selection.focusNode)) return "";
+      return String(selection.toString?.() ?? "");
+    };
+    const terminalShortcutAction = (event, hasSelection) => {
+      const key = String(event?.key ?? "").toLowerCase();
+      const modifier = Boolean((event?.ctrlKey || event?.metaKey) && !event?.altKey);
+      if (!modifier) return "input";
+      if (key === "c" && hasSelection) return "copy";
+      if (key === "v") return "paste";
+      return "input";
+    };
     const writeClipboard = async text => {
       if (!navigator.clipboard?.writeText) throw new Error("CLIPBOARD_UNAVAILABLE: 浏览器禁止剪贴板访问，请使用 HTTPS 或手动复制选区");
       await navigator.clipboard.writeText(text);
+    };
+    const readClipboard = async () => {
+      if (!navigator.clipboard?.readText) throw new Error("CLIPBOARD_UNAVAILABLE: 浏览器禁止读取剪贴板，请使用 HTTPS 或手动输入");
+      return navigator.clipboard.readText();
     };
     const terminalPreferences = (value = {}) => ({
       fontSize: Math.max(11, Math.min(22, Number(value.fontSize) || 13)),
@@ -1813,6 +1832,10 @@ window.__ModuleLoader__.load({
       const [outputSearch, setOutputSearch] = useState("");
       const [searchOpen, setSearchOpen] = useState(false);
       const [matchIndex, setMatchIndex] = useState(0);
+      const [terminalMenu, setTerminalMenu] = useState(null);
+      const [clipboardNotice, setClipboardNotice] = useState("");
+      const clipboardNoticeTimer = useRef();
+      const terminalSelectionRef = useRef("");
       const manualDrafts = useRef(sharedManualDrafts);
       const rawInputDrafts = useRef(new Map());
       const rawInputRevision = useRef(0);
@@ -1829,7 +1852,16 @@ window.__ModuleLoader__.load({
       useEffect(() => { setQuickHeight(preferences.quickHeight); }, []);
       useEffect(() => { rememberWorkspace(sessionId, { module, activeSessionId, search }); }, [sessionId, module, activeSessionId, search]);
       useEffect(() => { try { localStorage.setItem("remote-ops.preferences", JSON.stringify({ ...preferences, quickHeight })); } catch { /* Storage can be disabled by browser policy. */ } }, [preferences, quickHeight]);
-      useEffect(() => { setPasteDraft(null); setConnectionChoices(null); setActiveSessionId(current => current); setReviewStream(null); setBusy(false); }, [sessionId]);
+      useEffect(() => { setPasteDraft(null); setConnectionChoices(null); setTerminalMenu(null); setClipboardNotice(""); terminalSelectionRef.current = ""; setActiveSessionId(current => current); setReviewStream(null); setBusy(false); }, [sessionId]);
+      useEffect(() => () => { if (clipboardNoticeTimer.current) window.clearTimeout(clipboardNoticeTimer.current); }, []);
+      useEffect(() => {
+        if (!terminalMenu) return undefined;
+        const close = event => { if (!event.target?.closest?.(".dsh-remote-ops__clipboardMenu")) setTerminalMenu(null); };
+        const escape = event => { if (event.key === "Escape") { setTerminalMenu(null); terminalInputRef.current?.focus({ preventScroll: true }); } };
+        document.addEventListener("pointerdown", close);
+        document.addEventListener("keydown", escape);
+        return () => { document.removeEventListener("pointerdown", close); document.removeEventListener("keydown", escape); };
+      }, [terminalMenu]);
       const refresh = useCallback((manual = false) => {
         if (refreshRequest.current && refreshRequest.current.ownerKey === sessionId) { if (manual) refreshRequest.current.manual = true; return refreshRequest.current; }
         const task = (async () => {
@@ -2121,6 +2153,69 @@ window.__ModuleLoader__.load({
           if (value && revision === rawInputRevision.current) { if (manualDrafts.current.has(key)) rememberTerminalDraft(key, pending); setPasteDraft(null); }
         } catch (cause) { setError(cause.message); }
       };
+      const notifyClipboard = message => {
+        setClipboardNotice(message);
+        if (clipboardNoticeTimer.current) window.clearTimeout(clipboardNoticeTimer.current);
+        clipboardNoticeTimer.current = window.setTimeout(() => { setClipboardNotice(""); clipboardNoticeTimer.current = undefined; }, 2400);
+      };
+      const copyTerminalSelection = async (selectedText = undefined) => {
+        const liveSelection = terminalSelectionText(window.getSelection?.(), outputRef.current);
+        if (liveSelection) terminalSelectionRef.current = liveSelection;
+        const text = selectedText ?? (liveSelection || terminalSelectionRef.current);
+        if (!text) { notifyClipboard("先选中终端输出"); return false; }
+        try { await writeClipboard(text); notifyClipboard(`已复制 ${text.length} 个字符`); return true; }
+        catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); return false; }
+      };
+      const pasteClipboard = async () => {
+        try {
+          const text = await readClipboard();
+          if (!text) { notifyClipboard("剪贴板为空"); return; }
+          if (/\r|\n/.test(text)) await previewInput(text);
+          else queueRawInput(text);
+        } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+      };
+      const selectTerminalOutput = () => {
+        const node = outputRef.current;
+        if (!node) return;
+        const selection = window.getSelection?.();
+        if (!selection) return;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        terminalSelectionRef.current = terminalSelectionText(selection, node) || node.textContent || "";
+        setTerminalMenu(null);
+      };
+      const openTerminalMenu = event => {
+        event.preventDefault();
+        const width = 196, height = 148;
+        const liveSelection = terminalSelectionText(window.getSelection?.(), outputRef.current);
+        if (liveSelection) terminalSelectionRef.current = liveSelection;
+        const selection = liveSelection || terminalSelectionRef.current;
+        const host = event.currentTarget.closest?.(".dsh-remote-ops"), bounds = host?.getBoundingClientRect?.() ?? { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+        setTerminalMenu({
+          x: Math.max(8, Math.min(event.clientX - bounds.left, bounds.width - width - 8)),
+          y: Math.max(8, Math.min(event.clientY - bounds.top, bounds.height - height - 8)),
+          selection,
+        });
+      };
+      const terminalKeyDown = event => {
+        if (event.defaultPrevented) return;
+        const hasSelection = Boolean(terminalSelectionText(window.getSelection?.(), outputRef.current));
+        const clipboardAction = terminalShortcutAction(event, hasSelection);
+        if (clipboardAction === "copy") { event.preventDefault(); void copyTerminalSelection(); return; }
+        if (clipboardAction === "paste") return;
+        if (event.isComposing || event.nativeEvent?.isComposing || composingRef.current) return;
+        const sequence = keySequence(event);
+        if (sequence !== undefined) { event.preventDefault(); queueRawInput(sequence); setTerminalInput(""); }
+      };
+      const handleTerminalPaste = event => {
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        const text = event.clipboardData?.getData("text") ?? "";
+        if (/\r|\n/.test(text)) void previewInput(text);
+        else queueRawInput(text);
+      };
       const dismissTabs = targets => {
         const ids = new Set(targets);
         if (dismissedTabs.current.owner !== sessionId) dismissedTabs.current = { owner: sessionId, ids: new Set() };
@@ -2241,7 +2336,7 @@ window.__ModuleLoader__.load({
         if (scrollIntentTimer.current) window.clearTimeout(scrollIntentTimer.current);
         scrollIntentTimer.current = window.setTimeout(() => { userScrollIntent.current = false; scrollIntentTimer.current = undefined; }, 250);
       };
-      const terminalInputCapture = h("textarea", { ref: terminalInputRef, className: "dsh-remote-ops__inputCapture", value: terminalInput, readOnly: !terminalReady, spellCheck: false, autoCapitalize: "off", autoCorrect: "off", "aria-label": "终端输入", onFocus: () => setInputFocused(true), onBlur: () => setInputFocused(false), onCompositionStart: () => { composingRef.current = true; }, onCompositionEnd: () => { composingRef.current = false; }, onChange: (event) => { const value = event.target.value; const completed = terminalInputCompositionValue(value, composingRef.current || event.isComposing || event.nativeEvent?.isComposing); setTerminalInput(value); if (completed !== undefined) { if (completed) queueRawInput(completed); setTerminalInput(""); } }, onKeyDown: (event) => { if (event.isComposing || event.nativeEvent?.isComposing || composingRef.current) return; const sequence = keySequence(event); if (sequence !== undefined) { event.preventDefault(); queueRawInput(sequence); setTerminalInput(""); } }, onPaste: (event) => { event.preventDefault(); const text = event.clipboardData.getData("text"); if (/[\r\n]/.test(text)) previewInput(text); else queueRawInput(text); } });
+      const terminalInputCapture = h("textarea", { ref: terminalInputRef, className: "dsh-remote-ops__inputCapture", value: terminalInput, readOnly: !terminalReady, spellCheck: false, autoCapitalize: "off", autoCorrect: "off", "aria-label": "终端输入", onFocus: () => setInputFocused(true), onBlur: () => setInputFocused(false), onCompositionStart: () => { composingRef.current = true; }, onCompositionEnd: () => { composingRef.current = false; }, onChange: (event) => { const value = event.target.value; const completed = terminalInputCompositionValue(value, composingRef.current || event.isComposing || event.nativeEvent?.isComposing); setTerminalInput(value); if (completed !== undefined) { if (completed) queueRawInput(completed); setTerminalInput(""); } }, onKeyDown: terminalKeyDown, onPaste: handleTerminalPaste });
       const jumpToLatest = () => { stickToBottom.current = true; setUnreadOutput(false); const node = outputRef.current; if (node) node.scrollTop = node.scrollHeight; terminalInputRef.current?.focus(); };
       const activityLabel = { waiting: "等待回传", inferred_idle: "静默 · 完成未知", timeout: "等待超时", cancelled: "已中断等待", session_exit: "已退出" }[activeTerminalFrame?.activity];
       const inputControl = activeTerminalFrame?.control ?? activeSession?.control ?? {};
@@ -2260,6 +2355,12 @@ window.__ModuleLoader__.load({
           }, h("span", { className: "dsh-remote-ops__connectionState", "data-state": status.state, "aria-hidden": true }), h("span", { className: "dsh-remote-ops__tabName" }, item.name), item.disconnected || terminalUnread[item.sessionId] ? h("span", { className: "dsh-remote-ops__tabState", "aria-hidden": true }, item.disconnected ? "已断开" : "●") : null),
           ["ssh", "telnet", "serial"].includes(item.kind) ? h("button", { type: "button", className: "dsh-remote-ops__tabClose", title: status.state === "busy" ? "关闭标签并取消关联等待" : item.disconnected ? "关闭记录" : "释放此连接", "aria-label": `释放${item.name}`, disabled: busy, onClick: event => { event.stopPropagation(); void releaseSession(item); } }, h(IconCloseOutline16, { "aria-hidden": true })) : null); }));
       const terminalLocation = localActive ? activeSession.workingDirectory : activeSession?.kind === "serial" ? (connectedEndpoint?.path ?? activeEnvironment?.serial?.path) : connectedEndpoint ? `${connectedEndpoint.username ? connectedEndpoint.username + "@" : ""}${connectedEndpoint.host}:${connectedEndpoint.port ?? (activeSession?.kind === "telnet" ? 23 : 22)}` : activeSession?.sessionId;
+      const clipboardMenuView = terminalMenu ? h("div", { className: "dsh-remote-ops__clipboardMenu", role: "menu", style: { left: terminalMenu.x, top: terminalMenu.y }, onPointerDown: event => event.stopPropagation() },
+        h("button", { type: "button", role: "menuitem", disabled: !terminalMenu.selection, onClick: () => { setTerminalMenu(null); void copyTerminalSelection(terminalMenu.selection); } }, h(IconCopyOutline16, { size: 16, "aria-hidden": true }), "复制选中内容"),
+        h("button", { type: "button", role: "menuitem", disabled: !terminalReady, onClick: () => { setTerminalMenu(null); void pasteClipboard(); } }, "粘贴到终端"),
+        h("button", { type: "button", role: "menuitem", disabled: !activeSession, onClick: selectTerminalOutput }, "全选输出"),
+        h("button", { type: "button", role: "menuitem", onClick: () => setTerminalMenu(null) }, "取消"),
+      ) : null;
       const terminal = h("section", { className: "dsh-remote-ops__terminal", hidden: module !== "terminal" || drawer || diagnosticsOpen || !!settingsTab },
         h("div", { className: "dsh-remote-ops__terminalHead" },
           h("div", { className: "dsh-remote-ops__tabNavigation" }, terminalTabScrollButton("left"), terminalTabs, terminalTabScrollButton("right")),
@@ -2269,6 +2370,9 @@ window.__ModuleLoader__.load({
           h("button", { title: "导出当前终端 TXT", "aria-label": "导出当前终端 TXT", disabled: logExporting || !activeSession, onClick: () => void exportLogs(false) }, h(IconDownloadOutline16)),
           h("details", { className: "dsh-remote-ops__terminalLook dsh-remote-ops__operationMenu", onKeyDown: event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } } },
             h("summary", { "aria-label": "终端操作", title: "更多终端操作" }, "更多", h(IconChevronDownOutline14)), h("div", null,
+            h("button", { onClick: event => { event.currentTarget.closest("details").open = false; void copyTerminalSelection(); } }, h(IconCopyOutline16, { "aria-hidden": true }), "复制选中内容"),
+            h("button", { disabled: !terminalReady, onClick: event => { event.currentTarget.closest("details").open = false; void pasteClipboard(); } }, "粘贴到终端"),
+            h("button", { disabled: !activeSession, onClick: event => { event.currentTarget.closest("details").open = false; selectTerminalOutput(); } }, "全选输出"),
             h("button", { disabled: !sessionId || !activeSession || activeSession.disconnected || ["serial", "telnet"].includes(activeSession.kind), onClick: event => { const menu = event.currentTarget.closest("details"); menu.open = false; menu.querySelector("summary")?.focus(); setCommandTarget({ ...activeSession }); } }, "独立命令"),
             h("button", { disabled: logExporting, onClick: event => { event.currentTarget.closest("details").open = false; void exportLogs(true); } }, "一键打包本会话全部日志"),
             h("small", null, "包含仍保留的已关闭终端。"),
@@ -2279,13 +2383,14 @@ window.__ModuleLoader__.load({
         activeSession?.disconnected ? h("div", { className: "dsh-remote-ops__toolbar", role: "status" }, h("span", { title: "不会自动重放任何命令" }, `连接已断开 · 保留最后输出${snapshot.disconnects?.find((item) => item.sessionId === activeSession.sessionId)?.reason ? ` · ${snapshot.disconnects.find((item) => item.sessionId === activeSession.sessionId).reason}` : ""}`), activeEnvironment ? h("button", { disabled: busy, onClick: () => void reconnect() }, "重新连接") : null, h("button", { disabled: busy, onClick: () => void releaseSession(activeSession) }, terminalTabStatus(activeSession).state === "busy" ? "关闭标签并取消等待" : "关闭记录")) : null,
         reviewStream === activeFrameKey ? h("div", { className: "dsh-remote-ops__toolbar", role: "status" }, "终端已重建", h("button", { onClick: () => { setReviewStream(null); terminalInputRef.current?.focus(); } }, "启用新终端输入")) : null,
         searchOpen ? h("div", { className: "dsh-remote-ops__toolbar" }, h("input", { className: "dsh-remote-ops__search", "aria-label": "搜索终端输出", value: outputSearch, onChange: event => { setOutputSearch(event.target.value); setMatchIndex(0); }, onKeyDown: event => { if (event.key === "Enter") moveMatch(event.shiftKey ? -1 : 1); } }), h("span", null, `${matches.length ? matchIndex % matches.length + 1 : 0}/${matches.length}`), h("button", { disabled: !matches.length, title: "上一处", "aria-label": "上一处匹配", onClick: () => moveMatch(-1) }, "↑"), h("button", { disabled: !matches.length, title: "下一处", "aria-label": "下一处匹配", onClick: () => moveMatch(1) }, "↓")) : null,
-        activeSession ? h("div", { className: "dsh-remote-ops__screen", role: "tabpanel", id: terminalPanelId, "aria-labelledby": terminalTabId(activeTerminalId), "data-focused": inputFocused, onClick: () => { if (!window.getSelection()?.toString()) terminalInputRef.current?.focus(); } },
+        activeSession ? h("div", { className: "dsh-remote-ops__screen", role: "tabpanel", id: terminalPanelId, "aria-labelledby": terminalTabId(activeTerminalId), "data-focused": inputFocused, onClick: () => { if (!window.getSelection()?.toString()) terminalInputRef.current?.focus(); }, onContextMenu: openTerminalMenu, onKeyDown: terminalKeyDown, onPaste: handleTerminalPaste },
           h("pre", { className: "dsh-remote-ops__output", ref: outputRef, style: { fontSize: preferences.fontSize, whiteSpace: preferences.wrap && !terminalUsesGrid(terminalScreen) ? "pre-wrap" : "pre", overflowWrap: preferences.wrap && !terminalUsesGrid(terminalScreen) ? "anywhere" : "normal" }, tabIndex: 0, "aria-label": "终端输出", onWheel: markUserScrollIntent, onPointerDown: markUserScrollIntent, onScroll: (event) => { const node = event.currentTarget; rememberScroll(node); const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 48; if (userScrollIntent.current) stickToBottom.current = nearBottom; else if (nearBottom) stickToBottom.current = true; if (nearBottom) setUnreadOutput(false); } }, terminalOutputView),
           terminalInputCapture,
           unreadOutput ? h("button", { className: "dsh-remote-ops__newOutput", onClick: jumpToLatest, title: "回到最新输出" }, "↓ 新输出") : null,
-        ) : h("div", { className: "dsh-remote-ops__screen dsh-remote-ops__screenEmpty", onClick: () => terminalInputRef.current?.focus() }, h("div", { className: "dsh-remote-ops__empty" }, h("div", null, h("div", { style: { fontSize: "22px", marginBottom: "8px" } }, "›_"), h("div", null, terminalReady ? "输入 ssh [user@]host 并按 Enter 连接，或从环境抽屉选择环境。" : "等待本地 CMD 启动…"), pendingSshInput ? h("pre", { className: "dsh-remote-ops__pendingCommand" }, pendingSshInput) : null)), terminalInputCapture, h("div", { className: "dsh-remote-ops__screenHint" }, terminalReady ? "输入 SSH 命令 · Enter 连接" : "等待本地 CMD 启动…")),
+        ) : h("div", { className: "dsh-remote-ops__screen dsh-remote-ops__screenEmpty", onClick: () => terminalInputRef.current?.focus(), onContextMenu: openTerminalMenu, onKeyDown: terminalKeyDown, onPaste: handleTerminalPaste }, h("div", { className: "dsh-remote-ops__empty" }, h("div", null, h("div", { style: { fontSize: "22px", marginBottom: "8px" } }, "›_"), h("div", null, terminalReady ? "输入 ssh [user@]host 并按 Enter 连接，或从环境抽屉选择环境。" : "等待本地 CMD 启动…"), pendingSshInput ? h("pre", { className: "dsh-remote-ops__pendingCommand" }, pendingSshInput) : null)), terminalInputCapture, h("div", { className: "dsh-remote-ops__screenHint" }, terminalReady ? "输入 SSH 命令 · Enter 连接" : "等待本地 CMD 启动…")),
         h("div", { className: "dsh-remote-ops__terminalStatus", role: "status" },
           logExporting ? h("span", null, "正在打包日志…") : null,
+          clipboardNotice ? h("span", { className: "dsh-remote-ops__clipboardNotice" }, clipboardNotice) : null,
           h("span", { "data-state": outputConnection }, activeSession ? activeSession.disconnected ? "已断开" : outputConnection === "connected" ? "实时输出" : outputConnection === "retrying" ? "输出重连中" : "同步中" : "未连接"),
           h("span", { className: "dsh-remote-ops__terminalLocation", title: terminalLocation }, terminalLocation),
           h("details", { className: "dsh-remote-ops__statusDetails" }, h("summary", null, "状态详情"), h("div", null,
@@ -2355,6 +2460,7 @@ window.__ModuleLoader__.load({
           diagnosticsOpen ? aux : null, settingsGeneral, settingsTerminal,
           h("div",settingsPanelProps("updates"),updatesVisited?h(UpdateDialog,{embedded:true,visible:settingsTab==="updates",onClose:closeSettings,onStatus:setUpdate}):null),
           terminal,
+          clipboardMenuView,
           h("div",{className:"dsh-remote-ops__moduleHost",hidden:module!=="desktop"||drawer||diagnosticsOpen||!!settingsTab},desktopVisited?h(DesktopWorkspacePanel,{key:sessionId,sessionId,environments:snapshot.environments,visible:module==="desktop"&&!drawer&&!diagnosticsOpen&&!settingsTab}):null),
           h("div",{className:"dsh-remote-ops__moduleHost",hidden:!(settingsTab==="browser"||module==="browser"&&!drawer&&!diagnosticsOpen&&!settingsTab),role:settingsTab==="browser"?"tabpanel":undefined,id:"settings-panel-"+uiKey+"-browser","aria-labelledby":settingsTab==="browser"?"settings-tab-"+uiKey+"-browser":undefined},browserVisited?h(BrowserWorkspacePanel,{key:sessionId,sessionId,visible:module==="browser"&&!drawer&&!diagnosticsOpen&&!settingsTab,settings:settingsTab==="browser"}):null),
           h("div",{className:"dsh-remote-ops__moduleHost",hidden:!(drawer&&environmentKind==="api"||module==="api"&&!drawer&&!diagnosticsOpen&&!settingsTab),role:drawer&&environmentKind==="api"?"tabpanel":undefined,id:"environment-panel-"+uiKey+"-api","aria-labelledby":drawer&&environmentKind==="api"?"environment-tab-"+uiKey+"-api":undefined},apiVisited?h(ApiWorkspacePanel,{key:sessionId,sessionId,sshEnvironments:snapshot.environments.filter(env=>(env.transport??"ssh")==="ssh"),mode:drawer&&environmentKind==="api"?"environments":"workspace",onManage:()=>openEnvironments("api"),onUse:()=>{setModule("api");setDrawer(false);},askPanel}):null),

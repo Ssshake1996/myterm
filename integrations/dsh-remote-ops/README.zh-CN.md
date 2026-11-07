@@ -2,7 +2,7 @@
 
 面向 DeepSeek Harness 的终端、网页、Windows 桌面与 RESTful API 运维插件。用户与 Agent 共享可见终端、软件窗口、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
 
-## 串口终端（v0.14.0）
+## 串口终端（v0.14.1）
 
 进入 **环境 → 终端环境 → + 环境**，在「连接协议」中选择 **SERIAL**。从候选列表选择串口，或填入插件所在主机可访问的设备路径，例如 `COM3`、`/dev/ttyUSB0`、`/dev/cu.usbserial-001`。按设备手册设置波特率、数据位、停止位、校验位、流控、编码和回车换行。默认值为 9600、8N1、无流控、CR。保存后点击「进入」，串口会出现在原有终端标签栏。
 
@@ -95,14 +95,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.14.0.tgz
-  SHA256SUMS-dsh-remote-ops-v0.14.0.txt
+  dsh-remote-ops-v0.14.1.tgz
+  SHA256SUMS-dsh-remote-ops-v0.14.1.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.14.0.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.14.1.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -135,6 +135,12 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 环境编辑页的 SSH 密码旁提供眼睛按钮。默认遮蔽，点击后读取当前生效的已保存密码；再次点击隐藏，关闭编辑页或抽屉后清除读取结果。新输入的密码也可显示核对。
 
 仅查看不会修改密码，查看后保存其他字段仍保留原凭据；输入新密码才会更新。未配置、凭据缺失或服务不可用时会明确提示，并可重试或重新输入。明文不写入浏览器持久存储、环境列表、诊断记录或 Agent 工具返回值。随包环境管理 skill 提供查看路径。
+
+## 终端复制与粘贴
+
+本地 CMD、SSH、Telnet 和 Serial 终端共用复制粘贴逻辑。选中回显后按 `Ctrl+C`，或右键选择“复制选中内容”；没有选区时 `Ctrl+C` 仍发送中断信号。`Ctrl+V` 和右键“粘贴到终端”向当前会话输入剪贴板内容，单行直接发送，包含换行的内容先进入确认框，确认后才提交。
+
+右键菜单还提供“全选输出”。复制结果是纯文本，不携带颜色和光标装饰。浏览器不允许读取或写入剪贴板时，界面会显示原因，可改用鼠标选区或手动输入。复制粘贴只影响可见终端，不改变 Agent 工具协议，也不会额外写入终端日志。
 
 ## 终端日志
 
@@ -215,7 +221,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.14.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.14.1.tgz
 dsh web
 ```
 
