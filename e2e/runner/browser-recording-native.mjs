@@ -26,10 +26,10 @@ const server = createServer(async (req, res) => {
     if (req.url === '/page') { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end('<title>Web recording fixture</title><h3>Recording acceptance</h3><label for="entry">Name</label><input id="entry" style="position:absolute;left:20px;top:48px;width:240px;height:32px" oninput="document.querySelector(\'#result\').textContent=this.value"><button style="position:absolute;top:100px;left:20px" id="save" onclick="document.querySelector(\'#result\').textContent=\'Saved \'+document.querySelector(\'#entry\').value">Save</button><div id="result" style="position:absolute;top:150px"></div>'); return; }
     let raw = ''; for await (const part of req) raw += part;
     const body = JSON.parse(raw), messages = body.messages ?? [];
-    const at = messages.findLastIndex(item => item.role === 'user' && /RECORDING_NATIVE_(READY|RUN|READ)/.test(JSON.stringify(item.content)));
-    const stage = at >= 0 ? /RECORDING_NATIVE_(READY|RUN|READ)/.exec(JSON.stringify(messages[at].content))[1] : 'NONE';
+    const at = messages.findLastIndex(item => item.role === 'user' && /RECORDING_NATIVE_(READY|RUN|ACTIVE|READ)/.test(JSON.stringify(item.content)));
+    const stage = at >= 0 ? /RECORDING_NATIVE_(READY|RUN|ACTIVE|READ)/.exec(JSON.stringify(messages[at].content))[1] : 'NONE';
     const results = messages.slice(at + 1).filter(item => item.role === 'tool').map(item => decode(item.content));
-    const plans = { READY: [['skill', { name: 'remote-ops-web-recordings' }], ['remote_browser_runtime', { action: 'status' }]], RUN: [['remote_browser_run', { steps: [{ action: 'fill', target: { kind: 'css', value: '#entry' }, value: 'Agent entry' }, { action: 'click', target: { kind: 'css', value: '#save' }, expect: { target: { kind: 'css', value: '#result' }, text: 'Saved Agent entry' } }] }]], READ: [['remote_browser_recording', { action: 'read', recordingId, limit: 200 }]] };
+    const plans = { READY: [['skill', { name: 'remote-ops-web-recordings' }], ['remote_browser_runtime', { action: 'status' }]], RUN: [['remote_browser_run', { steps: [{ action: 'fill', target: { kind: 'css', value: '#entry' }, value: 'Agent entry' }, { action: 'click', target: { kind: 'css', value: '#save' }, expect: { target: { kind: 'css', value: '#result' }, text: 'Saved Agent entry' } }] }]], ACTIVE: [['remote_browser_recording', { action: 'start' }], ['remote_browser_list', {}], ['remote_browser_read', {}], ['remote_browser_recording', { action: 'read', recordingId, limit: 200 }]], READ: [['remote_browser_recording', { action: 'read', recordingId, limit: 200 }]] };
     const plan = plans[stage] ?? [];
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     const emit = (delta, finish_reason = null) => res.write('data: ' + JSON.stringify({ id: 'recording-native', object: 'chat.completion.chunk', created: 1, model: 'native-test', choices: [{ index: 0, delta, finish_reason }] }) + '\n\n');
@@ -124,6 +124,15 @@ try {
   await step('原生 Agent 操作和人工网页输入均被记录', async () => {
     await agent('RUN');
     await until(async () => (await snapshot()).sessions.find(item => !item.closed)?.job?.status === 'completed');
+    const active = await agent('ACTIVE');
+    assert.equal(active.length, 4);
+    assert.equal(active[0]?.id, recordingId); assert.equal(active[0]?.error, null);
+    assert.equal(active[1]?.sessions?.find(item => !item.closed)?.recording?.id, recordingId);
+    assert.equal(active[2]?.browser?.recording?.status, 'recording'); assert.equal(active[2]?.browser?.recording?.error, null);
+    assert.equal(active[2]?.browser?.job?.status, 'completed');
+    assert.equal(active[3]?.recording?.status, 'recording'); assert.equal(active[3]?.recording?.error, null);
+    assert.ok(active[3]?.events?.some(item => item.source === 'agent' && item.details?.step?.value === 'Agent entry'));
+    evidence.activeRecordingToolReceipts = ['start', 'list-browsers', 'read-page', 'read-recording'];
     const current = (await snapshot()).sessions.find(item => !item.closed), image = page.getByAltText('网页实时画面', { exact: true }), bounds = await image.boundingBox();
     await image.click({ position: { x: 50 * bounds.width / current.viewport.width, y: 64 * bounds.height / current.viewport.height } });
     await page.keyboard.press('Control+A'); await page.keyboard.insertText('Human entry'); await page.keyboard.press('Tab');

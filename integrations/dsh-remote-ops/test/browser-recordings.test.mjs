@@ -87,7 +87,15 @@ test('recording tool and JSON download route use the same conversation ownership
   const ctx={tools:{register:tool=>tools.set(tool.name,tool)},systemPrompt:{section(){}},effect:fn=>fn(),connection:{fetch:{register:route=>routes.set(route.path,route)}},agents:{get:id=>id==='owner'?{id}:undefined}};
   const state={browser:f.w,resolveOwner:async id=>({id})};registerBrowserTools(ctx,state);registerBrowserRoutes(ctx,state);
   const tool=tools.get('remote_browser_recording'),exec={agent:{id:'owner'}};
-  const started=await tool.execute({action:'start',browserId:f.id},exec);await tool.execute({action:'stop',recordingId:started.id},exec);
+  const started=await tool.execute({action:'start',browserId:f.id},exec);
+  // DSH validates raw tool results before rendering: undefined is not JSON.
+  const jsonResult=value=>assert.deepEqual(JSON.parse(JSON.stringify(value)),value);
+  jsonResult(started);
+  jsonResult(await tools.get('remote_browser_list').execute({},exec));
+  jsonResult(await tools.get('remote_browser_read').execute({browserId:f.id},exec));
+  jsonResult(await tool.execute({action:'read',recordingId:started.id},exec));
+  jsonResult(await tool.execute({action:'read'},exec));
+  jsonResult(await tool.execute({action:'stop',recordingId:started.id},exec));
   const route=routes.get('/api/dsh-remote-ops/browser/recording/export');assert.ok(route);
   const response=await route.fetch(new Request(`http://localhost/api/dsh-remote-ops/browser/recording/export?sessionId=owner&recordingId=${started.id}`));
   assert.equal(response.status,200);assert.match(response.headers.get('content-disposition'),/attachment/);assert.equal((await response.json()).recording.id,started.id);

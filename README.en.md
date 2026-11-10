@@ -18,7 +18,7 @@
 
 These screenshots show v0.9.2 installed in real DSH 0.2.0-rc.2; the installed package matches the official Release SHA256. A deterministic test provider drives real tools against isolated local SSH, web and API services.
 
-## Web recordings and bundled browser (v0.15.1)
+## Web recordings and bundled browser (v0.15.2)
 
 Start, stop, read and export human/Agent webpage operations from the Web toolbar or `remote_browser_recording`. The bundled `remote-ops-web-recordings` skill teaches the Agent to interpret records, parameterize device addresses and generate code in the user's chosen framework or template.
 
@@ -112,14 +112,14 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 ## Manual intranet HTTP/HTTPS updates
 
-Current version: [v0.15.1](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.15.1), adding human/Agent webpage recordings, JSON export, a bundled interpretation skill and the internal browser runtime. See the [release notes](docs/releases/dsh-remote-ops-v0.15.1.md) and [acceptance record](docs/testing/dsh-remote-ops-v0.15.1-acceptance.md).
+Current version: [v0.15.2](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.15.2), adding human/Agent webpage recordings, JSON export, a bundled interpretation skill and the internal browser runtime. See the [release notes](docs/releases/dsh-remote-ops-v0.15.2.md) and [acceptance record](docs/testing/dsh-remote-ops-v0.15.2-acceptance.md).
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.15.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.1.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.15.2.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.2.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.2.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -238,7 +238,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from the [latest stable release](https://github.com/Ssshake1996/myterm/releases/latest), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.15.1.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.15.2.tgz
 dsh web
 ```
 
@@ -285,15 +285,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.1
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.2
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.15.1
-node scripts/release-dsh-remote-ops.mjs 0.15.1 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.15.2
+node scripts/release-dsh-remote-ops.mjs 0.15.2 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

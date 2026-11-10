@@ -46,7 +46,7 @@ export class BrowserRecordings {
     if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, this.clean(record, item)]));
     return value;
   }
-  summary(record) { return record.recording ? { ...record.recording.metadata, error: record.recording.error } : null; }
+  summary(record) { return record.recording ? { ...record.recording.metadata, error: record.recording.error ?? null } : null; }
   queue(recording, task) {
     const pending = this.writes.then(task);
     this.writes = pending.catch(error => { recording.error = `Recording persistence failed: ${error.code ?? 'IO_ERROR'}`; recording.metadata.status = 'error'; });
