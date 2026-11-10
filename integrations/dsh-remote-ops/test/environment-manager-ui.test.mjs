@@ -9,7 +9,8 @@ function mount(overrides = {}) {
   const hooks = [], effects = [], hook = () => hooks[index++] ??= {};
   const React = {
     createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }),
-    useState(initial) { const slot = hook(); if (!('value' in slot)) slot.value = initial; return [slot.value, value => { slot.value = typeof value === 'function' ? value(slot.value) : value; }]; },
+    useState(initial) { const slot = hook(); if (!('value' in slot)) slot.value = typeof initial === 'function' ? initial() : initial; return [slot.value, value => { slot.value = typeof value === 'function' ? value(slot.value) : value; }]; },
+    useId() { return 'test-group-list'; },
     useRef(initial) { const slot = hook(); return slot.value ??= { current: initial }; },
     useEffect(effect, deps) { const slot = hook(); if (!slot.deps || deps.some((value, i) => value !== slot.deps[i])) { slot.deps = deps; effects.push(() => { slot.cleanup?.(); slot.cleanup = effect(); }); } },
   };
@@ -23,6 +24,21 @@ function mount(overrides = {}) {
   render();
   return { props, render, nodes, button, field, selectAll, unmount: () => hooks.forEach(slot => slot.cleanup?.()) };
 }
+
+test('collapsing a selected group removes its hidden rows from batch deletion', async () => {
+  const deleted = [];
+  const view = mount({ onDelete: async env => { deleted.push(env.id); return true; } });
+  view.selectAll();
+  view.field('分组 one').props.onClick();
+  view.render(); view.render();
+  assert.equal(view.field('分组 one').props['aria-expanded'], false);
+  assert.equal(view.field('分组 two').props['aria-expanded'], true);
+  assert.deepEqual(view.nodes().filter(node => node.type === 'article').map(node => node.props['data-environment-row']), ['b']);
+  view.button('删除所选（1）').props.onClick();
+  await tick();
+  assert.deepEqual(deleted, ['b']);
+  view.unmount();
+});
 
 test('batch deletion freezes IDs before confirmation, deduplicates clicks and excludes new environments', async () => {
   const confirmation = deferred(), calls = []; let questions = 0;

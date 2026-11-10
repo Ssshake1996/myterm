@@ -6,6 +6,7 @@ export async function verifyEnvironmentManager(t, { api, device, apiUrl }) {
   const until = async fn => { for (let i = 0; i < 100; i++) { if (await fn()) return; await p.waitForTimeout(100); } throw Error('Environment manager did not settle'); };
   const row = name => manager().locator('[data-environment-row]').filter({ hasText: name });
   const selectGroup = name => manager().locator('.dsh-remote-ops__environmentMobileGroup select').selectOption(name);
+  const toggle = name => manager().getByRole('button', { name: '分组 ' + name, exact: true });
   const more = name => row(name).getByRole('button', { name: '更多环境操作 ' + name, exact: true }).click();
   const confirmation = () => p.getByRole('dialog', { name: '确认操作', exact: true });
   const environments = [
@@ -16,8 +17,37 @@ export async function verifyEnvironmentManager(t, { api, device, apiUrl }) {
   for (const environment of environments) await api('action', { action: 'environment.save', environment: { ...environment, host: device.host, port: device.port, username: device.username }, password: device.password ?? 'e2e-device-pass' });
   await api('action', { action: 'group.create', name: '布局空分组' });
   for (const suffix of ['A', 'B']) await api('api', { action: 'environment.save', environment: { name: '布局 API ' + suffix, group: '布局 API', baseUrl: apiUrl, auth: { mode: 'none' } } });
+  await api('api', { action: 'environment.save', environment: { name: '同名分组 API', group: '布局生产', baseUrl: apiUrl, auth: { mode: 'none' } } });
   await panel.getByRole('button', { name: '环境管理', exact: true }).click();
   await p.getByRole('tab', { name: '终端环境', exact: true }).click();
+  await t.step('各组可独立折叠，搜索临时展开匹配项，终端与 API 的同名组分别记忆', async () => {
+    const production = toggle('布局生产'), test = toggle('布局测试');
+    await production.waitFor();
+    assert.equal(await production.getAttribute('aria-expanded'), 'true');
+    await production.focus(); await p.keyboard.press('Space');
+    assert.equal(await production.getAttribute('aria-expanded'), 'false');
+    assert.equal(await row('布局生产 A').isVisible(), false);
+    assert.equal(await row('布局测试').isVisible(), true);
+    await test.click();
+    const search = manager().getByLabel('搜索 终端环境 环境', { exact: true });
+    await search.fill('生产 A');
+    assert.equal(await row('布局生产 A').isVisible(), true);
+    assert.equal(await row('布局生产 B').isVisible(), false);
+    await search.fill('');
+    assert.equal(await production.getAttribute('aria-expanded'), 'false');
+    assert.equal(await test.getAttribute('aria-expanded'), 'false');
+    const tabs = p.getByRole('tablist', { name: '环境类型' });
+    await tabs.getByRole('tab', { name: 'API', exact: true }).click();
+    await row('同名分组 API').waitFor();
+    assert.equal(await production.getAttribute('aria-expanded'), 'true');
+    await production.click();
+    await tabs.getByRole('tab', { name: '终端环境', exact: true }).click();
+    await production.focus(); await p.keyboard.press('Enter');
+    assert.equal(await row('布局生产 A').isVisible(), true);
+    assert.equal(await test.getAttribute('aria-expanded'), 'false');
+    await test.click();
+    // Leave the API group collapsed through the remaining drawer and form operations.
+  });
   await t.step('抽屉以分组选择节省空间，仅连接与更多操作外露', async () => {
     await selectGroup('布局生产');
     assert.equal(await manager().locator('[data-environment-row]').count(), 2);
@@ -105,4 +135,17 @@ export const environmentManagerScenario = { id: 'environment-manager', title: '�
     const value = await response.json(); if (!response.ok) throw Error(JSON.stringify(value)); return value;
   }, { path, body: { sessionId: info.sessionId, ...body } });
   await verifyEnvironmentManager(t, { api, device: info.device, apiUrl: info.website.url });
+  await t.step('重新加载后恢复 API 分组，终端同名组仍展开', async () => {
+    await p.reload();
+    await p.getByRole('button', { name: 'Remote Ops', exact: true }).click();
+    await p.getByRole('button', { name: '环境管理', exact: true }).click();
+    const tabs = p.getByRole('tablist', { name: '环境类型' });
+    const group = p.getByRole('button', { name: '分组 布局生产', exact: true });
+    await tabs.getByRole('tab', { name: 'API', exact: true }).click();
+    await group.waitFor();
+    assert.equal(await group.getAttribute('aria-expanded'), 'false');
+    await tabs.getByRole('tab', { name: '终端环境', exact: true }).click();
+    await group.waitFor();
+    assert.equal(await group.getAttribute('aria-expanded'), 'true');
+  });
 } };

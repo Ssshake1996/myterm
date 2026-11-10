@@ -18,6 +18,10 @@
 
 These screenshots show v0.9.2 installed in real DSH 0.2.0-rc.2; the installed package matches the official Release SHA256. A deterministic test provider drives real tools against isolated local SSH, web and API services.
 
+## Collapsible environment groups (v0.15.4)
+
+Click a group name in the environment drawer to collapse or expand it. Groups start expanded. Terminal and API environments remember their groups independently. Searching reveals matches and clearing the search restores your layout. Bulk selection includes only visible environments in expanded groups.
+
 ## Environment drawer and compact toolbar (v0.15.3)
 
 Environments open in a left drawer inside the plugin: overlay by default, optionally pinned on wide panels, and full width on narrow panels. Escape restores focus; drafts, terminal sessions, webpages and recordings remain available. Compact toolbars and row More menus free workspace space. Verified locally with DSH Desktop 0.2.1-rc.5.
@@ -116,14 +120,14 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 ## Manual intranet HTTP/HTTPS updates
 
-Current version: [v0.15.3](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.15.3), adding the environment drawer, optional pinning and compact toolbars while preserving terminal, webpage and recording state. See the [release notes](docs/releases/dsh-remote-ops-v0.15.3.md) and [acceptance record](docs/testing/dsh-remote-ops-v0.15.3-acceptance.md).
+The current release is [v0.15.4](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.15.4). The environment drawer now remembers which groups you collapse. See the [release notes](docs/releases/dsh-remote-ops-v0.15.4.md).
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.15.3.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.3.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.15.4.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.4.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.3.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.4.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -242,7 +246,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from the [latest stable release](https://github.com/Ssshake1996/myterm/releases/latest), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.15.3.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.15.4.tgz
 dsh web
 ```
 
@@ -289,15 +293,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.3
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.4
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.15.3
-node scripts/release-dsh-remote-ops.mjs 0.15.3 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.15.4
+node scripts/release-dsh-remote-ops.mjs 0.15.4 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

@@ -87,6 +87,7 @@ const iconExports = [
 ];
 
 function iconClientFixture(exportIndex) {
+  let nextId = 0;
   const h = (type, props, ...children) => {
     assert.ok(typeof type === "string" || typeof type === "function", `invalid React element type: ${String(type)}`);
     if (typeof type === "function") return type({ ...props, children });
@@ -94,6 +95,7 @@ function iconClientFixture(exportIndex) {
   };
   const React = {
     createElement: h, Fragment: "fragment",
+    useId: () => "fixture-id-" + ++nextId,
     useState: initial => [typeof initial === "function" ? initial() : initial, () => {}],
     useRef: current => ({ current }), useEffect() {},
     useCallback: callback => callback, useMemo: callback => callback(),
