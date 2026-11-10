@@ -1,5 +1,7 @@
 # dsh-remote-ops v0.15.0
 
+此标签的发布流程已取消，未上传正式安装包。正式版本为 [v0.15.1](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.15.1)，补齐了旧版浏览器实例热加载时的录制初始化。
+
 网页操作可以保存为持久记录：在网页工具栏点击“开始录制”，完成人工或 Agent 操作后点击“停止录制”，再从“录制记录”读取和导出 JSON。Agent 使用 `remote_browser_recording` 的 `start`、`stop`、`read`、`export` 调用相同能力。停止录制不停止网页任务。
 
 记录包含 Agent 步骤、人工网页输入与点击、页面导航、iframe 与弹出网页上下文、元素定位候选和动作结果。记录按对话隔离并持久保存；重启后可读取中断记录。敏感输入和 URL 查询值脱敏，未知结果、未完成动作及录制上限均保留明确状态。

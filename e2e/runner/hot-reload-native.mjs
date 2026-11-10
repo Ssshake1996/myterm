@@ -1,7 +1,7 @@
 // Real DSH, an isolated profile, real Chrome and SSH protocol connections to a
 // scripted local device. Synthetic later releases are fixtures, never published.
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, symlink } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
@@ -67,6 +67,9 @@ try {
     const parts = baseVersion.split(".").map(Number); parts[2] += index; const version = parts.join(".");
     const dir = join(out, "fixture-" + version); await mkdir(dir, { recursive: true });
     await run("tar", ["-xzf", pkg, "-C", dir]);
+    // Synthetic later versions still run the real prepack checks. Resolve their
+    // browser dependency from the test workspace without shipping node_modules.
+    await symlink(resolve('integrations/dsh-remote-ops/node_modules'), join(dir, 'package/node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
     for (const file of ["package.json", "lib/version.js", "lib/client.js"]) {
       const path = join(dir, "package", file); let text = (await readFile(path, "utf8")).replaceAll(baseVersion, version);
       if (file === "lib/client.js") text = text.replace("手动检查并安装更新。", `NATIVE_CLIENT_${version} 手动检查并安装更新。`);
@@ -87,7 +90,7 @@ try {
   page.on("request", request => { const u = new URL(request.url()); if (u.pathname.endsWith("/state") && u.searchParams.get("sessionId")) owner = u.searchParams.get("sessionId"); if (u.pathname === "/plugins/" && u.search.includes("remote-ops")) moduleRequests.push(request.url()); });
   await page.goto(url); const editor = page.getByRole("textbox", { name: /描述你想要|发消息或创建任务/ }); await editor.waitFor();
   await page.getByRole("button", { name: "Remote Ops", exact: true }).click(); await page.getByLabel("终端输出", { exact: true }).waitFor();
-  const api = (path, body) => page.evaluate(async ({ path, body }) => { const response = await fetch("/api/dsh-remote-ops/" + path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}); const value = await response.json(); if (!response.ok) throw Error(JSON.stringify(value)); return value; }, { path, body });
+  const api = (path, body) => page.evaluate(async ({ path, body }) => { const response = await fetch("/api/dsh-remote-ops/" + path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}); const text = await response.text(); if (!response.ok) throw Error(`HTTP ${response.status}: ${text.slice(0, 500)}`); return JSON.parse(text); }, { path, body });
   const state = () => api("state?sessionId=" + owner), update = () => api("update");
   readState = state;
   const boundState = () => until(async () => { const value = await state(); if (!value.bound) evidence.temporaryUnboundReads = (evidence.temporaryUnboundReads ?? 0) + 1; return value.bound && value; });
@@ -201,7 +204,7 @@ try {
       await until(() => held); assert.equal(await readFile(join(uploadRoot, "gap-one.txt"), "utf8"), "gap-one.txt contents");
       const beforeBatch = await state(), clientLoads = moduleRequests.length;
       feed = await nextPackage(2); await api("update", { action: "install" });
-      await until(async () => (await update()).hotReload.pending);
+      await until(async () => { try { return (await update()).hotReload.pending; } catch {} });
       await new Promise(r => setTimeout(r, 1800));
       assert.equal((await state()).runtimeId, beforeBatch.runtimeId); assert.equal(moduleRequests.length, clientLoads);
       assert.ok((await update()).hotReload.blockers.includes("浏览器批量上传中"));

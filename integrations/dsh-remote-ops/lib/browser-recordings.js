@@ -17,8 +17,21 @@ export function recordingUrl(value) {
     return url.href;
   } catch { return '[unavailable URL]'; }
 }
+export function adoptBrowserRecordings(workspace) {
+  workspace.recordings ??= new BrowserRecordings(workspace);
+  Object.setPrototypeOf(workspace.recordings, BrowserRecordings.prototype);
+  return workspace.recordings;
+}
 export class BrowserRecordings {
-  constructor(workspace) { this.workspace = workspace; this.active = new Map(); this.writes = Promise.resolve(); }
+  constructor(workspace) { this.workspace = workspace; this.active = new Map(); this.writes = Promise.resolve(); this.observedPages = new WeakSet(); }
+  observePage(record, page, pageId) {
+    this.observedPages ??= new WeakSet();
+    if (this.observedPages.has(page)) return;
+    this.observedPages.add(page);
+    const context = record.context;
+    page.on('framenavigated', frame => { if (record.context === context) void this.append(record, { kind: 'navigation', source: 'browser', status: 'observed', pageId, mainFrame: frame === page.mainFrame(), url: recordingUrl(frame.url()) }); });
+    page.on('close', () => { if (record.context === context) void this.append(record, { kind: 'page', action: 'close', source: 'browser', status: 'observed', pageId }); });
+  }
   directory(owner) {
     if (typeof owner !== 'string' || !owner) throw browserError('BROWSER_OWNER_REQUIRED', 'Select a DSH conversation');
     return join(this.workspace.root, 'recordings', createHash('sha256').update(owner).digest('hex'));
@@ -58,6 +71,7 @@ export class BrowserRecordings {
   }
   async install(record) {
     const context = record.context;
+    for (const [pageId, page] of record.pages) this.observePage(record, page, pageId);
     if (context.__remoteOpsRecorderInstalled) return;
     await context.exposeBinding(BINDING, async (source, payload) => {
       const recording = record.recording;

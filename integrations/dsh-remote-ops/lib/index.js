@@ -9,6 +9,7 @@ import { registerTools } from "./tools.js";
 import { registerRoutes } from "./routes.js";
 import { join } from "node:path";
 import { BrowserWorkspace } from "./browser-workspace.js";
+import { adoptBrowserRecordings } from './browser-recordings.js';
 import { registerBrowserRoutes } from "./browser-routes.js";
 import { registerBrowserTools } from "./browser-tools.js";
 import { registerBundledSkills } from "./skills.js";
@@ -75,6 +76,9 @@ export function apply(ctx) {
   }, "dsh-remote-ops hot reload"));
   registerSessionActivation(ctx, state);
   state.browser ??= new BrowserWorkspace({ root: join(state.base, "browser"), credentials: ctx.credentials });
+  // Pre-recording releases retain a live BrowserWorkspace during hot reload.
+  // Initialize the new component without closing or recreating those pages.
+  adoptBrowserRecordings(state.browser);
   state.api ??= new ApiWorkspace({ root: join(state.base, "api"), credentials: ctx.credentials });
   state.desktop ??= new DesktopWorkspace(state);
   ctx.effect(() => async () => {

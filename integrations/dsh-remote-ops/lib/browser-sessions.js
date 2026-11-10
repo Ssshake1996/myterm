@@ -28,8 +28,7 @@ export class BrowserSessions {
     const id = fixedId??randomUUID(); record.pages.set(id, page); if (!record.activePageId || finished(record.job)) record.activePageId = id;
     const context=record.context;
     void this.recordings.append(record,{kind:'page',action:'open',source:'browser',status:'observed',pageId:id,url:recordingUrl(page.url())});
-    page.on('framenavigated',frame=>{if(record.context===context)void this.recordings.append(record,{kind:'navigation',source:'browser',status:'observed',pageId:id,mainFrame:frame===page.mainFrame(),url:recordingUrl(frame.url())});});
-    page.on('close',()=>{if(record.context===context)void this.recordings.append(record,{kind:'page',action:'close',source:'browser',status:'observed',pageId:id});});
+    this.recordings.observePage(record,page,id);
     const title=()=>{const url=page.url();if(typeof page.title==='function')void page.title().then(value=>{if(record.context===context&&record.pages.get(id)===page&&page.url()===url){record.pageTitles??=new Map();record.pageTitles.set(id,value);}}).catch(()=>{});};
     page.on('domcontentloaded',title);title();
     if(record.display==='embedded'&&record.viewport&&(record.viewport.width!==1024||record.viewport.height!==768))void page.setViewportSize?.({width:record.viewport.width,height:record.viewport.height}).catch(()=>{});

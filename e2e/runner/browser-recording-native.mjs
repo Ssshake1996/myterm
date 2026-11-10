@@ -12,6 +12,7 @@ import { chromium } from '../../integrations/dsh-remote-ops/node_modules/playwri
 const cli = process.env.DSH_CLI;
 if (!cli || !process.argv[2]) throw Error('Set DSH_CLI and pass a candidate tgz');
 const pkg = resolve(process.argv[2]), out = resolve(process.env.RECORDING_NATIVE_OUTPUT ?? `output/recording-native-${Date.now()}`);
+const bootstrap = process.env.BOOTSTRAP_PACKAGE && resolve(process.env.BOOTSTRAP_PACKAGE);
 await mkdir(out, { recursive: true });
 const profile = join(out, 'dsh-home/profiles/web'), cache = join(out, 'empty-browser-cache');
 const env = { ...process.env, DSH_HOME: join(out, 'dsh-home'), DSH_TELEMETRY_DISABLED: '1', REMOTE_OPS_ACCEPTANCE_KEY: 'isolated-test-fixture', PLAYWRIGHT_BROWSERS_PATH: cache, PLAYWRIGHT_DOWNLOAD_HOST: 'http://127.0.0.1:9' };
@@ -68,8 +69,8 @@ try {
             maxTokens: 4096
             input: [text]
 `);
-  await step('安装候选包：浏览器下载禁用、独立缓存为空', async () => {
-    await writeFile(join(out, 'install.log'), await run(['plugin', '--profile', 'web', 'add', pkg]));
+  await step(bootstrap ? '安装正式旧版作为热升级基线' : '安装候选包：浏览器下载禁用、独立缓存为空', async () => {
+    await writeFile(join(out, 'install.log'), await run(['plugin', '--profile', 'web', 'add', bootstrap ?? pkg]));
     evidence.installedVersion = JSON.parse(await readFile(join(profile, 'node_modules/@dsh/remote-ops/package.json'), 'utf8')).version;
     assert.deepEqual(await readdir(cache).catch(error => error.code === 'ENOENT' ? [] : Promise.reject(error)), []);
   });
@@ -83,6 +84,26 @@ try {
   page.on('request', request => { const url = new URL(request.url()); if (url.pathname === '/api/dsh-remote-ops/state' && url.searchParams.get('sessionId')) owner = url.searchParams.get('sessionId'); });
   await page.goto(url);
   const editor = page.getByRole('textbox', { name: /描述你想要|发消息或创建任务/ }); await editor.waitFor();
+  const api = (path, body) => page.evaluate(async ({path,body}) => {
+    const response = await fetch('/api/dsh-remote-ops/' + path, body ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)} : {});
+    const value = await response.json(); if (!response.ok) throw Error(JSON.stringify(value)); return value;
+  }, {path,body});
+  if (bootstrap) await step('旧版活动网页经 CLI 安装和热激活保留，初始化录制能力', async () => {
+    await editor.fill('Create isolated upgrade conversation'); await editor.press('Enter');
+    await page.getByText('RECORDING_NATIVE_DONE',{exact:true}).last().waitFor();
+    await page.getByRole('button',{name:'Remote Ops',exact:true}).click();
+    await page.getByRole('tab',{name:'网页',exact:true}).click(); await until(()=>owner);
+    const old = (await api('browser',{sessionId:owner,action:'open-url',url:`http://127.0.0.1:${server.address().port}/page`,display:'embedded',browser:'chrome'})).result;
+    await page.getByAltText('网页实时画面',{exact:true}).waitFor();
+    evidence.bootstrapVersion = evidence.installedVersion;
+    await writeFile(join(out,'upgrade-install.log'),await run(['plugin','--profile','web','add',pkg]));
+    evidence.installedVersion = JSON.parse(await readFile(join(profile,'node_modules/@dsh/remote-ops/package.json'),'utf8')).version;
+    const update = await api('update');
+    if (update.currentVersion !== evidence.installedVersion) await api('update',{action:'install'});
+    await until(async()=>{try{return (await api('state?sessionId='+owner)).pluginVersion===evidence.installedVersion;}catch{return false;}});
+    const current = (await api('browser?sessionId='+owner)).sessions.find(item=>!item.closed);
+    assert.equal(current.id,old.id); assert.equal(current.pages[0].id,old.pages[0].id); assert.equal(host.exitCode,null);
+  });
   const agent = async stage => { await until(() => editor.isEditable()); await editor.fill('RECORDING_NATIVE_' + stage); await editor.press('Enter'); return until(() => proofs.get(stage)); };
   await step('原生 Agent 能发现并读取随包 Skill，浏览器来源为 bundled', async () => {
     const results = await agent('READY');
@@ -98,6 +119,7 @@ try {
     await page.getByAltText('网页实时画面', { exact: true }).waitFor();
     await page.getByRole('button', { name: '开始网页录制', exact: true }).click();
     recordingId = (await snapshot()).sessions.find(item => !item.closed).recording.id; assert.ok(recordingId);
+    if (bootstrap) { await page.getByRole('button',{name:'刷新网页',exact:true}).click(); await until(async()=>!await page.getByRole('button',{name:'刷新网页',exact:true}).isDisabled()); }
   });
   await step('原生 Agent 操作和人工网页输入均被记录', async () => {
     await agent('RUN');
@@ -112,6 +134,7 @@ try {
     assert.equal(saved.recording.status, 'stopped');
     assert.ok(saved.events.some(item => item.source === 'agent' && item.details?.step?.value === 'Agent entry'));
     assert.ok(saved.events.some(item => item.input?.value === 'Human entry'));
+    if (bootstrap) assert.ok(saved.events.some(item=>item.kind==='navigation'));
     evidence.eventCount = saved.events.length;
   });
   await step('界面读取和导出 JSON，刷新后录制仍可读', async () => {

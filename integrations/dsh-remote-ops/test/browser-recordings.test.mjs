@@ -5,20 +5,36 @@ import { mkdtemp, readFile, appendFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BrowserWorkspace } from '../lib/browser-workspace.js';
+import { adoptBrowserRecordings } from '../lib/browser-recordings.js';
 import { registerBrowserTools } from '../lib/browser-tools.js';
 import { registerBrowserRoutes } from '../lib/browser-routes.js';
 
-async function fixture(t) {
+async function fixture(t, legacy = false) {
   const root=await mkdtemp(join(tmpdir(),'remote-ops-recordings-'));
   const context=new EventEmitter(),page=new EventEmitter();let url='https://device.test/ui?token=private#route';let effects=0;
   const locator={count:async()=>1,waitFor:async()=>{},isVisible:async()=>true,innerText:async()=>'OK',evaluate:async fn=>fn({matches:()=>false,id:'entry',name:'entry',getAttribute:()=>null}),fill:async()=>{effects++;},click:async()=>{effects++;if(page.fail)throw Error('uncertain');}};
   Object.assign(page,{url:()=>url,frames:()=>[page],mainFrame:()=>page,isClosed:()=>false,title:async()=>'Device',evaluate:async()=>{},goto:async value=>{url=value;page.emit('framenavigated',page);},locator:()=>locator,getByRole:()=>locator,getByText:()=>locator,screenshot:async()=>Buffer.from('png'),close:async()=>page.emit('close')});
   Object.assign(context,{pages:()=>[page],newPage:async()=>page,close:async()=>context.emit('close'),storageState:async()=>({cookies:[]}),exposeBinding:async(_name,callback)=>{context.binding=callback;},addInitScript:async()=>{}});
   const w=new BrowserWorkspace({root,launchContext:async()=>context});await w.ready;
+  if(legacy)w.recordings.observePage=()=>{};
   const opened=await w.openUrl('owner','https://device.test/ui?token=private#route');
+  if(legacy)delete w.recordings;
   t.after(async()=>{await w.dispose();await rm(root,{recursive:true,force:true});});
   return {w,root,context,page,id:opened.id,effects:()=>effects};
 }
+
+test('hot adoption initializes recording on a retained legacy browser and observes existing pages once',async t=>{
+  const f=await fixture(t,true),record=f.w.session('owner',f.id),page=record.pages.get(record.activePageId);
+  const recorder=adoptBrowserRecordings(f.w);assert.equal(adoptBrowserRecordings(f.w),recorder);
+  assert.equal(f.w.publicSession(record).recording,null);
+  const recording=await f.w.recording('owner',{action:'start',browserId:f.id});
+  assert.equal(record.pages.get(record.activePageId),page);
+  await f.w.recordings.install(record);
+  await f.w.navigate('owner',f.id,'goto','https://device.test/after-upgrade');
+  await f.w.recording('owner',{action:'stop',recordingId:recording.id});
+  const events=(await f.w.recording('owner',{action:'read',recordingId:recording.id})).events;
+  assert.equal(events.filter(event=>event.kind==='navigation').length,1);
+});
 
 test('durable capture pairs Agent actions, deduplicates runs, paginates and exports owner-scoped records',async t=>{
   const f=await fixture(t),recording=await f.w.recording('owner',{action:'start',browserId:f.id,name:'Test'});
