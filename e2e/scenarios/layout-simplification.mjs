@@ -45,7 +45,7 @@ export const layoutSimplificationScenario={id:'layout-simplification',title:'统
       await p.getByLabel('API 请求路径',{exact:true}).fill('unsent-draft');await tab('网页').click();await tab('API').click();assert.equal(await p.getByLabel('API 请求路径',{exact:true}).inputValue(),'unsent-draft');
       assert.equal(await p.getByRole('button',{name:'折叠 /a~0~1b/0',exact:true}).isVisible(),true);
       await p.getByRole('button',{name:'环境管理',exact:true}).click();assert.equal(await p.getByRole('tablist',{name:'环境类型'}).getByRole('tab',{name:'API',exact:true}).getAttribute('aria-selected'),'true');
-      await p.getByRole('button',{name:'返回工作区',exact:true}).click();assert.equal(await p.getByLabel('API 请求路径',{exact:true}).inputValue(),'unsent-draft');
+      await p.getByRole('button',{name:'关闭环境抽屉',exact:true}).click();assert.equal(await p.getByLabel('API 请求路径',{exact:true}).inputValue(),'unsent-draft');
     });
     await t.step('网页在后台继续执行，隐藏时不再请求画面，失败提示保留至查看',async()=>{
       await tab('网页').click();await p.getByRole('button',{name:'设置',exact:true}).click();await p.getByLabel('浏览器引擎',{exact:true}).selectOption('chrome');await p.getByRole('button',{name:'返回工作区',exact:true}).click();

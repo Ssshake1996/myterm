@@ -9,7 +9,7 @@ export const apiScenario={id:'api-workspace',title:'API 环境、登录、Agent 
       await p.getByRole('button',{name:'新建 API 环境',exact:true}).click();
       await p.getByLabel('API 环境名称',{exact:true}).fill('API e2e');await p.getByLabel('Base URL',{exact:true}).fill(target.url);
       await p.getByLabel('API 用户名',{exact:true}).fill('tester');await p.getByLabel('API 密码',{exact:true}).fill('api-fixture-password');await p.getByLabel('Token JSON Pointer',{exact:true}).fill('/data/token');
-      await p.getByRole('button',{name:'保存 API 环境',exact:true}).click();await p.getByRole('button',{name:'返回工作区',exact:true}).click();await p.getByRole('button',{name:'登录',exact:true}).waitFor();
+      await p.getByRole('button',{name:'保存 API 环境',exact:true}).click();await p.getByRole('button',{name:'关闭环境抽屉',exact:true}).click();await p.getByRole('button',{name:'登录',exact:true}).waitFor();
     });
     let environment;
     await t.step('真实工具与 UI 共享 Token 登录和响应，敏感值不显示',async()=>{

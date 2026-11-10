@@ -41,7 +41,7 @@ export const terminalTabsScenario={id:'terminal-tabs',title:'CMD 与 SSH 统一�
       await p.getByLabel('显示名称',{exact:true}).fill(name);await p.getByLabel('主机地址',{exact:true}).fill(info.device.host);
       await p.getByLabel('用户名',{exact:true}).fill(info.device.username);await p.getByLabel('端口',{exact:true}).fill(String(info.device.port));
       await p.getByLabel('SSH 密码',{exact:true}).fill('e2e-device-pass');await p.getByRole('button',{name:'保存',exact:true}).click();
-      await p.getByRole('button',{name:'返回工作区',exact:true}).click();opened.push(await tool('remote_terminal_open',{environment:name}));await tab(name).waitFor();
+      await p.getByRole('button',{name:'关闭环境抽屉',exact:true}).click();opened.push(await tool('remote_terminal_open',{environment:name}));await tab(name).waitFor();
     }
     await tab('开发环境').click();await tool('remote_terminal_send',{session:opened[0].sessionId,text:'show version',quietMs:100});
     await until(async()=>/Array OS 1.2.3/.test(await p.getByLabel('终端输出',{exact:true}).innerText()));
@@ -89,31 +89,31 @@ export const terminalTabsScenario={id:'terminal-tabs',title:'CMD 与 SSH 统一�
     await p.getByRole('button',{name:'释放验收环境',exact:true}).click();await p.getByRole('dialog').getByRole('button',{name:'取消',exact:true}).click();
     assert.equal((await state()).sessions.filter(s=>s.kind==='ssh').length,3);
   });
-  await t.step('环境表单左上角返回入口固定可见，返回原终端并恢复焦点',async()=>{
+  await t.step('抽屉关闭入口固定可见，返回原终端并恢复焦点',async()=>{
     await panel.getByRole('button',{name:'环境管理',exact:true}).click();await p.getByRole('button',{name:'+ 环境',exact:true}).click();
-    const close=p.getByRole('button',{name:'返回工作区',exact:true});assert.equal((await close.innerText()).trim(),'返回工作区');
-    assert.ok(await close.evaluate(n=>{const r=n.getBoundingClientRect(),head=n.parentElement.getBoundingClientRect();return n===n.parentElement.firstElementChild&&r.left-head.left<=16;}),'return action occupies the left edge of the environment header');
+    const close=p.getByRole('button',{name:'关闭环境抽屉',exact:true});
+    assert.ok(await close.evaluate(n=>{const r=n.getBoundingClientRect(),head=n.parentElement.getBoundingClientRect();return head.right-r.right<=16;}),'close action stays at the right edge of the drawer header');
     const before=await close.boundingBox();await p.getByRole('button',{name:'保存',exact:true}).scrollIntoViewIfNeeded();const after=await close.boundingBox();
-    assert.ok(Math.abs(before.y-after.y)<1);assert.ok(after.height>=36);assert.ok(after.y>=0&&after.y+after.height<844);
-    await t.shot('环境页左上角返回入口');await close.click();
+    assert.ok(Math.abs(before.y-after.y)<1);assert.ok(after.height>=30);assert.ok(after.y>=0&&after.y+after.height<844);
+    await t.shot('环境抽屉固定关闭入口');await close.click();
     assert.equal(await tab('验收环境').getAttribute('aria-selected'),'true');assert.equal((await state()).sessions.filter(s=>s.kind==='ssh').length,3);
     assert.equal(await panel.getByRole('button',{name:'环境管理',exact:true}).evaluate(n=>n===document.activeElement),true);
   });
   await t.step('网页草稿往返保留，深色标签具有清晰的选中状态',async()=>{
     await workspace('网页').click();await p.getByLabel('网页地址',{exact:true}).fill('https://example.test/unsent');
-    await panel.getByRole('button',{name:'环境管理',exact:true}).click();await p.getByRole('button',{name:'返回工作区',exact:true}).click();
+    await panel.getByRole('button',{name:'环境管理',exact:true}).click();await p.getByRole('button',{name:'关闭环境抽屉',exact:true}).click();
     assert.equal(await p.getByLabel('网页地址',{exact:true}).inputValue(),'https://example.test/unsent');
     await workspace('终端').click();await p.emulateMedia({colorScheme:'dark'});await p.evaluate(()=>{document.documentElement.style.colorScheme='dark';});
     assert.equal(await tab('验收环境').getAttribute('aria-selected'),'true');await t.shot('深色终端标签');
   });
-  await t.step('API 环境共用左上角返回入口，返回后保留请求草稿',async()=>{
+  await t.step('API 环境共用抽屉，关闭后保留请求草稿',async()=>{
     await tool('remote_api_environment_save',{name:'API tabs fixture',baseUrl:info.website.url,auth:{mode:'none'}});
     await workspace('API').click();await p.getByLabel('API 请求路径',{exact:true}).fill('unsent-request');
     await panel.getByRole('button',{name:'环境管理',exact:true}).click();
     assert.equal(await p.getByRole('tablist',{name:'环境类型'}).getByRole('tab',{name:'API',exact:true}).getAttribute('aria-selected'),'true');
-    const close=p.getByRole('button',{name:'返回工作区',exact:true});assert.equal((await close.innerText()).trim(),'返回工作区');
-    assert.ok(await close.evaluate(n=>n===n.parentElement.firstElementChild));
-    await t.shot('API 环境左上角返回入口');await close.click();
+    const close=p.getByRole('button',{name:'关闭环境抽屉',exact:true});
+    assert.ok(await close.isVisible());
+    await t.shot('API 环境抽屉');await close.click();
     assert.equal(await p.getByLabel('API 请求路径',{exact:true}).inputValue(),'unsent-request');
   });
 }};

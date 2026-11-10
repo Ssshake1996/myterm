@@ -18,6 +18,10 @@
 
 These screenshots show v0.9.2 installed in real DSH 0.2.0-rc.2; the installed package matches the official Release SHA256. A deterministic test provider drives real tools against isolated local SSH, web and API services.
 
+## Environment drawer and compact toolbar (v0.15.3)
+
+Environments open in a left drawer inside the plugin: overlay by default, optionally pinned on wide panels, and full width on narrow panels. Escape restores focus; drafts, terminal sessions, webpages and recordings remain available. Compact toolbars and row More menus free workspace space. Verified locally with DSH Desktop 0.2.1-rc.5.
+
 ## Web recordings and bundled browser (v0.15.2)
 
 Start, stop, read and export human/Agent webpage operations from the Web toolbar or `remote_browser_recording`. The bundled `remote-ops-web-recordings` skill teaches the Agent to interpret records, parameterize device addresses and generate code in the user's chosen framework or template.
@@ -104,22 +108,22 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 ## Workspace layout
 
-- All four workspaces share one **设置** entry with general, terminal, browser and update categories. **环境** manages SSH and API environments together, retaining their separate forms and credentials.
-- Local CMD and SSH use one consistent terminal tab strip, with a filled background, border and bold text for the active tab. Arrow keys switch terminals. **返回工作区** (back to workspace) stays at the top left of both SSH and API environment management while scrolling, preserving the active terminal or request draft when returning. The terminal row contains close all, search, current TXT download and **更多** (more). Quick commands start as a compact strip; expand it or open **命令库** to manage saved commands.
+- All workspaces share one **设置** entry with general, terminal, browser and update categories. **环境** manages SSH and API environments together, retaining their separate forms and credentials.
+- Local CMD and SSH use one consistent terminal tab strip, with a filled background, border and bold text for the active tab. Arrow keys switch terminals. Environments open in a drawer on the left of the plugin workspace, with a persistent close button. Escape closes it and restores focus to the environment entry, retaining terminal and request drafts. The terminal row contains close all, search, current TXT download and **更多** (more). Quick commands start as a compact strip; expand it or open **命令库** to manage saved commands.
 - Workspace tabs show unread terminal output, file transfers and browser execution. Viewing the corresponding terminal clears its unread indicator. Transfers show a percentage only when the total is known reliably.
 - API results have **响应 / 记录** tabs. Expand JSON nodes and click a field name to copy its JSON Pointer, with selectable text when clipboard access fails. HTTP status uses both color and text; 2xx also says **请检查业务结果**. Large trees render in batches and retain a raw view.
 - Workspace/settings switches preserve terminal, browser and API state. Background work continues while hidden browser views suspend frame requests.
 
 ## Manual intranet HTTP/HTTPS updates
 
-Current version: [v0.15.2](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.15.2), adding human/Agent webpage recordings, JSON export, a bundled interpretation skill and the internal browser runtime. See the [release notes](docs/releases/dsh-remote-ops-v0.15.2.md) and [acceptance record](docs/testing/dsh-remote-ops-v0.15.2-acceptance.md).
+Current version: [v0.15.3](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.15.3), adding the environment drawer, optional pinning and compact toolbars while preserving terminal, webpage and recording state. See the [release notes](docs/releases/dsh-remote-ops-v0.15.3.md) and [acceptance record](docs/testing/dsh-remote-ops-v0.15.3-acceptance.md).
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.15.2.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.2.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.15.3.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.3.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.2.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.3.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -195,7 +199,7 @@ Browsers run on the DSH host. Install Chromium on demand through the plugin tool
 
 ## Workspaces and interaction
 
-- Environment management separates group navigation from the environment list: wide panels use a left group column; narrow panels use a dropdown. SSH rows expose Enter / Edit / Test, and API rows expose Use / Edit. Row More menus contain deletion and new independent SSH connections. Batch management reveals selection boxes and confirms the selected names and addresses before deletion; cancellation leaves configuration intact, and partial failures retain failed selections with reasons. SSH group menus rename or delete empty groups; API groups are set in the environment form. The top-left Back to workspace restores the previous workspace contents.
+- Environments use a 360px overlay drawer inside the plugin. It fills panels below 480px; panels at least 960px wide can pin it at 320px. Opening and closing the overlay preserves terminal, browser and API instances, the webpage viewport and active recordings. Search, group selection and the list share the drawer. Rows expose Connect/Use and More; editing, testing, deletion and independent SSH connections live in More. Sticky Save/Cancel actions remain available; ordinary drafts persist, while revealed passwords clear on close. Batch management confirms selected names and addresses before deletion, retains failed selections with reasons, and leaves configuration unchanged on cancellation. SSH group menus rename or delete empty groups; API groups are set in the form.
 - **终端 / 网页 / 文件 / API** workspace tabs support arrows and Home/End. Environment management opens inside the panel; **设置 → 通用** contains diagnostics and refresh, while **设置 → 更新** handles updates. The native DSH right Sidebar and the main conversation are preserved.
 - The module, selected terminal and environment filter recover per conversation after closing/reopening or refreshing. File path/sort/scroll/bookmarks keep their existing persistence. File filters, path drafts and reconciled selections survive module/panel switches within one webpage; a full reload fetches fresh entries and does not restore old selections.
 - **设置 → 终端** contains font size, wrapping, highlighting and the active SSH connection size. Search and current transcript export are directly beside the session tabs; **更多** contains independent commands and all-log ZIP export. The path and technical status sit in the bottom status bar. ASCII/SGR logs use a fast parser; cursor control, Unicode and full-screen programs retain the VT model.
@@ -238,7 +242,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from the [latest stable release](https://github.com/Ssshake1996/myterm/releases/latest), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.15.2.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.15.3.tgz
 dsh web
 ```
 
@@ -285,15 +289,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.2
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.3
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.15.2
-node scripts/release-dsh-remote-ops.mjs 0.15.2 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.15.3
+node scripts/release-dsh-remote-ops.mjs 0.15.3 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

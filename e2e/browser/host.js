@@ -1,5 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
+import * as ReactDOM from "react-dom";
 
 const SESSION_ID = "e2e-session";
 
@@ -9,6 +10,7 @@ const icon = (name) => function HostIcon(props) {
 const icons = new Proxy({}, { get: (_target, name) => name === "Tooltip" ? ({ children }) => children : icon(String(name)) });
 const requireModule = (name) => {
   if (name === "react") return React;
+  if (name === "react-dom") return ReactDOM;
   if (name === "@deepseek-ai/dsh-client-ui-primitives") return icons;
   throw new Error(`e2e host has no module ${name}`);
 };

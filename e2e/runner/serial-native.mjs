@@ -147,7 +147,7 @@ try {
   });
   if(!windows){
     await step('User and Agent send once through one native serial handle and download its transcript',async()=>{
-      await row().getByRole('button',{name:'进入',exact:true}).click();
+      await row().getByRole('button',{name:'连接',exact:true}).click();
       const tab=panel.getByRole('tab',{name:'Serial lab',exact:true});await tab.click();
       const [catalog]=await agent('LIVE',[['remote_environment_list',{}]]);
       const active=catalog.sessions.find(x=>x.kind==='serial');sessionId=active.sessionId;assert.equal(active.endpoint.path,path);

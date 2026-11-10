@@ -67,7 +67,7 @@ try{
     await until(async()=>(await state()).environments.some(x=>x.name==='Telnet native'&&x.transport==='telnet'));assert.equal(await form.count(),0);
   });
   await step('真实 Telnet 协商与登录，用户直接输入并看到回显',async()=>{
-    await panel.locator('[data-environment-row]').filter({hasText:'Telnet native'}).getByRole('button',{name:'进入',exact:true}).click();
+    await panel.locator('[data-environment-row]').filter({hasText:'Telnet native'}).getByRole('button',{name:'连接',exact:true}).click();
     const connected=await until(async()=>{const s=(await state()).sessions.find(x=>x.kind==='telnet');return s?.login?.state==='ready'&&s;});telnetId=connected.sessionId;
     const input=page.getByLabel('终端输入',{exact:true});await input.focus();await page.keyboard.type('show human');await page.keyboard.press('Enter');
     await until(()=>telnet.commands.includes('show human'));await until(async()=>(await page.getByLabel('终端输出',{exact:true}).innerText()).includes('TELNET_HUMAN_VERIFIED'));
@@ -93,7 +93,7 @@ try{
     await action({action:'send',session:telnetId,text:'show after',quietMs:200});assert.equal(telnet.commands.filter(x=>x==='show after').length,1);assert.equal(telnet.commands.filter(x=>x==='show version').length,1);evidence.hotReload={from:evidence.installedVersion,to:feed.version,synthetic:true,connectionCount:telnet.stats.connections,sessionId:telnetId,streamId:session.outputCursor.streamId};
   });
   await step('窄栏可配置 Telnet，全部关闭保留本地 CMD',async()=>{
-    await page.setViewportSize({width:390,height:844});await page.emulateMedia({reducedMotion:'reduce'});await panel.getByRole('button',{name:'环境管理',exact:true}).click();await panel.getByRole('tab',{name:/^(终端环境|SSH \/ Telnet)$/}).click();await panel.locator('[data-environment-row]').filter({hasText:'Telnet native'}).getByRole('button',{name:'编辑',exact:true}).click();await panel.getByLabel('连接协议',{exact:true}).waitFor();assert.ok(await panel.evaluate(n=>n.scrollWidth<=n.clientWidth+1));await panel.locator('form.dsh-remote-ops__form').getByRole('button',{name:'取消',exact:true}).click();await page.getByRole('button',{name:'返回工作区',exact:true}).click();
+    await page.setViewportSize({width:390,height:844});await page.emulateMedia({reducedMotion:'reduce'});await panel.getByRole('button',{name:'环境管理',exact:true}).click();await panel.getByRole('tab',{name:/^(终端环境|SSH \/ Telnet)$/}).click();await panel.locator('[data-environment-row]').filter({hasText:'Telnet native'}).getByRole('button',{name:'更多环境操作 Telnet native',exact:true}).click();await panel.getByRole('group',{name:'环境管理操作',exact:true}).getByRole('button',{name:'编辑',exact:true}).click();await panel.getByLabel('连接协议',{exact:true}).waitFor();assert.ok(await panel.evaluate(n=>n.scrollWidth<=n.clientWidth+1));await panel.locator('form.dsh-remote-ops__form').getByRole('button',{name:'取消',exact:true}).click();await page.getByRole('button',{name:'关闭环境抽屉',exact:true}).click();
     await page.screenshot({path:join(out,'narrow.png'),animations:'disabled'});
     await page.setViewportSize({width:1500,height:1000});await panel.getByRole('button',{name:'全部关闭远程标签',exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'确认',exact:true}).click();await until(async()=>(await state()).sessions.every(x=>x.kind==='local'));assert.equal((await api('logs',{action:'list'})).logs.some(x=>x.kind==='telnet'&&x.archived),true);
   });

@@ -13,7 +13,10 @@ export const environmentPasswordScenario = { id: "environment-password", title: 
   }, original);
   await p.getByRole("button", { name: "Remote Ops", exact: true }).click();
   await p.getByRole("button", { name: "环境管理", exact: true }).click();
-  const edit = () => p.locator(".dsh-remote-ops__env").filter({ hasText: "密码测试设备" }).getByRole("button", { name: "编辑", exact: true }).click();
+  const edit = async () => {
+    await p.locator(".dsh-remote-ops__env").filter({ hasText: "密码测试设备" }).getByRole("button", { name: /^更多环境操作/ }).click();
+    await p.getByRole('group', {name:'环境管理操作',exact:true}).getByRole('button',{name:'编辑',exact:true}).click();
+  };
   const field = () => p.getByLabel("SSH 密码", { exact: true });
   const show = () => p.getByRole("button", { name: "显示 SSH 密码", exact: true });
   const hide = () => p.getByRole("button", { name: "隐藏 SSH 密码", exact: true });
@@ -37,7 +40,7 @@ export const environmentPasswordScenario = { id: "environment-password", title: 
   });
   await t.step("关闭抽屉和取消编辑后重新打开，密码恢复遮蔽", async () => {
     await show().click(); await hide().waitFor();
-    await p.getByRole("button", { name: "返回工作区", exact: true }).click();
+    await p.getByRole("button", { name: "关闭环境抽屉", exact: true }).click();
     const count = reveals.length;
     await p.getByRole("button", { name: "环境管理", exact: true }).click();
     assert.equal(await field().inputValue(), ""); assert.equal(await field().getAttribute("type"), "password"); assert.equal(reveals.length, count);
@@ -74,7 +77,7 @@ export const environmentPasswordScenario = { id: "environment-password", title: 
     await show().click(); await p.getByRole("alert").filter({ hasText: "暂时无法读取密码" }).waitFor();
     assert.equal(await field().inputValue(), ""); await show().click(); await hide().waitFor(); assert.equal(await field().inputValue(), replacement); await hide().click();
     await p.setViewportSize({ width: 390, height: 844 });
-    assert.ok(await p.locator(".dsh-remote-ops__drawer").evaluate(n => n.scrollWidth - n.clientWidth) <= 1);
+    assert.ok(await p.locator(".dsh-remote-ops__environmentDrawer").evaluate(n => n.scrollWidth - n.clientWidth) <= 1);
     await show().focus(); await p.keyboard.press("Space"); await hide().waitFor(); assert.equal(await field().inputValue(), replacement);
   });
 } };

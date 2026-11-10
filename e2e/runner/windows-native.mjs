@@ -112,10 +112,11 @@ try {
   await step("native environment form and terminal remain usable beside the conversation", async () => {
     const panel = p.locator(".dsh-remote-ops");await editor.fill("Windows 验收草稿");
     await panel.getByRole("button", { name: "环境管理", exact: true }).click();
-    await panel.locator(".dsh-remote-ops__env").filter({ hasText: "Windows 原生验收" }).getByRole("button", { name: "编辑", exact: true }).click();
+    await panel.locator(".dsh-remote-ops__env").filter({ hasText: "Windows 原生验收" }).getByRole("button", { name: "更多环境操作 Windows 原生验收", exact: true }).click();
+    await panel.getByRole("group", { name: "环境管理操作", exact: true }).getByRole("button", { name: "编辑", exact: true }).click();
     assert.equal(await p.getByLabel("目标系统", { exact: true }).inputValue(), "windows");
     await p.screenshot({ path: join(out, "windows-environment.png"), animations: "disabled" });
-    await p.getByRole("button", { name: "返回工作区", exact: true }).click();
+    await p.getByRole("button", { name: "关闭环境抽屉", exact: true }).click();
     assert.equal(await editor.innerText(), "Windows 验收草稿");
     await panel.getByRole("tablist", { name: "终端会话" }).getByRole("tab", { name: "Windows 原生验收", exact: true }).first().click();
     await until(async () => (await p.getByLabel("终端输出", { exact: true }).innerText()).includes("NATIVE_WINDOWS_CLI"));

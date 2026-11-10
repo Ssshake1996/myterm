@@ -39,7 +39,11 @@ export function createEnvironmentManager(React) {
     .dsh-remote-ops__environmentMenu>small{color:var(--ro-muted);padding:4px 10px;max-width:190px;font-size:12px}
     .dsh-remote-ops__environmentNotice{padding:8px 0;font-size:12px;overflow-wrap:anywhere}
     .dsh-remote-ops__environmentEmpty{padding:28px 8px;color:var(--ro-muted);text-align:center}
-    @container(max-width:560px){.dsh-remote-ops__environmentColumns{grid-template-columns:minmax(0,1fr)}.dsh-remote-ops__environmentGroups{display:none}.dsh-remote-ops__environmentMobileGroup{display:flex}.dsh-remote-ops__environmentManager .dsh-remote-ops__environmentRow{grid-template-columns:minmax(0,1fr)}.dsh-remote-ops__environmentActions{justify-content:flex-end}.dsh-remote-ops__environmentRow[data-batch=true]{grid-template-columns:22px minmax(0,1fr)}}
+    @container(max-width:560px){.dsh-remote-ops__environmentColumns{grid-template-columns:minmax(0,1fr)}.dsh-remote-ops__environmentGroups{display:none}.dsh-remote-ops__environmentMobileGroup{display:flex}.dsh-remote-ops__environmentActions{justify-content:flex-end}.dsh-remote-ops__environmentRow[data-batch=true]{grid-template-columns:22px minmax(0,1fr)}}
+    .dsh-remote-ops__environmentDrawer .dsh-remote-ops__environmentTop{position:sticky;top:-12px;z-index:3;background:var(--ro-bg);margin:0;padding:0 0 8px}
+    .dsh-remote-ops__environmentDrawer .dsh-remote-ops__environmentMobileGroup{position:sticky;top:30px;z-index:2;background:var(--ro-bg);padding-bottom:8px;margin-bottom:0}
+    .dsh-remote-ops__environmentDrawer .dsh-remote-ops__environmentColumns{min-height:0}
+    .dsh-remote-ops__environmentDrawer .dsh-remote-ops__environmentMeta{font-size:12px;font-variant-numeric:tabular-nums}
     @media(pointer:coarse){.dsh-remote-ops__environmentManager button{min-height:40px}.dsh-remote-ops__environmentManager input,.dsh-remote-ops__environmentManager select{font-size:16px}}
   `;
   return function EnvironmentManager({ kind, environments, groups, search, onSearch, group, onGroup, busy, hidden, ask, onCreate, onCreateGroup, onRenameGroup, onDeleteGroup, onEdit, onPrimary, primaryLabel, primaryDisabled, onTest, extraActions, onDelete, describe, renderDetails }) {
@@ -107,9 +111,7 @@ export function createEnvironmentManager(React) {
             h('div', null, h('div', { className: 'dsh-remote-ops__envName dsh-remote-ops__environmentName', title: env.name }, kind === 'ssh' ? h('span', { className: 'dsh-remote-ops__dot', 'data-connected': !!env.connectionCount, 'aria-hidden': true }) : null, h('span', null, env.name)), h('small', { className: 'dsh-remote-ops__environmentMeta', title: describe(env) }, describe(env))),
             !batch ? h('div', { className: 'dsh-remote-ops__environmentActions' },
               h('button', { type: 'button', disabled: locked || primaryDisabled?.(env), onClick: () => onPrimary(env) }, primaryLabel),
-              h('button', { type: 'button', className: 'dsh-remote-ops__environmentQuiet', disabled: locked, onClick: () => onEdit(env) }, '编辑'),
-              onTest ? h('button', { type: 'button', className: 'dsh-remote-ops__environmentQuiet', 'aria-label': '测试 ' + env.name + ' 连接', disabled: locked, onClick: () => onTest(env) }, '测试') : null,
-              h('button', { type: 'button', className: 'dsh-remote-ops__environmentQuiet', 'aria-label': '更多环境操作 ' + env.name, 'aria-expanded': menu?.key === env.id, disabled: locked, onClick: e => showMenu(e, env.id, [...(extraActions?.(env) ?? []), { label: '删除环境', danger: true, run: () => void remove([env]) }]) }, '⋯')) : null,
+              h('button', { type: 'button', className: 'dsh-remote-ops__environmentQuiet', 'aria-label': '更多环境操作 ' + env.name, 'aria-expanded': menu?.key === env.id, disabled: locked, onClick: e => showMenu(e, env.id, [{ label: '编辑', run: () => onEdit(env) }, ...(onTest ? [{ label: '测试连接', run: () => onTest(env) }] : []), ...(extraActions?.(env) ?? []), { label: '删除环境', danger: true, run: () => void remove([env]) }]) }, '⋯')) : null,
             !batch && renderDetails ? renderDetails(env) : null)),
           !matches.length ? h('div', { className: 'dsh-remote-ops__environmentEmpty' }, search ? '没有匹配的环境' : '此分组还没有环境，可点击上方新增。') : null,
           notice ? h('div', { className: 'dsh-remote-ops__environmentNotice', role: 'status' }, notice) : null)),

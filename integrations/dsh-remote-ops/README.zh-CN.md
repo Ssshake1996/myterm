@@ -2,6 +2,10 @@
 
 面向 DeepSeek Harness 的终端、网页、Windows 桌面与 RESTful API 运维插件。用户与 Agent 共享可见终端、软件窗口、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
 
+## 环境抽屉与顶部空间优化（v0.15.3）
+
+环境改为插件内左侧抽屉：默认浮层，宽屏可固定，窄屏占满工作区。支持 Esc、焦点恢复和草稿保留；打开抽屉不会打断终端、网页或录制。顶部工具栏和标签收紧留白，更多操作收进行尾菜单。已在 DSH Desktop 0.2.1-rc.5 本机验证；详见仓库发布说明。
+
 ## 网页录制与随包浏览器（v0.15.2）
 
 网页工具栏支持开始、停止、读取和导出人工与 Agent 的操作记录。`remote_browser_recording` 提供相同工具能力，随包 `remote-ops-web-recordings` Skill 帮助 Agent 理解记录、参数化不同设备地址，再按用户指定框架或模板生成代码。
@@ -86,8 +90,8 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 
 ## 工作区布局
 
-- 四个工作区共用一个“设置”入口：通用、终端、网页、更新。环境入口统一管理 SSH、TELNET、SERIAL 和 API，表单与凭据仍分别保存。
-- 本地 CMD 与 SSH 使用同一终端标签栏，当前标签通过底色、边框和加粗文字突出，支持方向键切换；SSH 和 API 环境页左上角常驻“返回工作区”，滚动时保持可见，返回后保留原终端或请求草稿。终端栏直接显示全部关闭、搜索、当前 TXT 导出和“更多”；快捷命令默认显示紧凑条，展开或进入“命令库”管理。
+- 各工作区共用一个“设置”入口：通用、终端、网页、更新。环境入口统一管理 SSH、TELNET、SERIAL 和 API，表单与凭据仍分别保存。
+- 本地 CMD 与 SSH 使用同一终端标签栏，当前标签通过底色、边框和加粗文字突出，支持方向键切换；环境以插件内左侧抽屉打开，关闭按钮常驻顶部；Esc 关闭并将焦点还给环境入口，保留原终端和请求草稿。终端栏直接显示全部关闭、搜索、当前 TXT 导出和“更多”；快捷命令默认显示紧凑条，展开或进入“命令库”管理。
 - 顶部标签提示终端新输出、文件传输和网页执行状态；查看对应终端后清除新输出。传输总量可靠时显示百分比，否则显示“传输中”。
 - API 结果按“响应 / 记录”切换。JSON 树可折叠，点击字段名复制 JSON Pointer；复制失败可手动选择路径。HTTP 状态码带颜色和文字，2xx 提示“请检查业务结果”。大响应按节点分批显示，原文仍可查看。
 - 标签与设置切换保留终端、网页和 API 面板状态；后台任务继续，隐藏网页暂停画面取帧。
@@ -101,14 +105,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.15.2.tgz
-  SHA256SUMS-dsh-remote-ops-v0.15.2.txt
+  dsh-remote-ops-v0.15.3.tgz
+  SHA256SUMS-dsh-remote-ops-v0.15.3.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.2.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.3.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -183,7 +187,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 
 ## 工作区与交互
 
-- 环境管理采用“分组导航 + 环境列表”：宽栏左侧选择分组，窄栏改用下拉框。SSH 行直接显示“进入 / 编辑 / 测试”，API 行直接显示“使用 / 编辑”；删除与新建独立 SSH 连接位于行尾“更多”。“批量管理”才显示选择框，删除前列出所选名称与地址，取消不修改配置，部分失败会保留失败项并显示原因。SSH 分组菜单支持重命名及删除空分组；API 分组在环境编辑表单中设置。左上角“返回工作区”保留原工作区内容。
+- 环境抽屉默认浮在工作区上方，宽 360px；插件宽度小于 480px 时占满工作区，达到 960px 时可固定为 320px。浮层开关不重建终端、网页或 API 面板，也不改变网页视口或停止录制。搜索、分组选择和列表集中显示；行内保留“连接/使用”和“更多”，编辑、测试、删除及新建独立 SSH 连接位于更多菜单。表单保存/取消固定在底部，普通草稿保留，已查看的密码在关闭后清除。“批量管理”显示选择框，删除前确认所选名称与地址；取消不修改配置，部分失败保留失败项并显示原因。SSH 分组可重命名或删除空分组，API 分组在表单中设置。
 - 顶部“终端 / 网页 / 文件 / API”标签支持方向键、Home/End；环境管理独立展开在插件内，“设置 → 通用”收纳诊断和刷新，更新位于“设置 → 更新”。左侧入口仍打开 DSH 原生右栏，不替换主对话。
 - 当前模块、选中终端和环境筛选按 DSH 对话恢复，关闭再打开面板及网页刷新均可恢复。文件路径、排序、滚动及书签沿用原有存储；文件筛选、路径草稿和仍存在的选中项在同一网页内跨模块/面板切换保留，整页刷新后重新读取目录，不恢复旧选择。
 - “设置 → 终端”统一管理字号、换行、高亮及当前 SSH 连接尺寸。终端标签旁可直接搜索和导出当前日志，“更多”提供独立命令和全部日志打包；路径与技术状态位于底部状态栏。普通日志使用快速解析，光标控制、Unicode 和全屏程序使用 VT 屏幕模型。
@@ -231,7 +235,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.15.2.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.15.3.tgz
 dsh web
 ```
 

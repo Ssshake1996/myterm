@@ -7,6 +7,7 @@ import { layoutSimplificationScenario } from './layout-simplification.mjs';
 import { terminalTabsScenario } from './terminal-tabs.mjs';
 import { terminalTabScrollScenario } from './terminal-tab-scroll.mjs';
 import { environmentManagerScenario } from './environment-manager.mjs';
+import { environmentDrawerScenario } from './environment-drawer.mjs';
 const pause = (page, ms) => page.waitForTimeout(ms);
 
 async function openPanel(t) {
@@ -39,7 +40,7 @@ async function createDeviceEnvironment(t, name) {
   });
 }
 
-export const scenarios = [environmentManagerScenario,requestErrorsScenario,terminalTabsScenario,terminalTabScrollScenario,layoutSimplificationScenario,updateScenario,workspaceUiScenario,liveBrowserScenario,
+export const scenarios = [environmentDrawerScenario,environmentManagerScenario,requestErrorsScenario,terminalTabsScenario,terminalTabScrollScenario,layoutSimplificationScenario,updateScenario,workspaceUiScenario,liveBrowserScenario,
   websiteScenario,
   {
     id: "sftp-narrow",
@@ -175,7 +176,7 @@ export const scenarios = [environmentManagerScenario,requestErrorsScenario,termi
       await openPanel(t);
       await createDeviceEnvironment(t, "确认阵列");
       await t.step("进入设备并停留在确认提示", async () => {
-        await t.page.getByRole("button", { name: "进入" }).click();
+        await t.page.getByRole("button", { name: "连接", exact: true }).click();
         await t.page.getByLabel("终端输出").getByText("admin:/>").waitFor();
         await typeInTerminal(t.page, "delete lun 3");
         await t.page.getByLabel("终端输出").getByText("(y/n)").waitFor();
@@ -193,7 +194,7 @@ export const scenarios = [environmentManagerScenario,requestErrorsScenario,termi
       await openPanel(t);
       await createDeviceEnvironment(t, "尺寸阵列");
       await t.step("进入设备", async () => {
-        await t.page.getByRole("button", { name: "进入" }).click();
+        await t.page.getByRole("button", { name: "连接", exact: true }).click();
         await t.page.getByLabel("终端输出").getByText("Welcome to Fake Array").waitFor();
       });
       await t.step("把 PTY 调到 200×50", async () => {
