@@ -1,14 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { gunzipSync } from "node:zlib";
+import { createGunzip } from "node:zlib";
+import { Readable } from 'node:stream';
 import { PLUGIN_NAME, PLUGIN_VERSION, RELEASE_REPOSITORY } from "./version.js";
 import { sessionError } from "./common.js";
 import { requestFailure } from "./http-diagnostics.js";
 
 export const UPDATE_CACHE_MS = 10 * 60 * 1000;
 export const UPDATE_PACKAGE = "@dsh/remote-ops";
-export const MAX_UPDATE_BYTES = 64 * 1024 * 1024;
+export const MAX_UPDATE_BYTES = 512 * 1024 * 1024;
 const RELEASE_API = `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/latest`;
 const defaults = { source: "github", url: "" };
 const fail = (code, message) => sessionError(code, message);
@@ -151,23 +152,41 @@ export function expectedChecksum(text, assetName) {
 }
 
 // Read metadata only; never extract an unverified archive or execute package code.
-export function inspectUpdatePackage(bytes, version) {
-  let tar;
-  try { tar = gunzipSync(bytes, { maxOutputLength: 128 * 1024 * 1024 }); } catch { throw fail("UPDATE_PACKAGE_INVALID", "安装包不是有效的 tgz 或解压大小超限"); }
-  let manifest;
-  for (let offset = 0; offset + 512 <= tar.length;) {
-    const header = tar.subarray(offset, offset + 512);
-    if (header.every(byte => byte === 0)) break;
-    const name = header.subarray(0, 100).toString().replace(/\0.*$/, "");
-    const sizeText = header.subarray(124, 136).toString().replace(/\0.*$/, "").trim();
-    const size = /^[0-7]+$/.test(sizeText) ? parseInt(sizeText, 8) : NaN;
-    if (!Number.isSafeInteger(size) || offset + 512 + size > tar.length) throw fail("UPDATE_PACKAGE_INVALID", "安装包内容不完整");
-    if (name === "package/package.json") {
-      if (manifest || size > 128 * 1024 || ![0, 48].includes(header[156])) throw fail("UPDATE_PACKAGE_INVALID", "安装包清单无效或重复");
-      try { manifest = JSON.parse(tar.subarray(offset + 512, offset + 512 + size).toString()); } catch { throw fail("UPDATE_PACKAGE_INVALID", "安装包清单无法解析"); }
+export async function inspectUpdatePackage(bytes, version) {
+  // Scan browser binaries without retaining an entire expanded tar in memory.
+  if (bytes.length > MAX_UPDATE_BYTES) throw fail('UPDATE_TOO_LARGE', '更新文件超过大小限制');
+  let manifest, manifestSeen = false, header = Buffer.alloc(0), remaining = 0, padding = 0, capture = false, ended = false, total = 0;
+  let parts = [];
+  try {
+    for await (const chunk of Readable.from([bytes]).pipe(createGunzip())) {
+      total += chunk.length;
+      if (total > 1024 * 1024 * 1024) throw fail('UPDATE_PACKAGE_INVALID', '安装包解压大小超限');
+      for (let offset = 0; offset < chunk.length && !ended;) {
+        if (remaining) {
+          const count = Math.min(remaining, chunk.length - offset);
+          if (capture) parts.push(chunk.subarray(offset, offset + count));
+          remaining -= count; offset += count;
+          if (!remaining && capture) { manifest = JSON.parse(Buffer.concat(parts).toString()); capture = false; parts = []; }
+        } else if (padding) {
+          const count = Math.min(padding, chunk.length - offset); padding -= count; offset += count;
+        } else {
+          const count = Math.min(512 - header.length, chunk.length - offset);
+          header = Buffer.concat([header, chunk.subarray(offset, offset + count)]); offset += count;
+          if (header.length < 512) continue;
+          if (header.every(byte => byte === 0)) { ended = true; header = Buffer.alloc(0); continue; }
+          const name = header.subarray(0, 100).toString().replace(/\0.*$/, '');
+          const sizeText = header.subarray(124, 136).toString().replace(/\0.*$/, '').trim();
+          const size = /^[0-7]+$/.test(sizeText) ? parseInt(sizeText, 8) : NaN;
+          if (!Number.isSafeInteger(size) || size > 1024 * 1024 * 1024) throw fail('UPDATE_PACKAGE_INVALID', '安装包内容不完整');
+          capture = name === 'package/package.json';
+          if (capture && (manifestSeen || !size || size > 128 * 1024 || ![0, 48].includes(header[156]))) throw fail('UPDATE_PACKAGE_INVALID', '安装包清单无效或重复');
+          if (capture) manifestSeen = true;
+          remaining = size; padding = Math.ceil(size / 512) * 512 - size; header = Buffer.alloc(0);
+        }
+      }
     }
-    offset += 512 + Math.ceil(size / 512) * 512;
-  }
+    if (remaining || padding || header.length) throw fail('UPDATE_PACKAGE_INVALID', '安装包内容不完整');
+  } catch (error) { if (error.code === 'UPDATE_PACKAGE_INVALID') throw error; throw fail('UPDATE_PACKAGE_INVALID', '安装包不是有效的 tgz 或清单无法解析'); }
   if (manifest?.name !== UPDATE_PACKAGE || manifest.version !== version || !manifest.dsh?.bundle) throw fail("UPDATE_PACKAGE_INVALID", "安装包名称、版本或 DSH bundle 与更新清单不一致");
   return manifest;
 }
@@ -177,11 +196,11 @@ export async function downloadRelease(release, root, options = {}) {
   const read = (location, extra) => fetchUpdateBytes(location, { ...network, origin: release.origin, ...extra });
   const checksum = expectedChecksum((await read(release.checksumUrl, { limit: 64 * 1024, stage: "update-checksum" })).toString(), release.assetName);
   onPhase("downloading");
-  const bytes = await read(release.assetUrl, { limit: MAX_UPDATE_BYTES, timeoutMs: 120000, stage: "update-package" });
+  const bytes = await read(release.assetUrl, { limit: MAX_UPDATE_BYTES, timeoutMs: 600000, stage: "update-package" });
   onPhase("verifying");
   const digest = createHash("sha256").update(bytes).digest("hex");
   if (digest !== checksum) throw fail("UPDATE_CHECKSUM_MISMATCH", "SHA256 校验失败，未执行安装，请重新上传正确的安装包与校验文件");
-  inspectUpdatePackage(bytes, release.latestVersion);
+  await inspectUpdatePackage(bytes, release.latestVersion);
   const directory = join(root, "updates", digest);
   await mkdir(directory, { recursive: true });
   const path = join(directory, release.assetName), temporary = path + "." + randomUUID() + ".tmp";

@@ -1,5 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
 import { browserError, browserSteps, browserUrl, displayUrl, expandBrowserSteps, locateBrowser, executeBrowserStep } from "./browser-steps.js";
+import { recordingUrl } from './browser-recordings.js';
 
 const finished = job => !job || ["completed", "failed", "unknown", "stopped"].includes(job.status);
 export class BrowserSessions {
@@ -26,6 +27,9 @@ export class BrowserSessions {
     for (const [id, existing] of record.pages) if (existing === page) return id;
     const id = fixedId??randomUUID(); record.pages.set(id, page); if (!record.activePageId || finished(record.job)) record.activePageId = id;
     const context=record.context;
+    void this.recordings.append(record,{kind:'page',action:'open',source:'browser',status:'observed',pageId:id,url:recordingUrl(page.url())});
+    page.on('framenavigated',frame=>{if(record.context===context)void this.recordings.append(record,{kind:'navigation',source:'browser',status:'observed',pageId:id,mainFrame:frame===page.mainFrame(),url:recordingUrl(frame.url())});});
+    page.on('close',()=>{if(record.context===context)void this.recordings.append(record,{kind:'page',action:'close',source:'browser',status:'observed',pageId:id});});
     const title=()=>{const url=page.url();if(typeof page.title==='function')void page.title().then(value=>{if(record.context===context&&record.pages.get(id)===page&&page.url()===url){record.pageTitles??=new Map();record.pageTitles.set(id,value);}}).catch(()=>{});};
     page.on('domcontentloaded',title);title();
     if(record.display==='embedded'&&record.viewport&&(record.viewport.width!==1024||record.viewport.height!==768))void page.setViewportSize?.({width:record.viewport.width,height:record.viewport.height}).catch(()=>{});
@@ -77,23 +81,27 @@ export class BrowserSessions {
       pages: [...record.pages].map(([id, page]) => ({ id, url: displayUrl(page.url()), title:this.redact(record,record.pageTitles?.get(id)??'').slice(0,120), active: id === record.activePageId })),
       job: record.job ? this.publicJob(record, record.job) : null, history: record.history.slice(-15), notice: record.notice ?? "",
       dialog: record.dialog ? { type: record.dialog.type(), message: this.redact(record, record.dialog.message()).slice(0, 1000) } : null,
-      screenshotAt: record.screenshot?.at ?? null };
+      screenshotAt: record.screenshot?.at ?? null, recording:this.recordings.summary(record) };
   }
   publicJob(record, job) {
     return { id: job.id, status: job.status, index: job.index, count: job.steps.length, results: job.results, error: job.error ?? null, startedAt: job.startedAt, finishedAt: job.finishedAt ?? null, inFlight: job.inFlight };
   }
   snapshot(owner) { return { sites: this.sites, flows: this.flows, preferences:this.preferences, activeBrowserId:this.active?.get(owner)??null, sessions: [...this.sessions.values()].filter(record => record.owner === owner).map(record => this.publicSession(record)) }; }
-  async navigate(owner,id,action,value) {
+  async navigate(owner,id,action,value,source='human') {
     const r=this.session(owner,id);
     if(r.closed||r.switching)throw browserError('BROWSER_CLOSED','This browser was closed or is changing display');
     const page=r.pages.get(r.activePageId);
+    const handle=await this.recordings.begin(r,source,action,{...(value?{url:recordingUrl(value)}:{})});
+    try {
     if(action==='goto')await page.goto(browserUrl(value),{waitUntil:'domcontentloaded',timeout:30000});
     else if(action==='back')await page.goBack({waitUntil:'domcontentloaded',timeout:30000});
     else if(action==='forward')await page.goForward({waitUntil:'domcontentloaded',timeout:30000});
     else if(action==='reload')await page.reload({waitUntil:'domcontentloaded',timeout:30000});
     else if(action==='new-page') {if(r.pages.size>=12)throw browserError('BROWSER_PAGE_LIMIT','At most twelve pages per browser');const opened=await r.context.newPage();r.activePageId=this.attachPage(r,opened);if(r.display==='embedded'&&r.viewport)await opened.setViewportSize?.({width:r.viewport.width,height:r.viewport.height});}
     else throw browserError('BROWSER_ACTION_INVALID','Unknown navigation action');
+    await this.recordings.end(r,handle,'completed');
     this.active?.set(owner,r.id);return this.publicSession(r);
+    }catch(error){await this.recordings.end(r,handle,'unknown',{code:error.code??'BROWSER_NAVIGATION_FAILED'});throw error;}
   }
   async changeDisplay(owner,id,display) {
     if(!['embedded','window'].includes(display))throw browserError('BROWSER_DISPLAY_INVALID','Choose embedded or window');
@@ -109,6 +117,7 @@ export class BrowserSessions {
     try {
       await r.inputQueue;await this.saveStorage(r);await r.view?.stop();await r.context.close();
       const context=await this.launch(r.site,owner,display,launchOptions);r.context=context;r.pages=new Map();r.secretTargets=[];r.closed=false;
+      if(r.recording?.metadata.status==='recording')await this.recordings.install(r);
       const initial=context.pages();
       for(let n=1;n<initial.length;n++)await initial[n].close();
       for(let n=0;n<urls.length;n++) {
@@ -121,7 +130,7 @@ export class BrowserSessions {
     }catch(error){r.closed=true;await r.context.close().catch(()=>{});throw error;}
     finally{r.switching=false;}
   }
-  async run(owner, id, source, { requestId = randomUUID(), mode = "run", variables = {}, pageId } = {}) {
+  async run(owner, id, source, { requestId = randomUUID(), mode = "run", variables = {}, pageId, actor = 'agent' } = {}) {
     await this.ready;
     variables ??= {};
     pageId ??= undefined;
@@ -139,7 +148,7 @@ export class BrowserSessions {
     if (previous) { if (previous.hash !== hash) throw browserError("BROWSER_REQUEST_CONFLICT", "This request ID already has a different operation"); return previous.job; }
     if (!finished(record.job)) throw browserError("BROWSER_BUSY", "Pause or finish the current flow before starting another");
     if (!["run", "step"].includes(mode) || !record.pages.has(pageId ?? record.activePageId)) throw browserError("BROWSER_PAGE_INVALID", "Choose an existing page and run/step mode");
-    const job = { id: randomUUID(), steps, pageId: pageId ?? record.activePageId, index: 0, status: mode === "step" ? "paused" : "running", paused: mode === "step", results: [], startedAt: new Date().toISOString(), inFlight: false };
+    const job = { id: randomUUID(), steps, actor, pageId: pageId ?? record.activePageId, index: 0, status: mode === "step" ? "paused" : "running", paused: mode === "step", results: [], startedAt: new Date().toISOString(), inFlight: false };
     record.job = job;
     this.receipts.set(key, { at: Date.now(), hash, job });
     job.done = this.execute(record, job); void job.done.catch(() => {});
@@ -155,11 +164,22 @@ export class BrowserSessions {
         }
         job.status = "running"; job.inFlight = true;
         const started = Date.now();
+        let handle;
         try {
+          const step=job.steps[job.index];
+          if(record.recording?.metadata.status==='recording') {
+            const saved={...step};if(saved.url)saved.url=recordingUrl(saved.url);
+            let sensitive=!!saved.secretRef||step.action==='fill'&&/password|passwd|secret|token|one.?time|otp|密码|口令|验证码/i.test(JSON.stringify(step.target));
+            if(step.action==='fill'&&!sensitive)try{sensitive=await locateBrowser(record.pages.get(job.pageId),step.target).evaluate(node=>node.matches('input[type=password]')||/password|passwd|secret|token|one.?time|otp|密码|口令|验证码/i.test([node.id,node.name,node.getAttribute('autocomplete'),node.getAttribute('aria-label')].join(' ')));}catch{}
+            if(sensitive){delete saved.value;saved.input={redacted:true,reason:'sensitive-field'};}
+            handle=await this.recordings.begin(record,job.actor,step.action,{jobId:job.id,stepIndex:job.index+1,step:saved},job.pageId);
+          }
           const result = await executeBrowserStep(this, record, job, job.steps[job.index]);
+          await this.recordings.end(record,handle,'completed',{completion:result.completion,pageId:result.pageId});
           job.results.push({ index: job.index + 1, ...result, durationMs: Date.now() - started }); job.index++;
           if (job.single) { job.single = false; job.paused = true; }
-        } finally { job.inFlight = false; duration += Date.now() - started; }
+        } catch(error){await this.recordings.end(record,handle,job.effectStarted?'unknown':job.stop?'cancelled':'failed',{code:error.code??'BROWSER_OPERATION_FAILED'});throw error;}
+        finally { job.inFlight = false; duration += Date.now() - started; }
         if (duration > 300000) throw browserError("BROWSER_FLOW_TIMEOUT", "The flow reached its five-minute active execution limit");
       }
       job.status = job.stop || record.closed ? "stopped" : "completed";
@@ -181,9 +201,11 @@ export class BrowserSessions {
     if (await success.count() === 1 && await success.isVisible()) return { authenticated: true };
     return this.run(owner, id, [{ action: "fill", target: login.username, value: record.site.username }, { action: "fill", target: login.password, secretRef: record.site.passwordRef }, { action: "click", target: login.submit, expect: { target: login.success } }], options);
   }
-  async control(owner, id, action, value) {
+  async control(owner, id, action, value, source='human') {
     const record = this.session(owner, id), job = record.job;
-    if (action === "close") { await this.closeRecord(record); return this.publicSession(record); }
+    const handle=await this.recordings.begin(record,source,action,{...(value?{selectedPageId:value}:{})});
+    try {
+    if (action === "close") { await this.recordings.end(record,handle,'dispatched');await this.closeRecord(record); return this.publicSession(record); }
     if (record.closed) throw browserError("BROWSER_CLOSED", "This browser was closed");
     if (action === "focus") await record.pages.get(record.activePageId)?.bringToFront();
     else if (action === "close-page") {
@@ -204,7 +226,9 @@ export class BrowserSessions {
       if (action === "stop") { job.stop = true; job.status = job.inFlight ? "stopping" : "stopped"; }
       job.wake?.();
     } else if (action !== "focus") throw browserError("BROWSER_CONTROL_INVALID", "Unknown browser control");
+    await this.recordings.end(record,handle,'completed');
     return this.publicSession(record);
+    }catch(error){await this.recordings.end(record,handle,'unknown',{code:error.code??'BROWSER_CONTROL_FAILED'});throw error;}
   }
   async observe(owner, id) {
     const record = this.session(owner, id), page = record.pages.get(record.activePageId);
@@ -233,6 +257,7 @@ export class BrowserSessions {
   }
   async closeRecord(record) {
     if (record.job && !finished(record.job)) { record.job.stop = true; record.job.wake?.(); }
+    if(record.recording?.metadata.status==='recording')await this.recordings.stop(record.owner,record.recording.metadata.id,'browser-closed');
     if (!record.closed) await this.saveStorage(record).catch(() => { record.notice = "Unable to save the login session"; });
     record.closed = true;
     await record.view?.stop();

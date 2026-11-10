@@ -19,8 +19,9 @@ export function registerBrowserRoutes(ctx, state) {
       if (!configuration.has(body.action)) owner = ownerId(await state.resolveOwner(body.sessionId));
       let result;
       switch (body.action) {
+        case 'recording': result=await workspace.recording(owner,body.recording??{});break;
         case 'preferences.save': result=await workspace.savePreferences(body.preferences);break;
-        case 'open-url': result=await workspace.openUrl(owner,body.url,{display:body.display,browser:body.browser});break;
+        case 'open-url': result=await workspace.openUrl(owner,body.url,{display:body.display,browser:body.browser,source:'human'});break;
         case 'navigate': result=await workspace.navigate(owner,body.browserId,body.navigation??'goto',body.url);break;
         case 'input': result=await workspace.input(owner,body.browserId,body.input);break;
         case 'viewport': result=await workspace.resizeViewport(owner,body.browserId,body.viewport);break;
@@ -32,9 +33,9 @@ export function registerBrowserRoutes(ctx, state) {
         case "flow.delete": result = await workspace.deleteFlow(body.flowId); break;
         case "runtime.install": result = await workspace.install(); break;
         case "open": result = await workspace.open(owner, body.siteId,{display:body.display??workspace.preferences.display,browser:body.browser}); break;
-        case "run": result = workspace.publicJob(workspace.session(owner, body.browserId), await workspace.run(owner, body.browserId, browserRunSource(body), { requestId: body.requestId, mode: body.mode, variables: body.variables, pageId: body.pageId })); break;
+        case "run": result = workspace.publicJob(workspace.session(owner, body.browserId), await workspace.run(owner, body.browserId, browserRunSource(body), { requestId: body.requestId, mode: body.mode, variables: body.variables, pageId: body.pageId, actor:'human' })); break;
         case "login": {
-          const job = await workspace.login(owner, body.browserId, { requestId: body.requestId });
+          const job = await workspace.login(owner, body.browserId, { requestId: body.requestId, actor:'human' });
           result = job.authenticated ? job : workspace.publicJob(workspace.session(owner, body.browserId), job); break;
         }
         case "control": result = await workspace.control(owner, body.browserId, body.control, body.value); break;
@@ -56,6 +57,14 @@ export function registerBrowserRoutes(ctx, state) {
       if(['BROWSER_CLOSED','BROWSER_FRAME_PENDING'].includes(error.code))return Response.json({closed:error.code==='BROWSER_CLOSED',pending:error.code==='BROWSER_FRAME_PENDING'},{headers});
       return Response.json({error:error.message,code:error.code},{status:error.name==='AbortError'?499:404,headers});
     }
+  }});
+  register({path:'/api/dsh-remote-ops/browser/recording/export',methods:['GET'],fetch:async request=>{
+    try {
+      const url=new URL(request.url),agent=ctx.agents.get(url.searchParams.get('sessionId'));
+      if(!agent)throw browserError('BROWSER_OWNER_REQUIRED','Select an active conversation');
+      const result=await workspace.recordings.export(ownerId(agent),url.searchParams.get('recordingId'));
+      return new Response(result.content,{headers:{...headers,'Content-Type':'application/json; charset=utf-8','Content-Disposition':`attachment; filename="${result.fileName}"`,'X-Content-Type-Options':'nosniff'}});
+    }catch(error){return Response.json({error:error.message,code:error.code},{status:404,headers});}
   }});
   register({ path: "/api/dsh-remote-ops/browser/screenshot", methods: ["GET"], fetch: async request => {
     try {

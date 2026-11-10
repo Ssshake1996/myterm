@@ -4,15 +4,18 @@ import { join } from "node:path";
 import { BrowserSessions } from "./browser-sessions.js";
 import { browserError, browserSteps, browserTarget, browserUrl } from "./browser-steps.js";
 import { BrowserView, browserInput } from "./browser-view.js";
+import { BrowserRecordings } from './browser-recordings.js';
 import { windowsDefaultBrowser } from './browser-default.js';
 import { browserInstallerCli, browserRuntimeMetadata, browserRuntimeDirectory, inspectBrowserRuntime, writeBrowserRuntimeManifest } from './browser-runtime.js';
 
 const identifier = value => typeof value === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
 export { browserInstallerCli } from './browser-runtime.js';
 export class BrowserWorkspace extends BrowserSessions {
-  constructor({ root, credentials, launchContext } = {}) {
+  constructor({ root, credentials, launchContext, browserBundleRoot } = {}) {
     super();
     this.root = root; this.credentials = credentials; this.launchContext = launchContext;
+    this.browserBundleRoot = browserBundleRoot;
+    this.recordings = new BrowserRecordings(this);
     this.sites = []; this.flows = []; this.sessions = new Map(); this.openings = new Map(); this.receipts = new Map();
     this.writes = Promise.resolve(); this.mutations = Promise.resolve(); this.disposed = false;
     this.ready = this.load(); void this.ready.catch(() => {});
@@ -40,12 +43,26 @@ export class BrowserWorkspace extends BrowserSessions {
     const display=options.display??this.preferences.display;this.validatePreferences({display});
     const existing=[...this.sessions.values()].find(r=>r.owner===owner&&!r.closed&&r.site.id===site.id);
     const opened=await this.open(owner,site.id,{site,display});
-    if(existing&&existing.pages.get(existing.activePageId)?.url()!==url)return this.navigate(owner,opened.id,'goto',url);
+    if(existing&&existing.pages.get(existing.activePageId)?.url()!==url)return this.navigate(owner,opened.id,'goto',url,options.source??'agent');
     return opened;
   }
   async frame(owner,id,options) {const r=this.session(owner,id);r.view??=new BrowserView(r);return r.view.frame(options);}
+  async recording(owner,args) {
+    await this.ready;
+    if(args.action==='start')return this.mutate(()=>this.recordings.start(owner,args.browserId,args.name));
+    if(args.action==='read')return this.recordings.read(owner,args.recordingId,args.after??0,args.limit??100);
+    const id=args.recordingId??this.session(owner,args.browserId).recording?.metadata.id;
+    if(!id)throw browserError('BROWSER_RECORDING_ID_REQUIRED','Start or select a recording first');
+    if(args.action==='stop')return this.mutate(()=>this.recordings.stop(owner,id));
+    if(args.action==='export'){const {content,...result}=await this.recordings.export(owner,id);return result;}
+    throw browserError('BROWSER_RECORDING_ACTION_INVALID','Use start, stop, read or export');
+  }
   input(owner,id,input) {
-    const r=this.session(owner,id),pending=(r.inputQueue??Promise.resolve()).then(()=>browserInput(this,r,input));
+    const r=this.session(owner,id),pending=(r.inputQueue??Promise.resolve()).then(async()=>{
+      const handle=await this.recordings.begin(r,'human',input.kind,{pageId:input.pageId,revision:input.revision,...(input.kind==='click'?{x:input.x,y:input.y}:{}),...(input.kind==='key'?{key:input.key}:{}),...(input.kind==='text'?{input:'See the associated DOM interaction; values are captured at the target element.'}:{})});
+      try {const result=await browserInput(this,r,input);await this.recordings.end(r,handle,'dispatched',{accepted:true});return result;}
+      catch(error){await this.recordings.end(r,handle,'unknown',{code:error.code??'BROWSER_INPUT_FAILED'});throw error;}
+    });
     r.inputQueue=pending.catch(()=>{});return pending;
   }
   async resizeViewport(owner,id,input) {
@@ -136,7 +153,7 @@ export class BrowserWorkspace extends BrowserSessions {
   async runtime() {
     try {
       const { chromium } = await this.library();
-      return { ...await inspectBrowserRuntime({ root: this.root, chromium }), install: this.installation ?? { status: "idle" } };
+      return { ...await inspectBrowserRuntime({ root: this.root, chromium, bundleRoot:this.browserBundleRoot }), install: this.installation ?? { status: "idle" } };
     } catch { return { chromium: false, install: { status: "unavailable", error: "Install the plugin's playwright-core dependency" } }; }
   }
   install() { return this.mutate(() => this.installUnlocked()); }
@@ -182,7 +199,7 @@ export class BrowserWorkspace extends BrowserSessions {
     const options = { headless: display === 'embedded', slowMo: site.slowMo, viewport: display === 'embedded' ? {width:1024,height:768} : null, ...(resolved.executablePath ? { executablePath: resolved.executablePath } : resolved.browser !== 'chromium' ? { channel: resolved.browser } : {}) };
     if (resolved.browser === 'chromium' && !this.launchContext) {
       const { chromium } = await this.library();
-      const runtime = await inspectBrowserRuntime({ root: this.root, chromium }), mode = runtime.modes[display];
+      const runtime = await inspectBrowserRuntime({ root: this.root, chromium, bundleRoot:this.browserBundleRoot }), mode = runtime.modes[display];
       if (!mode?.ready) throw browserError('BROWSER_RUNTIME_MISSING', `${display === 'embedded' ? 'Headless Shell for the plugin view' : 'Chromium for an independent window'} is missing or mismatched. Use remote_browser_runtime action=install (network required), poll action=status until the required mode is ready, or select installed Chrome/Edge in browser settings.`);
       options.executablePath = mode.executable;
     }
@@ -205,6 +222,6 @@ export class BrowserWorkspace extends BrowserSessions {
     await this.ready.catch(() => {});
     await Promise.allSettled([...this.openings.values()]);
     await Promise.allSettled([...this.sessions.values()].map(record => this.closeRecord(record)));
-    await this.mutations; await this.writes;
+    await this.mutations; await this.writes; await this.recordings.writes;
   }
 }

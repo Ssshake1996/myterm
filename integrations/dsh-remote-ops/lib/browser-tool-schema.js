@@ -34,6 +34,13 @@ const browser = { browserId: optionalString("Browser ID from open/list; omit or 
 const requestId = string("Stable unique key per intended operation, 1–160 characters; the same request deduplicates for ten minutes in this plugin process");
 
 export const BROWSER_TOOL_SCHEMAS = {
+  remote_browser_recording: object({
+    ...browser, action:choice(['start','stop','read','export'],'Record actual human and Agent webpage operations; code generation belongs to the Agent'),
+    recordingId:optionalString('ID returned by start/read. read without ID lists this conversation’s saved recordings'),
+    name:optionalString('Optional recording name, up to 120 characters'),
+    after:nullable({type:'integer',description:'Read events after this nonnegative sequence; default 0'}),
+    limit:nullable({type:'integer',description:'Read page size, 1–200; default 100'}),
+  },['action']),
   remote_browser_list: object({}),
   remote_browser_runtime: object({ action: choice(["status", "install"], "status checks matching Chromium/Headless Shell; install starts or reuses the plugin's pinned runtime download (network required). Poll status until ready.") }, ["action"]),
   remote_browser_open: object({

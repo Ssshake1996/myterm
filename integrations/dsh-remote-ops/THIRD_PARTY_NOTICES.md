@@ -1,5 +1,9 @@
 # Third-party notices
 
+## Bundled internal browser
+
+The package includes Chromium Headless Shell and the supporting browser files downloaded by the pinned `playwright-core` version. Platform directories under `browser/runtime/` retain the upstream license files, including `LICENSE.headless_shell` inside the browser directory. `runtime.json` identifies the Playwright version and packaged files. These files are redistributed unmodified; Playwright is licensed under Apache-2.0 and Chromium and its bundled components retain their upstream licenses.
+
 ## Catppuccin
 
 The terminal background, foreground and semantic colors are adapted from

@@ -9,7 +9,9 @@ Use **设置 → 网页** for engines, Chromium installation, viewport and zoom;
 
 ## Browser settings and installation
 
-Browsers run on the DSH host. Install matching Chromium on demand through plugin tools or browser settings. Dependency and browser installation requires accessible download sources.
+Browsers run on the DSH host. The plugin packages the matching Chromium Headless Shell for its internal browser. Installation validates the local bundle and prepares a matching one automatically if the package lacks this platform. No separate browser installation is needed when the bundle is complete. Windows independent windows use installed Chrome/Edge by default; installing a dedicated full Chromium remains optional. Source installations and platforms without a bundled runtime need accessible download sources. Linux also needs the operating-system libraries required by Chromium.
+
+Browser binaries increase the archive size. Upgrade from a package with the old 64 MiB updater limit through DSH's plugin manager or `dsh plugin add <package.tgz>` for the first migration. The new updater accepts up to 512 MiB compressed / 1 GiB expanded and scans archive metadata incrementally. It retains SHA256 verification and package-identity checks.
 
 - Independent windows follow the Windows user's default HTTP(S) browser on the DSH host, supporting installed Chrome / Edge with an isolated plugin profile. Embedded mode defaults to matching Chromium. Each mode has its own engine preference. Explicit saved-site or tool browser choices take precedence. If the default browser is unavailable or incompatible, choose an available engine in settings. This setting follows the DSH host's browser configuration.
 - Prefer an action array for `steps`. Single action objects, a sole `{steps:[...]}` envelope and JSON-encoded versions are accepted. Prefer `{kind,value,name?,frame?}` locator objects for `target`; JSON-encoded locator objects and CSS/XPath strings (`css=#id`, `xpath=//button`, `#id`, `//button`) are accepted. All steps normalize and validate before dispatch. Equivalent requests deduplicate under the same `requestId`.
@@ -19,7 +21,7 @@ Browsers run on the DSH host. Install matching Chromium on demand through plugin
 ## First use
 
 1. Select or create a DSH conversation and open **Remote Ops → 网页**.
-2. In **设置 → 网页**, install the dedicated Chromium or select installed Edge / Chrome. Engine changes apply to newly opened browsers.
+2. In **设置 → 网页**, the internal browser reports **随包就绪** with a complete matching package. You can also select installed Edge / Chrome. Engine changes apply to newly opened browsers.
 3. Choose **插件内** or **独立窗口** under **显示**, enter an HTTP(S) URL and press Enter. A schemeless address gets `https://`. Independent windows require DSH and the user on the same interactive desktop. Embedded mode streams the dedicated browser into the DSH webpage.
 4. Ask the Agent in the main conversation to operate the current page. The Agent can omit `browserId` to use this conversation's selected browser. You can also click, scroll, type, paste text and sign in directly, including while the conversation runs. Use **Ctrl+Esc** to return keyboard focus to the plugin address field; choose **桌面视口 → 原始大小** for a larger scrollable desktop view. The default **跟随面板** viewport follows the available panel size without reloading the page; the website may respond to resize events. Independent windows use their own viewport.
 5. Use native DSH conversation cancellation to stop the Agent. Cancellation prevents subsequent browser steps after the current action settles. A dispatched click or request may already have taken effect; website server jobs do not roll back. A pending terminal send attempts Ctrl+C on cancellation; already returned commands and remote background processes may continue. Inspect actual results before claiming completion or process exit.
@@ -57,6 +59,23 @@ Omit `flowId` for inline operations. For compatibility, null/empty/whitespace-on
 These source/validation errors occur before this call dispatches an action; correct the arguments before retrying. An `unknown` job result may follow a real effect, so inspect the page before deciding whether to repeat the operation.
 
 The plugin exposes its bundled skill through the native DSH skill registry (verified on 0.2.0-rc.2). The Agent can discover its summary and load instructions with the `skill` tool; `/remote-ops-browser` also invokes it explicitly. User/project skills keep their normal precedence, and unloading the plugin removes this provider.
+
+## Record human and Agent operations
+
+Use **开始录制** on an open webpage. Human interactions in the embedded view or independent window and Agent steps are saved in the same conversation-scoped record. **停止录制** ends capture without stopping page tasks. **录制记录** lists earlier recordings, reads their events and downloads JSON. Capture continues when switching plugin modules or reloading the DSH webpage; closing the browser stops it. A host crash leaves an interrupted record that can still be read.
+
+The Agent tool is `remote_browser_recording`:
+
+| Action | Arguments | Result |
+| --- | --- | --- |
+| `start` | optional `browserId`, `name` | Recording metadata/ID; repeated start returns the active recording. |
+| `stop` | `recordingId` (or selected browser) | Final capture status and unfinished action IDs. |
+| `read` | optional `recordingId`, `after`, `limit` | Without ID: list; with ID: events, `nextAfter`, `hasMore`. Limit 1–200. |
+| `export` | `recordingId` | JSON file path on the DSH host; the UI also offers a download. |
+
+Exports use `format: "myterm.web-recording"`, `schemaVersion: 1`. They contain initial pages, normalized Agent actions paired by `actionId`, actual DOM input/click/selection/key/scroll/hover/drag observations, locator candidates, frame ancestry, navigation and action outcomes. DOM events during an action are correlated with `duringActionId`; this does not prove exclusive authorship when a human acts concurrently. A returned click is not a business assertion. Password/sensitive field values, known saved credentials and URL query values are redacted. CSS candidates can be ambiguous; closed shadow roots, browser chrome and native file dialogs are not fully captured.
+
+Recordings persist under `browser/recordings/<conversation hash>/` in the plugin data directory as metadata + append-only JSONL; exports are standalone JSON. Each recording is capped at 10,000 events / 16 MiB; `limited`, `interrupted`, `error`, gaps or unfinished actions must be reported as incomplete. Stop before exporting a complete procedure; exporting while active returns a snapshot. The bundled [remote-ops-web-recordings skill](skills/remote-ops-web-recordings/SKILL.md) explains interpretation, deduplication, device-address parameterization and framework/template-based generation by the Agent. The plugin contains no code generator or test execution framework.
 
 ## Step fields and validation
 

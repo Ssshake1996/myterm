@@ -13,6 +13,7 @@ export function registerBrowserTools(ctx, state) {
     await workspace.ready; return definition.execute(args, ownerId(exec.agent));
   } });
   register({ name: "remote_browser_list", description: "List saved websites, flows, and visible browsers belonging to this DSH conversation. No passwords are returned.", execute: async (_args, owner) => workspace.snapshot(owner) });
+  register({name:'remote_browser_recording',description:'Start/stop a durable recording of the selected browser, read saved recordings with pagination, or export a framework-neutral JSON file on the DSH host. read without recordingId lists this conversation’s recordings; read with ID returns events/nextAfter/hasMore. Stopping recording does not stop browser jobs. Load the bundled remote-ops-web-recordings skill to interpret records and generate code in the user’s chosen framework; recorded observations are not test assertions.',execute:(args,owner)=>workspace.recording(owner,args)});
   register({ name: "remote_browser_runtime", description: "Check or install the Chromium and Headless Shell revision matched to this plugin's installed Playwright. Use status first; install downloads only when needed, without changing browser preferences or Agent settings. Installation returns immediately; poll status until the required mode is ready or install fails. Network/proxy access is required for missing files.", execute: async args => {
     if (!["status", "install"].includes(args.action)) throw browserError("BROWSER_RUNTIME_ACTION_INVALID", "Use status or install");
     if (args.action === "install") await workspace.install();
@@ -27,6 +28,6 @@ export function registerBrowserTools(ctx, state) {
   register({ name: "remote_browser_read", description: 'Read progress, tabs, recent results and bounded visible page metadata, without input values. Omit/null target to observe the whole page. A target tests and highlights one exact match: prefer {kind:"css",value:"#id"} or {kind:"xpath",value:"//button"}; CSS/XPath selector strings are accepted.', execute: async (args, owner) => ({ browser: workspace.publicSession(workspace.session(owner, args.browserId)), ...(args.target != null ? { target: await workspace.testTarget(owner, args.browserId, browserTarget(args.target)) } : { page: await workspace.observe(owner, args.browserId) }) }) });
   register({ name: "remote_browser_control", description: "Focus the browser, select a page, close it, or answer a webpage dialog. Human and Agent share the browser. Use native DSH conversation cancellation to stop automation. Inspect and obtain user authorization before accepting destructive dialogs.", execute: (args, owner) => {
     if(!['focus','select-page','close','dialog-accept','dialog-dismiss'].includes(args.action))throw new Error('BROWSER_CONTROL_INVALID: Use native DSH conversation cancellation for task control');
-    return workspace.control(owner,args.browserId,args.action,args.pageId);
+    return workspace.control(owner,args.browserId,args.action,args.pageId,'agent');
   } });
 }

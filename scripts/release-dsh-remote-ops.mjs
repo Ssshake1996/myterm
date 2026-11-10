@@ -117,7 +117,7 @@ const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)
 async function verifyPublishedAssets({ repository, version, digest, fetchImpl }) {
   const read = async (name, limit) => {
     const url = `https://github.com/${repository}/releases/download/${tagName(version)}/${name}`;
-    const response = await fetchImpl(url, { headers: { "User-Agent": "dsh-remote-ops-release-script" }, signal: AbortSignal.timeout(60_000) });
+    const response = await fetchImpl(url, { headers: { "User-Agent": "dsh-remote-ops-release-script" }, signal: AbortSignal.timeout(120_000) });
     if (!response.ok) throw new Error(`Release asset ${name} returned HTTP ${response.status}`);
     const chunks = []; let size = 0;
     for await (const chunk of response.body) {
@@ -130,7 +130,7 @@ async function verifyPublishedAssets({ repository, version, digest, fetchImpl })
   const checksum = (await read(checksumName(version), 8192)).toString("utf8").trim();
   const match = /^([a-f0-9]{64})\s+\*?(\S+)$/i.exec(checksum);
   if (!match || match[2] !== artifactName(version)) throw Object.assign(new Error("RELEASE_CHECKSUM_INVALID: expected one checksum for the versioned tgz"), { fatal: true });
-  const bytes = await read(artifactName(version), 256 * 1024 * 1024);
+  const bytes = await read(artifactName(version), 512 * 1024 * 1024);
   const actual = createHash("sha256").update(bytes).digest("hex");
   if (actual !== match[1].toLowerCase() || (digest && actual !== digest)) throw Object.assign(new Error("RELEASE_CHECKSUM_MISMATCH: downloaded tgz, checksum file and GitHub digest do not agree"), { fatal: true });
   return actual;

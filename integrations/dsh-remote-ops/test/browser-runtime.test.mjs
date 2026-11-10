@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { EventEmitter } from 'node:events';
-import { browserRuntimeMetadata, browserRuntimeDirectory, inspectBrowserRuntime, writeBrowserRuntimeManifest } from '../lib/browser-runtime.js';
+import { browserRuntimeMetadata, browserRuntimeDirectory, inspectBrowserRuntime, inspectBundledBrowser, writeBrowserRuntimeManifest } from '../lib/browser-runtime.js';
 import { BrowserWorkspace } from '../lib/browser-workspace.js';
 import { registerSessionActivation, RemoteOpsState } from '../lib/index.js';
 import { registerBrowserTools } from '../lib/browser-tools.js';
@@ -15,7 +15,7 @@ async function fixture(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   const put = async (base, mode) => { const path = join(base, metadata.executables[mode]); await mkdir(dirname(path), { recursive: true }); await writeFile(path, 'test executable'); };
   const managed = browserRuntimeDirectory(root, metadata);
-  return { root, metadata, cache, managed, chromium, put, inspect: () => inspectBrowserRuntime({ root, chromium, metadata }) };
+  return { root, metadata, cache, managed, chromium, put, inspect: () => inspectBrowserRuntime({ root, chromium, metadata, bundleRoot:join(root, "no-bundle") }) };
 }
 
 test('browser runtime tool installs only on request, exposes progress and needs no open browser', async () => {
@@ -46,6 +46,23 @@ test('window-only caches never report embedded mode ready', async t => {
   await assert.rejects(writeBrowserRuntimeManifest(f.cache, f.metadata), /incomplete/);
 });
 
+test('bundled internal browser works without a cache and rejects missing, mismatched or unsafe files', async t => {
+  const f = await fixture(t), bundleRoot = join(f.root, 'bundle'), directory = join(bundleRoot, `${f.metadata.platform}-${f.metadata.arch}`);
+  await f.put(directory, 'embedded');
+  const executable = f.metadata.executables.embedded.replaceAll('\\', '/');
+  const manifest = { schema: 1, platform: f.metadata.platform, arch: f.metadata.arch, playwrightVersion: f.metadata.playwrightVersion, executable, files: [{ path: executable, size: 15 }, { path: 'support.dat', size: 3 }] };
+  const save = value => writeFile(join(directory, 'runtime.json'), JSON.stringify(value));
+  await save(manifest);
+  assert.equal((await inspectBundledBrowser(f.metadata, bundleRoot)).reason, 'incomplete');
+  await writeFile(join(directory, 'support.dat'), 'yes');
+  await save({ ...manifest, verified: true });
+  const ready = await inspectBrowserRuntime({ root: f.root, chromium: f.chromium, metadata: f.metadata, bundleRoot });
+  assert.equal(ready.modes.embedded.source, 'bundled'); assert.equal(ready.modes.window.ready, false);
+  await save({ ...manifest, playwrightVersion: '0.0.0' }); assert.equal((await inspectBundledBrowser(f.metadata, bundleRoot)).reason, 'mismatch');
+  await save({ ...manifest, files: [{ path: '../outside', size: 1 }] }); assert.equal((await inspectBundledBrowser(f.metadata, bundleRoot)).reason, 'invalid');
+  await save({ ...manifest, files: [{ path: executable, size: 999 }] }); assert.equal((await inspectBundledBrowser(f.metadata, bundleRoot)).reason, 'incomplete');
+});
+
 test('matching managed browsers take precedence and a missing variant can use the matching default cache', async t => {
   const f = await fixture(t);
   for (const mode of ['embedded', 'window']) { await f.put(f.managed, mode); await f.put(f.cache, mode); }
@@ -73,7 +90,7 @@ test('managed installation preserves profiles and stays independent of other Pla
 test('Chromium launches the executable for the selected mode while Edge retains its channel', async t => {
   const f = await fixture(t), calls = [];
   for (const mode of ['embedded', 'window']) await f.put(f.managed, mode); await writeBrowserRuntimeManifest(f.managed, f.metadata);
-  const w = new BrowserWorkspace({ root: f.root }); await w.ready; t.after(() => w.dispose());
+  const w = new BrowserWorkspace({ root: f.root, browserBundleRoot:join(f.root,"no-bundle") }); await w.ready; t.after(() => w.dispose());
   w.library = async () => ({ chromium: { ...f.chromium, launchPersistentContext: async (profile, options) => { calls.push({ profile, options }); return { setDefaultTimeout() {} }; } } });
   await w.launch({ id: 'test', browser: 'chromium' }, 'owner', 'embedded'); await w.launch({ id: 'test', browser: 'chromium' }, 'owner', 'window'); await w.launch({ id: 'edge', browser: 'msedge' }, 'owner', 'embedded');
   assert.equal(calls[0].options.executablePath, join(f.managed, f.metadata.executables.embedded)); assert.equal(calls[1].options.executablePath, join(f.managed, f.metadata.executables.window));
@@ -81,20 +98,20 @@ test('Chromium launches the executable for the selected mode while Edge retains 
 });
 
 test('missing Chromium fails before launch with a repairable runtime error', async t => {
-  const f = await fixture(t), w = new BrowserWorkspace({ root: f.root }); await w.ready; t.after(() => w.dispose());
+  const f = await fixture(t), w = new BrowserWorkspace({ root: f.root, browserBundleRoot:join(f.root,"no-bundle") }); await w.ready; t.after(() => w.dispose());
   w.library = async () => ({ chromium: { ...f.chromium, launchPersistentContext: () => assert.fail('missing browser must not launch') } });
   await assert.rejects(w.launch({ id: 'test', browser: 'chromium' }, 'owner', 'embedded'), /BROWSER_RUNTIME_MISSING/);
 });
 
 test('installer reuses a complete runtime without downloading or changing global environment', async t => {
-  const f = await fixture(t), w = new BrowserWorkspace({ root: f.root }); await w.ready; t.after(() => w.dispose());
+  const f = await fixture(t), w = new BrowserWorkspace({ root: f.root, browserBundleRoot:join(f.root,"no-bundle") }); await w.ready; t.after(() => w.dispose());
   for (const mode of ['embedded', 'window']) await f.put(f.cache, mode);
   w.library = async () => ({ chromium: f.chromium }); w.spawnInstaller = () => assert.fail('ready browsers must be reused');
   const before = process.env.PLAYWRIGHT_BROWSERS_PATH; assert.equal((await w.install()).status, 'completed'); assert.equal(process.env.PLAYWRIGHT_BROWSERS_PATH, before);
 });
 
 test('installer deduplicates clicks, publishes progress, rejects partial success and permits retry', async t => {
-  const f = await fixture(t), w = new BrowserWorkspace({ root: f.root }); await w.ready; t.after(() => w.dispose());
+  const f = await fixture(t), w = new BrowserWorkspace({ root: f.root, browserBundleRoot:join(f.root,"no-bundle") }); await w.ready; t.after(() => w.dispose());
   w.library = async () => ({ chromium: f.chromium }); const handles = [], before = process.env.PLAYWRIGHT_BROWSERS_PATH;
   w.spawnInstaller = (command, args, options) => { assert.equal(options.env.PLAYWRIGHT_BROWSERS_PATH, f.managed); assert.equal(options.windowsHide, true); const h = new EventEmitter(); h.stdout = new EventEmitter(); h.stderr = new EventEmitter(); h.kill = () => h.emit('close', null); handles.push(h); return h; };
   const first = await w.install(); assert.equal((await w.install()), first); assert.equal(handles.length, 1); handles[0].stdout.emit('data', Buffer.from('download 50%')); assert.match((await w.runtime()).install.output, /50%/);
@@ -105,7 +122,7 @@ test('installer deduplicates clicks, publishes progress, rejects partial success
 });
 
 test('a late failed installer callback cannot replace the retry state or its process handle', async t => {
-  const f=await fixture(t),w=new BrowserWorkspace({root:f.root});await w.ready;t.after(()=>w.dispose());w.library=async()=>({chromium:f.chromium});
+  const f=await fixture(t),w=new BrowserWorkspace({root:f.root,browserBundleRoot:join(f.root,"no-bundle")});await w.ready;t.after(()=>w.dispose());w.library=async()=>({chromium:f.chromium});
   const handles=[];w.spawnInstaller=()=>{const h=new EventEmitter();h.stdout=new EventEmitter();h.stderr=new EventEmitter();h.kill=()=>h.emit('close',null);handles.push(h);return h;};
   await w.install();handles[0].emit('error',Error('spawn failed'));await w.install();const retry=w.installation;
   handles[0].stdout.emit('data',Buffer.from('old progress'));handles[0].emit('close',1);await new Promise(setImmediate);
@@ -114,7 +131,7 @@ test('a late failed installer callback cannot replace the retry state or its pro
 });
 
 test('unloading while runtime detection is pending never starts a new download process', async t => {
-  const f=await fixture(t),w=new BrowserWorkspace({root:f.root});await w.ready;let release;
+  const f=await fixture(t),w=new BrowserWorkspace({root:f.root,browserBundleRoot:join(f.root,"no-bundle")});await w.ready;let release;
   w.library=()=>new Promise(resolve=>{release=()=>resolve({chromium:f.chromium});});w.spawnInstaller=()=>assert.fail('unloaded plugin must not spawn');
   const pending=w.install();await new Promise(setImmediate);const disposing=w.dispose();release();
   await assert.rejects(pending,/BROWSER_DISPOSED/);await disposing;

@@ -7,7 +7,7 @@ export const liveBrowserScenario={id:'web-live',title:'网址直开、实时画�
   const tool=(name,args)=>call('/e2e/agent',{tool:name,args});
   const snapshot=()=>call(`/api/dsh-remote-ops/browser?sessionId=${info.sessionId}`);
   const until=async f=>{for(let n=0;n<150;n++){const v=await f();if(v)return v;await new Promise(r=>setTimeout(r,100));}throw Error('browser did not settle');};
-  let browser;
+  let browser,recording;
   await t.step('直接输入网址并打开插件内网页，无需保存网站',async()=>{
     await p.getByRole('button',{name:'Remote Ops',exact:true}).click();await p.getByRole('tab',{name:'网页',exact:true}).click();
     await p.getByRole('button',{name:'设置',exact:true}).click();await p.getByLabel('浏览器引擎',{exact:true}).selectOption('chrome');
@@ -19,6 +19,8 @@ export const liveBrowserScenario={id:'web-live',title:'网址直开、实时画�
     await p.getByAltText('网页实时画面',{exact:true}).waitFor();
     await p.waitForFunction(()=>{const image=document.querySelector('img[alt="网页实时画面"]'),surface=document.querySelector('.dsh-remote-ops__liveSurface');return image&&surface&&image.getBoundingClientRect().bottom<=surface.getBoundingClientRect().bottom+1;});
     browser=(await snapshot()).sessions.find(v=>!v.closed);
+    await p.getByRole('button',{name:'开始网页录制',exact:true}).click();
+    recording=(await snapshot()).sessions.find(v=>v.id===browser.id).recording;assert.equal(recording.status,'recording');
     assert.equal(browser.display,'embedded');assert.equal((await snapshot()).sites.length,0);
     const tab=p.getByRole('tablist',{name:'网页标签页'}).getByRole('tab',{selected:true});assert.equal(await tab.getAttribute('tabindex'),'0');
     assert.equal(await p.locator('.dsh-remote-ops__webPage').getAttribute('id'),await tab.getAttribute('aria-controls'));
@@ -87,6 +89,19 @@ export const liveBrowserScenario={id:'web-live',title:'网址直开、实时画�
     await until(async()=>await tabs.first().getAttribute('aria-selected')==='true');
     await p.setViewportSize({width:390,height:844});
     const overflow=await p.locator('.dsh-remote-ops__web').evaluate(n=>n.scrollWidth-n.clientWidth);assert.ok(overflow<=1);
+  });
+  await t.step('停止录制、分页读取并从界面下载人工与 Agent 的原始记录',async()=>{
+    await p.getByRole('button',{name:'停止网页录制',exact:true}).click();
+    const saved=await tool('remote_browser_recording',{action:'read',recordingId:recording.id,limit:200});
+    assert.equal(saved.recording.status,'stopped');assert.ok(saved.events.some(e=>e.source==='agent'));assert.ok(saved.events.some(e=>e.source==='human'));
+    await p.getByRole('button',{name:'网页录制记录',exact:true}).click();
+    await p.getByRole('button',{name:'读取记录',exact:true}).click();
+    await p.getByLabel('网页录制记录', {exact:true}).getByText(/已读取/).waitFor();
+    const downloadPromise=p.waitForEvent('download');await p.getByRole('link',{name:'导出 JSON',exact:true}).click();
+    const download=await downloadPromise;assert.match(download.suggestedFilename(),/^myterm-web-/);assert.equal(await download.failure(),null);
+    assert.ok(await p.locator('.dsh-remote-ops__web').evaluate(n=>n.scrollWidth-n.clientWidth)<=1);
+    await t.shot('390px 录制记录与导出');
+    await p.getByRole('button',{name:'返回网页',exact:true}).click();
   });
   await tool('remote_browser_control',{action:'close'});
 }};

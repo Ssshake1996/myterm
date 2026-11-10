@@ -19,11 +19,11 @@ export async function createUpdateManifest(archive, output) {
     return path.split(sep).map(encodeURIComponent).join("/");
   };
   const bytes = await readFile(file);
-  if (bytes.length > MAX_UPDATE_BYTES) throw Error("Package exceeds the updater's 64 MiB limit");
+  if (bytes.length > MAX_UPDATE_BYTES) throw Error(`Package exceeds the updater's ${MAX_UPDATE_BYTES / 1024 / 1024} MiB limit`);
   const expected = expectedChecksum(await readFile(checksum, "utf8"), name);
   const actual = createHash("sha256").update(bytes).digest("hex");
   if (expected !== actual) throw Error("SHA256 mismatch; latest.json was not changed");
-  inspectUpdatePackage(bytes, version);
+  await inspectUpdatePackage(bytes, version);
   const manifest = { schemaVersion: 1, package: UPDATE_PACKAGE, version, asset: relativeUrl(file), checksum: relativeUrl(checksum) };
   const old = await readFile(target, "utf8").then(JSON.parse).catch(error => { if (error.code !== "ENOENT") throw error; });
   if (old && (old.package !== UPDATE_PACKAGE || compareVersions(old.version, version) > 0)) throw Error("Refusing to replace a newer or different package manifest");

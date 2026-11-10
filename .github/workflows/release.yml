@@ -49,6 +49,10 @@ jobs:
         with:
           name: desktop-runtime
           path: integrations/dsh-remote-ops/desktop/runtime
+      - uses: actions/download-artifact@v4
+        with:
+          name: browser-runtime-win32-x64
+          path: integrations/dsh-remote-ops/browser/runtime/win32-x64
       - run: npm run check --prefix integrations/dsh-remote-ops
       - name: Package and checksum
         run: |
@@ -90,6 +94,11 @@ jobs:
         with:
           name: desktop-runtime
           path: integrations/dsh-remote-ops/desktop/runtime/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-runtime-win32-x64
+          path: integrations/dsh-remote-ops/browser/runtime/win32-x64/
           if-no-files-found: error
   serial-terminal:
     needs: package

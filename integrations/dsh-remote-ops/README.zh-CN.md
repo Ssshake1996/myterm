@@ -2,6 +2,12 @@
 
 面向 DeepSeek Harness 的终端、网页、Windows 桌面与 RESTful API 运维插件。用户与 Agent 共享可见终端、软件窗口、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
 
+## 网页录制与随包浏览器（v0.15.0）
+
+网页工具栏支持开始、停止、读取和导出人工与 Agent 的操作记录。`remote_browser_recording` 提供相同工具能力，随包 `remote-ops-web-recordings` Skill 帮助 Agent 理解记录、参数化不同设备地址，再按用户指定框架或模板生成代码。
+
+正式包内置 Windows x64 / Linux x64 的 Chromium Headless Shell；完整包无需单独下载浏览器。安装脚本检查并补齐缺失运行时，遵循宿主的脚本权限；Linux 还需系统动态库。**旧版更新器有 64 MiB 限制，首次升级本版请使用 DSH 插件管理或 CLI 安装 tgz**，再激活已安装版本或重启 DSH。
+
 ## 串口终端（v0.14.1）
 
 进入 **环境 → 终端环境 → + 环境**，在「连接协议」中选择 **SERIAL**。从候选列表选择串口，或填入插件所在主机可访问的设备路径，例如 `COM3`、`/dev/ttyUSB0`、`/dev/cu.usbserial-001`。按设备手册设置波特率、数据位、停止位、校验位、流控、编码和回车换行。默认值为 9600、8N1、无流控、CR。保存后点击「进入」，串口会出现在原有终端标签栏。
@@ -95,14 +101,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.14.1.tgz
-  SHA256SUMS-dsh-remote-ops-v0.14.1.txt
+  dsh-remote-ops-v0.15.0.tgz
+  SHA256SUMS-dsh-remote-ops-v0.15.0.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.14.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.0.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -164,9 +170,11 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 
 左侧入口打开 DSH 原生右栏；人和 Agent 共享输入，停止对话使用 DSH 原生入口。
 
-## 浏览器参数与按需安装
+## 浏览器参数与随包安装
 
-浏览器运行在 DSH 主机上。Chromium 可由 Agent 调用插件工具按需安装，或在“设置 → 网页”中安装。依赖和浏览器下载需有可访问的源。
+浏览器运行在 DSH 主机上。插件包包含内置浏览器所需的 Chromium Headless Shell；安装时检查匹配版本，缺少当前平台运行时则自动下载补齐。完整包安装后可直接打开插件内网页。源码安装或未随包的平台需要可访问的下载源；Linux 还需要 Chromium 所需的系统动态库。独立窗口可使用已安装的 Chrome / Edge，专用完整 Chromium 保留按需安装入口。
+
+浏览器使安装包体积增大。旧更新器限制安装包为 64 MiB，首次迁移到随包浏览器版本请通过 DSH 插件管理或 `dsh plugin add <安装包.tgz>` 安装。新版更新器支持 512 MiB 压缩包、1 GiB 解压数据，流式检查包内清单，保留 SHA256 与插件身份校验。
 
 - 独立窗口默认跟随运行 DSH 的 Windows 用户的 HTTP(S) 默认浏览器，支持已安装的 Chrome / Edge，并使用隔离的插件 profile。插件内网页继续默认使用匹配的 Chromium。两种模式的浏览器设置独立保存；已保存网站的显式引擎和调用中的显式 `browser` 优先。系统默认不受支持或读取失败时明确报错，不静默改开 Edge；远程主机的默认浏览器不等于打开 DSH 网页的客户端默认浏览器。
 - `steps` 推荐传动作数组，兼容单个动作字典、仅含 `steps` 数组的包装字典，以及这些形式的 JSON 字符串。`target` 推荐 `{kind,value,name?,frame?}` 定位字典，兼容 JSON 字符串定位字典、`css=#id`、`xpath=//button` 和普通 CSS / XPath 字符串。所有步骤在派发前归一化并校验，等价格式沿用同一 `requestId` 去重。
@@ -192,7 +200,9 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 
 停止 Agent 使用 DSH 原生停止对话入口；网页后续步骤随对话取消，当前已发出的操作不会回滚。切换模块、收起右栏及刷新 DSH 页面不会取消后台网页任务。
 
-支持 XPath/CSS/role/label/text/placeholder、iframe、弹出网页、可选登录配置与参数流程、结果检查和操作记录。密码使用本机 Harness 凭据服务，浏览器 profile 按对话和网站隔离。首次从“设置 → 网页”安装专用 Chromium，或选择本机 Edge / Chrome。独立窗口要求 DSH 与用户位于同一交互桌面；插件内模式在 DSH 网页中显示专用浏览器画面。切换显示方式会重新载入网页，保留登录 Cookie，未提交表单不会恢复。详见[网页操作指南](WEB.md)。
+支持 XPath/CSS/role/label/text/placeholder、iframe、弹出网页、可选登录配置与参数流程、结果检查和操作记录。密码使用本机 Harness 凭据服务，浏览器 profile 按对话和网站隔离。内置浏览器随插件安装，“设置 → 网页”显示“随包就绪”；也可以选择本机 Edge / Chrome。独立窗口要求 DSH 与用户位于同一交互桌面；插件内模式在 DSH 网页中显示专用浏览器画面。切换显示方式会重新载入网页，保留登录 Cookie，未提交表单不会恢复。详见[网页操作指南](WEB.md)。
+
+网页工具栏的“开始录制 / 停止录制”记录人工与 Agent 的网页操作；“录制记录”可读取历史记录并导出 JSON。Agent 通过 `remote_browser_recording` 使用相同的开始、停止、读取、导出能力。随插件注册的 [remote-ops-web-recordings Skill](skills/remote-ops-web-recordings/SKILL.md) 说明记录格式、动作关联、敏感信息脱敏、未确认结果和设备地址参数化。Agent 先还原操作过程，再按用户指定框架或模板生成代码；插件不负责代码生成或执行框架。
 
 ## 能力
 
@@ -221,7 +231,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.14.1.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.15.0.tgz
 dsh web
 ```
 

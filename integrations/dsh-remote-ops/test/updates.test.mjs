@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { createHash } from "node:crypto";
-import { gzipSync } from "node:zlib";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { mkdtemp, readFile, writeFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,6 +42,16 @@ function tarball(version = nextVersion, extra = {}) {
   return gzipSync(Buffer.concat([header,json,Buffer.alloc((512-json.length%512)%512),Buffer.alloc(1024)]));
 }
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
+
+test('archive scanning handles chunk boundaries and rejects duplicate or truncated manifests', async () => {
+  const large = tarball(nextVersion, { description: 'x'.repeat(70000) });
+  assert.equal((await inspectUpdatePackage(large, nextVersion)).description.length, 70000);
+  const tar = gunzipSync(tarball());
+  await assert.rejects(inspectUpdatePackage(gzipSync(Buffer.concat([tar.subarray(0, -1024), tar])), nextVersion), /UPDATE_PACKAGE_INVALID/);
+  await assert.rejects(inspectUpdatePackage(gzipSync(tar.subarray(0, 600)), nextVersion), /UPDATE_PACKAGE_INVALID/);
+  await assert.rejects(inspectUpdatePackage(large.subarray(0, -8), nextVersion), /UPDATE_PACKAGE_INVALID/);
+  await assert.rejects(inspectUpdatePackage(tarball(nextVersion, { name: 'another-package' }), nextVersion), /UPDATE_PACKAGE_INVALID/);
+});
 async function rootFor(t) { const root=await mkdtemp(join(tmpdir(),'remote-updates-'));t.after(()=>rm(root,{recursive:true,force:true}));return root; }
 async function feed(t) {
   const config={version:nextVersion,bytes:tarball(),requests:[],delay:0};
@@ -63,7 +73,7 @@ async function stateFor(t, f) {
   const root=await rootFor(t);await writeUpdateSettings(root,normalizeUpdateSettings(f.settings));
   const State=withUpdates(class {});const state=new State();state.base=root;state.releaseCheckedAt=0;state.release={currentVersion:PLUGIN_VERSION};
   let installed=PLUGIN_VERSION;const installs=[];
-  state.updateManager={listBundles:async()=>[{name:UPDATE_PACKAGE,version:installed,installed:true}],installBundle:async(path,options)=>{installs.push({path,options});inspectUpdatePackage(await readFile(path),f.version);installed=f.version;return {application:'restart-required',packageResult:{exitCode:0}};}};
+  state.updateManager={listBundles:async()=>[{name:UPDATE_PACKAGE,version:installed,installed:true}],installBundle:async(path,options)=>{installs.push({path,options});await inspectUpdatePackage(await readFile(path),f.version);installed=f.version;return {application:'restart-required',packageResult:{exitCode:0}};}};
   return {state,installs,setInstalled:value=>installed=value};
 }
 

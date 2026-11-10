@@ -50,6 +50,11 @@ jobs:
         run: |
           export DSH_CLI="$RUNNER_TEMP/serial-host/node_modules/@deepseek-ai/dsh/lib/bin.js"
           node e2e/runner/serial-native.mjs output/serial-package/*.tgz
+      - name: Native DSH, bundled browser and operation recording
+        run: |
+          export DSH_CLI="$RUNNER_TEMP/serial-host/node_modules/@deepseek-ai/dsh/lib/bin.js"
+          export RECORDING_NATIVE_OUTPUT="output/recording-native-ci"
+          node e2e/runner/browser-recording-native.mjs output/serial-package/*.tgz
       - if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -57,4 +62,7 @@ jobs:
           path: |
             output/serial-native/evidence.json
             output/serial-native/*.png
+            output/recording-native-ci/evidence.json
+            output/recording-native-ci/recording.json
+            output/recording-native-ci/*.png
           if-no-files-found: ignore
