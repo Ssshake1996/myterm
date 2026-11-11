@@ -19,7 +19,7 @@ export const terminalCloseScenario = { id: 'terminal-close', title: 'SSH 黄绿�
     await p.getByLabel('显示名称',{exact:true}).fill(environment); await p.getByLabel('主机地址',{exact:true}).fill(info.device.host);
     await p.getByLabel('用户名',{exact:true}).fill(info.device.username); await p.getByLabel('端口',{exact:true}).fill(String(info.device.port));
     await p.getByLabel('SSH 密码',{exact:true}).fill('e2e-device-pass'); await p.getByRole('button',{name:'保存',exact:true}).click();
-    await p.getByRole('button',{name:'返回工作区',exact:true}).click(); opened.push(await tool('remote_terminal_open', {environment}));
+    await p.getByRole('button',{name:'关闭环境抽屉',exact:true}).click(); opened.push(await tool('remote_terminal_open', {environment}));
   }
   await until(async()=>await tabs.getByRole('tab').count()===4);
   await t.step('绿色只表示已连接，主按钮直接可见且标签栏保持一行', async()=>{

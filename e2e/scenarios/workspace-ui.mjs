@@ -51,7 +51,7 @@ export const workspaceUiScenario={id:"workspace-ui",title:"工作区恢复、弹
     await p.getByRole("button",{name:"环境管理",exact:true}).click();await p.getByRole("button",{name:"+ 分组",exact:true}).click();
     await p.getByLabel("环境分组名称",{exact:true}).fill("do-not-save");await p.keyboard.press("Escape");
     assert.equal(await p.getByText("do-not-save",{exact:true}).count(),0);
-    await p.getByRole("button",{name:"返回工作区",exact:true}).click();
+    await p.getByRole("button",{name:"关闭环境抽屉",exact:true}).click();
     await p.getByRole("button",{name:"管理快捷命令",exact:true}).click();await p.getByRole("button",{name:"新建分组",exact:true}).click();
     await p.getByLabel("快捷命令分组名称",{exact:true}).fill("常用检查");
     await p.getByRole("dialog",{name:"编辑名称",exact:true}).getByRole("button",{name:"确认",exact:true}).click();
