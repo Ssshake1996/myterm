@@ -8,13 +8,15 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { BrowserWorkspace } from '../../integrations/dsh-remote-ops/lib/browser-workspace.js';
 
-test('postinstall prepares a missing bundle from matching files without downloads and reuses it', {timeout:120000}, async t=>{
+test('the package builder prepares a missing browser bundle offline and reuses it', {timeout:120000}, async t=>{
   const root=await mkdtemp(join(tmpdir(),'remote-ops-browser-prepare-'));
   t.after(async()=>{assert.ok(resolve(root).startsWith(resolve(tmpdir())+'\\')||resolve(root).startsWith(resolve(tmpdir())+'/'));await rm(root,{recursive:true,force:true});});
   const plugin=fileURLToPath(new URL('../../integrations/dsh-remote-ops/',import.meta.url));
   for(const directory of ['lib','scripts'])await mkdir(join(root,directory),{recursive:true});
   await writeFile(join(root,'package.json'),JSON.stringify({type:'module'}));
-  await cp(join(plugin,'lib/browser-runtime.js'),join(root,'lib/browser-runtime.js'));
+  for (const file of ['lib/browser-runtime.js', 'lib/embedded-browser.js']) {
+    await cp(join(plugin, file), join(root, file));
+  }
   await cp(join(plugin,'scripts/bundle-browser-runtime.mjs'),join(root,'scripts/bundle-browser-runtime.mjs'));
   await symlink(join(plugin,'node_modules'),join(root,'node_modules'),process.platform==='win32'?'junction':'dir');
   const run=()=>spawnSync(process.execPath,['scripts/bundle-browser-runtime.mjs'],{cwd:root,env:{...process.env,PLAYWRIGHT_BROWSERS_PATH:join(plugin,'browser/runtime',`${process.platform}-${process.arch}`),PLAYWRIGHT_DOWNLOAD_HOST:'http://127.0.0.1:9'},windowsHide:true,encoding:'utf8',timeout:60000});
@@ -31,10 +33,10 @@ test('bundled browser records genuine human/Agent events, cross-origin frames, p
     response.end(`<title>Recording fixture</title><label>Name<input id="name"></label><label>Password<input id="password" type="password"></label><label>API token<input id="token" name="api-token"></label><button id="save" onclick="document.querySelector('#result').textContent=document.querySelector('#name').value">Save</button><div id="result"></div><a id="popup" href="/popup" target="_blank">Popup</a><iframe id="child" src="http://localhost:${server.address().port}/frame"></iframe>`);
   });
   await new Promise(resolve=>server.listen(0,resolve));
-  const w=new BrowserWorkspace({root});await w.ready;
+  const w=new BrowserWorkspace({root,browserCacheRoot:join(root,'cache')});await w.ready;
   t.after(async()=>{await w.dispose();await new Promise(resolve=>server.close(resolve));assert.ok(resolve(root).startsWith(resolve(tmpdir())+'\\')||resolve(root).startsWith(resolve(tmpdir())+'/'));await rm(root,{recursive:true,force:true});});
-  const runtime=await w.runtime();assert.equal(runtime.modes.embedded.source,'bundled');
   const opened=await w.openUrl('live',`http://127.0.0.1:${server.address().port}/?token=do-not-export`),record=w.session('live',opened.id),page=record.pages.get(record.activePageId);
+  const runtime=await w.runtime();assert.equal(runtime.modes.embedded.source,'bundled');assert.equal(runtime.modes.embedded.ready,true);
   const started=await w.recording('live',{action:'start',browserId:opened.id,name:'Real document events'});
   await page.getByLabel('Name',{exact:true}).fill('human entry');await page.getByLabel('Name',{exact:true}).press('Control+A');await page.getByRole('button',{name:'Save'}).click();
   await page.getByLabel('Password',{exact:true}).fill('human-password-secret');

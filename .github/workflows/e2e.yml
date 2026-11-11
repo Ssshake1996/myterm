@@ -21,6 +21,7 @@ jobs:
         with:
           chrome-version: stable
       - run: npm ci --prefix integrations/dsh-remote-ops
+      - run: npm run bundle:browser --prefix integrations/dsh-remote-ops
       - run: npm ci --prefix e2e
       - run: npm test --prefix e2e
       - run: node --test e2e/test/recording-live.mjs
