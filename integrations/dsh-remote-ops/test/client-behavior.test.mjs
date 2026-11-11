@@ -63,9 +63,9 @@ test("bulk selection excludes CMD and partial/missing receipts keep their tabs",
 });
 
 test('browser readiness distinguishes embedded and window modes', () => {
-  assert.equal(browserRuntimeSummary({modes:{window:{ready:false},embedded:{ready:true,source:'bundled'}}}), '插件内：随包就绪 · 独立窗口：需安装');
-  assert.equal(browserRuntimeSummary({modes:{window:{ready:true},embedded:{ready:false}}}), '插件内：需安装 · 独立窗口：已就绪');
-  assert.equal(browserRuntimeSummary({modes:{window:{ready:true},embedded:{ready:true}},browserVersion:'156.0.8078.4'}), '插件内：已就绪 · 独立窗口：已就绪 · Chromium 156.0.8078.4');
+  assert.equal(browserRuntimeSummary({modes:{window:{ready:false},embedded:{ready:true,source:'bundled'}}}, 'system'), '插件内浏览器可用');
+  assert.equal(browserRuntimeSummary({modes:{window:{ready:false},embedded:{status:'preparing'}}}, 'chromium'), '正在准备插件内浏览器… · 独立窗口专用 Chromium 可选安装');
+  assert.equal(browserRuntimeSummary({modes:{window:{ready:true},embedded:{status:'failed'}}}, 'chromium'), '插件内浏览器准备失败 · 独立窗口专用 Chromium 可用');
 });
 
 // Export names from DSH ui-primitives 0.2.0-rc.2 and the older Web host.

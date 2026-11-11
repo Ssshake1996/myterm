@@ -42,7 +42,7 @@ export const BROWSER_TOOL_SCHEMAS = {
     limit:nullable({type:'integer',description:'Read page size, 1–200; default 100'}),
   },['action']),
   remote_browser_list: object({}),
-  remote_browser_runtime: object({ action: choice(["status", "install"], "status checks matching Chromium/Headless Shell; install starts or reuses the plugin's pinned runtime download (network required). Poll status until ready.") }, ["action"]),
+  remote_browser_runtime: object({ action: choice(["status", "repair", "install"], "status reports each mode; repair retries offline preparation for the embedded browser; install downloads optional full Chromium for an independent window.") }, ["action"]),
   remote_browser_open: object({
     url: optionalString("HTTP(S) URL; no saved site is required"), siteId: optionalString("Saved site ID instead of URL"),
     display: nullable(choice(["embedded", "window"], "Display preference")),

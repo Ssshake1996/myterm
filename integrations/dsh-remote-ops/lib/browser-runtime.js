@@ -1,9 +1,10 @@
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
-import { access, readFile, writeFile, rename, stat } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { access, readFile, writeFile, rename } from 'node:fs/promises';
 import { dirname, join, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
+export { inspectBundledBrowser, bundledBrowserRoot } from './embedded-browser.js';
+import { inspectBundledBrowser, bundledBrowserRoot } from './embedded-browser.js';
 
 export const playwrightRoot = () => dirname(createRequire(import.meta.url).resolve('playwright-core/package.json'));
 export const browserInstallerCli = () => join(playwrightRoot(), 'cli.js');
@@ -28,30 +29,6 @@ export function browserRuntimeMetadata({ packageRoot = playwrightRoot(), platfor
 
 export const browserRuntimeDirectory = (root, metadata) => join(root, 'runtimes', `playwright-${metadata.playwrightVersion}-${metadata.platform}-${metadata.arch}`);
 const exists = path => access(path).then(() => true, () => false);
-export const bundledBrowserRoot = fileURLToPath(new URL('../browser/runtime/', import.meta.url));
-const bundleChecks = new Map();
-export async function inspectBundledBrowser(metadata, base = bundledBrowserRoot) {
-  const directory = join(base, `${metadata.platform}-${metadata.arch}`), path = join(directory, 'runtime.json');
-  try {
-    const stamp = await stat(path), key = `${path}:${stamp.mtimeMs}:${stamp.size}`;
-    if (!bundleChecks.has(key)) bundleChecks.set(key, (async () => {
-      const manifest = JSON.parse(await readFile(path, 'utf8'));
-      const executable = metadata.executables.embedded.replaceAll('\\', '/');
-      if (manifest.schema !== 1 || manifest.platform !== metadata.platform || manifest.arch !== metadata.arch || manifest.playwrightVersion !== metadata.playwrightVersion || manifest.executable !== executable || !Array.isArray(manifest.files) || !manifest.files.length) return { ready: false, source: 'bundled', reason: 'mismatch' };
-      for (const file of manifest.files) {
-        if (typeof file.path !== 'string' || /^[a-z]:/i.test(file.path) || file.path.startsWith('/') || file.path.includes('\\') || file.path.split('/').some(part => part === '..' || part === '.' || !part)) return { ready: false, source: 'bundled', reason: 'invalid' };
-        const found = await stat(join(directory, file.path)).catch(() => null);
-        if (!found?.isFile() || found.size !== file.size) return { ready: false, source: 'bundled', reason: 'incomplete' };
-      }
-      if (!manifest.files.some(file => file.path === executable && file.size > 0)) return { ready: false, source: 'bundled', reason: 'incomplete' };
-      return { ready: true, source: 'bundled', executable: join(directory, executable) };
-    })());
-    const result = await bundleChecks.get(key);
-    if (result.ready && !await exists(result.executable)) return { ready: false, source: 'bundled', reason: 'incomplete' };
-    return result;
-  } catch (error) { return { ready: false, source: 'bundled', reason: error.code === 'ENOENT' ? 'missing' : 'invalid' }; }
-}
-
 export async function writeBrowserRuntimeManifest(directory, metadata) {
   for (const relative of Object.values(metadata.executables)) {
     if (!await exists(join(directory, relative))) throw new Error('Chromium installation is incomplete; both the window browser and Headless Shell are required');
@@ -61,7 +38,7 @@ export async function writeBrowserRuntimeManifest(directory, metadata) {
   await rename(temporary, join(directory, 'runtime.json'));
 }
 
-export async function inspectBrowserRuntime({ root, chromium, metadata = browserRuntimeMetadata(), bundleRoot = bundledBrowserRoot }) {
+export async function inspectBrowserRuntime({ root, chromium, metadata = browserRuntimeMetadata(), bundleRoot = bundledBrowserRoot, embedded }) {
   const directory = browserRuntimeDirectory(root, metadata);
   let managedStatus = 'missing';
   try {
@@ -73,14 +50,14 @@ export async function inspectBrowserRuntime({ root, chromium, metadata = browser
   while (basename(cache) !== metadata.browsers[0].directory && dirname(cache) !== cache) cache = dirname(cache);
   cache = basename(cache) === metadata.browsers[0].directory ? dirname(cache) : undefined;
   const modes = {};
-  const bundled = await inspectBundledBrowser(metadata, bundleRoot);
+  const bundled = embedded ?? await inspectBundledBrowser(metadata, bundleRoot);
   for (const mode of ['window', 'embedded']) {
     const managed = join(directory, metadata.executables[mode]);
     const cached = mode === 'window' ? full : cache && join(cache, metadata.executables[mode]);
-    if (mode === 'embedded' && bundled.ready) modes[mode] = bundled;
+    if (mode === 'embedded' && (bundled.ready || bundled.status === 'preparing')) modes[mode] = bundled;
     else if (managedStatus === 'ready' && await exists(managed)) modes[mode] = { ready: true, source: 'managed', executable: managed };
     else if (cached && await exists(cached)) modes[mode] = { ready: true, source: 'cache', executable: cached };
-    else modes[mode] = { ready: false, source: 'missing' };
+    else modes[mode] = mode === 'embedded' ? bundled : { ready: false, source: 'missing' };
   }
   if (managedStatus === 'ready' && !await Promise.all(Object.values(metadata.executables).map(relative => exists(join(directory, relative)))).then(values => values.every(Boolean))) managedStatus = 'incomplete';
   return { chromium: modes.window.ready && modes.embedded.ready, playwrightVersion: metadata.playwrightVersion, browserVersion: metadata.browsers[0].browserVersion, revision: metadata.browsers[0].revision, managedStatus, bundledStatus: bundled.ready ? 'ready' : bundled.reason, modes };

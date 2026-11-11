@@ -54,7 +54,16 @@ jobs:
           name: browser-runtime-win32-x64
           path: integrations/dsh-remote-ops/browser/runtime/win32-x64
       - run: npm run check --prefix integrations/dsh-remote-ops
+      - name: Verify and test the exact release candidate already accepted on devices
+        if: ${{ hashFiles(format('docs/releases/{0}.sha256', env.TAG)) != '' }}
+        run: |
+          candidate="$RUNNER_TEMP/remote-ops-candidate"
+          gh release download "$TAG" --dir "$candidate"
+          (cd "$candidate" && sha256sum --check "$GITHUB_WORKSPACE/docs/releases/$TAG.sha256")
+          mkdir -p dist-release
+          cp "$candidate/$TAG.tgz" "$candidate/SHA256SUMS-$TAG.txt" dist-release/
       - name: Package and checksum
+        if: ${{ hashFiles(format('docs/releases/{0}.sha256', env.TAG)) == '' }}
         run: |
           mkdir -p dist-release
           packed_output="$(cd integrations/dsh-remote-ops && npm pack --silent --pack-destination ../../dist-release)"
@@ -85,6 +94,7 @@ jobs:
       - name: Build and verify bundled Windows desktop runtime
         shell: powershell
         run: ./integrations/dsh-remote-ops/scripts/build-desktop.ps1
+      - run: npm run bundle:browser --prefix integrations/dsh-remote-ops
       - run: npm run check --prefix integrations/dsh-remote-ops
       - name: Actual Windows desktop gate
         working-directory: integrations/dsh-remote-ops
@@ -132,6 +142,19 @@ jobs:
           title="dsh-remote-ops v${version}"
           notes="docs/releases/dsh-remote-ops-v${version}.md"
           (cd dist-release && sha256sum --check "SHA256SUMS-dsh-remote-ops-v${version}.txt")
+          if [[ -f "docs/releases/$TAG.sha256" ]]; then
+            # The intranet bridge pins the full tgz. Publish the same verified
+            # bytes that passed the native gate, including on workflow retries.
+            gh release view "$TAG" --json assets,isDraft > "$RUNNER_TEMP/candidate.json"
+            while read -r sha name; do
+              jq -e --arg name "$name" --arg digest "sha256:$sha" \
+                '.assets | any(.name == $name and .digest == $digest and .state == "uploaded")' "$RUNNER_TEMP/candidate.json" >/dev/null
+            done < "docs/releases/$TAG.sha256"
+            if jq -e '.isDraft' "$RUNNER_TEMP/candidate.json" >/dev/null; then
+              gh release edit "$TAG" --title "$title" --notes-file "$notes" --draft=false --latest=false
+            fi
+            exit 0
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --title "$title" --notes-file "$notes"
           else

@@ -14,7 +14,7 @@
 
 网页工具栏支持开始、停止、读取和导出人工与 Agent 的操作记录。`remote_browser_recording` 提供相同工具能力，随包 `remote-ops-web-recordings` Skill 帮助 Agent 理解记录、参数化不同设备地址，再按用户指定框架或模板生成代码。
 
-正式包内置 Windows x64 / Linux x64 的 Chromium Headless Shell；完整包无需单独下载浏览器。安装脚本检查并补齐缺失运行时，遵循宿主的脚本权限；Linux 还需系统动态库。**旧版更新器有 64 MiB 限制，首次升级本版请使用 DSH 插件管理或 CLI 安装 tgz**，再激活已安装版本或重启 DSH。
+Windows x64 和 Linux x64 的安装包包含插件内 Chromium。插件加载时离线准备，首次打开网页会等待准备完成。Linux 需要 Chromium 的系统动态库。使用内网更新源的 v0.14.0 / v0.14.1 可通过配套过渡包在插件内点击一次升级，管理员部署步骤见 ZIP 中的《部署说明》。
 
 ## 串口终端（v0.14.1）
 
@@ -109,20 +109,20 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.15.4.tgz
-  SHA256SUMS-dsh-remote-ops-v0.15.4.txt
+  dsh-remote-ops-v0.15.5.tgz
+  SHA256SUMS-dsh-remote-ops-v0.15.5.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.4.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.5.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
 
 - HTTP/HTTPS：填写可直接读取的目录地址或 `latest.json` 地址。URL 使用协议、主机和路径，文件及重定向须保持同源；服务需允许 DSH 主机直接下载这些文件。内部 HTTPS 证书需由 DSH 的 Node 进程信任。
-- 依赖使用 DSH 的 npm/pnpm 源、代理和构建批准配置；内网需有可访问的依赖源。Chromium 可按需安装。
+- 依赖使用 DSH 的 npm/pnpm 源、代理和构建批准配置；内网需有可访问的依赖源。插件内 Chromium 随包提供，独立窗口的专用 Chromium 可按需下载。
 
 更新包下载到 DSH 主机缓存，校验 SHA256 和包身份后，通过当前 profile 的 DSH 插件管理器安装。设置保存在 `$DSH_HOME/remote-ops/update-settings.json`，同一 DSH home 共享；安装作用于当前 profile。失败时可查看错误原因与宿主安装日志。热加载失败时保留旧运行实例并显示原因，可修正后重试应用，不重复安装同一版本。首次迁移按上文的激活或重启步骤确认；完整重启不会恢复内存中的任务、连接和记录。配置、清单生成与排错步骤见随包 `remote-ops-updates` skill。
 
@@ -172,7 +172,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 
 - 终端、网页、文件及环境、快捷命令、诊断采用统一的字号、间距、控件和深浅色层次。顶部保留工作区标签，版本、诊断和“界面密度”收进“设置 → 通用”，更新位于“设置 → 更新”；舒适/紧凑密度在本浏览器中保存。
 - 本地 CMD 和 SSH 共用一行标签，搜索、导出等工具固定在右侧。标签放不下时，两端显示左右箭头，点击即可滚动查看更早或更新的标签，到达边界时对应箭头置灰；无需关闭连接。方向键及 Home/End 可切换并定位当前终端，后台输出和状态刷新保留手动滚动位置。
-- 网页以地址和实时画面为主。“设置 → 网页”统一管理引擎、Chromium 安装、视口与缩放；“收藏”管理网站与流程；“操作记录”在画面下方展开。返回工作区保留地址草稿和当前网页。
+- 网页以地址和实时画面为主。“设置 → 网页”统一管理引擎、浏览器状态、视口与缩放；“收藏”管理网站与流程；“操作记录”在画面下方展开。返回工作区保留地址草稿和当前网页。
 - 已打开网页切换“插件内 / 独立窗口”时先确认，取消不会派发切换；确认后会重载页面，未提交表单可能丢失。执行中禁止重复切换。
 - 文件列表选中项目后才显示复制、删除等操作；上传入口与其他按钮统一，浏览器上传展示字节进度。切换模块保留选择、草稿与后台任务，目录完成刷新继续合并。
 
@@ -180,13 +180,13 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 
 ## 浏览器参数与随包安装
 
-浏览器运行在 DSH 主机上。插件包包含内置浏览器所需的 Chromium Headless Shell；安装时检查匹配版本，缺少当前平台运行时则自动下载补齐。完整包安装后可直接打开插件内网页。源码安装或未随包的平台需要可访问的下载源；Linux 还需要 Chromium 所需的系统动态库。独立窗口可使用已安装的 Chrome / Edge，专用完整 Chromium 保留按需安装入口。
+浏览器运行在 DSH 主机上。Windows x64 和 Linux x64 包内含 Chromium Headless Shell。插件首次加载时将其准备到当前用户的短路径缓存，校验文件并验证能否启动。用户和 Agent 可直接打开网址。运行时文件受损会从插件包恢复，Linux 需要对应的系统动态库。
 
-浏览器使安装包体积增大。旧更新器限制安装包为 64 MiB，首次迁移到随包浏览器版本请通过 DSH 插件管理或 `dsh plugin add <安装包.tgz>` 安装。新版更新器支持 512 MiB 压缩包、1 GiB 解压数据，流式检查包内清单，保留 SHA256 与插件身份校验。
+旧更新器限制安装包为 64 MiB。内网更新源可部署配套过渡包，让 v0.14.0 / v0.14.1 在插件内点击一次升级。也可以通过 DSH 插件管理或 `dsh plugin add <安装包.tgz>` 安装。新版更新器支持 512 MiB 压缩包、1 GiB 解压数据，流式检查包内清单，保留 SHA256 与插件身份校验。
 
 - 独立窗口默认跟随运行 DSH 的 Windows 用户的 HTTP(S) 默认浏览器，支持已安装的 Chrome / Edge，并使用隔离的插件 profile。插件内网页继续默认使用匹配的 Chromium。两种模式的浏览器设置独立保存；已保存网站的显式引擎和调用中的显式 `browser` 优先。系统默认不受支持或读取失败时明确报错，不静默改开 Edge；远程主机的默认浏览器不等于打开 DSH 网页的客户端默认浏览器。
 - `steps` 推荐传动作数组，兼容单个动作字典、仅含 `steps` 数组的包装字典，以及这些形式的 JSON 字符串。`target` 推荐 `{kind,value,name?,frame?}` 定位字典，兼容 JSON 字符串定位字典、`css=#id`、`xpath=//button` 和普通 CSS / XPath 字符串。所有步骤在派发前归一化并校验，等价格式沿用同一 `requestId` 去重。
-- 需要 Chromium 时，让 Agent 先调用 `remote_browser_runtime` 的 `action: "status"`；缺失时调用 `action: "install"`，再轮询 `status`，确认所需模式就绪后打开网页。安装使用当前插件锁定的 Playwright CLI，下载匹配的 Chromium 与 Headless Shell；设置中“安装 / 检查 Chromium”使用同一机制。下载需要网络，可在启动 DSH 前设置 `HTTPS_PROXY`、`PLAYWRIGHT_DOWNLOAD_HOST`、`PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT`。完整已有运行时复用，网站、流程和登录 profile 保留。
+- 插件内网页直接使用 `remote_browser_open`。若自动准备失败，可在设置中重试离线修复，或调用 `remote_browser_runtime` 的 `repair`。独立窗口显式选择专用 Chromium 时可使用 `install` 下载完整浏览器。
 - `BROWSER_STEP_INVALID` 指明字段路径、正确格式和未派发状态。应纠正具体字段，不重复发送相同错误参数；校验失败未占用请求 ID。参数格式和恢复步骤见随包 `remote-ops-browser` skill。升级后停止旧 DSH、重新启动并刷新网页，在“设置 → 通用”确认当前版本。
 
 ## 工作区与交互
@@ -239,7 +239,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.15.4.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.15.5.tgz
 dsh web
 ```
 

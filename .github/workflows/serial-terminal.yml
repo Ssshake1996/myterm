@@ -45,6 +45,7 @@ jobs:
         run: |
           mkdir -p ../../output/serial-package
           node scripts/prepare-client.mjs
+          node scripts/bundle-browser-runtime.mjs
           npm pack --ignore-scripts --silent --pack-destination ../../output/serial-package
       - name: Native DSH, Chrome and isolated kernel PTY
         run: |

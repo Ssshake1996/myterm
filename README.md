@@ -43,7 +43,7 @@
 
 网页工具栏支持开始、停止、读取和导出人工与 Agent 的操作记录。`remote_browser_recording` 提供相同工具能力，随包 `remote-ops-web-recordings` Skill 帮助 Agent 理解记录、参数化不同设备地址，再按用户指定框架或模板生成代码。
 
-正式包内置 Windows x64 / Linux x64 的 Chromium Headless Shell；完整包无需单独下载浏览器。安装脚本检查并补齐缺失运行时，遵循宿主的脚本权限；Linux 还需系统动态库。**旧版更新器有 64 MiB 限制，首次升级本版请使用 DSH 插件管理或 CLI 安装 tgz**，再激活已安装版本或重启 DSH。
+Windows x64 和 Linux x64 的安装包包含插件内 Chromium。插件加载时离线准备，首次打开网页会等待准备完成。Linux 需要 Chromium 的系统动态库。使用内网更新源的 v0.14.0 / v0.14.1 可通过配套过渡包在插件内点击一次升级，管理员部署步骤见 ZIP 中的《部署说明》。
 
 ## 串口终端（v0.14.1）
 
@@ -186,13 +186,13 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 
 左侧入口打开 DSH 原生右栏；人和 Agent 共享输入，停止对话使用 DSH 原生入口。
 
-## 浏览器参数与按需安装
+## 插件内浏览器与独立窗口
 
-浏览器运行在 DSH 主机上。Chromium 可由 Agent 调用插件工具按需安装，或在“设置 → 网页”中安装。依赖和浏览器下载需有可访问的源。
+浏览器运行在 DSH 主机上。用户在「网页」输入网址、Agent 调用 `remote_browser_open` 即可打开。插件内 Chromium 会从安装包离线准备。独立窗口显式选择专用 Chromium 时，可在「设置 → 网页」下载。
 
 - 独立窗口默认跟随运行 DSH 的 Windows 用户的 HTTP(S) 默认浏览器，支持已安装的 Chrome / Edge，并使用隔离的插件 profile。插件内网页继续默认使用匹配的 Chromium。两种模式的浏览器设置独立保存；已保存网站的显式引擎和调用中的显式 `browser` 优先。系统默认不受支持或读取失败时明确报错，不静默改开 Edge；远程主机的默认浏览器不等于打开 DSH 网页的客户端默认浏览器。
 - `steps` 推荐传动作数组，兼容单个动作字典、仅含 `steps` 数组的包装字典，以及这些形式的 JSON 字符串。`target` 推荐 `{kind,value,name?,frame?}` 定位字典，兼容 JSON 字符串定位字典、`css=#id`、`xpath=//button` 和普通 CSS / XPath 字符串。所有步骤在派发前归一化并校验，等价格式沿用同一 `requestId` 去重。
-- 需要 Chromium 时，让 Agent 先调用 `remote_browser_runtime` 的 `action: "status"`；缺失时调用 `action: "install"`，再轮询 `status`，确认所需模式就绪后打开网页。安装使用当前插件锁定的 Playwright CLI，下载匹配的 Chromium 与 Headless Shell；设置中“安装 / 检查 Chromium”使用同一机制。下载需要网络，可在启动 DSH 前设置 `HTTPS_PROXY`、`PLAYWRIGHT_DOWNLOAD_HOST`、`PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT`。完整已有运行时复用，网站、流程和登录 profile 保留。
+- 插件内网页直接使用 `remote_browser_open`。若自动准备失败，可在设置中重试离线修复，或调用 `remote_browser_runtime` 的 `repair`。独立窗口显式选择专用 Chromium 时可使用 `install` 下载完整浏览器。
 - `BROWSER_STEP_INVALID` 指明字段路径、正确格式和未派发状态。应纠正具体字段，不重复发送相同错误参数；校验失败未占用请求 ID。参数格式和恢复步骤见随包 `remote-ops-browser` skill。升级后停止旧 DSH、重新启动并刷新网页，在“设置 → 通用”确认当前版本。
 
 ## 工作区与交互
@@ -244,7 +244,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 从 [最新稳定版](https://github.com/Ssshake1996/myterm/releases/latest) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.15.4.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.15.5.tgz
 dsh web
 ```
 
@@ -262,7 +262,7 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ## 内网 HTTP/HTTPS 手动更新
 
-当前版本为 [v0.15.4](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.15.4)。环境抽屉支持按组折叠，详见[发布说明](docs/releases/dsh-remote-ops-v0.15.4.md)。
+v0.15.5 在 DSH 首次加载时离线准备插件内 Chromium。详见[版本说明](docs/releases/dsh-remote-ops-v0.15.5.md)。
 
 Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后显示等待原因，任务结束后自动热加载；“新版已生效”与运行版本共同确认结果。
 
@@ -271,20 +271,20 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.15.4.tgz
-  SHA256SUMS-dsh-remote-ops-v0.15.4.txt
+  dsh-remote-ops-v0.15.5.tgz
+  SHA256SUMS-dsh-remote-ops-v0.15.5.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.4.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.5.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
 
 - HTTP/HTTPS：填写可直接读取的目录地址或 `latest.json` 地址。URL 使用协议、主机和路径，文件及重定向须保持同源；服务需允许 DSH 主机直接下载这些文件。内部 HTTPS 证书需由 DSH 的 Node 进程信任。
-- 依赖使用 DSH 的 npm/pnpm 源、代理和构建批准配置；内网需有可访问的依赖源。Chromium 可按需安装。
+- 依赖使用 DSH 的 npm/pnpm 源、代理和构建批准配置；内网需有可访问的依赖源。插件内 Chromium 随包准备，独立窗口可按需下载专用 Chromium。
 
 更新包下载到 DSH 主机缓存，校验 SHA256 和包身份后，通过当前 profile 的 DSH 插件管理器安装。设置保存在 `$DSH_HOME/remote-ops/update-settings.json`，同一 DSH home 共享；安装作用于当前 profile。失败时可查看错误原因与宿主安装日志。热加载失败时保留旧运行实例并显示原因，可修正后重试应用，不重复安装同一版本。首次迁移按上文的激活或重启步骤确认；完整重启不会恢复内存中的任务、连接和记录。配置、清单生成与排错步骤见随包 `remote-ops-updates` skill。
 
@@ -321,14 +321,14 @@ SSH/Telnet 密码可通过 Agent 环境工具或 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.4
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.5
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.15.4            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.15.4 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.15.5            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.15.5 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后下载正式包，核对其实际 SHA256、校验文件及 GitHub 提供的摘要。

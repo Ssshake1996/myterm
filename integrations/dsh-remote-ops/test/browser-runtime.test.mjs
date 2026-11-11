@@ -6,6 +6,7 @@ import { join, dirname } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { browserRuntimeMetadata, browserRuntimeDirectory, inspectBrowserRuntime, inspectBundledBrowser, writeBrowserRuntimeManifest } from '../lib/browser-runtime.js';
 import { BrowserWorkspace } from '../lib/browser-workspace.js';
+import { browserFileHash, prepareEmbeddedBrowser } from '../lib/embedded-browser.js';
 import { registerSessionActivation, RemoteOpsState } from '../lib/index.js';
 import { registerBrowserTools } from '../lib/browser-tools.js';
 
@@ -44,6 +45,34 @@ test('window-only caches never report embedded mode ready', async t => {
   const state = await f.inspect();
   assert.equal(state.chromium, false); assert.equal(state.modes.window.source, 'cache'); assert.equal(state.modes.embedded.ready, false);
   await assert.rejects(writeBrowserRuntimeManifest(f.cache, f.metadata), /incomplete/);
+});
+
+test('offline preparation reuses a verified generation and repairs same-size corruption without touching live files', async t => {
+  const f = await fixture(t), bundleRoot = join(f.root, 'long-package-path', 'bundle');
+  const directory = join(bundleRoot, `${f.metadata.platform}-${f.metadata.arch}`);
+  const executable = f.metadata.executables.embedded.replaceAll('\\', '/');
+  await f.put(directory, 'embedded');
+  await writeFile(join(directory, 'support.dat'), 'good');
+  const files = [];
+  for (const [path, size] of [[executable, 15], ['support.dat', 4]]) {
+    files.push({ path, size, sha256: await browserFileHash(join(directory, path)) });
+  }
+  await writeFile(join(directory, 'runtime.json'), JSON.stringify({schema:1, platform:f.metadata.platform, arch:f.metadata.arch, playwrightVersion:f.metadata.playwrightVersion, executable, files}));
+  const cacheRoot = join(f.root, 'cache');
+  const prepare = () => prepareEmbeddedBrowser(f.metadata, {bundleRoot, cacheRoot, probe: async path => assert.equal(await readFile(path, 'utf8'), 'test executable')});
+  const first = await prepare();
+  assert.ok(first.ready, first.error); assert.ok(first.executable.startsWith(cacheRoot));
+  assert.equal((await prepare()).executable, first.executable);
+  const support = join(first.executable.slice(0, -f.metadata.executables.embedded.length), 'support.dat');
+  await writeFile(support, 'bad!');
+  const second = await prepare();
+  assert.ok(second.ready, second.error); assert.notEqual(second.executable, first.executable);
+  assert.equal(await readFile(support, 'utf8'), 'bad!');
+  assert.equal(await readFile(join(second.executable.slice(0, -f.metadata.executables.embedded.length), 'support.dat'), 'utf8'), 'good');
+  await writeFile(second.executable, 'test executablX');
+  await writeFile(join(directory, executable), 'test executablX');
+  const broken = await prepare();
+  assert.equal(broken.ready, false); assert.match(broken.error, /校验失败/);
 });
 
 test('bundled internal browser works without a cache and rejects missing, mismatched or unsafe files', async t => {

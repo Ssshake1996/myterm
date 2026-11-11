@@ -7,14 +7,16 @@ import { BrowserView, browserInput } from "./browser-view.js";
 import { BrowserRecordings } from './browser-recordings.js';
 import { windowsDefaultBrowser } from './browser-default.js';
 import { browserInstallerCli, browserRuntimeMetadata, browserRuntimeDirectory, inspectBrowserRuntime, writeBrowserRuntimeManifest } from './browser-runtime.js';
+import { prepareEmbeddedBrowser } from './embedded-browser.js';
 
 const identifier = value => typeof value === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
 export { browserInstallerCli } from './browser-runtime.js';
 export class BrowserWorkspace extends BrowserSessions {
-  constructor({ root, credentials, launchContext, browserBundleRoot } = {}) {
+  constructor({ root, credentials, launchContext, browserBundleRoot, browserCacheRoot } = {}) {
     super();
     this.root = root; this.credentials = credentials; this.launchContext = launchContext;
     this.browserBundleRoot = browserBundleRoot;
+    this.browserCacheRoot = browserCacheRoot;
     this.recordings = new BrowserRecordings(this);
     this.sites = []; this.flows = []; this.sessions = new Map(); this.openings = new Map(); this.receipts = new Map();
     this.writes = Promise.resolve(); this.mutations = Promise.resolve(); this.disposed = false;
@@ -150,17 +152,33 @@ export class BrowserWorkspace extends BrowserSessions {
     await this.persist("flows.json", flows); this.flows = flows; return { deleted: true };
   }
   async library() { return import("playwright-core"); }
-  async runtime() {
+  prepareEmbedded(verify = false) {
+    const state = this.embeddedPreparation ??= {};
+    if (state.pending) return state.pending;
+    if (state.result && !verify) return Promise.resolve(state.result);
+    const preparing = () => { state.result = { ready: false, source: 'bundled', status: 'preparing' }; };
+    if (!state.result?.ready) preparing();
+    state.pending = Promise.resolve().then(() => prepareEmbeddedBrowser(browserRuntimeMetadata(), {
+      bundleRoot: this.browserBundleRoot, cacheRoot: this.browserCacheRoot, onPrepare: preparing
+    })).catch(error => ({ ready: false, source: 'bundled', status: 'failed', error: error.message }))
+      .then(mode => state.result = mode).finally(() => { state.pending = undefined; });
+    return state.pending;
+  }
+  async runtime(waitForEmbedded = false) {
     try {
       const { chromium } = await this.library();
-      return { ...await inspectBrowserRuntime({ root: this.root, chromium, bundleRoot:this.browserBundleRoot }), install: this.installation ?? { status: "idle" } };
-    } catch { return { chromium: false, install: { status: "unavailable", error: "Install the plugin's playwright-core dependency" } }; }
+      if (waitForEmbedded) await this.prepareEmbedded();
+      else if (!this.embeddedPreparation) void this.prepareEmbedded();
+      return { ...await inspectBrowserRuntime({ root: this.root, chromium, embedded: this.embeddedPreparation.result }), install: this.installation ?? { status: "idle" } };
+    } catch (error) {
+      return { chromium: false, modes: { embedded: { ready: false, status: 'failed', error: error.message } }, install: { status: 'unavailable', error: error.message } };
+    }
   }
   install() { return this.mutate(() => this.installUnlocked()); }
   async installUnlocked() {
     if (this.disposed) throw browserError("BROWSER_DISPOSED", "The plugin is unloading");
     if (this.installation?.status === "installing") return this.installation;
-    const current = await this.runtime();
+    const current = await this.runtime(true);
     if (this.disposed) throw browserError('BROWSER_DISPOSED', 'The plugin is unloading');
     if (current.chromium) return this.installation = { status: 'completed', output: 'Chromium and Headless Shell are already ready; existing files were reused.' };
     const { spawn } = await import("node:child_process");
@@ -199,8 +217,11 @@ export class BrowserWorkspace extends BrowserSessions {
     const options = { headless: display === 'embedded', slowMo: site.slowMo, viewport: display === 'embedded' ? {width:1024,height:768} : null, ...(resolved.executablePath ? { executablePath: resolved.executablePath } : resolved.browser !== 'chromium' ? { channel: resolved.browser } : {}) };
     if (resolved.browser === 'chromium' && !this.launchContext) {
       const { chromium } = await this.library();
-      const runtime = await inspectBrowserRuntime({ root: this.root, chromium, bundleRoot:this.browserBundleRoot }), mode = runtime.modes[display];
-      if (!mode?.ready) throw browserError('BROWSER_RUNTIME_MISSING', `${display === 'embedded' ? 'Headless Shell for the plugin view' : 'Chromium for an independent window'} is missing or mismatched. Use remote_browser_runtime action=install (network required), poll action=status until the required mode is ready, or select installed Chrome/Edge in browser settings.`);
+      const embedded = display === 'embedded' ? await this.prepareEmbedded(true) : this.embeddedPreparation?.result;
+      const runtime = await inspectBrowserRuntime({ root: this.root, chromium, embedded, bundleRoot: this.browserBundleRoot }), mode = runtime.modes[display];
+      if (!mode?.ready) throw browserError('BROWSER_RUNTIME_MISSING', display === 'embedded'
+        ? `插件内 Chromium 自动准备失败：${mode?.error ?? '缺少匹配的随包文件'}。可在网页设置中重试离线修复。`
+        : '独立窗口的专用 Chromium 尚未安装。可在网页设置中安装，或选择本机已有的浏览器。');
       options.executablePath = mode.executable;
     }
     return options;
@@ -214,12 +235,16 @@ export class BrowserWorkspace extends BrowserSessions {
       try { const saved = JSON.parse(await readFile(join(profile, "remote-ops-session.json"), "utf8")); if (Array.isArray(saved.cookies)) await context.addCookies(saved.cookies); } catch { /* An expired/unusable session is recovered by signing in again in the visible browser. */ }
       return context;
     }
-    catch { throw browserError("BROWSER_LAUNCH_FAILED", `Cannot open ${site.browser}. Install Chromium in browser settings or choose installed Edge/Chrome. Check browser runtime dependencies${display==='window'?'; independent windows require an interactive desktop session':''}`); }
+    catch (error) {
+      const cause = String(error.code || error.message).split('\n', 1)[0].slice(0, 300);
+      throw browserError("BROWSER_LAUNCH_FAILED", `无法启动${display === 'embedded' ? '插件内浏览器' : '独立窗口浏览器'}。${cause}`);
+    }
   }
   async dispose() {
     this.disposed = true; this.installer?.kill();
     for(const {signal,abort} of this.ownerSignals.values())signal.removeEventListener('abort',abort);this.ownerSignals.clear();
     await this.ready.catch(() => {});
+    await this.embeddedPreparation?.pending;
     await Promise.allSettled([...this.openings.values()]);
     await Promise.allSettled([...this.sessions.values()].map(record => this.closeRecord(record)));
     await this.mutations; await this.writes; await this.recordings.writes;

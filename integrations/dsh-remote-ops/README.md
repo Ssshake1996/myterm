@@ -14,7 +14,7 @@ Environments open in a left drawer inside the plugin: overlay by default, option
 
 Start, stop, read and export human/Agent webpage operations from the Web toolbar or `remote_browser_recording`. The bundled `remote-ops-web-recordings` skill teaches the Agent to interpret records, parameterize device addresses and generate code in the user's chosen framework or template.
 
-The release includes Chromium Headless Shell for Windows x64 and Linux x64. Complete bundles need no separate browser download. Installation scripts validate and prepare missing runtime files, subject to host script permissions; Linux still needs system libraries. **The old updater has a 64 MiB limit: migrate to this version using DSH plugin management or the CLI tgz install**, then activate the installed version or restart DSH.
+Windows x64 and Linux x64 packages include the embedded Chromium. The plugin prepares it offline on load and the first page open waits for it. Linux requires Chromium system libraries. Sites using the matching intranet bridge can upgrade v0.14.0 and v0.14.1 with one click in the plugin. The ZIP includes deployment instructions.
 
 ## Serial terminals (v0.14.1)
 
@@ -104,16 +104,16 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.15.4.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.4.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.15.5.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.5.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.4.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.5.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
 
 - HTTP(S): use a directly readable directory URL or `latest.json` URL containing the scheme, host and path. All files and redirects must remain on that origin; the server must allow the DSH host to download them directly. Trust internal HTTPS certificates in the DSH Node process.
-- Dependencies use the DSH registry, proxy and build-approval configuration. Provide an accessible internal npm registry when needed. Chromium can be installed on demand.
+- Dependencies use the DSH registry, proxy and build-approval configuration. Provide an accessible internal npm registry when needed. The embedded browser ships with the plugin. Full Chromium for independent windows is optional.
 
 Verified packages are cached on the DSH host and installed by the current profile's native DSH plugin manager. Source settings live in `$DSH_HOME/remote-ops/update-settings.json` and are shared within that DSH home; installation affects the current profile. Installation errors provide a reason and log location. Failed hot reload restores the previous runtime and allows an explicit activation retry. Follow the activation or restart steps above for the first migration; a full restart does not restore process-local connections or records. The bundled `remote-ops-updates` skill covers configuration, feed generation and diagnostics.
 
@@ -163,19 +163,19 @@ The context menu also provides **全选输出**. Copied text is plain text witho
 
 - Terminal, web, files, environments, saved commands and diagnostics share consistent typography, spacing, controls and host-aware light/dark surfaces. Workspace tabs stay at the top; version, diagnostics and comfortable/compact density live under **设置 → 通用**. Updates live under **设置 → 更新**. Density persists in this browser.
 - Local CMD and SSH share one tab row with search and export fixed on the right. When tabs overflow, left and right buttons scroll to earlier or later tabs without closing connections; each button is disabled at its boundary. Arrow keys and Home/End select and reveal a terminal. Background output and status refreshes preserve manual scrolling.
-- The web workspace prioritizes the address and live page. **设置 → 网页** contains engines, Chromium installation, viewport and zoom. **收藏** manages sites and flows; **操作记录** expands below the live page. Returning to the workspace retains the URL draft and current page.
+- The web workspace prioritizes the address and live page. **设置 → 网页** contains engines, browser runtime status, viewport and zoom. **收藏** manages sites and flows; **操作记录** expands below the live page. Returning to the workspace retains the URL draft and current page.
 - Switching an open page between embedded and independent display requires confirmation. Cancel dispatches nothing; confirming reloads the page and may lose unsent form content. Switching cannot be submitted repeatedly while pending.
 - File batch actions appear after selection. Upload controls match other buttons, and browser uploads show byte progress. Module switches retain selection, drafts and background jobs; completed transfers still use coalesced directory refreshes.
 
 The left action opens the native DSH right sidebar. Human and Agent input is shared; use native conversation cancellation to stop the Agent.
 
-## Browser arguments and on-demand runtime
+## Embedded browser and independent windows
 
-Browsers run on the DSH host. The internal browser is bundled; installation checks the matching platform files and downloads them only when missing. Dependency installation, source installations and unbundled platforms need accessible download sources. Linux also requires Chromium's operating-system libraries. Full Chromium for independent windows remains optional.
+On Windows x64 and Linux x64 the plugin verifies its bundled Headless Shell in a per-user cache when it loads. Opening an embedded URL waits for local preparation and restores damaged cache files from the plugin. Linux requires Chromium's system libraries. Full Chromium for independent windows is optional.
 
 - Independent windows follow the Windows user's default HTTP(S) browser on the DSH host, supporting installed Chrome / Edge with an isolated plugin profile. Embedded mode still defaults to matching Chromium. Each mode has its own engine preference. Explicit saved-site or tool browser choices take precedence. Unsupported/unavailable defaults report an error instead of silently opening Edge. A remote DSH host's default is separate from the client viewing DSH.
 - Prefer an action array for `steps`. Single action objects, a sole `{steps:[...]}` envelope and JSON-encoded versions are accepted. Prefer `{kind,value,name?,frame?}` locator objects for `target`; JSON-encoded locator objects and CSS/XPath strings (`css=#id`, `xpath=//button`, `#id`, `//button`) are accepted. All steps normalize and validate before dispatch. Equivalent requests deduplicate under the same `requestId`.
-- For missing Chromium, call `remote_browser_runtime` with `action: "status"`, then `action: "install"` if needed. Poll `status` until the required mode is ready before opening a page. The plugin's installed Playwright CLI downloads its matching Chromium and Headless Shell. The settings button uses the same installer. Network access is required; configure `HTTPS_PROXY`, `PLAYWRIGHT_DOWNLOAD_HOST` or `PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT` before starting DSH if needed. Complete matching runtimes are reused and login profiles/sites/flows retained.
+- Open embedded URLs directly using `remote_browser_open`. After a preparation failure, use `remote_browser_runtime` action `repair` to retry offline. Action `install` downloads full Chromium for a requested dedicated independent window.
 - `BROWSER_STEP_INVALID` identifies the field, accepted format and no-dispatch status. Correct the argument instead of repeating an unchanged invalid call; preflight rejection does not reserve the request ID. The bundled `remote-ops-browser` skill describes argument formats and recovery steps. Restart DSH and refresh its webpage after upgrading; verify the current version in **设置 → 通用**.
 
 ## Workspaces and interaction
@@ -197,7 +197,7 @@ Type a URL in **Web / 网页** and press Enter. No saved site is required. Choos
 
 Use native DSH conversation cancellation to stop the Agent. Later browser steps stop; an already submitted action cannot be undone. Workspace switches, Sidebar closure and DSH page reloads keep backend browser jobs alive.
 
-XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flows, result checks and collapsed operation records are supported. The internal Chromium Headless Shell is bundled with the plugin; installation validates it and prepares the matching platform runtime when missing. No separate browser installation is needed with a complete bundle. Independent windows use installed Edge / Chrome or optional full Chromium. Independent windows require an interactive desktop shared with DSH. Changing display reloads the pages and preserves login cookies; unsaved forms are not restored. See [Web guide](WEB.md).
+XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flows, result checks and collapsed operation records are supported. The internal Chromium Headless Shell is bundled with the plugin; activation prepares it offline and verifies it can launch. No separate browser installation is needed with a complete bundle. Independent windows use installed Edge / Chrome or optional full Chromium. Independent windows require an interactive desktop shared with DSH. Changing display reloads the pages and preserves login cookies; unsaved forms are not restored. See [Web guide](WEB.md).
 
 Use **开始录制 / 停止录制** to record human and Agent webpage operations; **录制记录** reads saved records and exports framework-neutral JSON. The Agent has the same start/stop/read/export capability through `remote_browser_recording`. The bundled [remote-ops-web-recordings skill](skills/remote-ops-web-recordings/SKILL.md) explains the schema, incomplete outcomes, redaction, device-address parameterization and how the Agent generates code in the user's framework or template. Code generation and test execution are outside the plugin.
 
@@ -235,7 +235,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.15.4.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.15.5.tgz
 dsh web
 ```
 

@@ -30,7 +30,7 @@ Environments open in a left drawer inside the plugin: overlay by default, option
 
 Start, stop, read and export human/Agent webpage operations from the Web toolbar or `remote_browser_recording`. The bundled `remote-ops-web-recordings` skill teaches the Agent to interpret records, parameterize device addresses and generate code in the user's chosen framework or template.
 
-The release includes Chromium Headless Shell for Windows x64 and Linux x64. Complete bundles need no separate browser download. Installation scripts validate and prepare missing runtime files, subject to host script permissions; Linux still needs system libraries. **The old updater has a 64 MiB limit: migrate to this version using DSH plugin management or the CLI tgz install**, then activate the installed version or restart DSH.
+Windows x64 and Linux x64 packages include the embedded Chromium. The plugin prepares it offline on load and the first page open waits for it. Linux requires Chromium system libraries. Sites using the matching intranet bridge can upgrade v0.14.0 and v0.14.1 with one click in the plugin. The ZIP includes deployment instructions.
 
 ## Serial terminals (v0.14.1)
 
@@ -120,20 +120,20 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 ## Manual intranet HTTP/HTTPS updates
 
-The current release is [v0.15.4](https://github.com/Ssshake1996/myterm/releases/tag/dsh-remote-ops-v0.15.4). The environment drawer now remembers which groups you collapse. See the [release notes](docs/releases/dsh-remote-ops-v0.15.4.md).
+v0.15.5 prepares embedded Chromium offline on activation. See the [release notes](docs/releases/dsh-remote-ops-v0.15.5.md).
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.15.4.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.4.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.15.5.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.5.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.4.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.5.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
 
 - HTTP(S): use a directly readable directory URL or `latest.json` URL containing the scheme, host and path. All files and redirects must remain on that origin; the server must allow the DSH host to download them directly. Trust internal HTTPS certificates in the DSH Node process.
-- Dependencies use the DSH registry, proxy and build-approval configuration. Provide an accessible internal npm registry when needed. Chromium can be installed on demand.
+- Dependencies use the DSH registry, proxy and build-approval configuration. Provide an accessible internal npm registry when needed. The embedded Chromium is prepared from the package. A dedicated browser for independent windows is an optional download.
 
 Verified packages are cached on the DSH host and installed by the current profile's native DSH plugin manager. Source settings live in `$DSH_HOME/remote-ops/update-settings.json` and are shared within that DSH home; installation affects the current profile. Installation errors provide a reason and log location. Failed hot reload restores the previous runtime and allows an explicit activation retry. Follow the activation or restart steps above for the first migration; a full restart does not restore process-local connections or records. The bundled `remote-ops-updates` skill covers configuration, feed generation and diagnostics.
 
@@ -192,13 +192,13 @@ The context menu also provides **全选输出**. Clipboard data is plain text, w
 
 The left action opens the native DSH right sidebar. Human and Agent input is shared; use native conversation cancellation to stop the Agent.
 
-## Browser arguments and on-demand runtime
+## Embedded browser and independent windows
 
-Browsers run on the DSH host. Install Chromium on demand through the plugin tools or browser settings. Dependency and browser installation requires accessible download sources.
+Browsers run on the DSH host. Enter an address in Web or call `remote_browser_open`. The embedded Chromium is prepared offline from the plugin package. A dedicated Chromium for independent windows can be downloaded in Web settings.
 
 - Independent windows follow the Windows user's default HTTP(S) browser on the DSH host, supporting installed Chrome / Edge with an isolated plugin profile. Embedded mode still defaults to matching Chromium. Each mode has its own engine preference. Explicit saved-site or tool browser choices take precedence. Unsupported/unavailable defaults report an error instead of silently opening Edge. A remote DSH host's default is separate from the client viewing DSH.
 - Prefer an action array for `steps`. Single action objects, a sole `{steps:[...]}` envelope and JSON-encoded versions are accepted. Prefer `{kind,value,name?,frame?}` locator objects for `target`; JSON-encoded locator objects and CSS/XPath strings (`css=#id`, `xpath=//button`, `#id`, `//button`) are accepted. All steps normalize and validate before dispatch. Equivalent requests deduplicate under the same `requestId`.
-- For missing Chromium, call `remote_browser_runtime` with `action: "status"`, then `action: "install"` if needed. Poll `status` until the required mode is ready before opening a page. The plugin's installed Playwright CLI downloads its matching Chromium and Headless Shell. The settings button uses the same installer. Network access is required; configure `HTTPS_PROXY`, `PLAYWRIGHT_DOWNLOAD_HOST` or `PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT` before starting DSH if needed. Complete matching runtimes are reused and login profiles/sites/flows retained.
+- Open embedded URLs directly using `remote_browser_open`. After a preparation failure, use `remote_browser_runtime` action `repair` to retry offline. Action `install` downloads full Chromium for a requested dedicated independent window.
 - `BROWSER_STEP_INVALID` identifies the field, accepted format and no-dispatch status. Correct the argument instead of repeating an unchanged invalid call; preflight rejection does not reserve the request ID. The bundled `remote-ops-browser` skill describes argument formats and recovery steps. Restart DSH and refresh its webpage after upgrading; verify the current version in **更多设置**.
 
 ## Workspaces and interaction
@@ -246,7 +246,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from the [latest stable release](https://github.com/Ssshake1996/myterm/releases/latest), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.15.4.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.15.5.tgz
 dsh web
 ```
 
@@ -293,15 +293,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.4
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.5
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.15.4
-node scripts/release-dsh-remote-ops.mjs 0.15.4 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.15.5
+node scripts/release-dsh-remote-ops.mjs 0.15.5 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

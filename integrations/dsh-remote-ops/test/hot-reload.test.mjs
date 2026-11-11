@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { HotReload, HOT_RELOAD_PROTOCOL, peekHandoff, reloadBlockers, runtimeOperation, retainDownload, registerRuntimeFetch, registerRuntimeTool, stageRuntime, uploadBatch } from "../lib/hot-reload.js";
 import { RemoteOpsState } from "../lib/state/index.js";
 import * as plugin from "../lib/index.js";
@@ -58,6 +59,21 @@ test("idle barrier covers every conversation, background requests, transfers and
   const state = { ctx: { agents: { list: () => [{ id: "other-conversation", status: "running" }] } }, runtimeCalls: 1, commands: new Map([[1, {}]]), openings: new Map([[1, {}]]), localSession: { pendingSend: {} }, transfers: { jobs: new Map([[1, { status: "queued" }]]) }, browser: { installation: { status: "installing" }, sessions: new Map([[1, { job: { status: "running" } }]]) }, api: { owners: new Map([[1, { records: new Map([[1, { state: "running" }]]) }]]) } };
   assert.equal(reloadBlockers(state).length, 9);
   assert.deepEqual(reloadBlockers({}), []);
+});
+
+test("a browser preparation starting during staging defers activation outside the DSH transaction", async t => {
+  const { root } = await fixture(t), state = {}, transaction = new AsyncLocalStorage();
+  const hmr = { runExclusive: fn => transaction.run(true, () => {
+    state.browser = { embeddedPreparation: { pending: Promise.resolve() } };
+    return fn();
+  }) };
+  const reload = new HotReload(state, { hmr, profileContext: { dir: root } });
+  reload.version = "99.0.0";
+  let scheduled = 0;
+  reload.schedule = () => { scheduled++; assert.equal(transaction.getStore(), undefined); };
+  await reload.tick();
+  assert.equal(state.updateError, undefined);
+  assert.equal(scheduled, 1);
 });
 
 test("streaming downloads keep the barrier until completion or cancellation, without double releasing", async () => {

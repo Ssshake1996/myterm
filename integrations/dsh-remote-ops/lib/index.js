@@ -53,6 +53,11 @@ export async function disposeState(state, ctx) {
 }
 
 export function apply(ctx) {
+  mountRemoteOps(ctx);
+}
+
+// The migration bundle mounts the same workspace and continues its update on this state.
+export function mountRemoteOps(ctx) {
   const handoff = peekHandoff(ctx);
   const state = handoff?.state ?? new RemoteOpsState(ctx);
   if (handoff) {
@@ -76,6 +81,9 @@ export function apply(ctx) {
   }, "dsh-remote-ops hot reload"));
   registerSessionActivation(ctx, state);
   state.browser ??= new BrowserWorkspace({ root: join(state.base, "browser"), credentials: ctx.credentials });
+  // Hot reload adopts live pages, then verifies the runtime from the new package.
+  state.browser.embeddedPreparation = undefined;
+  void state.browser.prepareEmbedded();
   // Pre-recording releases retain a live BrowserWorkspace during hot reload.
   // Initialize the new component without closing or recreating those pages.
   adoptBrowserRecordings(state.browser);
@@ -100,6 +108,7 @@ export function apply(ctx) {
   registerDesktopRoutes(ctx, state);
   registerBundledSkills(ctx);
   if (handoff) handoff.adopted = true;
+  return state;
 }
 
 export function registerSessionActivation(ctx, state) {

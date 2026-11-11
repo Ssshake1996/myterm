@@ -1,16 +1,25 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, readdir, stat, writeFile, rename, cp, rm } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, writeFile, rename, cp, rm } from 'node:fs/promises';
 import { dirname, join, relative, basename, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { browserRuntimeMetadata, browserInstallerCli, bundledBrowserRoot, inspectBundledBrowser } from '../lib/browser-runtime.js';
 import { chromium } from 'playwright-core';
+import { browserFileHash } from '../lib/embedded-browser.js';
 
 const metadata = browserRuntimeMetadata(), directory = join(bundledBrowserRoot, `${metadata.platform}-${metadata.arch}`);
+async function writeManifest(manifest) {
+  for (const file of manifest.files) file.sha256 = await browserFileHash(join(directory, file.path));
+  const temporary = join(directory, `runtime.${randomUUID()}.tmp`);
+  await writeFile(temporary, JSON.stringify(manifest, null, 2) + '\n');
+  await rename(temporary, join(directory, 'runtime.json'));
+}
 const ready = await inspectBundledBrowser(metadata);
 if (process.argv.includes('--check')) {
   if (!ready.ready) throw new Error(`Bundled internal browser is ${ready.reason}. Run npm run bundle:browser before packing.`);
   console.log(`Bundled internal browser verified: ${metadata.platform}/${metadata.arch} Playwright ${metadata.playwrightVersion}`);
 } else if (ready.ready) {
+  const manifest = JSON.parse(await readFile(join(directory, 'runtime.json'), 'utf8'));
+  if (manifest.files.some(file => !file.sha256)) await writeManifest(manifest);
   await writeFile(join(bundledBrowserRoot, '.npmignore'), '**/.links/\n**/*.tmp\n');
   console.log('Bundled internal browser already matches the installed Playwright.');
 } else {
@@ -48,7 +57,6 @@ if (process.argv.includes('--check')) {
   await walk(directory); files.sort((a,b)=>a.path.localeCompare(b.path));
   if (!files.some(file => file.path === executable && file.size > 0)) throw new Error('Internal browser installation is incomplete');
   const manifest = { schema: 1, platform: metadata.platform, arch: metadata.arch, playwrightVersion: metadata.playwrightVersion, executable, files };
-  const temporary = join(directory, `runtime.${randomUUID()}.tmp`);
-  await writeFile(temporary, JSON.stringify(manifest, null, 2) + '\n'); await rename(temporary, join(directory, 'runtime.json'));
+  await writeManifest(manifest);
   console.log(`Bundled internal browser prepared: ${metadata.platform}/${metadata.arch}, ${files.length} files.`);
 }

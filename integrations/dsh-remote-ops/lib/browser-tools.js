@@ -14,8 +14,9 @@ export function registerBrowserTools(ctx, state) {
   } });
   register({ name: "remote_browser_list", description: "List saved websites, flows, and visible browsers belonging to this DSH conversation. No passwords are returned.", execute: async (_args, owner) => workspace.snapshot(owner) });
   register({name:'remote_browser_recording',description:'Start/stop a durable recording of the selected browser, read saved recordings with pagination, or export a framework-neutral JSON file on the DSH host. read without recordingId lists this conversation’s recordings; read with ID returns events/nextAfter/hasMore. Stopping recording does not stop browser jobs. Load the bundled remote-ops-web-recordings skill to interpret records and generate code in the user’s chosen framework; recorded observations are not test assertions.',execute:(args,owner)=>workspace.recording(owner,args)});
-  register({ name: "remote_browser_runtime", description: "Check or install the Chromium and Headless Shell revision matched to this plugin's installed Playwright. Use status first; install downloads only when needed, without changing browser preferences or Agent settings. Installation returns immediately; poll status until the required mode is ready or install fails. Network/proxy access is required for missing files.", execute: async args => {
-    if (!["status", "install"].includes(args.action)) throw browserError("BROWSER_RUNTIME_ACTION_INVALID", "Use status or install");
+  register({ name: "remote_browser_runtime", description: "Open embedded webpages directly with remote_browser_open. Use status to diagnose a browser error, repair to retry offline preparation of the bundled embedded browser, and install for an explicitly requested full Chromium for independent windows. Poll the selected mode after a download.", execute: async args => {
+    if (!["status", "repair", "install"].includes(args.action)) throw browserError("BROWSER_RUNTIME_ACTION_INVALID", "Use status, repair or install");
+    if (args.action === "repair") await workspace.prepareEmbedded(true);
     if (args.action === "install") await workspace.install();
     return workspace.runtime();
   } });

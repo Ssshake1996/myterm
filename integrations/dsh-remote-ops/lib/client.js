@@ -493,7 +493,7 @@ window.__ModuleLoader__.load({
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const updateRecovery = createUpdateRecovery((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.15.4", update: { currentVersion: "0.15.4", latestVersion: "0.15.4", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.15.5", update: { currentVersion: "0.15.5", latestVersion: "0.15.5", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -1540,10 +1540,25 @@ window.__ModuleLoader__.load({
         }}):h('div',{className:'dsh-remote-ops__empty'},message),
         h('textarea',{ref:capture,className:'dsh-remote-ops__webCapture','aria-label':'网页键盘输入',autoComplete:'off',spellCheck:false,onKeyDown:key,onChange:flush,onCompositionStart:()=>{composing.current=true;},onCompositionEnd:event=>{composing.current=false;flush(event);},onPaste:event=>{event.preventDefault();const text=event.clipboardData.getData('text');if(text)send({kind:'text',text});}})));
     }
-    const browserRuntimeSummary = runtime => {
-      const state = mode => runtime.modes?.[mode]?.ready ? runtime.modes[mode].source==='bundled'?'随包就绪':'已就绪' : '需安装';
-      return `插件内：${state('embedded')} · 独立窗口：${state('window')}${runtime.browserVersion ? ` · Chromium ${runtime.browserVersion}` : ''}`;
+    const browserRuntimeSummary = (runtime, windowBrowser) => {
+      const embedded = runtime.modes?.embedded;
+      const text = embedded?.ready ? '插件内浏览器可用' : embedded?.status === 'failed' ? '插件内浏览器准备失败' : '正在准备插件内浏览器…';
+      if (windowBrowser !== 'chromium') return text;
+      return text + (runtime.modes?.window?.ready ? ' · 独立窗口专用 Chromium 可用' : ' · 独立窗口专用 Chromium 可选安装');
     };
+    function BrowserRuntimeControls({ data, busy, action }) {
+      const { runtime, preferences } = data, embedded = runtime.modes?.embedded;
+      const full = preferences?.windowBrowser === 'chromium' && !runtime.modes?.window?.ready;
+      return h(React.Fragment, null,
+        h('p', { role:'status', 'aria-label':'Chromium 运行状态' }, browserRuntimeSummary(runtime, preferences?.windowBrowser)),
+        embedded?.status === 'failed' ? h(React.Fragment, null,
+          h('p', {role:'alert'}, embedded.error),
+          h('button', {type:'button', disabled:busy, onClick:()=>action({action:'runtime.repair'})}, '重试离线修复')) : null,
+        full ? h('button', {type:'button', disabled:busy || runtime.install?.status==='installing', onClick:()=>action({action:'runtime.install'})},
+          runtime.install?.status==='installing' ? '正在下载独立窗口 Chromium…' : '下载独立窗口专用 Chromium') : null,
+        full && runtime.install?.output ? h('pre', {role:'log'}, runtime.install.output) : null,
+        full && runtime.install?.error ? h('p', {role:'alert'}, runtime.install.error) : null);
+    }
     function BrowserRecordingPanel({sessionId,initialId}) {
       const [items,setItems]=useState([]),[selected,setSelected]=useState(initialId??''),[result,setResult]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
       const requestVersion=useRef(0);
@@ -1622,7 +1637,7 @@ window.__ModuleLoader__.load({
         h('form',{className:'dsh-remote-ops__webAddress',onSubmit:go},nav('网页后退','←','back'),nav('网页前进','→','forward'),nav('刷新网页','↻','reload'),h('input',{'aria-label':'网页地址',placeholder:'输入网址，按 Enter 打开',value:address,onChange:event=>{addressDirty.current=true;setAddress(event.target.value);},required:true,disabled:navigating}),h('button',{type:'submit','aria-label':'打开网页',className:'dsh-remote-ops__primary',disabled:!sessionId||navigating||!address.trim()},busy?'打开中…':'打开')),
         error?h('div',{className:'dsh-remote-ops__webError',role:'alert'},error.split('\n').slice(1).join(' · ')||error,!synced?h('button',{onClick:()=>{setError('');void load().catch(failure=>{if(alive.current)setError(failure.message);});}},'重试读取网页状态'):null):null,
         session?.dialog?h('div',{className:'dsh-remote-ops__webNotice'},`网页弹窗：${session.dialog.message}。请在主对话告诉 Agent 如何处理。`):null,
-        h('div',{className:'dsh-remote-ops__webPage',role:session?'tabpanel':undefined,id:session?'web-panel-'+session.id:undefined,'aria-labelledby':session?'web-tab-'+session.activePageId:undefined},session?.display==='embedded'?h(BrowserLiveView,{key:session.id,sessionId,browser:session,inputBarrier,visible:visible&&!settings&&utility!=='library'&&utility!=='recording',zoom,viewportMode:viewportIntent??session.viewport?.mode??data.preferences.viewport??'panel'}):session?h('div',{className:'dsh-remote-ops__webWindow'},h('p',null,'网页正在独立浏览器窗口中显示。'),h('button',{disabled:navigating,onClick:()=>action({action:'control',control:'focus'})},'显示浏览器')):h('div',{className:'dsh-remote-ops__webWelcome'},h(BrowserIcon,{size:26}),h('strong',null,synced?'打开网页，直接开始':'正在读取网页状态…'),h('p',null,'无需先保存网站或编排流程。'))),
+        h('div',{className:'dsh-remote-ops__webPage',role:session?'tabpanel':undefined,id:session?'web-panel-'+session.id:undefined,'aria-labelledby':session?'web-tab-'+session.activePageId:undefined},session?.display==='embedded'?h(BrowserLiveView,{key:session.id,sessionId,browser:session,inputBarrier,visible:visible&&!settings&&utility!=='library'&&utility!=='recording',zoom,viewportMode:viewportIntent??session.viewport?.mode??data.preferences.viewport??'panel'}):session?h('div',{className:'dsh-remote-ops__webWindow'},h('p',null,'网页正在独立浏览器窗口中显示。'),h('button',{disabled:navigating,onClick:()=>action({action:'control',control:'focus'})},'显示浏览器')):h('div',{className:'dsh-remote-ops__webWelcome'},h(BrowserIcon,{size:26}),h('strong',null,!synced?'正在读取网页状态…':data.preferences.display==='embedded' && data.preferences.browser==='chromium' && data.runtime.modes?.embedded?.status==='preparing'?'正在准备插件内浏览器…':'打开网页，直接开始'),h('p',null,'无需先保存网站或编排流程。'))),
 
           h('div',{className:'dsh-remote-ops__webState',role:'status'},
             h('span',null,session?(job?browserStatus[job.status]:'网页已打开'):'输入网址开始浏览'),job?h('span',{className:'dsh-remote-ops__muted'},`${job.index}/${job.count} 步`):null,
@@ -1631,7 +1646,7 @@ window.__ModuleLoader__.load({
             h('button',{type:'button','aria-label':'网页录制记录',onClick:()=>setUtility('recording')},'录制记录'),
             session?.recording?.error?h('span',{role:'alert'},session.recording.error):null,
             job?h('button',{type:'button','aria-label':'操作记录','aria-expanded':utility==='log',onClick:()=>setUtility(current=>current==='log'?'':'log')},`操作记录 · ${job.results.length}`):null)),
-          h('div',{className:'dsh-remote-ops__webSettings',hidden:!settings},h('label',null,'浏览器引擎',h('select',{'aria-label':'浏览器引擎',value:data.preferences.browser,disabled:navigating,onChange:event=>action({action:'preferences.save',preferences:{browser:event.target.value}})},h('option',{value:'chromium'},'专用 Chromium'),h('option',{value:'msedge'},'Microsoft Edge'),h('option',{value:'chrome'},'Google Chrome'))),h('label',null,'独立窗口浏览器',h('select',{'aria-label':'独立窗口浏览器',value:data.preferences.windowBrowser??'system',disabled:navigating,onChange:event=>action({action:'preferences.save',preferences:{windowBrowser:event.target.value}})},h('option',{value:'system'},'Windows 默认浏览器'),h('option',{value:'chromium'},'专用 Chromium'),h('option',{value:'msedge'},'Microsoft Edge'),h('option',{value:'chrome'},'Google Chrome'))),h('small',null,'浏览器引擎用于插件内网页；独立窗口默认跟随 Windows 默认浏览器。设置对新打开的浏览器生效；收藏网站的显式选择优先。'),h('p',{role:'status','aria-label':'Chromium 运行状态'},synced?browserRuntimeSummary(data.runtime):'正在检查 Chromium…'),data.runtime.managedStatus==='mismatch'||data.runtime.managedStatus==='invalid'?h('p',null,'托管 Chromium 版本不匹配或清单损坏，请联网安装匹配版本。'):null,h('button',{disabled:navigating||data.runtime.install?.status==='installing',onClick:()=>action({action:'runtime.install'})},data.runtime.install?.status==='installing'?'安装中…':'安装 / 检查 Chromium'),h('small',null,'联网安装与当前插件匹配的 Chromium 和 Headless Shell，并显示进度；也可以在主对话中让 Agent 按需安装。'),data.runtime.install?.output?h('pre',{role:'log','aria-label':'Chromium 安装进度','aria-live':'polite'},data.runtime.install.output):null,data.runtime.install?.error?h('p',{role:'alert'},data.runtime.install.error):null,
+          h('div',{className:'dsh-remote-ops__webSettings',hidden:!settings},h('label',null,'浏览器引擎',h('select',{'aria-label':'浏览器引擎',value:data.preferences.browser,disabled:navigating,onChange:event=>action({action:'preferences.save',preferences:{browser:event.target.value}})},h('option',{value:'chromium'},'专用 Chromium'),h('option',{value:'msedge'},'Microsoft Edge'),h('option',{value:'chrome'},'Google Chrome'))),h('label',null,'独立窗口浏览器',h('select',{'aria-label':'独立窗口浏览器',value:data.preferences.windowBrowser??'system',disabled:navigating,onChange:event=>action({action:'preferences.save',preferences:{windowBrowser:event.target.value}})},h('option',{value:'system'},'Windows 默认浏览器'),h('option',{value:'chromium'},'专用 Chromium'),h('option',{value:'msedge'},'Microsoft Edge'),h('option',{value:'chrome'},'Google Chrome'))),h('small',null,'浏览器引擎用于插件内网页；独立窗口默认跟随 Windows 默认浏览器。设置对新打开的浏览器生效；收藏网站的显式选择优先。'),h(BrowserRuntimeControls,{data,busy:navigating,action}),
           h('label',null,'网页视口',h('select',{'aria-label':'网页视口',value:viewportIntent??session?.viewport?.mode??data.preferences.viewport??'panel',disabled:navigating,onChange:event=>{setViewportIntent(event.target.value);void action({action:'preferences.save',preferences:{viewport:event.target.value}});}},h('option',{value:'panel'},'跟随面板'),h('option',{value:'desktop'},'桌面视口'))),h('label',null,'网页画面缩放',h('select',{'aria-label':'网页画面缩放',value:zoom,onChange:event=>setZoom(event.target.value)},h('option',{value:'fit'},'适应画面'),h('option',{value:'actual'},'原始大小'))),h('small',null,'视口设置在返回插件内网页时应用。缩放用于桌面视口。')),
         h('section',{className:'dsh-remote-ops__webUtility',hidden:settings||utility!=='library','aria-label':'收藏网站与流程'},h('div',{className:'dsh-remote-ops__drawerHead'},h('strong',null,'收藏网站与流程'),h('button',{type:'button','aria-label':'返回网页',onClick:closeUtility},'返回')),library?h(BrowserLibraryPanel,{sessionId}):null),
         !settings&&utility==='recording'?h('section',{className:'dsh-remote-ops__webUtility','aria-label':'网页录制'},h('div',{className:'dsh-remote-ops__drawerHead'},h('strong',null,'网页录制'),h('button',{type:'button',onClick:closeUtility},'返回网页')),h(BrowserRecordingPanel,{sessionId,initialId:session?.recording?.id})):null,
@@ -1714,9 +1729,7 @@ window.__ModuleLoader__.load({
           h("div", { className: "dsh-remote-ops__webActions" }, h("button", { disabled: busy || !site || !sessionId, onClick: async () => { const opened = await action({ action: "open", siteId: site.id }); if (opened) setBrowserId(opened.id); } }, busy ? "处理中…" : live ? "显示浏览器" : "打开浏览器"), site ? h("button", { disabled: busy || live, onClick: () => newSite(site) }, "编辑网站") : null,
             live ? h("button", { disabled: busy, onClick: () => control("close") }, "关闭浏览器") : null),
           !sessionId ? h("p", null, "请先选择或创建一个 DSH 对话。") : null,
-          h("details", null, h("summary", null, "浏览器准备与网站管理"), h("p", null, browserRuntimeSummary(data.runtime)),
-            h("button", { disabled: busy || data.runtime.install?.status === "installing", onClick: () => action({ action: "runtime.install" }) }, data.runtime.install?.status === "installing" ? "下载中…" : "安装 / 检查 Chromium"),
-            data.runtime.install?.output || data.runtime.install?.error ? h("pre", null, data.runtime.install.error ?? data.runtime.install.output) : null,
+          h("details", null, h("summary", null, "浏览器准备与网站管理"), h(BrowserRuntimeControls,{data,busy,action}),
             site ? h("button", { disabled: busy || live, onClick: async () => { if (await askPanel(`删除网站“${site.name}”及其流程？`)) { await action({ action: "site.delete", siteId: site.id }); selectSite(""); } } }, "删除网站及流程") : null)),
         editor,
         error ? h("div", { className: "dsh-remote-ops__webSection dsh-remote-ops__dangerAction", role: "alert" }, error) : null,

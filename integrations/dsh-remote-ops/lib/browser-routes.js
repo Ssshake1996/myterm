@@ -3,7 +3,7 @@ import { ownerId } from "./common.js";
 import { browserError, browserRunSource, browserTarget } from "./browser-steps.js";
 
 const headers = { "Cache-Control": "no-store" };
-const configuration = new Set(["site.save", "site.delete", "flow.save", "flow.delete", "runtime.install", "preferences.save"]);
+const configuration = new Set(["site.save", "site.delete", "flow.save", "flow.delete", "runtime.install", "runtime.repair", "preferences.save"]);
 export function registerBrowserRoutes(ctx, state) {
   const workspace = state.browser;
   const register = definition => ctx.effect(() => registerRuntimeFetch(ctx, state, { requestBody: "buffered", ...definition }), "dsh-remote-ops browser route");
@@ -32,6 +32,7 @@ export function registerBrowserRoutes(ctx, state) {
         case "flow.save": result = await workspace.saveFlow(body.flow); break;
         case "flow.delete": result = await workspace.deleteFlow(body.flowId); break;
         case "runtime.install": result = await workspace.install(); break;
+        case "runtime.repair": result = await workspace.prepareEmbedded(true); break;
         case "open": result = await workspace.open(owner, body.siteId,{display:body.display??workspace.preferences.display,browser:body.browser}); break;
         case "run": result = workspace.publicJob(workspace.session(owner, body.browserId), await workspace.run(owner, body.browserId, browserRunSource(body), { requestId: body.requestId, mode: body.mode, variables: body.variables, pageId: body.pageId, actor:'human' })); break;
         case "login": {

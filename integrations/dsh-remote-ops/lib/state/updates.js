@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { reloadBlockers } from "../hot-reload.js";
 import { sessionError } from "../common.js";
+import { safeDiagnosticText } from "../http-diagnostics.js";
 import { PLUGIN_VERSION } from "../version.js";
 import { UPDATE_PACKAGE, UPDATE_CACHE_MS, compareVersions, normalizeUpdateSettings, readUpdateSettings, writeUpdateSettings, fetchLatestRelease, downloadRelease } from "../release.js";
 
@@ -99,7 +100,7 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
     const result = await monitorInstall(this, manager.installBundle(downloaded.path, { requestId: this.updateInstallId }));
     if (this.disposed) throw sessionError("UPDATE_CANCELLED", "插件已关闭，请重新打开插件查看已安装版本");
     if (result.application === "failed" || result.application === "cancelled" || result.packageResult?.exitCode) {
-      const reason = result.pendingBuilds?.length ? `依赖构建脚本等待批准：${result.pendingBuilds.join(", ")}。请在 DSH 插件管理中处理后重试。` : result.error?.code ?? result.packageResult?.kind ?? result.application;
+      const reason = result.pendingBuilds?.length ? `依赖构建脚本等待批准：${result.pendingBuilds.join(", ")}。请在 DSH 插件管理中处理后重试。` : safeDiagnosticText(result.error?.diagnostic, 600) || result.error?.code || result.packageResult?.kind || result.application;
       throw sessionError("UPDATE_INSTALL_FAILED", `安装失败：${reason}。详情见 DSH 插件管理日志${result.packageResult?.logPath ? ` ${result.packageResult.logPath}` : ""}`);
     }
     const installed = (await manager.listBundles()).find(item => item.name === UPDATE_PACKAGE);

@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, realpath, stat } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -76,6 +76,7 @@ export function reloadBlockers(state) {
   if (activeUploadBatches(state, Date.now()).size) busy.push("浏览器批量上传中");
   if (state.browser?.openings?.size || [...(state.browser?.sessions?.values() ?? [])].some(r => r.job && !["completed", "failed", "unknown", "stopped"].includes(r.job.status))) busy.push("网页任务执行中");
   if (state.browser?.installation?.status === "installing") busy.push("浏览器安装中");
+  if (state.browser?.embeddedPreparation?.pending) busy.push("插件内浏览器准备中");
   if ([...(state.api?.owners?.values() ?? [])].some(o => [...o.records.values()].some(r => r.state === "running"))) busy.push("API 请求执行中");
   return busy;
 }
@@ -85,7 +86,6 @@ export function reloadBlockers(state) {
 export async function stageRuntime(profileDir, expectedVersion) {
   if (!/^\d+\.\d+\.\d+$/.test(expectedVersion)) throw new Error("UPDATE_VERSION_INVALID");
   const source = await realpath(join(profileDir, "node_modules/@dsh/remote-ops"));
-  const root = join(profileDir, ".remote-ops-runtime", `${expectedVersion}-${randomUUID()}`);
   const installed = new Map();
   async function locate(from, name) {
     for (let dir = from; ; dir = dirname(dir)) {
@@ -113,6 +113,10 @@ export async function stageRuntime(profileDir, expectedVersion) {
   }
   const pkg = JSON.parse(await readFile(join(source, "package.json"), "utf8"));
   if (pkg.name !== "@dsh/remote-ops" || pkg.version !== expectedVersion) throw new Error("UPDATE_INSTALL_UNVERIFIED: installed package identity changed");
+  // Keep snapshot paths short enough for Windows to launch the bundled Chromium executable.
+  const snapshots = join(profileDir, ".remote-ops-runtime");
+  await mkdir(snapshots, { recursive: true });
+  const root = await mkdtemp(join(snapshots, expectedVersion + "-"));
   const target = join(root, "node_modules/@dsh/remote-ops");
   installed.set(pkg.name, source);
   await copyPackage(source, target);
@@ -197,8 +201,9 @@ export class HotReload {
       if (candidate.HOT_RELOAD_PROTOCOL !== HOT_RELOAD_PROTOCOL) {
         state.updatePhase = "restart-required"; state.updateError = "此版本的运行状态格式不兼容，请在任务结束后重启 DSH"; return;
       }
-      await this.hmr.runExclusive(async () => {
-        if (state.disposed || reloadBlockers(state).length || state.updatePromise) { this.schedule(this.version); return; }
+      const deferred = await this.hmr.runExclusive(async () => {
+        if (state.disposed) return false;
+        if (reloadBlockers(state).length || state.updatePromise) return true;
         // Atomic admission barrier: no new mutation enters before old routes go away.
         state.reloadGate = true; state.updatePhase = "reloading";
         const previous = this.entry.options.name;
@@ -215,7 +220,11 @@ export class HotReload {
           state.reloadGate = false; state.updatePhase = "reload-failed";
           state.updateError = `热加载失败，已恢复旧运行版本：${error.message}`;
         } finally { handoffs().delete(this.entry); }
+        return false;
       });
+      // Timers inherit DSH's async transaction context. Queue the next attempt
+      // after leaving runExclusive if a new operation began during staging.
+      if (deferred) this.schedule(this.version);
     } catch (error) {
       state.reloadGate = false; state.updatePhase = "reload-failed"; state.updateError = `热加载未完成：${error.message}`;
     } finally { this.running = false; }
