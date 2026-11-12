@@ -135,9 +135,6 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__webBar>label{margin-left:auto;display:flex;flex-direction:row;align-items:center;gap:6px}.dsh-remote-ops__webBar select,.dsh-remote-ops__liveTools select{width:auto;flex:none;min-width:82px}
       .dsh-remote-ops__webAddress{display:flex;gap:4px;padding:8px;flex:none;min-width:0;align-items:center}
       .dsh-remote-ops__webAddress input{min-width:0;flex:1;width:0}.dsh-remote-ops__webAddress button{flex:none;min-width:30px;min-height:32px;padding:4px 7px}
-      .dsh-remote-ops__webPages{display:flex;gap:3px;overflow-x:auto;padding:5px 8px;flex:none}
-      .dsh-remote-ops__webPages button{flex:none;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .dsh-remote-ops__webPages button[aria-selected=true]{border-color:var(--ro-accent);color:var(--ro-accent)}
       .dsh-remote-ops__webState{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;padding:6px 12px;flex:none;font-size:12px}
       .dsh-remote-ops__webNotice,.dsh-remote-ops__webError{padding:6px 12px;flex:none;overflow-wrap:anywhere}.dsh-remote-ops__webNotice{color:var(--dsw-alias-label-secondary,#667085)}.dsh-remote-ops__webError{color:var(--dsw-alias-state-error-primary,#d92d20)}
       .dsh-remote-ops__webPage{display:flex;flex:1;min-height:240px;min-width:0;overflow:hidden}.dsh-remote-ops__live{display:flex;flex:1;min-height:240px;flex-direction:column;min-width:0;overflow:hidden;border-block:1px solid var(--dsw-alias-border-l3,#e5e7eb)}
@@ -236,8 +233,6 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__webBrowser{flex:1;min-height:0;overflow:auto;background:var(--dsw-alias-bg-base,#fff)}
       .dsh-remote-ops__webBar{padding:6px 10px;min-height:36px;border:0}.dsh-remote-ops__webBar>span,.dsh-remote-ops__webBar>select{min-width:0;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
       .dsh-remote-ops__webDisplayWarning{font-size:12px;padding:0 10px 5px;color:var(--dsw-alias-label-secondary,#667085);flex:none;overflow-wrap:anywhere}
-      .dsh-remote-ops__webPagesBar{display:flex;align-items:center;gap:3px;padding-right:8px;flex:none;min-width:0;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}.dsh-remote-ops__webPagesBar>button{min-width:28px;border-color:transparent;background:transparent}
-      .dsh-remote-ops__webPages{flex:1;min-width:0;padding:4px 8px;gap:4px}.dsh-remote-ops__webPages button{min-height:30px;border-color:transparent;background:transparent;font-size:12px;max-width:200px;display:block}.dsh-remote-ops__webPages button[aria-selected=true]{border-color:var(--dsw-alias-border-l3,#e5e7eb);background:var(--dsw-alias-bg-layer-1,#f6f8fa)}
       .dsh-remote-ops__webAddress{flex-wrap:nowrap!important;padding:6px 8px;gap:4px}.dsh-remote-ops__webAddress input{flex:1 1 0!important;width:0;min-width:0;font-size:12px}.dsh-remote-ops__webAddress button{min-width:28px;padding:4px 6px;min-height:32px}.dsh-remote-ops__webAddress button[type=submit]{margin-left:0}
       .dsh-remote-ops__webPage{flex:1;min-height:180px}.dsh-remote-ops__live{min-height:180px}.dsh-remote-ops__liveTools{padding:4px 8px;font-size:12px;flex-wrap:wrap}.dsh-remote-ops__liveTools select{font-size:12px;min-width:80px;min-height:28px}
       .dsh-remote-ops__liveSurface img{border:0}.dsh-remote-ops__webState{padding:5px 10px;min-height:30px;gap:6px;border-top:1px solid var(--dsw-alias-border-l3,#e5e7eb)}.dsh-remote-ops__webState>strong{font-weight:400}.dsh-remote-ops__webState>details{margin-left:auto}
@@ -265,20 +260,29 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__web :is(label,.dsh-remote-ops__webField){text-align:left;justify-content:flex-start}
       .dsh-remote-ops__web :is(input,select,textarea){font:inherit}
 
-      .dsh-remote-ops__webBrowser{padding:0;gap:0;overflow:hidden}
+      .dsh-remote-ops__webBrowser{padding:0;gap:0;overflow:hidden;scrollbar-gutter:auto}
       .dsh-remote-ops__webMain{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column;overflow:hidden}
-      .dsh-remote-ops__webContext{display:flex;align-items:center;gap:6px;padding:4px 10px;flex:none;min-height:42px;background:var(--ro-soft)}
-      .dsh-remote-ops__webContextPages{min-width:0;flex:1;display:flex;align-items:center;gap:6px}
-      .dsh-remote-ops__webContextPages>select{max-width:130px;width:35%;font-size:12px}
-      .dsh-remote-ops__webContext>select{font-size:12px;width:94px;flex:none;border-color:transparent;background:transparent}
+      .dsh-remote-ops__webPagesBar{display:flex;align-items:flex-end;flex:none;gap:5px;min-width:0;padding:5px 8px 0;background:color-mix(in srgb,var(--ro-accent) 11%,var(--ro-soft))}
+      .dsh-remote-ops__webPages{display:flex;min-width:0;flex:0 1 auto;overflow-x:auto;scrollbar-width:thin;overscroll-behavior-x:contain}
+      .dsh-remote-ops__webTab{display:flex;align-items:center;position:relative;box-sizing:border-box;flex:0 1 178px;min-width:112px;max-width:200px;height:38px;padding:0 3px 0 6px;border:1px solid transparent;border-bottom:0;border-radius:11px 11px 0 0;color:var(--ro-muted)}
+      .dsh-remote-ops__webTab:not([data-active=true])::after{content:'';height:17px;width:1px;background:color-mix(in srgb,var(--ro-text) 28%,transparent);position:absolute;right:0;pointer-events:none}
+      .dsh-remote-ops__webTab[data-active=true]{color:var(--ro-text);background:var(--ro-bg);border-color:color-mix(in srgb,var(--ro-accent) 30%,var(--ro-border));box-shadow:inset 0 2px var(--ro-accent)}
+      .dsh-remote-ops__webTab:hover:not([data-active=true]){background:color-mix(in srgb,var(--ro-text) 7%,transparent)}
+      .dsh-remote-ops__webTab>button[role=tab]{display:flex;align-items:center;gap:7px;min-width:0;flex:1;height:36px;padding:0 4px;border:0;background:transparent;color:inherit;font-size:13px;text-align:left}
+      .dsh-remote-ops__webTab>button[aria-selected=true]{font-weight:650}.dsh-remote-ops__webTab>button[aria-selected=true]>svg{color:var(--ro-accent)}
+      .dsh-remote-ops__webTab>button>span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.dsh-remote-ops__webTab svg{flex:none}
+      .dsh-remote-ops__webPagesBar :is(.dsh-remote-ops__webTabClose,.dsh-remote-ops__webTabNew){display:grid;place-items:center;flex:none;width:32px;height:32px;min-width:32px;min-height:32px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--ro-text)}
+      .dsh-remote-ops__webPagesBar .dsh-remote-ops__webTabNew{width:36px;height:36px;margin-bottom:1px;background:color-mix(in srgb,var(--ro-bg) 48%,transparent)}
+      .dsh-remote-ops__webTabClose svg{width:15px;height:15px}.dsh-remote-ops__webTabNew svg{width:20px;height:20px}
+      .dsh-remote-ops__webPagesBar :is(.dsh-remote-ops__webTabClose,.dsh-remote-ops__webTabNew):hover{background:color-mix(in srgb,var(--ro-text) 14%,transparent)}
+      .dsh-remote-ops__webPagesBar button:focus-visible{outline:2px solid var(--ro-accent);outline-offset:-3px}
+      .dsh-remote-ops__webViewActions{display:flex;align-items:center;gap:4px;margin-inline-start:auto}.dsh-remote-ops__webViewActions>select{width:auto;max-width:110px;min-height:28px;font-size:12px}
       .dsh-remote-ops__webSettingsTrigger{border-color:transparent!important;background:transparent!important;min-width:30px;padding:5px!important}
-      .dsh-remote-ops__webPagesBar{border:0;flex:1;padding:0;min-width:0}.dsh-remote-ops__webPages{padding:0}
-      .dsh-remote-ops__webPages button[aria-selected=true]{border-color:transparent;background:var(--ro-bg)}
-      .dsh-remote-ops__webPages button{max-width:180px}.dsh-remote-ops__webPagesBar>button{padding:3px;min-width:26px}
-      .dsh-remote-ops__webAddress{background:var(--ro-soft);border-bottom:1px solid var(--ro-border);padding:5px 10px 8px}
+      .dsh-remote-ops__webAddress{background:var(--ro-bg);border-bottom:1px solid var(--ro-border);padding:5px 8px}
       .dsh-remote-ops__webAddress>button:not([type=submit]){border-color:transparent;background:transparent}
       .dsh-remote-ops__webState{min-height:34px;font-size:12px}.dsh-remote-ops__webState>button{margin-left:auto;border-color:transparent;background:transparent;font-size:12px;min-height:28px;padding:3px 5px}
       .dsh-remote-ops__liveTools{order:2;border-top:1px solid var(--ro-border);min-height:28px;padding:2px 10px;gap:6px}
+      .dsh-remote-ops__webPage,.dsh-remote-ops__live{min-height:0}.dsh-remote-ops__liveSurface[data-fit=true]{overflow:hidden}
       .dsh-remote-ops__liveOptions{position:relative;margin-left:auto}.dsh-remote-ops__liveOptions>summary{padding:3px;cursor:pointer}
       .dsh-remote-ops__liveOptions>div{position:absolute;bottom:100%;right:0;z-index:15;width:180px;background:var(--ro-bg);border:1px solid var(--ro-border);border-radius:7px;padding:12px;display:grid;gap:8px;box-shadow:0 5px 18px #0002}
       .dsh-remote-ops__webUtility{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
@@ -295,7 +299,7 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__fileUpload input[type=file]{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;padding:0;min-height:0}
       .dsh-remote-ops__fileUpload>label:focus-within{outline:2px solid var(--ro-accent);outline-offset:2px}.dsh-remote-ops__fileUpload>label:has(input:disabled){opacity:.5;cursor:default}
       .dsh-remote-ops__uploadProgress{flex-basis:100%;width:100%;height:4px;accent-color:var(--ro-brand);border:0}
-      @container(max-width:420px){.dsh-remote-ops__webPagesBar>button{min-width:24px}.dsh-remote-ops__webContext{padding:4px 8px;gap:3px}.dsh-remote-ops__webContext>select{width:88px}.dsh-remote-ops__webPages button{max-width:140px}}
+      @container(max-width:420px){.dsh-remote-ops__webPagesBar{padding-inline:4px;gap:2px}.dsh-remote-ops__webTab{min-width:104px}.dsh-remote-ops__webState{gap:2px 4px;padding:3px 5px}.dsh-remote-ops__webState .dsh-remote-ops__muted{flex-basis:auto}.dsh-remote-ops__webViewActions>select{max-width:90px}}
       .dsh-remote-ops__passwordField{display:flex;flex-direction:column;gap:5px;min-width:0}.dsh-remote-ops__passwordRow{display:flex;gap:6px;align-items:stretch}.dsh-remote-ops__passwordRow input{flex:1;min-width:0;width:0}.dsh-remote-ops__passwordToggle{flex:none;display:flex;align-items:center;justify-content:center;min-width:34px;padding:6px!important}
       @media(pointer:coarse){.dsh-remote-ops button,.dsh-remote-ops summary{min-height:40px}.dsh-remote-ops input:not([type=checkbox]),.dsh-remote-ops textarea{font-size:16px}}
       @media(prefers-reduced-motion:reduce){.dsh-remote-ops *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
@@ -493,7 +497,7 @@ window.__ModuleLoader__.load({
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const updateRecovery = createUpdateRecovery((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.15.5", update: { currentVersion: "0.15.5", latestVersion: "0.15.5", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.15.6", update: { currentVersion: "0.15.6", latestVersion: "0.15.6", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -1474,20 +1478,21 @@ window.__ModuleLoader__.load({
       const image=useRef(null),capture=useRef(null),surface=useRef(null),current=useRef(null),queue=useRef(Promise.resolve()),alive=useRef(true),composing=useRef(false);
       current.current={frame,browser,viewportMode,size};
       useEffect(()=>{const node=surface.current;if(!node)return;const measure=()=>setSize({width:node.clientWidth,height:node.clientHeight});const observer=new ResizeObserver(measure);observer.observe(node);measure();return()=>observer.disconnect();},[]);
-      const resizeViewport=mode=>{
+      const resizeViewport=(mode, fit, pageId)=>{
         queue.current=queue.current.then(async()=>{
-          if(!alive.current||current.current.viewportMode!==mode)return;
+          if(!alive.current||current.current.viewportMode!==mode||current.current.browser.activePageId!==pageId)return;
           const measured=current.current.size;
-          if(mode==='panel'&&(!measured.width||!measured.height))return;
-          const viewport=mode==='desktop'?{mode}:{mode,width:Math.max(240,Math.min(1600,Math.floor(measured.width))),height:Math.max(180,Math.min(1200,Math.floor(measured.height)))};
+          if(!measured.width||!measured.height)return;
+          const viewport=fit?{mode,pageId,width:measured.width,height:measured.height}:{mode,pageId};
           try{await request('/api/dsh-remote-ops/browser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'viewport',sessionId,browserId:browser.id,viewport})});}
           catch(error){if(alive.current)setMessage('视口调整失败 · '+error.message.split('\n')[0]);}
         });
       };
+      const fit = viewportMode === 'panel' || zoom === 'fit';
       useEffect(()=>{
         if(!visible||!size.width||!size.height)return;
-        const timer=setTimeout(()=>resizeViewport(viewportMode),250);return()=>clearTimeout(timer);
-      },[size.width,size.height,viewportMode,browser.id,browser.display,visible]);
+        const timer=setTimeout(()=>resizeViewport(viewportMode,fit,browser.activePageId),120);return()=>clearTimeout(timer);
+      },[size.width,size.height,viewportMode,fit,browser.id,browser.activePageId,browser.display,visible]);
 
       useEffect(()=>{
         if(!visible)return;
@@ -1534,10 +1539,10 @@ window.__ModuleLoader__.load({
       };
       const flush=event=>{if(composing.current)return;const value=event.currentTarget.value;event.currentTarget.value='';if(value)send({kind:'text',text:value});};
       return h('div',{className:'dsh-remote-ops__live'},
-        h('div',{className:'dsh-remote-ops__liveTools'},h('span',{role:'status',title:'Ctrl+Esc 返回地址栏'},message||'实时画面')),
-        h('div',{ref:surface,className:'dsh-remote-ops__liveSurface'},frame?h('img',{ref:image,alt:'网页实时画面','data-revision':frame.revision,draggable:false,src:'data:image/jpeg;base64,'+frame.data,style:{width:`${frame.width*(zoom==='fit'?Math.min(size.width/frame.width,size.height/frame.height,1):1)}px`,maxWidth:'none'},onContextMenu:event=>event.preventDefault(),onClick:event=>{
+        frame&&message?h('div',{className:'dsh-remote-ops__liveTools',role:'status'},message):null,
+        h('div',{ref:surface,className:'dsh-remote-ops__liveSurface','data-fit':fit},frame?h('img',{ref:image,alt:'网页实时画面','data-revision':frame.revision,draggable:false,src:'data:image/jpeg;base64,'+frame.data,style:{width:fit?Math.min(size.width,size.height*frame.width/frame.height):frame.width,maxWidth:'none'},onContextMenu:event=>event.preventDefault(),onClick:event=>{
           const rect=image.current.getBoundingClientRect();capture.current?.focus({preventScroll:true});send({kind:'click',x:(event.clientX-rect.left)*frame.width/rect.width,y:(event.clientY-rect.top)*frame.height/rect.height,button:event.button===2?'right':event.button===1?'middle':'left',count:Math.min(2,event.detail||1)});
-        }}):h('div',{className:'dsh-remote-ops__empty'},message),
+        }}):h('div',{className:'dsh-remote-ops__empty',role:'status'},message),
         h('textarea',{ref:capture,className:'dsh-remote-ops__webCapture','aria-label':'网页键盘输入',autoComplete:'off',spellCheck:false,onKeyDown:key,onChange:flush,onCompositionStart:()=>{composing.current=true;},onCompositionEnd:event=>{composing.current=false;flush(event);},onPaste:event=>{event.preventDefault();const text=event.clipboardData.getData('text');if(text)send({kind:'text',text});}})));
     }
     const browserRuntimeSummary = (runtime, windowBrowser) => {
@@ -1582,6 +1587,52 @@ window.__ModuleLoader__.load({
           result.hasMore?h('button',{type:'button',disabled:busy,onClick:()=>read(selected,result.nextAfter)},'读取更多'):null):null);
     }
 
+    function BrowserPageTabs({ session, busy, action }) {
+      const strip = useRef(null);
+      const panelId = 'web-panel-' + session.id;
+      useEffect(() => {
+        const list = strip.current;
+        const reveal = () => {
+          const tab = list.querySelector('[aria-selected="true"]')?.parentElement;
+          if (!tab || !list.clientWidth) return;
+          const box = tab.getBoundingClientRect(), visible = list.getBoundingClientRect();
+          if (box.left < visible.left) list.scrollLeft += box.left - visible.left;
+          else if (box.right > visible.right) list.scrollLeft += box.right - visible.right;
+        };
+        reveal();
+        const observer = new ResizeObserver(reveal);
+        observer.observe(list);
+        return () => observer.disconnect();
+      }, [session.activePageId, session.pages.length]);
+
+      const select = id => action({ action: 'control', control: 'select-page', value: id });
+      const close = async id => {
+        const result = await action({ action: 'control', control: 'close-page', value: id });
+        if (result) requestAnimationFrame(() => strip.current?.querySelector('[aria-selected="true"]')?.focus({ preventScroll: true }));
+      };
+      const keyDown = (event, index) => {
+        if (busy) return;
+        const tabs = session.pages;
+        if (event.key === 'Delete') { event.preventDefault(); void close(tabs[index].id); return; }
+        const next = { ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length, Home: 0, End: tabs.length - 1 }[event.key];
+        if (next === undefined) return;
+        event.preventDefault();
+        strip.current.querySelectorAll('[role="tab"]')[next]?.focus({ preventScroll: true });
+        void select(tabs[next].id);
+      };
+      return h('div', { className: 'dsh-remote-ops__webPagesBar' },
+        h('div', { ref: strip, className: 'dsh-remote-ops__webPages', role: 'tablist', 'aria-label': '网页标签页' }, session.pages.map((item, index) => {
+          const active = item.id === session.activePageId;
+          const title = item.title || (item.url === 'about:blank' ? '新标签页' : item.url.replace(/^https?:\/\//, ''));
+          return h('div', { key: item.id, className: 'dsh-remote-ops__webTab', role: 'presentation', 'data-active': active },
+            h('button', { type: 'button', role: 'tab', id: 'web-tab-' + item.id, 'aria-controls': panelId, 'aria-selected': active, 'aria-disabled': busy, tabIndex: active ? 0 : -1, title: item.url,
+              onClick: () => !busy && select(item.id), onKeyDown: event => keyDown(event, index) },
+              h(BrowserIcon, { size: 15 }), h('span', null, title)),
+            h('button', { type: 'button', className: 'dsh-remote-ops__webTabClose', 'aria-label': '关闭网页标签 ' + title, title: '关闭 ' + title, tabIndex: active ? 0 : -1, disabled: busy, onClick: () => close(item.id) }, h(IconCloseOutline16)));
+        })),
+        h('button', { type: 'button', className: 'dsh-remote-ops__webTabNew', 'aria-label': '新建网页', title: '新建网页', disabled: busy, onClick: () => action({ action: 'navigate', navigation: 'new-page' }) }, h(IconPlusOutline16)));
+    }
+
     function BrowserWorkspacePanel({ sessionId, visible = true, settings = false }) {
       const draft=webDrafts.get(sessionId)??{},[data,setData]=useState({sites:[],flows:[],sessions:[],preferences:{display:'embedded',browser:'chromium'},runtime:{}});
       const [viewportIntent,setViewportIntent]=useState(null),[zoom,setZoom]=useState(()=>{try{return localStorage.getItem('remote-ops.web-zoom')==='actual'?'actual':'fit';}catch{return 'fit';}});
@@ -1606,7 +1657,12 @@ window.__ModuleLoader__.load({
         return()=>{stopped=true;clearTimeout(timer);controller.abort();document.removeEventListener('visibilitychange',onVisible);};
       },[load,visible,settings]);
       useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
-      useEffect(()=>{const identity=`${session?.id}:${page?.id}:${page?.url}`;if(identity!==seenPage.current){seenPage.current=identity;if(!addressDirty.current&&page?.url)setAddress(page.url==='about:blank'?'':page.url.replace(/\?\[redacted\]$/,''));}},[session?.id,page?.id,page?.url]);
+      useEffect(() => {
+        if (!synced) return;
+        if (seenPage.current && seenPage.current !== page?.id) addressDirty.current = false;
+        seenPage.current = page?.id ?? '';
+        if (!addressDirty.current) setAddress(!page?.url || page.url === 'about:blank' ? '' : page.url.replace(/\?\[redacted\]$/, ''));
+      }, [synced, session?.id, page?.id, page?.url]);
       const action=async body=>{
         if(!synced||pending.current)return;pending.current=true;setBusy(true);setError('');revision.current++;
         try{if(body.action==='recording')await inputBarrier.current();const value=await request('/api/dsh-remote-ops/browser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId,browserId:session?.id,...body})});if(alive.current){await load();return value.result;}}
@@ -1628,12 +1684,7 @@ window.__ModuleLoader__.load({
       };
       return h('section',{className:'dsh-remote-ops__web dsh-remote-ops__webBrowser','aria-label':'网页操作','aria-busy':navigating},
         h('div',{className:'dsh-remote-ops__webMain',hidden:settings||utility==='library'||utility==='recording'},
-          h('div',{className:'dsh-remote-ops__webContext'},
-            h('div',{className:'dsh-remote-ops__webContextPages'},
-              data.sessions.filter(v=>!v.closed).length>1 ? h('select',{'aria-label':'活动浏览器',value:session?.id,disabled:navigating,onChange:event=>action({action:'select-browser',browserId:event.target.value})},data.sessions.filter(v=>!v.closed).map(v=>h('option',{key:v.id,value:v.id},v.name))) : null,
-              session?h('div',{className:'dsh-remote-ops__webPagesBar'},h('div',{className:'dsh-remote-ops__webPages',role:'tablist','aria-label':'网页标签页'},session.pages.map(item=>h('button',{key:item.id,id:'web-tab-'+item.id,role:'tab','aria-controls':'web-panel-'+session.id,'aria-selected':item.id===session.activePageId,tabIndex:item.id===session.activePageId?0:-1,disabled:navigating,title:item.url,onClick:()=>action({action:'control',control:'select-page',value:item.id}),onKeyDown:event=>{const index=session.pages.findIndex(v=>v.id===item.id),next={ArrowRight:(index+1)%session.pages.length,ArrowLeft:(index+session.pages.length-1)%session.pages.length,Home:0,End:session.pages.length-1}[event.key];if(next!==undefined){event.preventDefault();void action({action:'control',control:'select-page',value:session.pages[next].id});event.currentTarget.parentElement.children[next]?.focus();}}},item.title||(item.url==='about:blank'?'新标签页':item.url.replace(/^https?:\/\//,''))))),nav('新建网页','＋','new-page'),h('button',{type:'button','aria-label':'关闭当前网页',title:'关闭当前标签页',disabled:navigating,onClick:()=>action({action:'control',control:'close-page',value:session.activePageId})},h(IconCloseOutline16))):null),
-            h('select',{'aria-label':'网页显示方式',value:session?.display??data.preferences.display,disabled:navigating||!!unfinished,onChange:event=>changeDisplay(event.target.value)},h('option',{value:'embedded'},'插件内'),h('option',{value:'window'},'独立窗口')),
-            h('button',{type:'button',className:'dsh-remote-ops__webSettingsTrigger','aria-label':'收藏网站与流程',onClick:()=>{setLibrary(true);setUtility('library');}},'收藏')),
+          session?h(BrowserPageTabs,{session,busy:navigating,action}):null,
         h('form',{className:'dsh-remote-ops__webAddress',onSubmit:go},nav('网页后退','←','back'),nav('网页前进','→','forward'),nav('刷新网页','↻','reload'),h('input',{'aria-label':'网页地址',placeholder:'输入网址，按 Enter 打开',value:address,onChange:event=>{addressDirty.current=true;setAddress(event.target.value);},required:true,disabled:navigating}),h('button',{type:'submit','aria-label':'打开网页',className:'dsh-remote-ops__primary',disabled:!sessionId||navigating||!address.trim()},busy?'打开中…':'打开')),
         error?h('div',{className:'dsh-remote-ops__webError',role:'alert'},error.split('\n').slice(1).join(' · ')||error,!synced?h('button',{onClick:()=>{setError('');void load().catch(failure=>{if(alive.current)setError(failure.message);});}},'重试读取网页状态'):null):null,
         session?.dialog?h('div',{className:'dsh-remote-ops__webNotice'},`网页弹窗：${session.dialog.message}。请在主对话告诉 Agent 如何处理。`):null,
@@ -1645,7 +1696,11 @@ window.__ModuleLoader__.load({
             session?h('button',{type:'button',disabled:navigating,'aria-label':session.recording?.status==='recording'?'停止网页录制':'开始网页录制',onClick:()=>action({action:'recording',recording:{action:session.recording?.status==='recording'?'stop':'start',browserId:session.id,recordingId:session.recording?.id}})},session.recording?.status==='recording'?`停止录制 · ${session.recording.eventCount}`:'开始录制'):null,
             h('button',{type:'button','aria-label':'网页录制记录',onClick:()=>setUtility('recording')},'录制记录'),
             session?.recording?.error?h('span',{role:'alert'},session.recording.error):null,
-            job?h('button',{type:'button','aria-label':'操作记录','aria-expanded':utility==='log',onClick:()=>setUtility(current=>current==='log'?'':'log')},`操作记录 · ${job.results.length}`):null)),
+            job?h('button',{type:'button','aria-label':'操作记录','aria-expanded':utility==='log',onClick:()=>setUtility(current=>current==='log'?'':'log')},`操作记录 · ${job.results.length}`):null,
+            h('div',{className:'dsh-remote-ops__webViewActions'},
+              data.sessions.filter(v=>!v.closed).length>1 ? h('select',{'aria-label':'活动浏览器',value:session?.id,disabled:navigating,onChange:event=>action({action:'select-browser',browserId:event.target.value})},data.sessions.filter(v=>!v.closed).map(v=>h('option',{key:v.id,value:v.id},v.name))) : null,
+              h('select',{'aria-label':'网页显示方式',value:session?.display??data.preferences.display,disabled:navigating||!!unfinished,onChange:event=>changeDisplay(event.target.value)},h('option',{value:'embedded'},'插件内'),h('option',{value:'window'},'独立窗口')),
+              h('button',{type:'button',className:'dsh-remote-ops__webSettingsTrigger','aria-label':'收藏网站与流程',onClick:()=>{setLibrary(true);setUtility('library');}},'收藏')))),
           h('div',{className:'dsh-remote-ops__webSettings',hidden:!settings},h('label',null,'浏览器引擎',h('select',{'aria-label':'浏览器引擎',value:data.preferences.browser,disabled:navigating,onChange:event=>action({action:'preferences.save',preferences:{browser:event.target.value}})},h('option',{value:'chromium'},'专用 Chromium'),h('option',{value:'msedge'},'Microsoft Edge'),h('option',{value:'chrome'},'Google Chrome'))),h('label',null,'独立窗口浏览器',h('select',{'aria-label':'独立窗口浏览器',value:data.preferences.windowBrowser??'system',disabled:navigating,onChange:event=>action({action:'preferences.save',preferences:{windowBrowser:event.target.value}})},h('option',{value:'system'},'Windows 默认浏览器'),h('option',{value:'chromium'},'专用 Chromium'),h('option',{value:'msedge'},'Microsoft Edge'),h('option',{value:'chrome'},'Google Chrome'))),h('small',null,'浏览器引擎用于插件内网页；独立窗口默认跟随 Windows 默认浏览器。设置对新打开的浏览器生效；收藏网站的显式选择优先。'),h(BrowserRuntimeControls,{data,busy:navigating,action}),
           h('label',null,'网页视口',h('select',{'aria-label':'网页视口',value:viewportIntent??session?.viewport?.mode??data.preferences.viewport??'panel',disabled:navigating,onChange:event=>{setViewportIntent(event.target.value);void action({action:'preferences.save',preferences:{viewport:event.target.value}});}},h('option',{value:'panel'},'跟随面板'),h('option',{value:'desktop'},'桌面视口'))),h('label',null,'网页画面缩放',h('select',{'aria-label':'网页画面缩放',value:zoom,onChange:event=>setZoom(event.target.value)},h('option',{value:'fit'},'适应画面'),h('option',{value:'actual'},'原始大小'))),h('small',null,'视口设置在返回插件内网页时应用。缩放用于桌面视口。')),
         h('section',{className:'dsh-remote-ops__webUtility',hidden:settings||utility!=='library','aria-label':'收藏网站与流程'},h('div',{className:'dsh-remote-ops__drawerHead'},h('strong',null,'收藏网站与流程'),h('button',{type:'button','aria-label':'返回网页',onClick:closeUtility},'返回')),library?h(BrowserLibraryPanel,{sessionId}):null),
@@ -1743,7 +1798,7 @@ window.__ModuleLoader__.load({
             h("details", { open: true }, h("summary", null, `编辑步骤（${steps.length}）`),
               steps.map((step, index) => h("div", { key: index, className: "dsh-remote-ops__webStep" }, h("div", { className: "dsh-remote-ops__webActions" }, h("strong", null, `步骤 ${index + 1}`), h("select", { "aria-label": `步骤 ${index + 1}动作`, value: step.action, disabled: busy, onChange: event => changeStep(index, { action: event.target.value }) }, ["goto", "click", "fill", "press", "select", "check", "uncheck", "scroll", "wait", "read", "assert"].map(value => h("option", { key: value, value }, value))), h("button", { disabled: busy, onClick: () => { setFlowId(""); setSteps(items => items.filter((_item, n) => n !== index)); } }, `删除步骤 ${index + 1}`)),
                 step.action === "goto" ? input(`步骤 ${index + 1}网址`, step.url, url => changeStep(index, { url })) : targetEditor(`步骤 ${index + 1}定位`, step.target ?? webTarget(), target => changeStep(index, { target })),
-                ["fill", "press", "select", "assert"].includes(step.action) && !step.secretRef ? input(`步骤 ${index + 1}内容`, step.value, value => changeStep(index, { value }), { placeholder: "支持 {{参数}}；密码使用下方凭据引用" }) : null,
+                ["fill", "press", "select", "assert"].includes(step.action) && !step.secretRef ? input(`步骤 ${index + 1}内容`, step.value, value => changeStep(index, { value }), { placeholder: "可填文本或使用 {{参数}}" }) : null,
                 step.action === "fill" && site.passwordRef ? h("label", { className: "dsh-remote-ops__webCheck" }, h("input", { type: "checkbox", checked: !!step.secretRef, onChange: event => changeStep(index, { secretRef: event.target.checked ? site.passwordRef : undefined, value: undefined }) }), "使用本站保存的密码") : null,
                 step.action === "click" ? h("label", { className: "dsh-remote-ops__webCheck" }, h("input", { type: "checkbox", checked: !!step.expectPopup, onChange: event => changeStep(index, { expectPopup: event.target.checked }) }), "点击后切换到新弹出网页") : null,
                 step.action !== "goto" ? h("button", { disabled: busy || !!executing || !step.target?.value, onClick: async () => { const tested = await action({ action: "target.test", target: step.target }); if (tested) setNotice(tested.unique ? "匹配到 1 个元素，已在浏览器中高亮" : `匹配到 ${tested.count} 个元素，请调整定位`); } }, `测试步骤 ${index + 1}定位`) : null,

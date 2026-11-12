@@ -10,7 +10,7 @@ import { createUpdateManifest } from "../integrations/dsh-remote-ops/scripts/cre
 const plugin = fileURLToPath(new URL("../integrations/dsh-remote-ops/", import.meta.url));
 const packOffline = fileURLToPath(new URL("./pack-dsh-prebundled.py", import.meta.url));
 const python = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
-const bridgeVersions = new Map([["0.15.4", "0.14.2"], ["0.15.5", "0.14.3"]]);
+const bridgeVersions = new Map([["0.15.4", "0.14.2"], ["0.15.5", "0.14.3"], ["0.15.6", "0.14.4"]]);
 const asset = version => `dsh-remote-ops-v${version}.tgz`;
 const checksum = version => `SHA256SUMS-dsh-remote-ops-v${version}.txt`;
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -85,7 +85,7 @@ async function build(archive, output) {
     gunzipSync(smallBytes, { maxOutputLength: 128 * 1024 ** 2 });
     await writeFile(join(feed, checksum(bridge)), `${digest(smallBytes)}  ${asset(bridge)}\n`);
     await createUpdateManifest(small);
-    const guide = legacyHook ? "DEPLOY.zh-CN.md" : "DEPLOY-0.15.5.zh-CN.md";
+    const guide = legacyHook ? "DEPLOY.zh-CN.md" : `DEPLOY-${target}.zh-CN.md`;
     await cp(join(plugin, "migration", guide), join(feed, "部署说明.md"));
     const zip = join(temp, "site.zip");
     run(python, ["-m", "zipfile", "-c", zip, "latest.json", asset(bridge), checksum(bridge), "stable", "部署说明.md"], feed);

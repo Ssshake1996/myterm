@@ -20,7 +20,7 @@ export class BrowserSessions {
     const destination = await locateBrowser(page, target).evaluate(node => ({ origin: node.ownerDocument.location.origin }));
     if (!record.site.allowedOrigins.includes(destination.origin)) throw browserError("BROWSER_CREDENTIAL_ORIGIN", "The target frame is outside this site's credential origins");
     const secret = await this.credentials?.resolve?.(reference);
-    if (!secret?.value) throw browserError("BROWSER_CREDENTIAL_MISSING", "Save the site password or log in manually");
+    if (!secret?.value) throw browserError("BROWSER_CREDENTIAL_MISSING", "Use remote_browser_run to fill the user-supplied password, or update the site's saved password");
     record.secrets.add(secret.value); record.secretTargets.push({ page, target }); return secret.value;
   }
   attachPage(record, page, fixedId) {
@@ -32,9 +32,21 @@ export class BrowserSessions {
     const title=()=>{const url=page.url();if(typeof page.title==='function')void page.title().then(value=>{if(record.context===context&&record.pages.get(id)===page&&page.url()===url){record.pageTitles??=new Map();record.pageTitles.set(id,value);}}).catch(()=>{});};
     page.on('domcontentloaded',title);title();
     if(record.display==='embedded'&&record.viewport&&(record.viewport.width!==1024||record.viewport.height!==768))void page.setViewportSize?.({width:record.viewport.width,height:record.viewport.height}).catch(()=>{});
-    page.on('framenavigated',frame=>{if(context===record.context&&id===record.activePageId&&frame===page.mainFrame()){record.revision=(record.revision??0)+1;record.navigatedAt=Date.now();record.view?.invalidate();}});
+    page.on('framenavigated',frame=>{
+      if (context !== record.context || id !== record.activePageId || frame !== page.mainFrame()) return;
+      record.revision = (record.revision ?? 0) + 1;
+      record.navigationRevision = (record.navigationRevision ?? 0) + 1;
+      record.navigatedAt = Date.now();
+      record.view?.invalidate();
+    });
     page.on("dialog", dialog => { if(context===record.context)record.dialog = dialog; });
-    page.on("close", () => { if(record.switching||record.context!==context)return;record.pages.delete(id); if (record.activePageId === id) record.activePageId = record.pages.keys().next().value; if (!record.pages.size) { record.closed = true; record.job?.wake?.();void this.closeRecord(record); } });
+    page.on("close", () => {
+      if (record.switching || record.context !== context) return;
+      const order = [...record.pages.keys()], index = order.indexOf(id);
+      record.pages.delete(id);
+      if (record.activePageId === id) record.activePageId = order[index + 1] ?? order[index - 1];
+      if (!record.pages.size) { record.closed = true; record.job?.wake?.(); void this.closeRecord(record); }
+    });
     return id;
   }
   bindContext(record,context) {
@@ -76,7 +88,7 @@ export class BrowserSessions {
     try { return await opening; } finally { this.openings.delete(key); }
   }
   publicSession(record) {
-    return { id: record.id, siteId: record.site.id, name: record.site.name, display:record.display??'window', viewport:record.viewport??{mode:'desktop',width:1024,height:768}, temporary:!!record.site.temporary, revision:record.revision??0, closed: record.closed, holder: "shared", activePageId: record.activePageId,
+    return { id: record.id, siteId: record.site.id, name: record.site.name, display:record.display??'window', viewport:record.viewport??{mode:'desktop',width:1024,height:768}, temporary:!!record.site.temporary, revision:record.revision??0, closed: record.closed, holder: "shared", activePageId: record.activePageId ?? null,
       pages: [...record.pages].map(([id, page]) => ({ id, url: displayUrl(page.url()), title:this.redact(record,record.pageTitles?.get(id)??'').slice(0,120), active: id === record.activePageId })),
       job: record.job ? this.publicJob(record, record.job) : null, history: record.history.slice(-15), notice: record.notice ?? "",
       dialog: record.dialog ? { type: record.dialog.type(), message: this.redact(record, record.dialog.message()).slice(0, 1000) } : null,
@@ -116,6 +128,9 @@ export class BrowserSessions {
     try {
       await r.inputQueue;await this.saveStorage(r);await r.view?.stop();await r.context.close();
       const context=await this.launch(r.site,owner,display,launchOptions);r.context=context;r.pages=new Map();r.secretTargets=[];r.closed=false;
+      r.display = display;
+      r.viewportHint = undefined;
+      if (display === 'embedded') r.viewport = { mode: this.preferences.viewport, width: 1024, height: 768 };
       if(r.recording?.metadata.status==='recording')await this.recordings.install(r);
       const initial=context.pages();
       for(let n=1;n<initial.length;n++)await initial[n].close();
@@ -123,7 +138,7 @@ export class BrowserSessions {
         const page=n===0&&initial[0]?initial[0]:await context.newPage();this.attachPage(r,page,urls[n][0]);
         if(/^https?:/.test(urls[n][1]))await page.goto(urls[n][1],{waitUntil:'domcontentloaded',timeout:30000});
       }
-      r.activePageId=selected;r.display=display;this.bindContext(r,context);
+      r.activePageId=selected;this.bindContext(r,context);
       r.notice='显示模式已切换，网页已重新载入；登录状态保留，未提交表单不会恢复。';
       await this.savePreferences({display});return this.publicSession(r);
     }catch(error){r.closed=true;await r.context.close().catch(()=>{});throw error;}
@@ -147,6 +162,8 @@ export class BrowserSessions {
     if (previous) { if (previous.hash !== hash) throw browserError("BROWSER_REQUEST_CONFLICT", "This request ID already has a different operation"); return previous.job; }
     if (!finished(record.job)) throw browserError("BROWSER_BUSY", "Pause or finish the current flow before starting another");
     if (!["run", "step"].includes(mode) || !record.pages.has(pageId ?? record.activePageId)) throw browserError("BROWSER_PAGE_INVALID", "Choose an existing page and run/step mode");
+    const password = variables.password;
+    if (typeof password === "string" && password && steps.some(step => step.action === "fill" && step.value === password)) record.secrets.add(password);
     const job = { id: randomUUID(), steps, actor, pageId: pageId ?? record.activePageId, index: 0, status: mode === "step" ? "paused" : "running", paused: mode === "step", results: [], startedAt: new Date().toISOString(), inFlight: false };
     record.job = job;
     this.receipts.set(key, { at: Date.now(), hash, job });
@@ -165,15 +182,18 @@ export class BrowserSessions {
         const started = Date.now();
         let handle;
         try {
-          const step=job.steps[job.index];
-          if(record.recording?.metadata.status==='recording') {
-            const saved={...step};if(saved.url)saved.url=recordingUrl(saved.url);
-            let sensitive=!!saved.secretRef||step.action==='fill'&&/password|passwd|secret|token|one.?time|otp|密码|口令|验证码/i.test(JSON.stringify(step.target));
-            if(step.action==='fill'&&!sensitive)try{sensitive=await locateBrowser(record.pages.get(job.pageId),step.target).evaluate(node=>node.matches('input[type=password]')||/password|passwd|secret|token|one.?time|otp|密码|口令|验证码/i.test([node.id,node.name,node.getAttribute('autocomplete'),node.getAttribute('aria-label')].join(' ')));}catch{}
-            if(sensitive){delete saved.value;saved.input={redacted:true,reason:'sensitive-field'};}
-            handle=await this.recordings.begin(record,job.actor,step.action,{jobId:job.id,stepIndex:job.index+1,step:saved},job.pageId);
-          }
-          const result = await executeBrowserStep(this, record, job, job.steps[job.index]);
+          const step = job.steps[job.index];
+          const begin = async redactInput => {
+            if (record.recording?.metadata.status !== "recording") return;
+            const saved = { ...step };
+            if (saved.url) saved.url = recordingUrl(saved.url);
+            if (redactInput) {
+              delete saved.value;
+              saved.input = { redacted: true, reason: "sensitive-field" };
+            }
+            handle = await this.recordings.begin(record, job.actor, step.action, { jobId: job.id, stepIndex: job.index + 1, step: saved }, job.pageId);
+          };
+          const result = await executeBrowserStep(this, record, job, step, begin);
           await this.recordings.end(record,handle,'completed',{completion:result.completion,pageId:result.pageId});
           job.results.push({ index: job.index + 1, ...result, durationMs: Date.now() - started }); job.index++;
           if (job.single) { job.single = false; job.paused = true; }
@@ -195,7 +215,7 @@ export class BrowserSessions {
   }
   async login(owner, id, options = {}) {
     const record = this.session(owner, id), login = record.site.login;
-    if (!login || !record.site.passwordRef) throw browserError("BROWSER_LOGIN_CONFIG_REQUIRED", "Configure login locators and a password, or log in manually in the same browser");
+    if (!login || !record.site.passwordRef) throw browserError("BROWSER_LOGIN_CONFIG_REQUIRED", "Use remote_browser_run with the user-supplied password, or configure a saved login for this site");
     const page = record.pages.get(record.activePageId), success = locateBrowser(page, login.success);
     if (await success.count() === 1 && await success.isVisible()) return { authenticated: true };
     return this.run(owner, id, [{ action: "fill", target: login.username, value: record.site.username }, { action: "fill", target: login.password, secretRef: record.site.passwordRef }, { action: "click", target: login.submit, expect: { target: login.success } }], options);

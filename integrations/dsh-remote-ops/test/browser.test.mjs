@@ -47,7 +47,10 @@ async function fixture(t) {
   const locator = selector => { const value = selector.replace(/^(css|xpath)=/, ""); return ({
     count: async () => value === "missing" ? 0 : value === "duplicate" ? 2 : 1,
     isVisible: async () => true,
-    evaluate: async () => ({ password: false, origin: new URL(address).origin }),
+    evaluate: async fn => fn({
+      matches: selector => value === "password" && selector.includes("password"),
+      id: value, name: "", getAttribute: () => null, ownerDocument: { location: new URL(address) },
+    }),
     fill: async text => { writes.push(text); },
     click: async () => { writes.push(value); if (block) await block; },
     press: async key => writes.push(key),
@@ -347,6 +350,22 @@ test("credential values are origin restricted and redacted from results and erro
   await page.goto("https://other.test");
   const denied = await w.run("owner", session.id, [{ action: "fill", target: { kind: "css", value: "password" }, secretRef: site.passwordRef }]);
   await until(() => denied.status === "failed"); assert.equal(denied.error.code, "BROWSER_CREDENTIAL_ORIGIN");
+});
+
+test("a failed literal password fill redacts the browser error even with recording off", async t => {
+  const { workspace, page } = await fixture(t);
+  const { id } = await workspace.openUrl("owner", "https://device.test/login");
+  const password = "fixture-only-literal";
+  const locate = page.locator;
+  page.locator = selector => ({
+    ...locate(selector),
+    fill: async input => { throw new Error("Field rejected " + input); },
+  });
+  const job = await workspace.run("owner", id, [{ action: "fill", target: "password", value: password }]);
+  await job.done;
+  assert.equal(job.status, "unknown");
+  assert.equal(job.error.message, "Field rejected [redacted]");
+  assert.ok(!JSON.stringify(workspace.snapshot("owner")).includes(password));
 });
 
 test("flow persistence validates actions and expands parameters without executing code", async t => {

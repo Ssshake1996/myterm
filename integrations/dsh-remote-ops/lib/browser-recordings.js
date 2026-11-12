@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { browserError } from './browser-steps.js';
 import { installRecordingObserver } from './browser-recording-client.js';
 
-const BINDING = '__remoteOpsRecordingEvent';
+const BINDING = '__remoteOpsRecordingEventV2';
 const MAX_EVENTS = 10000;
 const MAX_BYTES = 16 * 1024 * 1024;
 const idPattern = /^[a-f0-9-]{36}$/;
@@ -16,6 +16,54 @@ export function recordingUrl(value) {
     if (url.hash.includes('?')) url.hash = url.hash.split('?')[0] + '?[redacted]';
     return url.href;
   } catch { return '[unavailable URL]'; }
+}
+function deviceLocation(url, deviceOrigin) {
+  if (deviceOrigin) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.origin === deviceOrigin) return { url, devicePath: parsed.pathname + parsed.search + parsed.hash };
+    } catch { /* Unsupported or unavailable URLs have no device-relative route. */ }
+  }
+  return { url };
+}
+function frameSelector(node) {
+  const tag = node.tagName.toLowerCase(), root = node.getRootNode();
+  for (const attribute of ['data-testid', 'name', 'title', 'id']) {
+    const value = node.getAttribute(attribute);
+    if (!value) continue;
+    const css = attribute === 'id' ? '#' + CSS.escape(value) : tag + '[' + attribute + '="' + CSS.escape(value) + '"]';
+    if (root.querySelectorAll(css).length === 1) return css;
+  }
+  if (root.querySelectorAll(tag).length === 1) return tag;
+  const parts = [];
+  for (let current = node; current; current = current.parentElement) {
+    const siblings = current.parentNode?.children;
+    parts.unshift(current.tagName.toLowerCase() + (siblings?.length > 1 ? ':nth-child(' + ([...siblings].indexOf(current) + 1) + ')' : ''));
+  }
+  return parts.join(' > ');
+}
+async function describeTarget(raw, frame, sensitive) {
+  if (!raw) return undefined;
+  const target = { tag: String(raw.tag ?? '').slice(0, 50), type: String(raw.type ?? '').slice(0, 50), role: String(raw.role ?? '').slice(0, 100), name: String(raw.name ?? '').slice(0, 500), label: String(raw.label ?? '').slice(0, 500), css: String(raw.css ?? '').slice(0, 2000), shadowHosts: Array.isArray(raw.shadowHosts) ? raw.shadowHosts.slice(0, 10).map(value => String(value).slice(0, 500)) : [], sensitive };
+  if (!Array.isArray(raw.locators)) return target;
+  const candidates = raw.locators.slice(0, 8).filter(item => item && typeof item.value === 'string' && item.value.length <= 2000 && ['testId', 'label', 'role', 'placeholder', 'css'].includes(item.kind));
+  // The browser observer can count exact DOM selectors at dispatch. Check semantic
+  // candidates using Chromium's automation engine while the document still exists.
+  const scope = target.shadowHosts.reduce((parent, host) => parent?.locator?.('css=' + host), frame);
+  const reference = target.css && scope?.locator?.('css=' + target.css);
+  target.locators = await Promise.all(candidates.map(async item => {
+    const candidate = { kind: item.kind, value: item.value, ...(item.kind === 'role' && item.name != null ? { name: String(item.name).slice(0, 500) } : {}) };
+    if (item.kind !== 'role' && item.kind !== 'label') return { ...candidate, match: ['unique', 'ambiguous'].includes(item.match) ? item.match : 'unverified' };
+    let match = 'unverified';
+    if (reference) try {
+      const locator = item.kind === 'role' ? scope.getByRole(candidate.value, candidate.name === undefined ? {} : { name: candidate.name, exact: true }) : scope.getByLabel(candidate.value, { exact: true });
+      const count = await locator.count();
+      if (count > 1) match = 'ambiguous';
+      else if (count === 1 && await reference.and(locator).count() === 1) match = 'unique';
+    } catch { /* A re-render or navigation can remove the original element. */ }
+    return { ...candidate, match };
+  }));
+  return target;
 }
 export function adoptBrowserRecordings(workspace) {
   workspace.recordings ??= new BrowserRecordings(workspace);
@@ -61,7 +109,8 @@ export class BrowserRecordings {
     if (!recording || recording.metadata.status !== 'recording' || expectedId && recording.metadata.id !== expectedId) return Promise.resolve();
     return this.queue(recording, async () => {
       if (recording.metadata.status !== 'recording') return;
-      const line = JSON.stringify(this.clean(record, { ...event, seq: recording.metadata.eventCount + 1, at: new Date().toISOString() })) + '\n';
+      const location = event.url ? deviceLocation(event.url, recording.metadata.deviceOrigin) : {};
+      const line = JSON.stringify(this.clean(record, { ...event, ...location, seq: recording.metadata.eventCount + 1, at: new Date().toISOString() })) + '\n';
       if (recording.metadata.eventCount >= MAX_EVENTS || recording.bytes + Buffer.byteLength(line) > MAX_BYTES) {
         recording.metadata.status = 'limited'; recording.metadata.stoppedAt = new Date().toISOString(); recording.metadata.reason = 'recording-size-limit'; await this.save(recording); return;
       }
@@ -72,27 +121,45 @@ export class BrowserRecordings {
   async install(record) {
     const context = record.context;
     for (const [pageId, page] of record.pages) this.observePage(record, page, pageId);
-    if (context.__remoteOpsRecorderInstalled) return;
+    if (context.__remoteOpsRecorderInstalled === BINDING) return;
     await context.exposeBinding(BINDING, async (source, payload) => {
       const recording = record.recording;
       if (record.context !== context || !recording || recording.metadata.status !== 'recording') return {};
       if (payload?.action === 'ready') return { recordingId: recording.metadata.id };
-      if (payload?.recordingId !== recording.metadata.id || !['click','fill','select','check','press','scroll','hover','contextmenu','dragstart','drop'].includes(payload?.action)) return {};
+      if (payload?.recordingId !== recording.metadata.id || !['click','fill','select','check','press','scroll','hover','contextmenu','dragstart','drop','feedback'].includes(payload?.action)) return {};
       const pageId = [...record.pages].find(([, page]) => page === source.page)?.[0]; if (!pageId) return {};
+      const operation = [...recording.operations.values()].filter(item => item.pageId === pageId).at(-1);
+      const url = recordingUrl(source.frame.url());
       const frames = [];
       for (let frame = source.frame; frame && frame !== source.page.mainFrame(); frame = frame.parentFrame()) {
         let selector = null;
-        try { const element = await frame.frameElement(); selector = await element.evaluate(node => node.id ? '#' + CSS.escape(node.id) : `${node.tagName.toLowerCase()}${node.name ? '[name=' + JSON.stringify(node.name) + ']' : ''}`); await element.dispose(); } catch { /* navigation may detach a frame */ }
-        frames.unshift({ url: recordingUrl(frame.url()), name: frame.name(), selector });
+        try { const element = await frame.frameElement(); try { selector = await element.evaluate(frameSelector); } finally { await element.dispose(); } } catch { /* navigation may detach a frame */ }
+        frames.unshift({ ...deviceLocation(recordingUrl(frame.url()), recording.metadata.deviceOrigin), name: frame.name(), selector });
       }
-      const operation = [...recording.operations.values()].filter(item => item.pageId === pageId).at(-1);
       // DOM events during a dispatched operation can also be concurrent human
       // input. Correlation is evidence, never proof of exclusive authorship.
-      await this.append(record, { kind: 'interaction', source: operation ? 'browser' : 'human', ...(operation ? { duringActionId: operation.actionId } : {}), status: 'observed', pageId, frame: frames, url: recordingUrl(source.frame.url()), action: payload.action, observedAt: String(payload.observedAt ?? '').slice(0, 40), target: payload.target && { tag: String(payload.target.tag ?? '').slice(0, 50), type: String(payload.target.type ?? '').slice(0, 50), role: String(payload.target.role ?? '').slice(0, 100), name: String(payload.target.name ?? '').slice(0, 500), label: String(payload.target.label ?? '').slice(0, 500), css: String(payload.target.css ?? '').slice(0, 2000), shadowHosts: Array.isArray(payload.target.shadowHosts) ? payload.target.shadowHosts.slice(0, 10).map(value => String(value).slice(0, 500)) : [], sensitive: !!payload.target.sensitive }, input: payload.target?.sensitive || payload.input?.redacted ? { redacted: true, reason: 'sensitive-or-file-input' } : payload.input ? { value: String(payload.input.value ?? '').slice(0, 16000), truncated: !!payload.input.truncated || String(payload.input.value ?? '').length > 16000, ...(typeof payload.input.checked === 'boolean' ? { checked: payload.input.checked } : {}) } : undefined, key: payload.action === 'press' ? String(payload.key ?? '').slice(0, 100) : undefined, pointer: payload.pointer ? { x: Number(payload.pointer.x), y: Number(payload.pointer.y), button: Number(payload.pointer.button), count: Number(payload.pointer.count) } : undefined, position: payload.position ? { x: Number(payload.position.x), y: Number(payload.position.y) } : undefined }, recording.metadata.id);
+      const sensitive = !!payload.target?.sensitive || record.secrets.has(payload.input?.value);
+      const target = await describeTarget(payload.target, source.frame, sensitive);
+      const observation = payload.action === 'feedback';
+      const event = { kind: observation ? 'observation' : 'interaction', source: operation || observation ? 'browser' : 'human', ...(operation ? { duringActionId: operation.actionId } : {}), status: 'observed', pageId, frame: frames, url, action: payload.action, observedAt: String(payload.observedAt ?? '').slice(0, 40), target };
+      if (observation) {
+        event.feedback = sensitive || payload.feedback?.redacted ? { redacted: true } : { text: String(payload.feedback?.text ?? '').slice(0, 500), truncated: !!payload.feedback?.truncated };
+      } else {
+        if (sensitive || payload.input?.redacted) event.input = { redacted: true, reason: 'sensitive-or-file-input' };
+        else if (payload.input) event.input = { value: String(payload.input.value ?? '').slice(0, 16000), truncated: !!payload.input.truncated || String(payload.input.value ?? '').length > 16000, ...(typeof payload.input.checked === 'boolean' ? { checked: payload.input.checked } : {}) };
+        if (payload.action === 'press') event.key = String(payload.key ?? '').slice(0, 100);
+        if (payload.pointer) {
+          const { x, y, button, count, relative } = payload.pointer;
+          event.pointer = { x: Number(x), y: Number(y), button: Number(button), count: Number(count) };
+          if (relative && [relative.x, relative.y].every(n => Number.isFinite(n) && n >= 0 && n <= 1)) event.pointer.relative = { x: relative.x, y: relative.y };
+        }
+        if (payload.position) event.position = { x: Number(payload.position.x), y: Number(payload.position.y) };
+      }
+      await this.append(record, event, recording.metadata.id);
       return {};
     });
     await context.addInitScript(installRecordingObserver, BINDING);
-    context.__remoteOpsRecorderInstalled = true;
+    context.__remoteOpsRecorderInstalled = BINDING;
   }
   async configurePages(record, id) {
     const results = await Promise.allSettled([...record.pages.values()].flatMap(page => page.frames().map(async frame => {
@@ -107,7 +174,8 @@ export class BrowserRecordings {
     if (record.recording?.metadata.status === 'recording') return this.summary(record);
     if (record.recording) this.active.delete(record.recording.metadata.id);
     if (name != null && (typeof name !== 'string' || name.length > 120)) throw browserError('BROWSER_RECORDING_NAME_INVALID', 'Use a name up to 120 characters');
-    const metadata = { schemaVersion: 1, id: randomUUID(), name: name?.trim() || 'Web recording', browserId: record.id, startedAt: new Date().toISOString(), status: 'recording', eventCount: 0, initialPages: [...record.pages].map(([pageId, page]) => ({ pageId, url: recordingUrl(page.url()) })), coverage: { agentSteps: true, documentInteractions: true, browserChrome: false, notes: ['DOM events are observations, not business assertions.', 'Interactions inside closed shadow roots, browser UI and native file pickers may need manual reconstruction.', 'Input values are bounded; sensitive fields and URL query values are redacted.'] } };
+    const deviceOrigin = new URL(record.site.url).origin;
+    const metadata = { schemaVersion: 1, id: randomUUID(), name: name?.trim() || 'Web recording', browserId: record.id, deviceOrigin, startedAt: new Date().toISOString(), status: 'recording', eventCount: 0, initialPages: [...record.pages].map(([pageId, page]) => ({ pageId, ...deviceLocation(recordingUrl(page.url()), deviceOrigin) })), coverage: { agentSteps: true, documentInteractions: true, browserChrome: false, notes: ['DOM events are observations, not business assertions.', 'Changed visible status, alert, live and output regions can supply observed feedback.', 'Interactions inside closed shadow roots, browser UI and native file pickers may need manual reconstruction.', 'Input values are bounded; sensitive fields and URL query values are redacted.'] } };
     await mkdir(this.directory(owner), { recursive: true });
     const recording = { metadata, owner, bytes: 0, operations: new Map() }; record.recording = recording;
     try {

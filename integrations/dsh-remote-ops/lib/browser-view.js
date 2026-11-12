@@ -22,7 +22,7 @@ export class BrowserView {
         this.latest={sequence:++this.sequence,pageId:this.pageId,revision:r.revision??0,width:event.metadata.deviceWidth,height:event.metadata.deviceHeight,at:new Date().toISOString(),data:event.data};
         for(const wake of this.waiters)wake();
       });
-      await cdp.send('Page.startScreencast',{format:'jpeg',quality:75,maxWidth:1600,maxHeight:1200,everyNthFrame:1});
+      await cdp.send('Page.startScreencast',{format:'jpeg',quality:75,maxWidth:2560,maxHeight:2160,everyNthFrame:1});
     })();
     try{await this.starting;}catch(error){await this.stop();throw error;}finally{this.starting=null;}
   }

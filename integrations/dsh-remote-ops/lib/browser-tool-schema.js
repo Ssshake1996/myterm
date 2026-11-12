@@ -25,7 +25,7 @@ const step = (actions, required, fields = {}) => object({
 }, ["action", ...required]);
 const steps = { type: "array", description: "Prefer an array of 1–40 action objects. Every action except goto needs target, including read. Saved flows may use []", items: { oneOf: [
   step(["goto"], ["url"], { url: string("Complete HTTP(S) URL") }),
-  step(["fill"], ["target", "value"], { target, value: string("Text to fill; empty string clears the field") }),
+  step(["fill"], ["target", "value"], { target, value: string("Text to fill, including a user-supplied password. An empty string clears the field") }),
   step(["fill"], ["target", "secretRef"], { target, value: { type: "null" }, secretRef: string("Only the saved site's passwordRef") }),
   step(["press", "select"], ["target", "value"], { target, value: string("Key to press or option value to select") }),
   step(["click", "check", "uncheck", "scroll", "wait", "read", "assert"], ["target"], { target }),
@@ -53,7 +53,7 @@ export const BROWSER_TOOL_SCHEMAS = {
     ...browser, requestId,
     flowId: optionalString("Existing flow.id from remote_browser_list with matching siteId. Omit for inline steps; null/blank is absent. Never invent an ID"),
     pageId: optionalString("Optional exact open page ID"),
-    variables: nullable({ type: "object", properties: {}, additionalProperties: true, description: "Text values for {{parameter}}; never passwords" }),
+    variables: nullable({ type: "object", properties: {}, additionalProperties: true, description: "Literal text substituted once for {{parameter}}, including a user-supplied password for a fill step" }),
     steps: { oneOf: [steps, steps.items, object({ steps }, ["steps"]), { type: "string", description: "Compatibility: JSON-encoded action array, single action object or {steps:[...]}, up to 1 MiB. Parsed and fully validated before dispatch; prefer a real array." }, { type: "null" }] },
   }, ["requestId"]),
   remote_browser_read: object({ ...browser, target: nullable(target) }),

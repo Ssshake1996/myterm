@@ -55,6 +55,23 @@ test('durable capture pairs Agent actions, deduplicates runs, paginates and expo
   await assert.rejects(f.w.recording('owner',{action:'read',recordingId:recording.id,limit:999}),/BROWSER_RECORDING_CURSOR_INVALID/);
 });
 
+test('an ambiguous fill records a failed attempt without the unclassified input', async t => {
+  const f = await fixture(t);
+  const { id } = await f.w.recording('owner', { action: 'start', browserId: f.id });
+  const locate = f.page.locator;
+  f.page.locator = selector => ({ ...locate(selector), count: async () => 2 });
+  const value = 'private-attempt-fixture';
+  const job = await f.w.run('owner', f.id, [{ action: 'fill', target: '#entry', value }]);
+  await job.done;
+  assert.equal(job.error.code, 'BROWSER_TARGET_COUNT');
+  await f.w.recording('owner', { action: 'stop', recordingId: id });
+  const { events } = await f.w.recording('owner', { action: 'read', recordingId: id });
+  assert.equal(events[0].details.step.input.redacted, true);
+  assert.equal(events[1].status, 'failed');
+  assert.ok(!JSON.stringify(events).includes(value));
+  assert.equal(f.effects(), 0);
+});
+
 test('document events retain human context, redact sensitive inputs and stop accepting events at stop',async t=>{
   const f=await fixture(t),recording=await f.w.recording('owner',{action:'start',browserId:f.id});
   const send=payload=>f.context.binding({page:f.page,frame:f.page},{recordingId:recording.id,action:'fill',observedAt:new Date().toISOString(),...payload});

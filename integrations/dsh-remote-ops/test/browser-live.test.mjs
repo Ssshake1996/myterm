@@ -58,6 +58,30 @@ test('panel viewport resizes are owner scoped, invalidate old coordinates and de
   await w.resizeViewport('a',one.id,{mode:'desktop'});assert.deepEqual(inputs.at(-1),['viewport',{width:1024,height:768}]);
 });
 
+test('a late fixed-width layout fits proportionally, and the next responsive document uses the panel size', async t => {
+  const { w } = await fixture(t);
+  const { id } = await w.openUrl('viewer', 'https://device.test/');
+  const session = w.session('viewer', id), page = session.pages.get(session.activePageId);
+  const hint = { mode: 'panel', width: 384, height: 576, pageId: session.activePageId };
+  let overflowWidth = 0;
+  page.evaluate = async () => overflowWidth;
+  await w.resizeViewport('viewer', id, hint);
+  assert.deepEqual(session.viewport, { mode: 'panel', width: 384, height: 576 });
+  overflowWidth = 1024;
+  session.nextLayoutCheck = 0;
+  await w.frame('viewer', id, {});
+  await session.inputQueue;
+  assert.deepEqual(session.viewport, { mode: 'panel', width: 1024, height: 1536 });
+  overflowWidth = 0;
+  await page.goto('https://device.test/responsive');
+  await w.resizeViewport('viewer', id, hint);
+  assert.deepEqual(session.viewport, { mode: 'panel', width: 384, height: 576 });
+  await w.resizeViewport('viewer', id, { mode: 'desktop', width: 512, height: 600 });
+  assert.deepEqual(session.viewport, { mode: 'desktop', width: 1024, height: 1200 });
+  await w.resizeViewport('viewer', id, { mode: 'desktop' });
+  assert.deepEqual(session.viewport, { mode: 'desktop', width: 1024, height: 768 });
+});
+
 test('new tabs inherit the selected viewport and resizing never reloads a page or clears its form',async t=>{
   const {w,inputs}=await fixture(t),one=await w.openUrl('a','https://example.test/'),r=w.session('a',one.id);
   await w.resizeViewport('a',one.id,{mode:'panel',width:420,height:500});

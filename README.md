@@ -214,7 +214,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 
 停止 Agent 使用 DSH 原生停止对话入口；网页后续步骤随对话取消，当前已发出的操作不会回滚。切换模块、收起右栏及刷新 DSH 页面不会取消后台网页任务。
 
-支持 XPath/CSS/role/label/text/placeholder、iframe、弹出网页、可选登录配置与参数流程、结果检查和操作记录。密码使用本机 Harness 凭据服务，浏览器 profile 按对话和网站隔离。首次从“设置 → 网页”安装专用 Chromium，或选择本机 Edge / Chrome。独立窗口要求 DSH 与用户位于同一交互桌面；插件内模式在 DSH 网页中显示专用浏览器画面。切换显示方式会重新载入网页，保留登录 Cookie，未提交表单不会恢复。详见[网页操作指南](integrations/dsh-remote-ops/WEB.md)。
+支持 XPath/CSS/role/label/text/placeholder、iframe、弹出网页、可选登录配置与参数流程、结果检查和操作记录。Agent 可直接填写用户提供的网页登录密码。保存的网站密码使用本机 Harness 凭据服务。浏览器 profile 按对话和网站隔离。首次从“设置 → 网页”安装专用 Chromium，或选择本机 Edge / Chrome。独立窗口要求 DSH 与用户位于同一交互桌面；插件内模式在 DSH 网页中显示专用浏览器画面。切换显示方式会重新载入网页，保留登录 Cookie，未提交表单不会恢复。详见[网页操作指南](integrations/dsh-remote-ops/WEB.md)。
 
 ## 能力
 
@@ -244,7 +244,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 从 [最新稳定版](https://github.com/Ssshake1996/myterm/releases/latest) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.15.5.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.15.6.tgz
 dsh web
 ```
 
@@ -262,7 +262,7 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ## 内网 HTTP/HTTPS 手动更新
 
-v0.15.5 在 DSH 首次加载时离线准备插件内 Chromium。详见[版本说明](docs/releases/dsh-remote-ops-v0.15.5.md)。
+v0.15.6 的内嵌网页会随面板调整。录制包含元素定位、设备相对路径和页面反馈，Agent 可据此为不同 IP 的同款设备编写用例。网页操作与录制两份 Skill 随插件更新。[版本说明](docs/releases/dsh-remote-ops-v0.15.6.md)
 
 Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后显示等待原因，任务结束后自动热加载；“新版已生效”与运行版本共同确认结果。
 
@@ -271,14 +271,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.15.5.tgz
-  SHA256SUMS-dsh-remote-ops-v0.15.5.txt
+  dsh-remote-ops-v0.15.6.tgz
+  SHA256SUMS-dsh-remote-ops-v0.15.6.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.5.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.6.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -321,14 +321,14 @@ SSH/Telnet 密码可通过 Agent 环境工具或 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.5
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.6
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.15.5            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.15.5 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.15.6            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.15.6 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后下载正式包，核对其实际 SHA256、校验文件及 GitHub 提供的摘要。

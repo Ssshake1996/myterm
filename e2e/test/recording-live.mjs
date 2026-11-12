@@ -1,12 +1,82 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, mkdir, writeFile, rm, cp, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, cp, symlink } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { BrowserWorkspace } from '../../integrations/dsh-remote-ops/lib/browser-workspace.js';
+import { registerBrowserTools } from '../../integrations/dsh-remote-ops/lib/browser-tools.js';
+
+test('Agent signs in with supplied literal and variable passwords and exports a redacted recording', { timeout: 60000 }, async t => {
+  const passwords = ['  demo &+$" device  ', ' 设备 {{literal}} $&  '];
+  let accepted = 0;
+  const server = createServer(async (req, res) => {
+    if (req.method === 'POST' && req.url === '/login') {
+      let body = '';
+      for await (const chunk of req) body += chunk;
+      const password = new URLSearchParams(body).get('field');
+      const ok = password === passwords[accepted];
+      if (ok) accepted++;
+      res.writeHead(ok ? 200 : 403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      // Echoing the input exercises redaction of subsequent Agent reads.
+      res.end(ok ? 'Signed in\n' + password : 'Login rejected');
+    } else {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      const type = accepted === 0 ? 'password' : 'text';
+      res.end(`<form method="post" action="/login"><label>Access<input id="field" name="field" type="${type}"></label><button>Sign in</button></form>`);
+    }
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const root = await mkdtemp(join(tmpdir(), 'remote-ops-password-'));
+  const workspace = new BrowserWorkspace({ root, browserCacheRoot: join(root, 'cache') });
+  t.after(async () => {
+    await workspace.dispose();
+    assert.equal(dirname(resolve(root)), resolve(tmpdir()));
+    await rm(root, { recursive: true, force: true });
+  });
+  const tools = new Map();
+  registerBrowserTools({ tools: { register: tool => tools.set(tool.name, tool) }, systemPrompt: { section() {} } }, { browser: workspace });
+  const owner = 'password-test';
+  const call = (name, args) => tools.get(name).execute(args, { agent: { id: owner } });
+  const url = `http://127.0.0.1:${server.address().port}/`;
+  const { id: browserId, temporary } = await call('remote_browser_open', { url });
+  assert.equal(temporary, true);
+  const { id: recordingId } = await call('remote_browser_recording', { action: 'start', browserId });
+  for (const [index, password] of passwords.entries()) {
+    const job = await call('remote_browser_run', {
+      browserId, requestId: 'sign-in-' + index,
+      ...(index ? { variables: { password } } : {}),
+      steps: [
+        { action: 'goto', url },
+        { action: 'fill', target: '#field', value: index ? '{{password}}' : password },
+        { action: 'click', target: 'button', expect: { target: 'body', text: 'Signed in' } },
+        { action: 'read', target: 'body' },
+      ],
+    });
+    await workspace.session(owner, browserId).job.done;
+    const result = await call('remote_browser_read', { browserId });
+    assert.equal(result.browser.job.id, job.id);
+    assert.equal(result.browser.job.status, 'completed', result.browser.job.error?.message);
+    assert.match(result.page.text, /Signed in\s+\[redacted\]/);
+    assert.ok(!JSON.stringify(result).includes(password));
+  }
+  assert.equal(accepted, 2);
+  await call('remote_browser_recording', { action: 'stop', recordingId });
+  const read = await call('remote_browser_recording', { action: 'read', recordingId, limit: 200 });
+  const exported = await call('remote_browser_recording', { action: 'export', recordingId });
+  const file = await readFile(exported.path, 'utf8');
+  const fills = read.events.filter(event => event.source === 'agent' && event.details?.step?.action === 'fill');
+  assert.equal(fills.length, 2);
+  assert.ok(fills.every(({ details: { step } }) => step.input.redacted && !Object.hasOwn(step, 'value')));
+  for (const type of ['password', 'text']) {
+    assert.ok(read.events.some(event => event.kind === 'interaction' && event.action === 'fill' && event.target.type === type && event.input.redacted));
+  }
+  assert.deepEqual(JSON.parse(file).events, read.events);
+  for (const password of passwords) assert.ok(!file.includes(JSON.stringify(password.trim()).slice(1, -1)));
+});
 
 test('the package builder prepares a missing browser bundle offline and reuses it', {timeout:120000}, async t=>{
   const root=await mkdtemp(join(tmpdir(),'remote-ops-browser-prepare-'));
@@ -30,7 +100,7 @@ test('bundled browser records genuine human/Agent events, cross-origin frames, p
     response.setHeader('Content-Type','text/html; charset=utf-8');
     if(request.url==='/frame'){response.end('<label>Frame input<input id="frame-entry"></label>');return;}
     if(request.url==='/popup'){response.end('<label>Popup input<input id="popup-entry"></label>');return;}
-    response.end(`<title>Recording fixture</title><label>Name<input id="name"></label><label>Password<input id="password" type="password"></label><label>API token<input id="token" name="api-token"></label><button id="save" onclick="document.querySelector('#result').textContent=document.querySelector('#name').value">Save</button><div id="result"></div><a id="popup" href="/popup" target="_blank">Popup</a><iframe id="child" src="http://localhost:${server.address().port}/frame"></iframe>`);
+    response.end(`<title>Recording fixture</title><label>Name<input id="name"></label><label>Password<input id="password" type="password" oninput="document.querySelector('[role=alert]').textContent=this.value"></label><div role="alert"></div><label>API token<input id="token" name="api-token"></label><button id="save" onclick="document.querySelector('#result').textContent=document.querySelector('#name').value">Save</button><output id="result"></output><canvas id="port-map" width="100" height="50"></canvas><a id="popup" href="/popup" target="_blank">Popup</a><iframe id="child" src="http://localhost:${server.address().port}/frame"></iframe>`);
   });
   await new Promise(resolve=>server.listen(0,resolve));
   const w=new BrowserWorkspace({root,browserCacheRoot:join(root,'cache')});await w.ready;
@@ -41,6 +111,7 @@ test('bundled browser records genuine human/Agent events, cross-origin frames, p
   await page.getByLabel('Name',{exact:true}).fill('human entry');await page.getByLabel('Name',{exact:true}).press('Control+A');await page.getByRole('button',{name:'Save'}).click();
   await page.getByLabel('Password',{exact:true}).fill('human-password-secret');
   await page.getByLabel('API token',{exact:true}).fill('human-api-token-secret');
+  await page.locator('#port-map').click({ position: { x: 25, y: 20 } });
   await page.frameLocator('#child').getByLabel('Frame input').fill('cross origin entry');
   const single=await w.run('live',opened.id,[{action:'fill',target:{kind:'css',value:'#name'},value:'single Agent fill'}]);await single.done;
   const singleEvents=(await w.recording('live',{action:'read',recordingId:started.id,limit:200})).events;
@@ -53,7 +124,16 @@ test('bundled browser records genuine human/Agent events, cross-origin frames, p
   const exported=await w.recordings.export('live',started.id),value=JSON.parse(exported.content);
   assert.ok(value.events.some(event=>event.source==='human'&&event.input?.value==='human entry'));
   assert.ok(value.events.some(event=>event.source==='agent'&&event.details?.step?.value==='agent entry'));
-  assert.ok(value.events.some(event=>event.frame?.[0]?.selector==='#child'&&event.input?.value==='cross origin entry'));
+  assert.equal(value.recording.deviceOrigin, new URL(opened.url ?? page.url()).origin);
+  assert.equal(value.recording.initialPages[0].devicePath, '/?token=%5Bredacted%5D');
+  const external = value.events.find(event=>event.frame?.[0]?.selector==='#child'&&event.input?.value==='cross origin entry');
+  assert.ok(external);
+  assert.ok(!('devicePath' in external) && !('devicePath' in external.frame[0]));
+  assert.ok(external.target.locators.some(locator => locator.kind === 'label' && locator.value === 'Frame input' && locator.match === 'unique'));
+  assert.ok(value.events.some(event => event.kind === 'observation' && event.target.role === 'alert' && event.feedback.redacted));
+  assert.ok(value.events.some(event => event.kind === 'observation' && event.target.role === 'status' && event.feedback.text === 'agent entry'));
+  const point = value.events.find(event => event.target?.css === '#port-map' && event.action === 'click').pointer.relative;
+  assert.ok(Math.abs(point.x * 100 - 25) <= 1 && Math.abs(point.y * 50 - 20) <= 1);
   assert.ok(value.events.some(event=>event.input?.value==='popup entry'&&event.pageId!==opened.pages[0].id));
   assert.ok(value.events.some(event=>event.result?.completion==='checked'));
   assert.ok(value.events.some(event=>event.duringActionId));

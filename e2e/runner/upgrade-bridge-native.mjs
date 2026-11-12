@@ -9,9 +9,15 @@ import { chromium } from "../../integrations/dsh-remote-ops/node_modules/playwri
 
 const [desktopDir, oldPackage, feedDir, outputDir] = process.argv.slice(2, 6).map(arg => resolve(arg));
 const scenario = process.argv[6] ?? "normal";
-if (!outputDir || !["normal", "retry", "tamper", "resume", "sibling"].includes(scenario)) throw new Error("Usage: node upgrade-bridge-native.mjs <Windows Desktop dir> <legacy.tgz> <feed> <output parent> [normal|retry|tamper|resume|sibling]");
+if (!outputDir || !["normal", "direct", "retry", "tamper", "resume", "sibling"].includes(scenario)) throw new Error("Usage: node upgrade-bridge-native.mjs <Windows Desktop dir> <installed-version.tgz> <feed> <output parent> [normal|direct|retry|tamper|resume|sibling]");
 const oldVersion = /^dsh-remote-ops-v(\d+\.\d+\.\d+)\.tgz$/.exec(basename(oldPackage))?.[1];
 assert.ok(oldVersion, "expected a versioned legacy package");
+const readManifest = async path => JSON.parse(await readFile(join(feedDir, path), "utf8"));
+const { version: bridgeVersion } = await readManifest("latest.json");
+const { version: targetVersion } = await readManifest("stable/latest.json");
+assert.match(bridgeVersion, /^\d+\.\d+\.\d+$/);
+assert.match(targetVersion, /^\d+\.\d+\.\d+$/);
+const nextVersion = targetVersion.replace(/\d+$/, patch => String(Number(patch) + 1));
 await mkdir(outputDir, { recursive: true });
 const out = await mkdtemp(join(outputDir, "native-")), home = join(out, "home"), profile = join(home, "profiles/desktop");
 const resources = join(desktopDir, "resources"), runtime = join(resources, "app.asar/dsh"), primary = join(resources, "runtime/primary-runtime");
@@ -20,11 +26,11 @@ const runtimeInfo = JSON.parse(await readFile(join(primary, "runtime.json"), "ut
 const env = { ...process.env, DSH_HOME: home, ELECTRON_RUN_AS_NODE: "1", DSH_CLIENT_VERSION: runtimeInfo.desktopVersion, DSH_TELEMETRY_DISABLED: "1", BRIDGE_TEST_KEY: "local-fixture" };
 const receipt = { desktop: runtimeInfo.desktopVersion, node: runtimeInfo.node, scenario, oldVersion, clicks: 0, states: [], downloads: [], browserVisits: 0 };
 const files = new Map();
-for (const prefix of ["", "stable/", "stable/v0.15.4/"]) {
-  const name = prefix + "latest.json", manifest = JSON.parse(await readFile(join(feedDir, name), "utf8"));
+for (const prefix of ["", "stable/", `stable/v${targetVersion}/`]) {
+  const name = prefix + "latest.json", manifest = await readManifest(name);
   for (const item of [name, prefix + manifest.asset, prefix + manifest.checksum]) files.set("/feed/" + item, join(feedDir, item));
 }
-const frozenManifest = "/feed/stable/v0.15.4/latest.json";
+const frozenManifest = `/feed/stable/v${targetVersion}/latest.json`;
 let injected = false;
 const server = createServer(async (req, res) => {
   if (req.url === "/v1/chat/completions") {
@@ -44,10 +50,10 @@ const server = createServer(async (req, res) => {
   }
   if (scenario === "retry" && req.url === "/feed/stable/latest.json") {
     const next = JSON.parse(await readFile(file, "utf8"));
-    res.writeHead(200).end(JSON.stringify({ ...next, version: "0.15.5" }));
+    res.writeHead(200).end(JSON.stringify({ ...next, version: nextVersion }));
     return;
   }
-  if (scenario === "tamper" && req.url.endsWith("/dsh-remote-ops-v0.15.4.tgz")) {
+  if (scenario === "tamper" && req.url.endsWith(`/dsh-remote-ops-v${targetVersion}.tgz`)) {
     injected = true;
     res.writeHead(200).end("damaged archive");
     return;
@@ -61,7 +67,7 @@ const server = createServer(async (req, res) => {
   createReadStream(file).on("error", () => res.destroy()).pipe(res);
 });
 await new Promise(r => server.listen(0, "127.0.0.1", r));
-const source = `http://127.0.0.1:${server.address().port}/feed/latest.json`;
+const source = `http://127.0.0.1:${server.address().port}/feed/${scenario === "direct" ? "stable/" : ""}latest.json`;
 const wait = async (fn, ms = 120000) => {
   const until = Date.now() + ms;
   do { const value = await fn(); if (value) return value; await delay(220); } while (Date.now() < until);
@@ -121,7 +127,7 @@ try {
     if (!s?.currentVersion) return;
     const state=[s.currentVersion,s.installedVersion,s.phase].join(" ");
     if (receipt.states.at(-1)!==state) {receipt.states.push(state); console.log(state);}
-    if (scenario === "resume" && injected && !receipt.restartedFromBridge && s.currentVersion === "0.14.2") {
+    if (scenario === "resume" && injected && !receipt.restartedFromBridge && s.currentVersion === bridgeVersion) {
       receipt.restartedFromBridge = true;
       const closed = new Promise(resolve => host.once("close", resolve));
       host.kill();
@@ -134,22 +140,22 @@ try {
       if (scenario === "tamper" && injected && s.error.includes("UPDATE_CHECKSUM_MISMATCH")) return s;
       if (scenario !== "retry" || !s.error.includes("UPDATE_DOWNLOAD_FAILED")) throw Error(s.error);
     }
-    if (s.currentVersion==="0.15.4" && s.installedVersion==="0.15.4" && !s.busy) return s;
+    if (s.currentVersion === targetVersion && s.installedVersion === targetVersion && !s.busy) return s;
   },240000);
   assert.equal(receipt.clicks,1);
-  assert.ok(receipt.states.some(x=>x.startsWith("0.14.2 ")));
+  assert.equal(receipt.states.some(x=>x.startsWith(bridgeVersion + " ")), scenario !== "direct");
   assert.equal(await readFile(join(envDir,"environments.default.json"),"utf8"),knownEnv);
   receipt.environmentPreserved = true;
   if (scenario === "tamper") {
-    assert.equal(final.currentVersion, "0.14.2");
-    assert.equal(final.installedVersion, "0.14.2");
+    assert.equal(final.currentVersion, bridgeVersion);
+    assert.equal(final.installedVersion, bridgeVersion);
     assert.equal(final.settings.url, source);
     receipt.rejected = "UPDATE_CHECKSUM_MISMATCH";
   } else {
-    const expectedSource = scenario === "sibling" ? source : new URL("stable/latest.json", source).href;
+    const expectedSource = ["sibling", "direct"].includes(scenario) ? source : new URL("stable/latest.json", source).href;
     assert.equal(final.settings.url, expectedSource);
     receipt.sourceMovedToStable = final.settings.url !== source;
-    if (scenario === "normal") {
+    if (scenario === "normal" || scenario === "direct") {
       const displayed = panel.locator(".dsh-remote-ops__updateVersions strong");
       // A host that remounts the panel can close Settings during the asset switch.
       if (!await displayed.count()) {
@@ -161,7 +167,7 @@ try {
       }
       receipt.displayedVersions = await wait(async () => {
         const values = await displayed.allTextContents();
-        return values.length === 2 && values.every(value => value === "v0.15.4") && values;
+        return values.length === 2 && values.every(value => value === "v" + targetVersion) && values;
       }, 20000);
     }
     if (scenario === "retry") {
@@ -169,7 +175,7 @@ try {
       const next = await page.evaluate(async () => (await fetch("/api/dsh-remote-ops/update", {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "check" })
       })).json());
-      assert.equal(next.latestVersion, "0.15.5");
+      assert.equal(next.latestVersion, nextVersion);
       assert.equal(next.updateAvailable, true);
       receipt.nextVersionDetected = next.latestVersion;
     }

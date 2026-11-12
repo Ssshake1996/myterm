@@ -120,6 +120,13 @@ export function locateBrowser(page, target) {
   if (target.kind === "placeholder") return scope.getByPlaceholder(target.value, { exact: true });
   return scope.locator(`${target.kind}=${target.value}`);
 }
+async function isSensitiveBrowserFill(locator, target, timeout) {
+  if (/password|passwd|secret|token|one.?time|otp|密码|口令|验证码/i.test(JSON.stringify(target))) return true;
+  return locator.evaluate(node => node.matches('input[type="password"]') ||
+    /password|passwd|secret|token|one.?time|otp|密码|口令|验证码/i.test(
+      [node.id, node.name, node.getAttribute('autocomplete'), node.getAttribute('aria-label')].join(' ')
+    ), undefined, { timeout });
+}
 async function unique(locator) {
   const count = await locator.count();
   if (count !== 1) throw browserError("BROWSER_TARGET_COUNT", `Expected one target, found ${count}. Test or refine the locator`);
@@ -139,23 +146,41 @@ async function verify(page, check, timeout, job) {
     await new Promise(resolve=>setTimeout(resolve,100));
   }
 }
-export async function executeBrowserStep(workspace, record, job, step) {
+export async function executeBrowserStep(workspace, record, job, step, begin = () => {}) {
   job.effectStarted = false;
   const page = record.pages.get(job.pageId);
-  if (!page || page.isClosed()) throw browserError("BROWSER_PAGE_CLOSED", "The selected page was closed; nothing was replayed");
   const timeout = step.timeoutMs ?? 10000;
+  const checking = ["wait", "assert"].includes(step.action);
+  const filling = step.action === "fill";
+  let locator, redactInput = filling;
+  if (!filling) await begin(false);
+  try {
+    if (!page || page.isClosed()) throw browserError("BROWSER_PAGE_CLOSED", "The selected page was closed; nothing was replayed");
+    if (step.target && !checking) {
+      locator = locateBrowser(page, step.target);
+      if (await locator.count() === 0) await locator.waitFor({ state: "attached", timeout });
+      await unique(locator);
+    }
+    if (filling && !step.secretRef) {
+      redactInput = record.secrets.has(step.value) || await isSensitiveBrowserFill(locator, step.target, timeout);
+      if (redactInput && step.value) record.secretTargets.push({ page, target: step.target });
+    }
+  } finally {
+    // Classify the actual field before recording a fill. An unresolved target may be a password field.
+    if (filling) {
+      if (redactInput && step.value) record.secrets.add(step.value);
+      await begin(redactInput);
+    }
+  }
   let value;
   if (step.action === "goto") {
     job.effectStarted = true;
     await page.goto(step.url, { waitUntil: "domcontentloaded", timeout });
     value = displayUrl(page.url());
   } else {
-    const locator = locateBrowser(page, step.target);
-    if (["wait", "assert"].includes(step.action)) {
+    if (checking) {
       await verify(page, { target: step.target, ...(step.state ? { state: step.state } : {}), ...(step.action === "assert" && step.value !== undefined ? { text: step.value } : {}) }, timeout, job);
     } else {
-      if (await locator.count() === 0) await locator.waitFor({ state: "attached", timeout });
-      await unique(locator);
       if (step.action === "read") {
         const details = await locator.evaluate(node => ({ password: node.matches('input[type="password"]') }));
         if (details.password) throw browserError("BROWSER_SECRET_READ", "Password fields cannot be read");
@@ -163,10 +188,7 @@ export async function executeBrowserStep(workspace, record, job, step) {
       } else if (step.action === "scroll") await locator.scrollIntoViewIfNeeded({ timeout });
       else {
         let input = step.value;
-        if (step.action === "fill") {
-          if (step.secretRef) input = await workspace.secret(record, page, step.secretRef, step.target);
-          else if ((await locator.evaluate(node => ({ password: node.matches('input[type="password"]') }))).password) throw browserError("BROWSER_SECRET_REQUIRED", "Use the saved site password reference or log in manually");
-        }
+        if (step.secretRef) input = await workspace.secret(record, page, step.secretRef, step.target);
         job.effectStarted = true;
         if (step.action === "fill") await locator.fill(input, { timeout });
         if (step.action === "press") await locator.press(input, { timeout });

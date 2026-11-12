@@ -8,6 +8,8 @@ import { createServer } from 'node:http';
 import { resolve, join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { chromium } from '../../integrations/dsh-remote-ops/node_modules/playwright-core/index.mjs';
+import { serveLayoutFixture, checkBrowserLayout } from './browser-layout-check.mjs';
+import { recordingDevice } from './recording-device-fixture.mjs';
 
 const cli = process.env.DSH_CLI;
 if (!cli || !process.argv[2]) throw Error('Set DSH_CLI and pass a candidate tgz');
@@ -20,16 +22,35 @@ const evidence = { kind: 'installed-candidate-native-dsh-web-recording', hostVer
 const until = async fn => { const end = Date.now() + 60000; while (Date.now() < end) { const value = await fn(); if (value) return value; await new Promise(r => setTimeout(r, 200)); } throw Error('Native browser acceptance did not settle'); };
 const decode = value => { if (typeof value === 'string') { try { return decode(JSON.parse(value)); } catch { return value; } } if (Array.isArray(value)) return value.map(decode).find(item => item && typeof item === 'object') ?? value.map(decode).join('\n'); return value?.type === 'text' ? decode(value.text) : value; };
 const proofs = new Map(), logs = [];
+const fixturePassword = '  native-password-fixture {{literal}} & 密码  ';
+let acceptedLogins = 0;
 let host, browser, page, owner, recordingId;
+const device = recordingDevice('A');
 const server = createServer(async (req, res) => {
   try {
-    if (req.url === '/page') { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end('<title>Web recording fixture</title><h3>Recording acceptance</h3><label for="entry">Name</label><input id="entry" style="position:absolute;left:20px;top:48px;width:240px;height:32px" oninput="document.querySelector(\'#result\').textContent=this.value"><button style="position:absolute;top:100px;left:20px" id="save" onclick="document.querySelector(\'#result\').textContent=\'Saved \'+document.querySelector(\'#entry\').value">Save</button><div id="result" style="position:absolute;top:150px"></div>'); return; }
+    if (await device.handle(req, res)) return;
+    if (serveLayoutFixture(req.url, res)) return;
+    if (req.url === '/page') { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end('<title>Web recording fixture</title><h3>Recording acceptance</h3><label for="entry">Name</label><input id="entry" style="position:absolute;left:20px;top:48px;width:240px;height:32px" oninput="document.querySelector(\'#result\').textContent=this.value"><button style="position:absolute;top:100px;left:20px" id="save" onclick="document.querySelector(\'#result\').textContent=\'Saved \'+document.querySelector(\'#entry\').value">Save</button><div id="result" style="position:absolute;top:150px"></div><form style="margin-top:210px" onsubmit="event.preventDefault();fetch(\'/check-password\',{method:\'POST\',body:this.elements.key.value}).then(r=>document.getElementById(\'auth-out\').textContent=r.ok?\'Signed in\':\'Rejected\')"><label>Access<input name="key" id="auth-key" type="password"></label><button id="auth-submit">Sign in</button><output id="auth-out"></output></form>'); return; }
     let raw = ''; for await (const part of req) raw += part;
+    if (req.url === '/check-password') {
+      const ok = raw === fixturePassword;
+      if (ok) acceptedLogins++;
+      res.writeHead(ok ? 200 : 403).end(); return;
+    }
     const body = JSON.parse(raw), messages = body.messages ?? [];
-    const at = messages.findLastIndex(item => item.role === 'user' && /RECORDING_NATIVE_(READY|RUN|ACTIVE|READ)/.test(JSON.stringify(item.content)));
-    const stage = at >= 0 ? /RECORDING_NATIVE_(READY|RUN|ACTIVE|READ)/.exec(JSON.stringify(messages[at].content))[1] : 'NONE';
+    const stageName = /RECORDING_NATIVE_(READY|RUN|ACTIVE|READ|PASSWORD|DEVICE)/;
+    const at = messages.findLastIndex(item => item.role === 'user' && stageName.test(JSON.stringify(item.content)));
+    const stage = at >= 0 ? stageName.exec(JSON.stringify(messages[at].content))[1] : 'NONE';
     const results = messages.slice(at + 1).filter(item => item.role === 'tool').map(item => decode(item.content));
     const plans = { READY: [['skill', { name: 'remote-ops-web-recordings' }], ['remote_browser_runtime', { action: 'status' }]], RUN: [['remote_browser_run', { steps: [{ action: 'fill', target: { kind: 'css', value: '#entry' }, value: 'Agent entry' }, { action: 'click', target: { kind: 'css', value: '#save' }, expect: { target: { kind: 'css', value: '#result' }, text: 'Saved Agent entry' } }] }]], ACTIVE: [['remote_browser_recording', { action: 'start' }], ['remote_browser_list', {}], ['remote_browser_read', {}], ['remote_browser_recording', { action: 'read', recordingId, limit: 200 }]], READ: [['remote_browser_recording', { action: 'read', recordingId, limit: 200 }]] };
+    plans.PASSWORD = [['skill', { name: 'remote-ops-browser' }], ['remote_browser_run', { requestId: 'native-password-login', variables: { password: fixturePassword }, steps: [
+      { action: 'fill', target: '#auth-key', value: '{{password}}' },
+      { action: 'click', target: '#auth-submit', expect: { target: '#auth-out', text: 'Signed in' } }
+    ] }]];
+    plans.DEVICE = [['remote_browser_run', { requestId: 'native-device-recording', steps: [
+      { action: 'fill', target: { kind: 'css', value: '#gateway-A', frame: 'iframe[name="network"]' }, value: '192.0.2.46' },
+      { action: 'click', target: { kind: 'css', value: '#apply-A', frame: 'iframe[name="network"]' }, expect: { target: { kind: 'role', value: 'status', frame: 'iframe[name="network"]' }, text: '已保存' } }
+    ] }]];
     const plan = plans[stage] ?? [];
     res.writeHead(200, { 'Content-Type': 'text/event-stream' });
     const emit = (delta, finish_reason = null) => res.write('data: ' + JSON.stringify({ id: 'recording-native', object: 'chat.completion.chunk', created: 1, model: 'native-test', choices: [{ index: 0, delta, finish_reason }] }) + '\n\n');
@@ -126,6 +147,10 @@ try {
   await step('原生 Agent 操作和人工网页输入均被记录', async () => {
     await agent('RUN');
     await until(async () => (await snapshot()).sessions.find(item => !item.closed)?.job?.status === 'completed');
+    const login = await agent('PASSWORD');
+    assert.match(String(login[0]), /<skill_content name="remote-ops-browser">/);
+    await until(async () => acceptedLogins === 1 && (await snapshot()).sessions.find(item => !item.closed)?.job?.status === 'completed');
+    evidence.agentPasswordLogin = 'verified';
     const active = await agent('ACTIVE');
     assert.equal(active.length, 4);
     assert.equal(active[0]?.id, recordingId); assert.equal(active[0]?.error, null);
@@ -156,10 +181,49 @@ try {
     const download = await waiting; await download.saveAs(join(out, 'recording.json'));
     const exported = JSON.parse(await readFile(join(out, 'recording.json'), 'utf8'));
     assert.equal(exported.format, 'myterm.web-recording'); assert.equal(exported.events.length, evidence.eventCount);
+    assert.ok(!JSON.stringify(exported).includes('native-password-fixture'));
+    assert.ok(exported.events.some(event => event.details?.step?.target?.value === '#auth-key' && event.details.step.input?.redacted));
     await page.reload(); await page.getByRole('button', { name: 'Remote Ops', exact: true }).click(); await until(() => owner);
     const result = await page.evaluate(async ({ owner, recordingId }) => (await fetch('/api/dsh-remote-ops/browser', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: owner, action: 'recording', recording: { action: 'read', recordingId } }) })).json(), { owner, recordingId });
     assert.equal(result.result.recording.status, 'stopped');
   });
+  await step('导出跨设备回放所需的人工输入、Agent 操作、定位和实际反馈', async () => {
+    await page.getByRole('tab', { name: '网页', exact: true }).click();
+    const opened = (await api('browser', { sessionId: owner, action: 'open-url', url: `http://127.0.0.1:${server.address().port}/device/settings` })).result;
+    const call = (action, data = {}) => api('browser', { sessionId: owner, browserId: opened.id, action, ...data });
+    const rec = (action, recordingId) => call('recording', { recording: { action, recordingId, ...(action === 'read' ? { limit: 200 } : {}) } });
+    const image = page.getByAltText('网页实时画面', { exact: true });
+    await page.getByRole('tab', { name: '设备配置', selected: true, exact: true }).waitFor();
+    const bounds = await until(async () => {
+      const active = (await snapshot()).sessions.find(s => s.id === opened.id);
+      const box = await image.boundingBox();
+      return box && Number(await image.getAttribute('data-revision')) === active.revision &&
+        Math.abs(box.width - active.viewport.width) < 2 && Math.abs(box.height - active.viewport.height) < 2 && box;
+    });
+    const { id } = (await rec('start')).result;
+    await image.click({ position: { x: Math.min(65, bounds.width), y: 53 } });
+    await page.keyboard.insertText('edge-lab'); await page.keyboard.press('Tab');
+    await until(async () => (await rec('read', id)).result.events.some(e => e.kind === 'interaction' && e.input?.value === 'edge-lab'));
+    await agent('DEVICE');
+    await until(async () => (await snapshot()).sessions.find(s => s.id === opened.id)?.job?.status === 'completed' && device.state.saves === 1);
+    await rec('stop', id);
+    const recording = await page.evaluate(async ({owner,id}) => {
+      const q = new URLSearchParams({ sessionId: owner, recordingId: id });
+      const r = await fetch('/api/dsh-remote-ops/browser/recording/export?' + q);
+      if (!r.ok) throw Error('Export failed ' + r.status);
+      return r.json();
+    }, {owner,id});
+    await writeFile(join(out, 'device-recording.json'), JSON.stringify(recording, null, 2));
+    assert.equal(recording.recording.initialPages.find(item => item.pageId === opened.activePageId)?.devicePath, '/device/settings');
+    const click = recording.events.find(e => e.kind === 'interaction' && e.target?.locators?.some(l => l.value === 'apply-network') && e.action === 'click');
+    assert.equal(click.frame[0].devicePath, '/device/network');
+    assert.ok(click.target.locators.some(l => l.kind === 'testId' && l.match === 'unique'));
+    assert.ok(click.target.locators.some(l => l.kind === 'role' && l.match === 'ambiguous'));
+    assert.ok(recording.events.some(e => e.feedback?.text === '已保存 edge-lab · 192.0.2.46'));
+    assert.deepEqual(device.state, { saves: 1, wrongButton: 0, saved: { name: 'edge-lab', gateway: '192.0.2.46' } });
+    evidence.deviceCapture = { origin: recording.recording.deviceOrigin, events: recording.events.length, ...device.state };
+  });
+  await checkBrowserLayout({ page, owner, api, snapshot, until, step, url: `http://127.0.0.1:${server.address().port}`, out, evidence });
   assert.deepEqual(evidence.errors, []); evidence.status = 'passed';
 } catch (error) {
   evidence.status = 'failed'; evidence.error = error.stack; process.exitCode = 1; console.error(error);
