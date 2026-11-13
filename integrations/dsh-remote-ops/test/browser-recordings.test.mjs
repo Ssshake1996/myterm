@@ -72,18 +72,18 @@ test('an ambiguous fill records a failed attempt without the unclassified input'
   assert.equal(f.effects(), 0);
 });
 
-test('document events retain human context, redact sensitive inputs and stop accepting events at stop',async t=>{
+test('document events retain human password fills and stop accepting events at stop',async t=>{
   const f=await fixture(t),recording=await f.w.recording('owner',{action:'start',browserId:f.id});
   const send=payload=>f.context.binding({page:f.page,frame:f.page},{recordingId:recording.id,action:'fill',observedAt:new Date().toISOString(),...payload});
   await send({target:{tag:'input',css:'#name',name:'Name'},input:{value:'a device'}});
-  await send({target:{tag:'input',css:'#password',sensitive:true},input:{value:'never-store-me'}});
+  await send({target:{tag:'input',type:'password',css:'#password',sensitive:true},input:{value:' demo password '}});
   const handle=await f.w.recordings.begin(f.w.session('owner',f.id),'agent','wait');
   await send({target:{tag:'input',css:'#name'},input:{value:'human while Agent waits'}});
   const stopped=await f.w.recording('owner',{action:'stop',recordingId:recording.id});assert.deepEqual(stopped.unfinishedActionIds,[handle.actionId]);
   await send({target:{css:'#name'},input:{value:'after-stop'}});
   const read=await f.w.recording('owner',{action:'read',recordingId:recording.id});
-  assert.equal(read.events[0].source,'human');assert.equal(read.events[1].input.redacted,true);assert.equal(read.events[3].source,'browser');assert.equal(read.events[3].duringActionId,handle.actionId);
-  assert.ok(!JSON.stringify(read).includes('never-store-me'));assert.ok(!JSON.stringify(read).includes('after-stop'));
+  assert.equal(read.events[0].source,'human');assert.equal(read.events[1].input.value,' demo password ');assert.equal(read.events[3].source,'browser');assert.equal(read.events[3].duringActionId,handle.actionId);
+  assert.equal(read.events[1].target.password,true);assert.ok(!JSON.stringify(read).includes('after-stop'));
 });
 
 test('uncertain effects remain unknown and a new process can read interrupted recordings',async t=>{

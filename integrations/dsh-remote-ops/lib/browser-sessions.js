@@ -9,9 +9,9 @@ export class BrowserSessions {
     if (!owner || !record || record.owner !== owner) throw browserError("BROWSER_SESSION_NOT_FOUND", "No browser session belongs to this DSH conversation");
     return record;
   }
-  redact(record, value) {
+  redact(record, value, except) {
     let text = String(value ?? "");
-    for (const secret of record.secrets) if (secret) text = text.split(secret).join("[redacted]");
+    for (const secret of record.secrets) if (secret && !except?.has(secret)) text = text.split(secret).join("[redacted]");
     return text;
   }
   async secret(record, page, reference, target) {
@@ -21,7 +21,8 @@ export class BrowserSessions {
     if (!record.site.allowedOrigins.includes(destination.origin)) throw browserError("BROWSER_CREDENTIAL_ORIGIN", "The target frame is outside this site's credential origins");
     const secret = await this.credentials?.resolve?.(reference);
     if (!secret?.value) throw browserError("BROWSER_CREDENTIAL_MISSING", "Use remote_browser_run to fill the user-supplied password, or update the site's saved password");
-    record.secrets.add(secret.value); record.secretTargets.push({ page, target }); return secret.value;
+    record.secrets.add(secret.value);
+    return secret.value;
   }
   attachPage(record, page, fixedId) {
     for (const [id, existing] of record.pages) if (existing === page) return id;
@@ -72,7 +73,7 @@ export class BrowserSessions {
       const display=options.display??'window';
       const context = await this.launch(site, owner,display);
       if (this.disposed) { await context.close(); throw browserError("BROWSER_DISPOSED", "The plugin is unloading"); }
-      const record = { id: randomUUID(), owner, site, context, display, viewport:{mode:this.preferences?.viewport??'panel',width:1024,height:768}, revision:0, pages: new Map(), secrets: new Set(), secretTargets: [], closed: false, createdAt: new Date().toISOString(), history: [] };
+      const record = { id: randomUUID(), owner, site, context, display, viewport:{mode:this.preferences?.viewport??'panel',width:1024,height:768}, revision:0, pages: new Map(), secrets: new Set(), closed: false, createdAt: new Date().toISOString(), history: [] };
       this.sessions.set(record.id, record);
       this.active?.set(owner,record.id);
       this.bindContext(record,context);
@@ -127,7 +128,7 @@ export class BrowserSessions {
     const urls=[...r.pages].map(([id,page])=>[id,page.url()]),selected=r.activePageId;
     try {
       await r.inputQueue;await this.saveStorage(r);await r.view?.stop();await r.context.close();
-      const context=await this.launch(r.site,owner,display,launchOptions);r.context=context;r.pages=new Map();r.secretTargets=[];r.closed=false;
+      const context=await this.launch(r.site,owner,display,launchOptions);r.context=context;r.pages=new Map();r.closed=false;
       r.display = display;
       r.viewportHint = undefined;
       if (display === 'embedded') r.viewport = { mode: this.preferences.viewport, width: 1024, height: 768 };
@@ -154,7 +155,8 @@ export class BrowserSessions {
     const flow = typeof source === "string" ? this.flows.find(item => item.id === source) : undefined;
     if (typeof source === "string" && !flow) throw browserError("BROWSER_FLOW_NOT_FOUND", "The saved flow does not exist. Read remote_browser_list for valid flow IDs, or omit flowId and provide inline steps. Nothing was dispatched");
     if (flow && flow.siteId !== record.site.id) throw browserError("BROWSER_FLOW_SITE_MISMATCH", "The saved flow belongs to another site. Open its siteId with remote_browser_open and use the returned browserId, or omit flowId for inline steps in the current browser. Nothing was dispatched");
-    const steps = expandBrowserSteps(browserSteps(flow?.steps ?? source), variables);
+    const templateSteps = browserSteps(flow?.steps ?? source);
+    const steps = expandBrowserSteps(templateSteps, variables);
     if (typeof requestId !== "string" || !requestId || requestId.length > 160) throw browserError("BROWSER_REQUEST_INVALID", "Use a request ID up to 160 characters");
     const hash = createHash("sha256").update(JSON.stringify({ steps, mode, pageId })).digest("hex"), key = `${owner}:${id}:${requestId}`;
     for (const [receiptKey, receipt] of this.receipts) if (finished(receipt.job) && (Date.now() - receipt.at > 600000 || this.receipts.size > 100)) this.receipts.delete(receiptKey);
@@ -163,8 +165,12 @@ export class BrowserSessions {
     if (!finished(record.job)) throw browserError("BROWSER_BUSY", "Pause or finish the current flow before starting another");
     if (!["run", "step"].includes(mode) || !record.pages.has(pageId ?? record.activePageId)) throw browserError("BROWSER_PAGE_INVALID", "Choose an existing page and run/step mode");
     const password = variables.password;
-    if (typeof password === "string" && password && steps.some(step => step.action === "fill" && step.value === password)) record.secrets.add(password);
+    if (typeof password === "string" && password && steps.some(step => step.action === "fill" && step.value === password)) {
+      (record.passwords ??= new Set()).add(password);
+      record.secrets.add(password);
+    }
     const job = { id: randomUUID(), steps, actor, pageId: pageId ?? record.activePageId, index: 0, status: mode === "step" ? "paused" : "running", paused: mode === "step", results: [], startedAt: new Date().toISOString(), inFlight: false };
+    job.passwordFills = templateSteps.map(step => step.action === "fill" && step.value === "{{password}}");
     record.job = job;
     this.receipts.set(key, { at: Date.now(), hash, job });
     job.done = this.execute(record, job); void job.done.catch(() => {});
@@ -183,15 +189,16 @@ export class BrowserSessions {
         let handle;
         try {
           const step = job.steps[job.index];
-          const begin = async redactInput => {
+          const begin = async (inputKind, input) => {
             if (record.recording?.metadata.status !== "recording") return;
             const saved = { ...step };
             if (saved.url) saved.url = recordingUrl(saved.url);
-            if (redactInput) {
+            if (inputKind === 'password') delete saved.secretRef;
+            if (inputKind === 'sensitive') {
               delete saved.value;
               saved.input = { redacted: true, reason: "sensitive-field" };
             }
-            handle = await this.recordings.begin(record, job.actor, step.action, { jobId: job.id, stepIndex: job.index + 1, step: saved }, job.pageId);
+            handle = await this.recordings.begin(record, job.actor, step.action, { jobId: job.id, stepIndex: job.index + 1, step: saved }, job.pageId, inputKind === 'password' ? input : undefined);
           };
           const result = await executeBrowserStep(this, record, job, step, begin);
           await this.recordings.end(record,handle,'completed',{completion:result.completion,pageId:result.pageId});
@@ -269,9 +276,7 @@ export class BrowserSessions {
   async capture(record) {
     const page = record.pages.get(record.activePageId);
     if (!page || record.closed) throw browserError("BROWSER_CLOSED", "No active page");
-    const masks = [page.locator('input,textarea,[contenteditable="true"]'), ...record.secretTargets.filter(item => item.page === page).map(item => locateBrowser(page, item.target)), ...[...record.secrets].map(secret => page.getByText(secret, { exact: false }))];
-    if (record.site.login) masks.push(locateBrowser(page, record.site.login.password));
-    const buffer = await page.screenshot({ type: "png", mask: masks, timeout: 5000 });
+    const buffer = await page.screenshot({ type: "png", timeout: 5000 });
     record.screenshot = { at: new Date().toISOString(), pageId: record.activePageId, buffer }; return record.screenshot;
   }
   async closeRecord(record) {

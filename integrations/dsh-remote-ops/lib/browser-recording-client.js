@@ -1,18 +1,23 @@
 // Runs inside every document (including cross-origin frames). It only observes;
 // it never cancels an event, changes a value, or decides whether a test passed.
 export function installRecordingObserver(binding) {
+  // Keep this observer independent of older init scripts on a retained context.
+  if (window.__remoteOpsPasswordRecordingObserver) return;
   const previous = window.__remoteOpsRecordingObserver;
-  if (previous?.binding === binding) return;
   if (previous) {
     // A hot update can retain the context and its earlier document listeners.
     void previous.configure(null).catch(() => {});
-    if (typeof window.__remoteOpsRecordingEvent === 'function') window.__remoteOpsRecordingEvent = async () => ({ recordingId: null });
+  }
+  for (const oldBinding of ['__remoteOpsRecordingEvent', '__remoteOpsRecordingEventV2']) {
+    if (typeof window[oldBinding] === 'function') window[oldBinding] = async () => ({ recordingId: null });
   }
   let recordingId = null, pending, timer, lastScroll = 0;
   const deliveries = new Set();
   const clip = value => String(value ?? '').slice(0, 2000);
   const normalize = value => String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, 500);
-  const sensitive = node => node?.matches?.('input[type=password]') || /password|passwd|secret|token|one.?time|otp|密码|口令|验证码/i.test([node?.id, node?.name, node?.getAttribute?.('autocomplete'), node?.getAttribute?.('aria-label')].join(' '));
+  const fieldHints = node => [node?.id, node?.name, node?.getAttribute?.('autocomplete'), node?.getAttribute?.('aria-label')].join(' ');
+  const isPassword = node => node?.matches?.('input[type=password]') || /password|passwd|密码|口令/i.test(fieldHints(node));
+  const sensitive = node => isPassword(node) || /secret|token|one.?time|otp|验证码/i.test(fieldHints(node));
   const unique = (root, css, node) => {
     const found = root.querySelectorAll(css);
     return found.length === 1 && found[0] === node;
@@ -64,7 +69,7 @@ export function installRecordingObserver(binding) {
       byCss('css', byName, byName);
     }
     byCss('css', css, css);
-    return { tag, type, role, name: clip(name || placeholder), label, css, locators, shadowHosts, sensitive: !!sensitive(node) };
+    return { tag, type, role, name: clip(name || placeholder), label, css, locators, shadowHosts, sensitive: !!sensitive(node), ...(isPassword(node) ? { password: true } : {}) };
   };
   const send = event => {
     if (!recordingId) return;
@@ -119,7 +124,14 @@ export function installRecordingObserver(binding) {
     }
     return result;
   };
-  const input = node => ({ action: node.matches('select') ? 'select' : node.matches('input[type=checkbox],input[type=radio]') ? 'check' : 'fill', target: describe(node), ...(sensitive(node) ? { input: { redacted: true, reason: 'sensitive-field' } } : node.matches('input[type=file]') ? { input: { redacted: true, reason: 'file-selection', count: node.files?.length ?? 0 } } : { input: { value: String(node.isContentEditable ? node.innerText : node.value).slice(0, 16000), truncated: String(node.isContentEditable ? node.innerText : node.value).length > 16000, ...(node.matches('input[type=checkbox],input[type=radio]') ? { checked: node.checked } : {}) } }) });
+  const input = node => {
+    const target = describe(node), check = node.matches('input[type=checkbox],input[type=radio]');
+    const action = node.matches('select') ? 'select' : check ? 'check' : 'fill';
+    if (node.matches('input[type=file]')) return { action, target, input: { redacted: true, reason: 'file-selection' } };
+    const value = String(node.isContentEditable ? node.innerText : node.value);
+    const truncated = !target.password && value.length > 16000;
+    return { action, target, input: { value: truncated ? value.slice(0, 16000) : value, truncated, ...(check ? { checked: node.checked } : {}) } };
+  };
   const nodeOf = event => event.composedPath().find(item => item?.tagName);
   const on = (name, fn) => document.addEventListener(name, event => { if (recordingId && event.isTrusted) fn(event, nodeOf(event)); }, true);
   on('click', (event, node) => { flush(); const target = node?.closest('button,a,input,select,textarea,[role=button],[role=link],[role=tab],[role=menuitem]') || node; send({ action: 'click', target: describe(target), pointer: pointer(event, target) }); });
@@ -136,7 +148,7 @@ export function installRecordingObserver(binding) {
   on('scroll', (_event, node) => { if (Date.now() - lastScroll < 250) return; lastScroll = Date.now(); send({ action: 'scroll', target: describe(node), position: { x: node?.scrollLeft ?? scrollX, y: node?.scrollTop ?? scrollY } }); });
   window.addEventListener('pagehide', flush, true);
   let configured = false;
-  window.__remoteOpsRecordingObserver = {
+  window.__remoteOpsPasswordRecordingObserver = {
     binding,
     async flush() { flush(); reportFeedback(feedback.takeRecords()); await Promise.allSettled([...deliveries]); },
     async configure(id) { configured = true; await this.flush(); configure(id); },

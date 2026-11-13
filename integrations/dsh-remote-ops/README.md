@@ -104,10 +104,10 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.15.6.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.6.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.15.7.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.7.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.6.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.7.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -199,7 +199,7 @@ Use native DSH conversation cancellation to stop the Agent. Later browser steps 
 
 XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flows, result checks and collapsed operation records are supported. The internal Chromium Headless Shell is bundled with the plugin; activation prepares it offline and verifies it can launch. No separate browser installation is needed with a complete bundle. Independent windows use installed Edge / Chrome or optional full Chromium. Independent windows require an interactive desktop shared with DSH. Changing display reloads the pages and preserves login cookies; unsaved forms are not restored. See [Web guide](WEB.md).
 
-Use **开始录制 / 停止录制** to record human and Agent webpage operations; **录制记录** reads saved records and exports framework-neutral JSON. The Agent has the same start/stop/read/export capability through `remote_browser_recording`. The bundled [remote-ops-web-recordings skill](skills/remote-ops-web-recordings/SKILL.md) explains the schema, incomplete outcomes, redaction, device-address parameterization and how the Agent generates code in the user's framework or template. Code generation and test execution are outside the plugin.
+Use **开始录制 / 停止录制** to record human and Agent webpage operations; **录制记录** reads saved records and exports framework-neutral JSON. The Agent has the same start/stop/read/export capability through `remote_browser_recording`. The bundled [remote-ops-web-recordings skill](skills/remote-ops-web-recordings/SKILL.md) explains recorded password values, incomplete outcomes, device-address parameterization and how the Agent generates code in the user's framework or template. Code generation and test execution are outside the plugin.
 
 ## Capabilities
 
@@ -235,7 +235,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.15.6.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.15.7.tgz
 dsh web
 ```
 

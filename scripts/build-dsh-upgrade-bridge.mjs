@@ -10,7 +10,7 @@ import { createUpdateManifest } from "../integrations/dsh-remote-ops/scripts/cre
 const plugin = fileURLToPath(new URL("../integrations/dsh-remote-ops/", import.meta.url));
 const packOffline = fileURLToPath(new URL("./pack-dsh-prebundled.py", import.meta.url));
 const python = process.env.PYTHON || (process.platform === "win32" ? "python" : "python3");
-const bridgeVersions = new Map([["0.15.4", "0.14.2"], ["0.15.5", "0.14.3"], ["0.15.6", "0.14.4"]]);
+const bridgeVersions = new Map([["0.15.4", "0.14.2"], ["0.15.5", "0.14.3"], ["0.15.6", "0.14.4"], ["0.15.7", "0.14.5"]]);
 const asset = version => `dsh-remote-ops-v${version}.tgz`;
 const checksum = version => `SHA256SUMS-dsh-remote-ops-v${version}.txt`;
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");

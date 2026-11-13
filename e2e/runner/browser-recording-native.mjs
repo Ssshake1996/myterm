@@ -23,6 +23,7 @@ const until = async fn => { const end = Date.now() + 60000; while (Date.now() < 
 const decode = value => { if (typeof value === 'string') { try { return decode(JSON.parse(value)); } catch { return value; } } if (Array.isArray(value)) return value.map(decode).find(item => item && typeof item === 'object') ?? value.map(decode).join('\n'); return value?.type === 'text' ? decode(value.text) : value; };
 const proofs = new Map(), logs = [];
 const fixturePassword = '  native-password-fixture {{literal}} & 密码  ';
+const humanPassword = '  manual fixture {{x}} & 密码  ';
 let acceptedLogins = 0;
 let host, browser, page, owner, recordingId;
 const device = recordingDevice('A');
@@ -163,6 +164,19 @@ try {
     const current = (await snapshot()).sessions.find(item => !item.closed), image = page.getByAltText('网页实时画面', { exact: true }), bounds = await image.boundingBox();
     await image.click({ position: { x: 50 * bounds.width / current.viewport.width, y: 64 * bounds.height / current.viewport.height } });
     await page.keyboard.press('Control+A'); await page.keyboard.insertText('Human entry'); await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab'); await page.keyboard.press('Control+A'); await page.keyboard.insertText(humanPassword); await page.keyboard.press('Tab');
+    await api('browser', { sessionId: owner, browserId: current.id, action: 'capture' });
+    const fieldPixel = await page.evaluate(async ({ sessionId, browserId }) => {
+      const response = await fetch('/api/dsh-remote-ops/browser/screenshot?' + new URLSearchParams({ sessionId, browserId }));
+      if (!response.ok) throw Error('Cannot read screenshot: HTTP ' + response.status);
+      const shot = await createImageBitmap(await response.blob());
+      const ctx = new OffscreenCanvas(1, 1).getContext('2d');
+      ctx.drawImage(shot, 245, 65, 1, 1, 0, 0, 1, 1);
+      shot.close();
+      return [...ctx.getImageData(0, 0, 1, 1).data];
+    }, { sessionId: owner, browserId: current.id });
+    assert.deepEqual(fieldPixel, [255, 255, 255, 255], 'The live screenshot endpoint should show the white fixture input');
+    evidence.screenshotInput = 'native field background';
     await page.getByRole('button', { name: '停止网页录制', exact: true }).click();
     await page.getByRole('button', { name: '开始网页录制', exact: true }).waitFor();
     const [saved] = await agent('READ');
@@ -170,6 +184,7 @@ try {
     assert.equal(saved.recording.status, 'stopped');
     assert.ok(saved.events.some(item => item.source === 'agent' && item.details?.step?.value === 'Agent entry'));
     assert.ok(saved.events.some(item => item.input?.value === 'Human entry'));
+    assert.ok(saved.events.some(item => item.target?.type === 'password' && item.input?.value === humanPassword));
     if (bootstrap) assert.ok(saved.events.some(item=>item.kind==='navigation'));
     evidence.eventCount = saved.events.length;
   });
@@ -181,8 +196,9 @@ try {
     const download = await waiting; await download.saveAs(join(out, 'recording.json'));
     const exported = JSON.parse(await readFile(join(out, 'recording.json'), 'utf8'));
     assert.equal(exported.format, 'myterm.web-recording'); assert.equal(exported.events.length, evidence.eventCount);
-    assert.ok(!JSON.stringify(exported).includes('native-password-fixture'));
-    assert.ok(exported.events.some(event => event.details?.step?.target?.value === '#auth-key' && event.details.step.input?.redacted));
+    assert.ok(exported.events.some(event => event.details?.step?.target?.value === '#auth-key' && event.details.step.value === fixturePassword));
+    for (const value of [fixturePassword,humanPassword]) assert.ok(exported.events.some(e => e.target?.type === 'password' && e.input?.value === value));
+    evidence.passwordRecording = { human: 'exact', agent: 'exact', export: 'exact' };
     await page.reload(); await page.getByRole('button', { name: 'Remote Ops', exact: true }).click(); await until(() => owner);
     const result = await page.evaluate(async ({ owner, recordingId }) => (await fetch('/api/dsh-remote-ops/browser', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: owner, action: 'recording', recording: { action: 'read', recordingId } }) })).json(), { owner, recordingId });
     assert.equal(result.result.recording.status, 'stopped');

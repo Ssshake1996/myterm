@@ -120,12 +120,13 @@ export function locateBrowser(page, target) {
   if (target.kind === "placeholder") return scope.getByPlaceholder(target.value, { exact: true });
   return scope.locator(`${target.kind}=${target.value}`);
 }
-async function isSensitiveBrowserFill(locator, target, timeout) {
-  if (/password|passwd|secret|token|one.?time|otp|密码|口令|验证码/i.test(JSON.stringify(target))) return true;
-  return locator.evaluate(node => node.matches('input[type="password"]') ||
-    /password|passwd|secret|token|one.?time|otp|密码|口令|验证码/i.test(
-      [node.id, node.name, node.getAttribute('autocomplete'), node.getAttribute('aria-label')].join(' ')
-    ), undefined, { timeout });
+async function browserFillKind(locator, target, timeout) {
+  const hints = JSON.stringify(target);
+  return locator.evaluate((node, locatorHints) => {
+    const hints = [node.id, node.name, node.getAttribute('autocomplete'), node.getAttribute('aria-label'), locatorHints].join(' ');
+    if (node.matches('input[type="password"]') || /password|passwd|密码|口令/i.test(hints)) return 'password';
+    return /secret|token|one.?time|otp|验证码/i.test(hints) ? 'sensitive' : 'text';
+  }, hints, { timeout });
 }
 async function unique(locator) {
   const count = await locator.count();
@@ -152,8 +153,8 @@ export async function executeBrowserStep(workspace, record, job, step, begin = (
   const timeout = step.timeoutMs ?? 10000;
   const checking = ["wait", "assert"].includes(step.action);
   const filling = step.action === "fill";
-  let locator, redactInput = filling;
-  if (!filling) await begin(false);
+  let locator, input = step.value, inputKind = 'sensitive';
+  if (!filling) await begin();
   try {
     if (!page || page.isClosed()) throw browserError("BROWSER_PAGE_CLOSED", "The selected page was closed; nothing was replayed");
     if (step.target && !checking) {
@@ -161,15 +162,21 @@ export async function executeBrowserStep(workspace, record, job, step, begin = (
       if (await locator.count() === 0) await locator.waitFor({ state: "attached", timeout });
       await unique(locator);
     }
-    if (filling && !step.secretRef) {
-      redactInput = record.secrets.has(step.value) || await isSensitiveBrowserFill(locator, step.target, timeout);
-      if (redactInput && step.value) record.secretTargets.push({ page, target: step.target });
+    if (filling) {
+      if (step.secretRef) {
+        input = await workspace.secret(record, page, step.secretRef, step.target);
+        inputKind = 'password';
+      } else {
+        inputKind = job.passwordFills?.[job.index] ? 'password' : await browserFillKind(locator, step.target, timeout);
+        if (inputKind === 'text' && record.secrets.has(input)) inputKind = 'sensitive';
+      }
     }
   } finally {
-    // Classify the actual field before recording a fill. An unresolved target may be a password field.
+    // An unresolved target has no confirmed fill. Keep its attempted value out of the recording.
     if (filling) {
-      if (redactInput && step.value) record.secrets.add(step.value);
-      await begin(redactInput);
+      if (inputKind !== 'text' && input) record.secrets.add(input);
+      if (inputKind === 'password' && input) (record.passwords ??= new Set()).add(input);
+      await begin(inputKind, input);
     }
   }
   let value;
@@ -187,8 +194,6 @@ export async function executeBrowserStep(workspace, record, job, step, begin = (
         value = workspace.redact(record, await locator.innerText({ timeout })).slice(0, 16000);
       } else if (step.action === "scroll") await locator.scrollIntoViewIfNeeded({ timeout });
       else {
-        let input = step.value;
-        if (step.secretRef) input = await workspace.secret(record, page, step.secretRef, step.target);
         job.effectStarted = true;
         if (step.action === "fill") await locator.fill(input, { timeout });
         if (step.action === "press") await locator.press(input, { timeout });

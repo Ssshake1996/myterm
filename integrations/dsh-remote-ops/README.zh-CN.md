@@ -109,14 +109,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.15.6.tgz
-  SHA256SUMS-dsh-remote-ops-v0.15.6.txt
+  dsh-remote-ops-v0.15.7.tgz
+  SHA256SUMS-dsh-remote-ops-v0.15.7.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.6.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.7.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -210,7 +210,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 
 支持 XPath/CSS/role/label/text/placeholder、iframe、弹出网页、可选登录配置与参数流程、结果检查和操作记录。Agent 可直接填写用户提供的网页登录密码。保存的网站密码使用本机 Harness 凭据服务。浏览器 profile 按对话和网站隔离。内置浏览器随插件安装，“设置 → 网页”显示“随包就绪”；也可以选择本机 Edge / Chrome。独立窗口要求 DSH 与用户位于同一交互桌面；插件内模式在 DSH 网页中显示专用浏览器画面。切换显示方式会重新载入网页，保留登录 Cookie，未提交表单不会恢复。详见[网页操作指南](WEB.md)。
 
-网页工具栏的“开始录制 / 停止录制”记录人工与 Agent 的网页操作；“录制记录”可读取历史记录并导出 JSON。Agent 通过 `remote_browser_recording` 使用相同的开始、停止、读取、导出能力。随插件注册的 [remote-ops-web-recordings Skill](skills/remote-ops-web-recordings/SKILL.md) 说明记录格式、动作关联、敏感信息脱敏、未确认结果和设备地址参数化。Agent 先还原操作过程，再按用户指定框架或模板生成代码；插件不负责代码生成或执行框架。
+网页工具栏的“开始录制 / 停止录制”记录人工与 Agent 的网页操作；“录制记录”可读取历史记录并导出 JSON。Agent 通过 `remote_browser_recording` 使用相同的开始、停止、读取、导出能力。随插件注册的 [remote-ops-web-recordings Skill](skills/remote-ops-web-recordings/SKILL.md) 说明记录格式、动作关联、密码字段原值、未确认结果和设备地址参数化。录制和导出保留实际填写的密码，截图沿用网页自己的显示方式。Agent 先还原操作过程，再按用户指定框架或模板生成代码；插件不负责代码生成或执行框架。
 
 ## 能力
 
@@ -239,7 +239,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.15.6.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.15.7.tgz
 dsh web
 ```
 

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { browserError } from './browser-steps.js';
 import { installRecordingObserver } from './browser-recording-client.js';
 
-const BINDING = '__remoteOpsRecordingEventV2';
+const BINDING = '__remoteOpsRecordingEventV3';
 const MAX_EVENTS = 10000;
 const MAX_BYTES = 16 * 1024 * 1024;
 const idPattern = /^[a-f0-9-]{36}$/;
@@ -89,7 +89,7 @@ export class BrowserRecordings {
     return join(this.directory(owner), `${id}.${suffix}`);
   }
   clean(record, value) {
-    if (typeof value === 'string') return this.workspace.redact(record, value).slice(0, 16000);
+    if (typeof value === 'string') return this.workspace.redact(record, value, record.passwords).slice(0, 16000);
     if (Array.isArray(value)) return value.slice(0, 100).map(item => this.clean(record, item));
     if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, this.clean(record, item)]));
     return value;
@@ -104,13 +104,19 @@ export class BrowserRecordings {
     const path = this.file(recording.owner, recording.metadata.id), temporary = `${path}.tmp`;
     await writeFile(temporary, JSON.stringify(recording.metadata, null, 2) + '\n', { mode: 0o600 }); await rename(temporary, path);
   }
-  append(record, event, expectedId) {
+  append(record, event, expectedId, passwordInput) {
     const recording = record.recording;
     if (!recording || recording.metadata.status !== 'recording' || expectedId && recording.metadata.id !== expectedId) return Promise.resolve();
     return this.queue(recording, async () => {
       if (recording.metadata.status !== 'recording') return;
       const location = event.url ? deviceLocation(event.url, recording.metadata.deviceOrigin) : {};
-      const line = JSON.stringify(this.clean(record, { ...event, ...location, seq: recording.metadata.eventCount + 1, at: new Date().toISOString() })) + '\n';
+      const entry = this.clean(record, { ...event, ...location });
+      // Even a password containing another masked value must round-trip exactly.
+      if (typeof passwordInput === 'string') {
+        if (event.kind === 'interaction') entry.input.value = passwordInput;
+        else if (event.kind === 'action') entry.details.step.value = passwordInput;
+      }
+      const line = JSON.stringify({ ...entry, seq: recording.metadata.eventCount + 1, at: new Date().toISOString() }) + '\n';
       if (recording.metadata.eventCount >= MAX_EVENTS || recording.bytes + Buffer.byteLength(line) > MAX_BYTES) {
         recording.metadata.status = 'limited'; recording.metadata.stoppedAt = new Date().toISOString(); recording.metadata.reason = 'recording-size-limit'; await this.save(recording); return;
       }
@@ -139,14 +145,24 @@ export class BrowserRecordings {
       // DOM events during a dispatched operation can also be concurrent human
       // input. Correlation is evidence, never proof of exclusive authorship.
       const sensitive = !!payload.target?.sensitive || record.secrets.has(payload.input?.value);
+      const password = payload.target?.password === true || payload.target?.type === 'password' ||
+        (typeof operation?.passwordInput === 'string' && operation.passwordInput === payload.input?.value);
       const target = await describeTarget(payload.target, source.frame, sensitive);
+      if (target && password) target.password = true;
       const observation = payload.action === 'feedback';
       const event = { kind: observation ? 'observation' : 'interaction', source: operation || observation ? 'browser' : 'human', ...(operation ? { duringActionId: operation.actionId } : {}), status: 'observed', pageId, frame: frames, url, action: payload.action, observedAt: String(payload.observedAt ?? '').slice(0, 40), target };
       if (observation) {
         event.feedback = sensitive || payload.feedback?.redacted ? { redacted: true } : { text: String(payload.feedback?.text ?? '').slice(0, 500), truncated: !!payload.feedback?.truncated };
       } else {
-        if (sensitive || payload.input?.redacted) event.input = { redacted: true, reason: 'sensitive-or-file-input' };
-        else if (payload.input) event.input = { value: String(payload.input.value ?? '').slice(0, 16000), truncated: !!payload.input.truncated || String(payload.input.value ?? '').length > 16000, ...(typeof payload.input.checked === 'boolean' ? { checked: payload.input.checked } : {}) };
+        if (payload.input) {
+          if (payload.input.redacted || (sensitive && !password)) {
+            event.input = { redacted: true, reason: 'sensitive-or-file-input' };
+          } else {
+            const value = String(payload.input.value ?? '');
+            const truncated = !!payload.input.truncated || (!password && value.length > 16000);
+            event.input = { value: truncated ? value.slice(0, 16000) : value, truncated, ...(typeof payload.input.checked === 'boolean' ? { checked: payload.input.checked } : {}) };
+          }
+        }
         if (payload.action === 'press') event.key = String(payload.key ?? '').slice(0, 100);
         if (payload.pointer) {
           const { x, y, button, count, relative } = payload.pointer;
@@ -155,7 +171,7 @@ export class BrowserRecordings {
         }
         if (payload.position) event.position = { x: Number(payload.position.x), y: Number(payload.position.y) };
       }
-      await this.append(record, event, recording.metadata.id);
+      await this.append(record, event, recording.metadata.id, password && event.action === 'fill' ? event.input?.value : undefined);
       return {};
     });
     await context.addInitScript(installRecordingObserver, BINDING);
@@ -163,8 +179,8 @@ export class BrowserRecordings {
   }
   async configurePages(record, id) {
     const results = await Promise.allSettled([...record.pages.values()].flatMap(page => page.frames().map(async frame => {
-      await frame.evaluate(installRecordingObserver, BINDING);
-      await frame.evaluate(value => window.__remoteOpsRecordingObserver.configure(value), id);
+      if (id) await frame.evaluate(installRecordingObserver, BINDING);
+      await frame.evaluate(value => (window.__remoteOpsPasswordRecordingObserver ?? window.__remoteOpsRecordingObserver).configure(value), id);
     })));
     return results.filter(result => result.status === 'rejected').length;
   }
@@ -175,7 +191,7 @@ export class BrowserRecordings {
     if (record.recording) this.active.delete(record.recording.metadata.id);
     if (name != null && (typeof name !== 'string' || name.length > 120)) throw browserError('BROWSER_RECORDING_NAME_INVALID', 'Use a name up to 120 characters');
     const deviceOrigin = new URL(record.site.url).origin;
-    const metadata = { schemaVersion: 1, id: randomUUID(), name: name?.trim() || 'Web recording', browserId: record.id, deviceOrigin, startedAt: new Date().toISOString(), status: 'recording', eventCount: 0, initialPages: [...record.pages].map(([pageId, page]) => ({ pageId, ...deviceLocation(recordingUrl(page.url()), deviceOrigin) })), coverage: { agentSteps: true, documentInteractions: true, browserChrome: false, notes: ['DOM events are observations, not business assertions.', 'Changed visible status, alert, live and output regions can supply observed feedback.', 'Interactions inside closed shadow roots, browser UI and native file pickers may need manual reconstruction.', 'Input values are bounded; sensitive fields and URL query values are redacted.'] } };
+    const metadata = { schemaVersion: 1, id: randomUUID(), name: name?.trim() || 'Web recording', browserId: record.id, deviceOrigin, startedAt: new Date().toISOString(), status: 'recording', eventCount: 0, initialPages: [...record.pages].map(([pageId, page]) => ({ pageId, ...deviceLocation(recordingUrl(page.url()), deviceOrigin) })), coverage: { agentSteps: true, documentInteractions: true, browserChrome: false, notes: ['DOM events are observations, not business assertions.', 'Changed visible status, alert, live and output regions can supply observed feedback.', 'Interactions inside closed shadow roots, browser UI and native file pickers may need manual reconstruction.', 'Recorded password fills keep their entered values. Other sensitive inputs and URL query values are redacted. Input values are bounded.'] } };
     await mkdir(this.directory(owner), { recursive: true });
     const recording = { metadata, owner, bytes: 0, operations: new Map() }; record.recording = recording;
     try {
@@ -239,11 +255,11 @@ export class BrowserRecordings {
     const path = this.file(owner, id, 'export.json'); await writeFile(path, content, { mode: 0o600 });
     return { recordingId: id, fileName: `myterm-web-${id}.json`, path, bytes: Buffer.byteLength(content), content };
   }
-  async begin(record, source, action, details = {}, pageId = record.activePageId) {
+  async begin(record, source, action, details = {}, pageId = record.activePageId, passwordInput) {
     if (record.recording?.metadata.status !== 'recording') return null;
-    const handle = { recordingId: record.recording.metadata.id, actionId: randomUUID(), pageId };
+    const handle = { recordingId: record.recording.metadata.id, actionId: randomUUID(), pageId, passwordInput };
     record.recording.operations.set(handle.actionId, handle);
-    await this.append(record, { kind: 'action', phase: 'before', source, action, actionId: handle.actionId, pageId, url: recordingUrl(record.pages.get(pageId)?.url()), details }, handle.recordingId);
+    await this.append(record, { kind: 'action', phase: 'before', source, action, actionId: handle.actionId, pageId, url: recordingUrl(record.pages.get(pageId)?.url()), details }, handle.recordingId, passwordInput);
     return handle;
   }
   async end(record, handle, status, result) {
@@ -251,7 +267,7 @@ export class BrowserRecordings {
     // Flush debounced input while the operation is still correlated. Otherwise
     // a quick Agent fill could be mislabeled as later human input.
     const page = record.pages.get(handle.pageId);
-    if (record.recording?.metadata.status === 'recording' && page) await Promise.allSettled(page.frames().map(frame => frame.evaluate(() => window.__remoteOpsRecordingObserver?.flush())));
+    if (record.recording?.metadata.status === 'recording' && page) await Promise.allSettled(page.frames().map(frame => frame.evaluate(() => (window.__remoteOpsPasswordRecordingObserver ?? window.__remoteOpsRecordingObserver)?.flush())));
     await this.append(record, { kind: 'action', phase: 'after', actionId: handle.actionId, pageId: handle.pageId, status, url: recordingUrl(record.pages.get(handle.pageId)?.url()), result }, handle.recordingId);
     if (record.recording?.operations.get(handle.actionId) === handle) record.recording.operations.delete(handle.actionId);
   }

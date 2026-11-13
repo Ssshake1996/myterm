@@ -9,7 +9,7 @@ import { dirname, join, resolve } from 'node:path';
 import { BrowserWorkspace } from '../../integrations/dsh-remote-ops/lib/browser-workspace.js';
 import { registerBrowserTools } from '../../integrations/dsh-remote-ops/lib/browser-tools.js';
 
-test('Agent signs in with supplied literal and variable passwords and exports a redacted recording', { timeout: 60000 }, async t => {
+test('Agent signs in and reads and exports exact literal and parameterized passwords', { timeout: 60000 }, async t => {
   const passwords = ['  demo &+$" device  ', ' 设备 {{literal}} $&  '];
   let accepted = 0;
   const server = createServer(async (req, res) => {
@@ -29,11 +29,11 @@ test('Agent signs in with supplied literal and variable passwords and exports a 
     }
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise(resolve => server.close(resolve)));
   const root = await mkdtemp(join(tmpdir(), 'remote-ops-password-'));
   const workspace = new BrowserWorkspace({ root, browserCacheRoot: join(root, 'cache') });
   t.after(async () => {
     await workspace.dispose();
+    server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
     assert.equal(dirname(resolve(root)), resolve(tmpdir()));
     await rm(root, { recursive: true, force: true });
   });
@@ -69,13 +69,54 @@ test('Agent signs in with supplied literal and variable passwords and exports a 
   const exported = await call('remote_browser_recording', { action: 'export', recordingId });
   const file = await readFile(exported.path, 'utf8');
   const fills = read.events.filter(event => event.source === 'agent' && event.details?.step?.action === 'fill');
-  assert.equal(fills.length, 2);
-  assert.ok(fills.every(({ details: { step } }) => step.input.redacted && !Object.hasOwn(step, 'value')));
-  for (const type of ['password', 'text']) {
-    assert.ok(read.events.some(event => event.kind === 'interaction' && event.action === 'fill' && event.target.type === type && event.input.redacted));
+  assert.deepEqual(fills.map(e => e.details.step.value), passwords);
+  for (const [index, type] of ['password', 'text'].entries()) {
+    assert.ok(read.events.some(event => event.kind === 'interaction' && event.action === 'fill' && event.target.type === type && event.input.value === passwords[index]));
   }
   assert.deepEqual(JSON.parse(file).events, read.events);
-  for (const password of passwords) assert.ok(!file.includes(JSON.stringify(password.trim()).slice(1, -1)));
+});
+
+test('saved-site login records the resolved password and screenshots follow the native password visibility toggle', { timeout: 60000 }, async t => {
+  const password = '  saved-fixture {{literal}} &  ';
+  const server = createServer((_req, res) => res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(
+    '<label>Account<input id="account"></label><label>Password<input id="pwd" type="password"></label>' +
+    '<button id="login" onclick="document.getElementById(\'ok\').hidden=false">Login</button><output id="ok" hidden>Signed in</output>' +
+    '<button id="reveal" onclick="document.getElementById(\'pwd\').type=\'text\'">Show password</button>'
+  ));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const root = await mkdtemp(join(tmpdir(), 'myterm-saved-password-')), values = new Map();
+  const workspace = new BrowserWorkspace({ root, browserCacheRoot: join(root, 'cache'),
+    credentials: { set: (ref, value) => values.set(ref, value), resolve: ref => ({ value: values.get(ref) }) } });
+  t.after(async () => {
+    await workspace.dispose();
+    server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
+    assert.equal(dirname(resolve(root)), resolve(tmpdir())); await rm(root, {recursive:true,force:true});
+  });
+  const site = await workspace.saveSite({ name:'Login fixture', url:`http://127.0.0.1:${server.address().port}/`, username:'demo',
+    login:{username:'#account',password:'#pwd',submit:'#login',success:'#ok'} }, password);
+  const owner = 'saved-test', opened = await workspace.open(owner,site.id,{display:'embedded'});
+  const session = workspace.session(owner, opened.id), page = session.pages.get(session.activePageId);
+  const rec = await workspace.recording(owner,{action:'start',browserId:opened.id});
+  const job = await workspace.login(owner,opened.id); await job.done;
+  assert.equal(job.status,'completed',job.error?.message);
+  await workspace.recording(owner,{action:'stop',recordingId:rec.id});
+  const { events } = JSON.parse((await workspace.recordings.export(owner,rec.id)).content);
+  const fill = events.find(e=>e.details?.step?.target?.value==='#pwd');
+  assert.equal(fill.details.step.value,password);
+  assert.ok(!Object.hasOwn(fill.details.step,'secretRef'));
+  assert.ok(events.some(e=>e.action==='fill'&&e.input?.value===password&&e.duringActionId===fill.actionId));
+  assert.equal(await page.locator('#pwd').inputValue(),password);
+  assert.equal(await page.locator('#pwd').getAttribute('type'),'password');
+  const nativeShot = async () => {
+    const expected = await page.screenshot({type:'png'});
+    const {buffer} = await workspace.capture(session);
+    assert.ok(buffer.equals(expected),'The plugin PNG must match Chromium’s own screenshot');
+    return buffer;
+  };
+  const hidden = await nativeShot();
+  await page.getByRole('button',{name:'Show password'}).click();
+  assert.equal(await page.locator('#pwd').getAttribute('type'),'text');
+  assert.ok(!(await nativeShot()).equals(hidden),'The revealed value must change the screenshot');
 });
 
 test('the package builder prepares a missing browser bundle offline and reuses it', {timeout:120000}, async t=>{
@@ -111,8 +152,18 @@ test('bundled browser records genuine human/Agent events, cross-origin frames, p
   await page.getByLabel('Name',{exact:true}).fill('human entry');await page.getByLabel('Name',{exact:true}).press('Control+A');await page.getByRole('button',{name:'Save'}).click();
   await page.getByLabel('Password',{exact:true}).fill('human-password-secret');
   await page.getByLabel('API token',{exact:true}).fill('human-api-token-secret');
+  const longPassword = 'p'.repeat(16000) + '尾';
+  await page.getByLabel('Password',{exact:true}).fill(longPassword);
+  await page.getByLabel('Password',{exact:true}).press('Tab');
+  await page.getByLabel('Password',{exact:true}).fill('');
+  await page.getByLabel('Password',{exact:true}).press('Tab');
   await page.locator('#port-map').click({ position: { x: 25, y: 20 } });
   await page.frameLocator('#child').getByLabel('Frame input').fill('cross origin entry');
+  const sharedValue = await w.run('live', opened.id, [
+    { action: 'fill', target: '#password', value: '{{password}}' },
+    { action: 'fill', target: '#token', value: 'fill' },
+  ], { variables: { password: 'fill' } });
+  await sharedValue.done; assert.equal(sharedValue.status, 'completed');
   const single=await w.run('live',opened.id,[{action:'fill',target:{kind:'css',value:'#name'},value:'single Agent fill'}]);await single.done;
   const singleEvents=(await w.recording('live',{action:'read',recordingId:started.id,limit:200})).events;
   const beforeSingle=singleEvents.find(event=>event.details?.step?.value==='single Agent fill');
@@ -138,8 +189,13 @@ test('bundled browser records genuine human/Agent events, cross-origin frames, p
   assert.ok(value.events.some(event=>event.result?.completion==='checked'));
   assert.ok(value.events.some(event=>event.duringActionId));
   assert.ok(!value.events.some(event=>event.key==='Control+Control'));
-  for(const secret of ['human-password-secret','human-api-token-secret','do-not-export'])assert.ok(!exported.content.includes(secret),secret+' leaked');
+  assert.ok(value.events.some(event=>event.kind==='interaction'&&event.target?.type==='password'&&event.input?.value==='human-password-secret'));
+  for (const entry of [longPassword, '']) assert.ok(value.events.some(event => event.target?.password && event.input?.value === entry && !event.input.truncated));
+  assert.ok(value.events.some(event => event.target?.css === '#password' && event.input?.value === 'fill'));
+  assert.ok(value.events.filter(event => event.target?.css === '#token' && event.action === 'fill').every(event => event.input.redacted));
+  assert.ok(value.events.some(event => event.details?.step?.target?.value === '#token' && event.details.step.input?.redacted && !Object.hasOwn(event.details.step, 'value')));
+  for(const secret of ['human-api-token-secret','do-not-export'])assert.ok(!exported.content.includes(secret),secret+' leaked');
   const before=value.events.length;await page.getByLabel('Name',{exact:true}).fill('after stopping');assert.equal((await w.recording('live',{action:'read',recordingId:started.id,limit:200})).events.length,before);
-  const output=resolve('output/recording-live');await mkdir(output,{recursive:true});await writeFile(join(output,'recording.json'),exported.content);await page.screenshot({path:join(output,'page.png'),mask:[page.locator('input')]});
+  const output=resolve('output/recording-live');await mkdir(output,{recursive:true});await writeFile(join(output,'recording.json'),exported.content);await writeFile(join(output,'page.png'),(await w.capture(record)).buffer);
   console.log(JSON.stringify({output,eventCount:before,runtime:runtime.modes.embedded.source}));
 });
