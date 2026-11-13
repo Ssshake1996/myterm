@@ -120,14 +120,14 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 ## Manual intranet HTTP/HTTPS updates
 
-In v0.15.7, screenshots follow the webpage’s own password visibility setting. While recording is active, passwords entered manually, filled by the Agent or filled from saved credentials are stored in plain text in the recording and exported JSON. The bundled browser and recording skills explain how to use those values in tests. [Release notes](docs/releases/dsh-remote-ops-v0.15.7.md)
+In v0.15.8, the embedded browser resizes as you drag DSH’s right sidebar divider. The live image follows the panel and responsive pages reflow at the new width. [Release notes](docs/releases/dsh-remote-ops-v0.15.8.md)
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.15.7.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.7.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.15.8.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.8.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.7.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.8.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -246,7 +246,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from the [latest stable release](https://github.com/Ssshake1996/myterm/releases/latest), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.15.7.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.15.8.tgz
 dsh web
 ```
 
@@ -293,15 +293,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.7
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.8
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.15.7
-node scripts/release-dsh-remote-ops.mjs 0.15.7 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.15.8
+node scripts/release-dsh-remote-ops.mjs 0.15.8 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

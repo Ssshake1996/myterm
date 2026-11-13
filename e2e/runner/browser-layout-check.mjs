@@ -2,12 +2,23 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
 
-const titles = { overview: '设备概览', ports: '端口状态', legacy: '固定宽度设备' };
+const titles = { overview: '设备概览', ports: '端口状态', legacy: '固定宽度设备', framed: '设备内嵌表单' };
 
-export function serveLayoutFixture(path, response) {
+export function serveLayoutFixture(path, response, origin) {
   const name = path.split('/').at(-1);
+  if (path === '/panel/form') {
+    response.setHeader('Content-Type', 'text/html; charset=utf-8');
+    response.end('<!doctype html><style>*{box-sizing:border-box}body{margin:0}main{width:1060px;height:100vh;position:relative}button{position:absolute;right:5px;bottom:5px;width:80px;height:40px}</style><main><button id="apply">应用设置</button></main><script>apply.onclick=()=>parent.postMessage("applied","*")</script>');
+    return true;
+  }
   if (!path.startsWith('/panel/') || !Object.hasOwn(titles, name)) return false;
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
+  if (name === 'framed') {
+    response.end(`<!doctype html><title>${titles.framed}</title><style>*{box-sizing:border-box}body{margin:0}header{height:48px}section{height:calc(100vh - 48px);display:flex}nav{width:180px;flex:none}iframe{border:0;flex:1;min-width:0}output{display:block}</style>
+      <header>设备设置 <output></output></header><section><nav>系统</nav><iframe src="${origin.replace('127.0.0.1', 'localhost')}/panel/form"></iframe></section>
+      <script>onmessage=e=>{const frame=document.querySelector('iframe');if(e.source===frame?.contentWindow&&e.data==='applied'){document.querySelector('output').textContent='设置已应用';frame.remove();}}</script>`);
+    return true;
+  }
   response.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><title>${titles[name]}</title>
     <style>*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui;color:#233643;background:#eef3f4}
     main{height:100vh;min-width:${name === 'legacy' ? '1100px' : '0'};position:relative;padding:56px 6%;background:linear-gradient(#f7fafa,#e2ecee)}
@@ -16,8 +27,8 @@ export function serveLayoutFixture(path, response) {
     .t{top:3px}.b{bottom:3px}.l{left:3px}.r{right:3px}footer{padding:30px}</style>
     <main><p>设备管理</p><h1>${titles[name]}</h1><table><tr><th>接口</th><th>状态</th><th>速率</th></tr><tr><td>GE 1/0/1</td><td>已连接</td><td>1 Gbps</td></tr><tr><td>GE 1/0/2</td><td>已连接</td><td>1 Gbps</td></tr></table>
     ${[['tl','左上'],['tr','右上'],['bl','左下'],['br','右下']].map(([id,label]) => `<button id="${id}" class="${id[0]} ${id[1]}">${label}</button>`).join('')}
-    <output id="last"></output></main><footer>接口列表末尾</footer>
-    <script>document.onclick=e=>{if(e.target.tagName==='BUTTON')document.getElementById('last').textContent='hit-'+e.target.id}</script></html>`);
+    <input id="draft" aria-label="设备名称"><output id="last"></output></main><footer>接口列表末尾</footer>
+    <script>draft.oninput=()=>last.textContent=draft.value;document.onclick=e=>{if(e.target.tagName==='BUTTON')last.textContent='hit-'+e.target.id}</script></html>`);
   return true;
 }
 
@@ -66,16 +77,53 @@ export async function checkBrowserLayout({ page, owner, api, snapshot, until, st
   await page.getByRole('tab', { name: '网页', exact: true }).click();
   await step('拖动真实 DSH 分栏，设备网页随面板重新排版', async () => {
     await open('overview');
-    const initial = await geometry(), divider = await page.locator('[data-side="rightbar"]').boundingBox();
+    const initial = await geometry();
+    await api('browser', { sessionId: owner, action: 'run', steps: [{ action: 'fill', target: '#draft', value: '保留草稿', expect: { target: '#last', text: '保留草稿' } }] });
+    await until(async () => (await active()).job?.status === 'completed');
+    const divider = await page.locator('[data-side="rightbar"]').boundingBox();
     assert.ok(divider);
     evidence.panelLayout = { initial };
     const x = divider.x + divider.width / 2, y = divider.y + divider.height / 2;
     await page.mouse.move(x, y); await page.mouse.down();
+    const heldWidths = [];
+    await page.mouse.move(x + (initial.w - 390) / 2, y, { steps: 6 });
+    for (let i = 1; i <= 10; i++) {
+      await page.mouse.move(x + (initial.w - 390) * (0.5 - i * 0.07), y);
+      const box = await image.evaluate(n => {
+        const b = n.getBoundingClientRect(), p = n.parentElement.getBoundingClientRect();
+        return { width: p.width, right: p.right - b.right, bottom: p.bottom - b.bottom };
+      });
+      assert.ok(Math.abs(box.right) < 2 && Math.abs(box.bottom) < 2, JSON.stringify(box));
+      heldWidths.push((await active()).viewport.width);
+      await new Promise(resolve => setTimeout(resolve, 45));
+    }
+    assert.ok(new Set(heldWidths).size > 1, 'Chromium must reflow before the divider is released');
+    evidence.panelLayout.heldWidths = heldWidths;
     await page.mouse.move(x + initial.w - 390, y, { steps: 14 }); await page.mouse.up();
     await until(async () => Math.abs(await image.evaluate(node => node.parentElement.clientWidth) - 390) < 8);
     const narrow = await geometry();
     assert.ok(narrow.w <= 430 && narrow.w >= 300, JSON.stringify(narrow));
     evidence.panelLayout.narrow = narrow;
+    const window = page.viewportSize();
+    await page.setViewportSize({ width: window.width - 120, height: window.height - 160 });
+    const resized = await geometry();
+    assert.ok(resized.h < narrow.h - 100 && (await api('browser', { sessionId: owner, action: 'observe' })).result.text.includes('保留草稿'));
+    await page.setViewportSize(window);
+    await geometry();
+  });
+  await step('跨域设备表单右下按钮可点击，单页切换后视口恢复', async () => {
+    await open('framed');
+    const frame = await geometry(true);
+    assert.ok(frame.width >= 1240);
+    const { id } = (await record('start')).result;
+    await image.click({ position: { x: (frame.width - 45) * frame.imageW / frame.width, y: (frame.height - 25) * frame.imageH / frame.height } });
+    await until(async () => (await api('browser', { sessionId: owner, action: 'observe' })).result.text.includes('设置已应用'));
+    await record('stop', id);
+    const { events } = (await record('read', id)).result;
+    assert.ok(events.some(e => e.action === 'click' && e.target?.css === '#apply' && e.frame?.length));
+    evidence.panelLayout.framed = frame;
+    evidence.panelLayout.afterSwitch = await geometry();
+    await open('overview');
   });
   await step('固定宽度设备适宽显示，四角点击与录制对应', async () => {
     await open('ports', true); await open('legacy', true);

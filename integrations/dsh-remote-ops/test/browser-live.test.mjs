@@ -15,7 +15,7 @@ async function fixture(t) {
     context.pages=()=>pages; context.close=async()=>context.emit('close');
     context.newPage=async()=>{
       const page=new EventEmitter(); let url='about:blank';
-      Object.assign(page,{url:()=>url,mainFrame:()=>page,isClosed:()=>false,title:async()=> 'Fixture',bringToFront:async()=>{},
+      Object.assign(page,{url:()=>url,mainFrame:()=>page,frames:()=>[page],isClosed:()=>false,title:async()=> 'Fixture',bringToFront:async()=>{},
         goto:async value=>{url=value;page.emit('framenavigated',page);},close:async()=>page.emit('close'),
         setViewportSize:async size=>inputs.push(['viewport',size]),
         locator:()=>({}),getByText:()=>({}),screenshot:async()=>Buffer.from('png'),
@@ -64,7 +64,7 @@ test('a late fixed-width layout fits proportionally, and the next responsive doc
   const session = w.session('viewer', id), page = session.pages.get(session.activePageId);
   const hint = { mode: 'panel', width: 384, height: 576, pageId: session.activePageId };
   let overflowWidth = 0;
-  page.evaluate = async () => overflowWidth;
+  page.evaluate = async () => ({ required: overflowWidth, overflow: Math.max(0, overflowWidth - session.viewport.width), frameWidth: session.viewport.width });
   await w.resizeViewport('viewer', id, hint);
   assert.deepEqual(session.viewport, { mode: 'panel', width: 384, height: 576 });
   overflowWidth = 1024;
@@ -73,6 +73,8 @@ test('a late fixed-width layout fits proportionally, and the next responsive doc
   await session.inputQueue;
   assert.deepEqual(session.viewport, { mode: 'panel', width: 1024, height: 1536 });
   overflowWidth = 0;
+  await w.resizeViewport('viewer', id, session.viewportHint, true);
+  assert.deepEqual(session.viewport, { mode: 'panel', width: 384, height: 576 });
   await page.goto('https://device.test/responsive');
   await w.resizeViewport('viewer', id, hint);
   assert.deepEqual(session.viewport, { mode: 'panel', width: 384, height: 576 });

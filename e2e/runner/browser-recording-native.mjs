@@ -30,7 +30,7 @@ const device = recordingDevice('A');
 const server = createServer(async (req, res) => {
   try {
     if (await device.handle(req, res)) return;
-    if (serveLayoutFixture(req.url, res)) return;
+    if (serveLayoutFixture(req.url, res, 'http://127.0.0.1:' + server.address().port)) return;
     if (req.url === '/page') { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end('<title>Web recording fixture</title><h3>Recording acceptance</h3><label for="entry">Name</label><input id="entry" style="position:absolute;left:20px;top:48px;width:240px;height:32px" oninput="document.querySelector(\'#result\').textContent=this.value"><button style="position:absolute;top:100px;left:20px" id="save" onclick="document.querySelector(\'#result\').textContent=\'Saved \'+document.querySelector(\'#entry\').value">Save</button><div id="result" style="position:absolute;top:150px"></div><form style="margin-top:210px" onsubmit="event.preventDefault();fetch(\'/check-password\',{method:\'POST\',body:this.elements.key.value}).then(r=>document.getElementById(\'auth-out\').textContent=r.ok?\'Signed in\':\'Rejected\')"><label>Access<input name="key" id="auth-key" type="password"></label><button id="auth-submit">Sign in</button><output id="auth-out"></output></form>'); return; }
     let raw = ''; for await (const part of req) raw += part;
     if (req.url === '/check-password') {

@@ -15,6 +15,67 @@ function viewportSize(width, height) {
   const scale = Math.min(1, 8192 / Math.max(width, height), Math.sqrt(16777216 / (width * height)));
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
+// This function runs inside each visible document, including cross-origin frames.
+function documentLayoutWidth(measureIntrinsic) {
+  const root = document.documentElement;
+  if (!root || !innerWidth) return { required: 0, overflow: 0, frameWidth: 0 };
+  const overflow = Math.max(0, root.scrollWidth - root.clientWidth, (document.body?.scrollWidth ?? 0) - root.clientWidth);
+  if (overflow > 1) return { required: innerWidth + overflow, overflow, frameWidth: innerWidth };
+  if (!measureIntrinsic) return { required: 0, overflow: 0, frameWidth: innerWidth };
+  // Once an expanded document fits, scrollWidth also includes unused viewport space.
+  // Track its explicit intrinsic widths to release the zoom when a device changes views.
+  let required = 0;
+  const pending = [root];
+  for (let i = 0; i < pending.length; i++) {
+    const node = pending[i], rect = node.getBoundingClientRect();
+    if (!rect.width || !rect.height) continue;
+    const width = node.computedStyleMap?.().get('width'), minimum = node.computedStyleMap?.().get('min-width');
+    if (width?.unit === 'px' || minimum?.unit === 'px') {
+      const fixed = width?.unit === 'px' ? rect.width : minimum.value;
+      required = Math.max(required, Math.min(rect.width, fixed));
+    }
+    for (let child = node.firstElementChild; child && pending.length < 256; child = child.nextElementSibling) pending.push(child);
+  }
+  return { required, overflow: 0, frameWidth: innerWidth };
+}
+
+async function measuredPageWidth(page, baseWidth, currentWidth, previousFrames = []) {
+  const root = page.mainFrame();
+  const documents = await Promise.all(page.frames().map(async frame => {
+    if (frame !== root) {
+      let element;
+      try {
+        element = await frame.frameElement();
+        const visible = await element.evaluate(node => {
+          const rect = node.getBoundingClientRect();
+          return rect.width >= 32 && rect.height >= 16 && getComputedStyle(node).visibility === 'visible';
+        });
+        if (!visible) return null;
+      } catch { return null; }
+      finally { if (element) await element.dispose().catch(() => {}); }
+    }
+    try { return { frame, ...await frame.evaluate(documentLayoutWidth, currentWidth > baseWidth) }; }
+    catch { return null; } // A child frame can navigate while the panel is being sized.
+  }));
+  let width = baseWidth;
+  for (const doc of documents) {
+    if (!doc) continue;
+    if (doc.frame === root) width = Math.max(width, doc.required || 0);
+    else if (doc.required > 0 && doc.frameWidth > 0) {
+      // A fixed-size iframe is a scroll area within the device UI. Expanding
+      // the outer viewport again cannot reveal more of that frame.
+      const before = previousFrames.find(item => item.frame === doc.frame);
+      if (doc.overflow > 1 && before && currentWidth > before.viewportWidth && doc.frameWidth <= before.frameWidth + 1) {
+        doc.fixedWidth = doc.frameWidth;
+      } else if (before?.fixedWidth === doc.frameWidth) {
+        doc.fixedWidth = doc.frameWidth;
+      }
+      if (!doc.fixedWidth) width = Math.max(width, currentWidth - doc.frameWidth + doc.required);
+    }
+    doc.viewportWidth = currentWidth;
+  }
+  return { width, frames: documents.filter(doc => doc && doc.frame !== root) };
+}
 export { browserInstallerCli } from './browser-runtime.js';
 export class BrowserWorkspace extends BrowserSessions {
   constructor({ root, credentials, launchContext, browserBundleRoot, browserCacheRoot } = {}) {
@@ -99,7 +160,7 @@ export class BrowserWorkspace extends BrowserSessions {
       }
       const previous = r.viewportHint, navigation = r.navigationRevision;
       const same = previous?.pageId === pageId && previous.navigation === navigation && previous.mode === mode && previous.width === width && previous.height === height;
-      if (same && (!checkContent || r.viewport.width !== base.width)) return this.publicSession(r);
+      if (same && !checkContent) return this.publicSession(r);
       const applySize = async size => {
         if (r.viewport?.width !== size.width || r.viewport?.height !== size.height) {
           r.revision = (r.revision ?? 0) + 1;
@@ -111,14 +172,10 @@ export class BrowserWorkspace extends BrowserSessions {
       try {
         if (!same) await applySize(base);
         if (fit) {
-          const contentWidth = await page.evaluate(() => {
-            const root = document.documentElement;
-            if (!root) return 0;
-            const overflow = Math.max(root.scrollWidth, document.body?.scrollWidth ?? 0) - root.clientWidth;
-            return overflow > 1 ? window.innerWidth + overflow : 0;
-          }).catch(() => 0);
-          if (Number.isFinite(contentWidth) && contentWidth > base.width && r.activePageId === pageId && r.navigationRevision === navigation) {
-            await applySize(viewportSize(contentWidth, contentWidth * height / width));
+          const measured = await measuredPageWidth(page, base.width, r.viewport.width, same ? r.fitFrameSizes : undefined);
+          if (r.activePageId === pageId && r.navigationRevision === navigation) {
+            r.fitFrameSizes = measured.frames;
+            await applySize(viewportSize(measured.width, measured.width * height / width));
           }
         }
       } catch (error) {

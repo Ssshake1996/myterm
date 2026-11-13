@@ -55,7 +55,7 @@ export function registerBrowserRoutes(ctx, state) {
       const frame=await workspace.frame(ownerId(agent),url.searchParams.get('browserId'),{after:Number(url.searchParams.get('after')??0),signal:request.signal});
       return Response.json(frame,{headers});
     }catch(error){
-      if(['BROWSER_CLOSED','BROWSER_FRAME_PENDING'].includes(error.code))return Response.json({closed:error.code==='BROWSER_CLOSED',pending:error.code==='BROWSER_FRAME_PENDING'},{headers});
+      if(['BROWSER_CLOSED','BROWSER_FRAME_PENDING'].includes(error.code))return Response.json({closed:error.code==='BROWSER_CLOSED',pending:error.code==='BROWSER_FRAME_PENDING',pageId:error.pageId??null,navigation:error.navigation??null},{headers});
       return Response.json({error:error.message,code:error.code},{status:error.name==='AbortError'?499:404,headers});
     }
   }});

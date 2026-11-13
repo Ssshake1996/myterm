@@ -19,7 +19,7 @@ export class BrowserView {
         const timer=setTimeout(()=>{this.acks.delete(timer);void cdp.send('Page.screencastFrameAck',{sessionId:event.sessionId}).catch(()=>{});},100);
         timer.unref?.();this.acks.add(timer);
         if(event.metadata.timestamp&&event.metadata.timestamp*1000<(r.navigatedAt??0))return;
-        this.latest={sequence:++this.sequence,pageId:this.pageId,revision:r.revision??0,width:event.metadata.deviceWidth,height:event.metadata.deviceHeight,at:new Date().toISOString(),data:event.data};
+        this.latest={sequence:++this.sequence,pageId:this.pageId,revision:r.revision??0,navigation:r.navigationRevision??0,width:event.metadata.deviceWidth,height:event.metadata.deviceHeight,at:new Date().toISOString(),data:event.data};
         for(const wake of this.waiters)wake();
       });
       await cdp.send('Page.startScreencast',{format:'jpeg',quality:75,maxWidth:2560,maxHeight:2160,everyNthFrame:1});
@@ -39,7 +39,9 @@ export class BrowserView {
       this.waiters.add(wake);signal?.addEventListener('abort',abort,{once:true});timer=setTimeout(wake,8000);timer.unref?.();
       if(signal?.aborted)abort();else if(valid()&&this.latest.sequence>Number(after))wake();
     });
-    if(!valid())throw browserError('BROWSER_FRAME_PENDING','Waiting for a new page frame');
+    if (!valid()) throw Object.assign(browserError('BROWSER_FRAME_PENDING', 'Waiting for a new page frame'), {
+      pageId: this.record.activePageId, navigation: this.record.navigationRevision ?? 0,
+    });
     return this.latest;
   }
   async stop() {

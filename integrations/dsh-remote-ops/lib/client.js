@@ -283,6 +283,7 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__webState{min-height:34px;font-size:12px}.dsh-remote-ops__webState>button{margin-left:auto;border-color:transparent;background:transparent;font-size:12px;min-height:28px;padding:3px 5px}
       .dsh-remote-ops__liveTools{order:2;border-top:1px solid var(--ro-border);min-height:28px;padding:2px 10px;gap:6px}
       .dsh-remote-ops__webPage,.dsh-remote-ops__live{min-height:0}.dsh-remote-ops__liveSurface[data-fit=true]{overflow:hidden}
+      .dsh-remote-ops__liveSurface[data-fit=true]>img{position:absolute;inset:0;width:100%;height:100%;max-width:none;max-height:none}
       .dsh-remote-ops__liveOptions{position:relative;margin-left:auto}.dsh-remote-ops__liveOptions>summary{padding:3px;cursor:pointer}
       .dsh-remote-ops__liveOptions>div{position:absolute;bottom:100%;right:0;z-index:15;width:180px;background:var(--ro-bg);border:1px solid var(--ro-border);border-radius:7px;padding:12px;display:grid;gap:8px;box-shadow:0 5px 18px #0002}
       .dsh-remote-ops__webUtility{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
@@ -497,7 +498,7 @@ window.__ModuleLoader__.load({
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const updateRecovery = createUpdateRecovery((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.15.7", update: { currentVersion: "0.15.7", latestVersion: "0.15.7", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.15.8", update: { currentVersion: "0.15.8", latestVersion: "0.15.8", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -1474,25 +1475,45 @@ window.__ModuleLoader__.load({
     const browserStatus = { running: "执行中", paused: "已暂停", pausing: "等待当前步骤结束", stopping: "等待当前步骤结束后停止", manual: "人工接管中", completed: "步骤已完成", failed: "执行失败", unknown: "结果待确认，请检查网页", stopped: "已停止" };
     const webTarget = () => ({ kind: "css", value: "" });
     function BrowserLiveView({ sessionId, browser, inputBarrier, visible = true, zoom = "fit", viewportMode = browser.viewport?.mode ?? "panel" }) {
-      const [frame,setFrame]=useState(null),[message,setMessage]=useState('正在连接网页画面…'),[size,setSize]=useState({width:0,height:0});
+      const [frame,setFrame]=useState(null),[message,setMessage]=useState('正在连接网页画面…');
       const image=useRef(null),capture=useRef(null),surface=useRef(null),current=useRef(null),queue=useRef(Promise.resolve()),alive=useRef(true),composing=useRef(false);
-      current.current={frame,browser,viewportMode,size};
-      useEffect(()=>{const node=surface.current;if(!node)return;const measure=()=>setSize({width:node.clientWidth,height:node.clientHeight});const observer=new ResizeObserver(measure);observer.observe(node);measure();return()=>observer.disconnect();},[]);
-      const resizeViewport=(mode, fit, pageId)=>{
-        queue.current=queue.current.then(async()=>{
-          if(!alive.current||current.current.viewportMode!==mode||current.current.browser.activePageId!==pageId)return;
-          const measured=current.current.size;
-          if(!measured.width||!measured.height)return;
-          const viewport=fit?{mode,pageId,width:measured.width,height:measured.height}:{mode,pageId};
-          try{await request('/api/dsh-remote-ops/browser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'viewport',sessionId,browserId:browser.id,viewport})});}
-          catch(error){if(alive.current)setMessage('视口调整失败 · '+error.message.split('\n')[0]);}
-        });
-      };
+      current.current={frame};
       const fit = viewportMode === 'panel' || zoom === 'fit';
       useEffect(()=>{
-        if(!visible||!size.width||!size.height)return;
-        const timer=setTimeout(()=>resizeViewport(viewportMode,fit,browser.activePageId),120);return()=>clearTimeout(timer);
-      },[size.width,size.height,viewportMode,fit,browser.id,browser.activePageId,browser.display,visible]);
+        const node = surface.current;
+        if (!visible || !node) return;
+        let stopped = false, scheduled = false, lastSize = '';
+        const resize = async () => {
+          if (stopped) return;
+          const width = node.clientWidth, height = node.clientHeight;
+          const size = fit ? width + 'x' + height : 'actual';
+          if (!width || !height || size === lastSize) return;
+          const viewport = { mode: viewportMode, pageId: browser.activePageId, ...(fit ? { width, height } : {}) };
+          try {
+            await request('/api/dsh-remote-ops/browser', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'viewport', sessionId, browserId: browser.id, viewport }) });
+            lastSize = size;
+          } catch (error) {
+            if (!stopped) setMessage('视口调整失败 · ' + error.message.split('\n')[0]);
+          }
+        };
+        let timer;
+        // Apply intermediate sizes during a drag. One pending update reads the latest dimensions.
+        const schedule = (delay = 70) => {
+          if (stopped || scheduled) return;
+          scheduled = true;
+          timer = setTimeout(() => {
+            queue.current = queue.current.then(async () => {
+              const width = node.clientWidth, height = node.clientHeight;
+              await resize();
+              scheduled = false;
+              if (fit && (node.clientWidth !== width || node.clientHeight !== height)) schedule(0);
+            });
+          }, delay);
+        };
+        const observer = new ResizeObserver(() => schedule());
+        observer.observe(node); schedule(0);
+        return () => { stopped = true; clearTimeout(timer); observer.disconnect(); };
+      },[sessionId,viewportMode,fit,browser.id,browser.activePageId,browser.display,visible]);
 
       useEffect(()=>{
         if(!visible)return;
@@ -1503,7 +1524,18 @@ window.__ModuleLoader__.load({
           pending=true;let failed=false;
           try {
             const value=await request(`/api/dsh-remote-ops/browser/frame?${new URLSearchParams({sessionId,browserId:browser.id,after:String(sequence)})}`,{signal:controller.signal});
-            if(!stopped){if(!value.data){failed=true;setFrame(null);setMessage(value.closed?'浏览器已关闭或正在切换显示。':'等待新网页画面…');}else{sequence=value.sequence;setFrame(old=>old?.sequence===value.sequence?old:value);setMessage('');}}
+            if (!stopped && value.data) {
+              sequence = value.sequence;
+              setFrame(old => old?.sequence === value.sequence ? old : value);
+              setMessage('');
+            } else if (!stopped && value.pending) {
+              // Reuse the last picture while Chromium replaces the screencast after a resize.
+              setFrame(old => old?.pageId === value.pageId && old?.navigation === value.navigation ? old : null);
+              setMessage('');
+            } else if (!stopped) {
+              failed = true; setFrame(null);
+              setMessage(value.closed ? '浏览器已关闭或正在切换显示。' : '等待新网页画面…');
+            }
           }catch(error){failed=true;if(!stopped&&error.name!=='AbortError')setMessage('画面重新连接中 · '+error.message.split('\n')[0]);}
           finally{pending=false;if(!stopped)timer=setTimeout(poll,failed?1000:20);}
         };
@@ -1540,9 +1572,9 @@ window.__ModuleLoader__.load({
       const flush=event=>{if(composing.current)return;const value=event.currentTarget.value;event.currentTarget.value='';if(value)send({kind:'text',text:value});};
       return h('div',{className:'dsh-remote-ops__live'},
         frame&&message?h('div',{className:'dsh-remote-ops__liveTools',role:'status'},message):null,
-        h('div',{ref:surface,className:'dsh-remote-ops__liveSurface','data-fit':fit},frame?h('img',{ref:image,alt:'网页实时画面','data-revision':frame.revision,draggable:false,src:'data:image/jpeg;base64,'+frame.data,style:{width:fit?Math.min(size.width,size.height*frame.width/frame.height):frame.width,maxWidth:'none'},onContextMenu:event=>event.preventDefault(),onClick:event=>{
+        h('div',{ref:surface,className:'dsh-remote-ops__liveSurface','data-fit':fit},frame?h('img',{ref:image,alt:'网页实时画面','data-revision':frame.revision,draggable:false,src:'data:image/jpeg;base64,'+frame.data,style:fit?undefined:{width:frame.width,height:frame.height,maxWidth:'none'},onContextMenu:event=>event.preventDefault(),onClick:event=>{
           const rect=image.current.getBoundingClientRect();capture.current?.focus({preventScroll:true});send({kind:'click',x:(event.clientX-rect.left)*frame.width/rect.width,y:(event.clientY-rect.top)*frame.height/rect.height,button:event.button===2?'right':event.button===1?'middle':'left',count:Math.min(2,event.detail||1)});
-        }}):h('div',{className:'dsh-remote-ops__empty',role:'status'},message),
+        }}):h('div',{className:'dsh-remote-ops__empty',role:'status'},message||'等待新网页画面…'),
         h('textarea',{ref:capture,className:'dsh-remote-ops__webCapture','aria-label':'网页键盘输入',autoComplete:'off',spellCheck:false,onKeyDown:key,onChange:flush,onCompositionStart:()=>{composing.current=true;},onCompositionEnd:event=>{composing.current=false;flush(event);},onPaste:event=>{event.preventDefault();const text=event.clipboardData.getData('text');if(text)send({kind:'text',text});}})));
     }
     const browserRuntimeSummary = (runtime, windowBrowser) => {
