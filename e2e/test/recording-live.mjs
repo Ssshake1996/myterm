@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { BrowserWorkspace } from '../../integrations/dsh-remote-ops/lib/browser-workspace.js';
 import { registerBrowserTools } from '../../integrations/dsh-remote-ops/lib/browser-tools.js';
+import { browserRuntimeMetadata } from '../../integrations/dsh-remote-ops/lib/browser-runtime.js';
+import { prepareEmbeddedBrowser } from '../../integrations/dsh-remote-ops/lib/embedded-browser.js';
 
 test('Agent signs in and reads and exports exact literal and parameterized passwords', { timeout: 60000 }, async t => {
   const passwords = ['  demo &+$" device  ', ' 设备 {{literal}} $&  '];
@@ -130,7 +132,14 @@ test('the package builder prepares a missing browser bundle offline and reuses i
   }
   await cp(join(plugin,'scripts/bundle-browser-runtime.mjs'),join(root,'scripts/bundle-browser-runtime.mjs'));
   await symlink(join(plugin,'node_modules'),join(root,'node_modules'),process.platform==='win32'?'junction':'dir');
-  const run=()=>spawnSync(process.execPath,['scripts/bundle-browser-runtime.mjs'],{cwd:root,env:{...process.env,PLAYWRIGHT_BROWSERS_PATH:join(plugin,'browser/runtime',`${process.platform}-${process.arch}`),PLAYWRIGHT_DOWNLOAD_HOST:'http://127.0.0.1:9'},windowsHide:true,encoding:'utf8',timeout:60000});
+  // Playwright's cache contains complete executables, including when the source package ships them in parts.
+  const metadata = browserRuntimeMetadata();
+  const cacheRoot = join(root, 'prepared-cache');
+  const prepared = await prepareEmbeddedBrowser(metadata, { cacheRoot });
+  assert.ok(prepared.ready, prepared.error);
+  assert.ok(prepared.executable.endsWith(metadata.executables.embedded));
+  const cache = resolve(prepared.executable.slice(0, -metadata.executables.embedded.length));
+  const run=()=>spawnSync(process.execPath,['scripts/bundle-browser-runtime.mjs'],{cwd:root,env:{...process.env,PLAYWRIGHT_BROWSERS_PATH:cache,PLAYWRIGHT_DOWNLOAD_HOST:'http://127.0.0.1:9'},windowsHide:true,encoding:'utf8',timeout:60000});
   const first=run();assert.equal(first.status,0,first.stderr);assert.match(first.stdout,/browser prepared/);
   const second=run();assert.equal(second.status,0,second.stderr);assert.match(second.stdout,/already matches/);
 });
