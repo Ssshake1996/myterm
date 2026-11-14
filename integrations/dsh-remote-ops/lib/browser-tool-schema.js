@@ -16,7 +16,7 @@ const stepFields = {
   value: optionalString("Fill/press/select value or assert text; empty string is meaningful"),
   secretRef: { type: "null", description: "Only fill may supply the saved site's passwordRef; otherwise omit or null" },
   timeoutMs: nullable({ type: "integer", description: "100–30000 ms, default 10000; null uses the default" }),
-  expectPopup: nullable({ type: "boolean", description: "Click opens a new page and selects it" }), state,
+  expectPopup: nullable({ type: "boolean", description: "Follow a popup in the job. A background job leaves the visible tab selected." }), state,
   expect: nullable(object({ target, text: optionalString("Result must contain this text"), state }, ["target"])),
 };
 const step = (actions, required, fields = {}) => object({
@@ -31,6 +31,8 @@ const steps = { type: "array", description: "Prefer an array of 1–40 action ob
   step(["click", "check", "uncheck", "scroll", "wait", "read", "assert"], ["target"], { target }),
 ] } };
 const browser = { browserId: optionalString("Browser ID from open/list; omit or null for this conversation's selected browser") };
+const pageId = optionalString("Exact plugin-managed tab ID from open/list. Omitting it uses the selected tab.");
+const background = nullable({ type: "boolean", description: "Run in the plugin-managed embedded browser without focusing a window or selecting another tab. Use the returned browser and page IDs." });
 const requestId = string("Stable unique key per intended operation, 1–160 characters; the same request deduplicates for ten minutes in this plugin process");
 
 export const BROWSER_TOOL_SCHEMAS = {
@@ -45,18 +47,19 @@ export const BROWSER_TOOL_SCHEMAS = {
   remote_browser_runtime: object({ action: choice(["status", "repair", "install"], "status reports each mode; repair retries offline preparation for the embedded browser; install downloads optional full Chromium for an independent window.") }, ["action"]),
   remote_browser_open: object({
     url: optionalString("HTTP(S) URL; no saved site is required"), siteId: optionalString("Saved site ID instead of URL"),
+    background,
     display: nullable(choice(["embedded", "window"], "Display preference")),
     browser: nullable(choice(["system", "chromium", "msedge", "chrome"], "Explicit browser override; omit to use configured defaults. Independent windows default to the Windows default Chrome/Edge; embedded mode defaults to pinned Chromium.")),
   }),
-  remote_browser_login: object({ ...browser, requestId }, ["requestId"]),
+  remote_browser_login: object({ ...browser, requestId, pageId, background }, ["requestId"]),
   remote_browser_run: object({
     ...browser, requestId,
     flowId: optionalString("Existing flow.id from remote_browser_list with matching siteId. Omit for inline steps; null/blank is absent. Never invent an ID"),
-    pageId: optionalString("Optional exact open page ID"),
+    pageId, background,
     variables: nullable({ type: "object", properties: {}, additionalProperties: true, description: "Literal text substituted once for {{parameter}}, including a user-supplied password for a fill step" }),
     steps: { oneOf: [steps, steps.items, object({ steps }, ["steps"]), { type: "string", description: "Compatibility: JSON-encoded action array, single action object or {steps:[...]}, up to 1 MiB. Parsed and fully validated before dispatch; prefer a real array." }, { type: "null" }] },
   }, ["requestId"]),
-  remote_browser_read: object({ ...browser, target: nullable(target) }),
+  remote_browser_read: object({ ...browser, pageId, target: nullable(target) }),
   remote_browser_control: object({
     ...browser, action: choice(["focus", "select-page", "close", "dialog-accept", "dialog-dismiss"], "Browser operation; use native DSH cancellation for task control"),
     pageId: optionalString("Existing page ID, required for select-page"),

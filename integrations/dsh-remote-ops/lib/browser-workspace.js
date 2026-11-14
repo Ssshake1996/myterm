@@ -16,12 +16,52 @@ function viewportSize(width, height) {
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 // This function runs inside each visible document, including cross-origin frames.
-function documentLayoutWidth(measureIntrinsic) {
+function documentLayoutWidth({ measureIntrinsic, findPageShell }) {
   const root = document.documentElement;
   if (!root || !innerWidth) return { required: 0, overflow: 0, frameWidth: 0 };
+  const result = { required: 0, overflow: 0, frameWidth: innerWidth };
   const overflow = Math.max(0, root.scrollWidth - root.clientWidth, (document.body?.scrollWidth ?? 0) - root.clientWidth);
   if (overflow > 1) return { required: innerWidth + overflow, overflow, frameWidth: innerWidth };
-  if (!measureIntrinsic) return { required: 0, overflow: 0, frameWidth: innerWidth };
+  if (findPageShell && !document.body?.isContentEditable) {
+    // Follow the page's outer layout wrappers only. A fixed button, logo or sidebar
+    // inside an otherwise fluid layout must not determine the whole page's zoom.
+    let shell = document.body, gutters = 0, verticalGutters = 0;
+    while (shell) {
+      const rect = shell.getBoundingClientRect(), style = getComputedStyle(shell);
+      const props = shell.computedStyleMap?.();
+      const cssWidth = props?.get('width');
+      const fixed = cssWidth?.unit === 'px' ||
+        (shell.tagName === 'CANVAS' && shell.hasAttribute('width'));
+      const margin = side => {
+        const value = props?.get('margin-' + side);
+        return value?.unit === 'px' ? value.value : 0;
+      };
+      gutters += margin('left') + margin('right');
+      verticalGutters += margin('top') + margin('bottom');
+      const pageContainer = shell === document.body || shell.matches('main, [role="main"], form, table, iframe, canvas, svg') ||
+        (shell.matches('div, section, article') && rect.height >= Math.min(innerHeight / 2, 240));
+      if (fixed && pageContainer && rect.width > 0 && rect.height > 0) {
+        // Margins used for centering are auto. Keep deliberate gutters and any
+        // width reserved for the document scrollbar in the layout viewport.
+        result.shellWidth = Math.ceil(rect.width + gutters + Math.max(0, innerWidth - root.clientWidth));
+        result.declaredWidth = cssWidth?.unit === 'px' ? cssWidth.value : shell.width;
+        const fixedHeight = props?.get('height')?.unit === 'px' || (shell.tagName === 'CANVAS' && shell.hasAttribute('height'));
+        if (fixedHeight && shell.scrollHeight <= shell.clientHeight + 1) {
+          result.shellHeight = Math.ceil(rect.height + verticalGutters);
+        }
+        break;
+      }
+      gutters += ['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth'].reduce((sum, key) => sum + (parseFloat(style[key]) || 0), 0);
+      verticalGutters += ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth'].reduce((sum, key) => sum + (parseFloat(style[key]) || 0), 0);
+      const children = Array.from(shell.children).filter(child => {
+        const box = child.getBoundingClientRect();
+        return box.width > 0 && box.height > 0 && getComputedStyle(child).visibility === 'visible';
+      });
+      if (children.length !== 1) break;
+      shell = children[0];
+    }
+  }
+  if (!measureIntrinsic) return result;
   // Once an expanded document fits, scrollWidth also includes unused viewport space.
   // Track its explicit intrinsic widths to release the zoom when a device changes views.
   let required = 0;
@@ -36,28 +76,36 @@ function documentLayoutWidth(measureIntrinsic) {
     }
     for (let child = node.firstElementChild; child && pending.length < 256; child = child.nextElementSibling) pending.push(child);
   }
-  return { required, overflow: 0, frameWidth: innerWidth };
+  return { ...result, required };
 }
 
-async function measuredPageWidth(page, baseWidth, currentWidth, previousFrames = []) {
+async function measuredPageWidth(page, baseWidth, currentWidth, previousFrames = [], fitShell = false) {
   const root = page.mainFrame();
   const documents = await Promise.all(page.frames().map(async frame => {
+    let fullPageFrame = false;
     if (frame !== root) {
       let element;
       try {
         element = await frame.frameElement();
-        const visible = await element.evaluate(node => {
+        const bounds = await element.evaluate(node => {
           const rect = node.getBoundingClientRect();
-          return rect.width >= 32 && rect.height >= 16 && getComputedStyle(node).visibility === 'visible';
+          if (rect.width < 32 || rect.height < 16 || getComputedStyle(node).visibility !== 'visible') return null;
+          return { fullPage: Math.abs(rect.width - document.documentElement.clientWidth) <= 2 &&
+            Math.abs(rect.height - innerHeight) <= 2 && Math.abs(rect.left) <= 2 && Math.abs(rect.top) <= 2 };
         });
-        if (!visible) return null;
+        if (!bounds) return null;
+        fullPageFrame = bounds.fullPage && frame.parentFrame() === root;
       } catch { return null; }
       finally { if (element) await element.dispose().catch(() => {}); }
     }
-    try { return { frame, ...await frame.evaluate(documentLayoutWidth, currentWidth > baseWidth) }; }
+    try { return { frame, fullPageFrame, ...await frame.evaluate(documentLayoutWidth, {
+      measureIntrinsic: currentWidth > baseWidth, findPageShell: fitShell && (frame === root || fullPageFrame)
+    }) }; }
     catch { return null; } // A child frame can navigate while the panel is being sized.
   }));
-  let width = baseWidth;
+  const shell = documents.find(doc => doc?.frame === root && doc.shellWidth) ??
+    documents.find(doc => doc?.fullPageFrame && doc.shellWidth);
+  let width = shell?.shellWidth || baseWidth;
   for (const doc of documents) {
     if (!doc) continue;
     if (doc.frame === root) width = Math.max(width, doc.required || 0);
@@ -74,7 +122,55 @@ async function measuredPageWidth(page, baseWidth, currentWidth, previousFrames =
     }
     doc.viewportWidth = currentWidth;
   }
-  return { width, frames: documents.filter(doc => doc && doc.frame !== root) };
+  return { width, shellWidth: shell?.shellWidth, shellHeight: shell?.shellHeight, declaredWidth: shell?.declaredWidth,
+    frames: documents.filter(doc => doc && doc.frame !== root) };
+}
+
+async function fitPageViewport(record, page, base, panelRatio, fitShell, samePanel, applySize) {
+  if (!samePanel) record.fitFrameSizes = undefined;
+  const measure = async () => {
+    const layout = await measuredPageWidth(page, base.width, record.viewport.width, record.fitFrameSizes, fitShell);
+    record.fitFrameSizes = layout.frames;
+    return layout;
+  };
+  let layout = await measure();
+  const last = samePanel && record.fitShell;
+  if (last && last.width === layout.width && last.shellWidth === layout.shellWidth && last.shellHeight === layout.shellHeight) return;
+  record.fitShell = undefined;
+  let byWidth = viewportSize(layout.width, layout.width / panelRatio);
+  // CSS viewport units and media queries may also resolve to pixels. Only
+  // magnify a page if its outer content keeps the same width when resized.
+  let original = layout;
+  if (await applySize(byWidth)) {
+    // Even when the first measurement only reports horizontal overflow, the
+    // expanded viewport can reveal a fixed console that also needs height fit.
+    if (!fitShell || !original.shellWidth && byWidth.width <= base.width) return;
+    layout = await measure();
+  }
+  if (!original.shellWidth && !layout.shellWidth) return;
+  // Percentage padding can exceed a fixed border-box width on a very wide
+  // panel. Once that padding fits, confirm the same declared width once more.
+  if (byWidth.width < base.width && layout.declaredWidth === original.declaredWidth &&
+      layout.shellWidth > 0 && layout.width < byWidth.width - 1) {
+    original = layout;
+    byWidth = viewportSize(layout.width, layout.width / panelRatio);
+    await applySize(byWidth);
+    layout = await measure();
+  }
+  if (byWidth.width < base.width && (!layout.shellWidth || Math.abs(layout.shellWidth - original.shellWidth) > 1 || layout.width > byWidth.width + 1)) {
+    await applySize(base);
+    layout = await measure();
+  } else if (layout.shellHeight > byWidth.height + 1) {
+    // A complete fixed-size console must also fit the available height. An
+    // ordinary scrolling document or a viewport-relative height keeps width fit.
+    const byHeight = viewportSize(layout.shellHeight * panelRatio, layout.shellHeight);
+    if (await applySize(byHeight)) {
+      const checked = await measure();
+      if (checked.shellHeight === layout.shellHeight && checked.shellWidth === layout.shellWidth) layout = checked;
+      else await applySize(byWidth);
+    }
+  }
+  record.fitShell = { width: layout.width, shellWidth: layout.shellWidth, shellHeight: layout.shellHeight };
 }
 export { browserInstallerCli } from './browser-runtime.js';
 export class BrowserWorkspace extends BrowserSessions {
@@ -108,9 +204,11 @@ export class BrowserWorkspace extends BrowserSessions {
   async openUrl(owner,value,options={}) {
     await this.ready;const url=browserUrl(value),origin=new URL(url).origin;
     const site={id:'url-'+createHash('sha256').update(origin).digest('hex').slice(0,24),name:new URL(url).host,url,browser:options.browser??'default',slowMo:80,allowedOrigins:[origin],temporary:true};
-    const display=options.display??this.preferences.display;this.validatePreferences({display});
+    const display=options.display??(options.background ? 'embedded' : this.preferences.display);this.validatePreferences({display});
     const existing=[...this.sessions.values()].find(r=>r.owner===owner&&!r.closed&&r.site.id===site.id);
-    const opened=await this.open(owner,site.id,{site,display});
+    const opened=await this.open(owner,site.id,{site,display,background:options.background});
+    if (options.background) return existing || this.session(owner, opened.id).site.url !== url ?
+      this.openBackgroundUrl(owner, opened.id, url) : { ...opened, pageId: opened.activePageId };
     if(existing&&existing.pages.get(existing.activePageId)?.url()!==url)return this.navigate(owner,opened.id,'goto',url,options.source??'agent');
     return opened;
   }
@@ -161,27 +259,26 @@ export class BrowserWorkspace extends BrowserSessions {
       const previous = r.viewportHint, navigation = r.navigationRevision;
       const same = previous?.pageId === pageId && previous.navigation === navigation && previous.mode === mode && previous.width === width && previous.height === height;
       if (same && !checkContent) return this.publicSession(r);
+      const current = () => r.activePageId === pageId && r.navigationRevision === navigation && !r.closed && !r.switching;
       const applySize = async size => {
-        if (r.viewport?.width !== size.width || r.viewport?.height !== size.height) {
+        if (!current()) return false;
+        const changed = r.viewport?.width !== size.width || r.viewport?.height !== size.height;
+        if (changed) {
           r.revision = (r.revision ?? 0) + 1;
           await r.view?.stop();
           await Promise.all([...r.pages.values()].map(tab => tab.setViewportSize(size).catch(error => { if (!tab.isClosed()) throw error; })));
         }
         r.viewport = { mode, ...size };
+        return changed;
       };
       try {
         if (!same) await applySize(base);
-        if (fit) {
-          const measured = await measuredPageWidth(page, base.width, r.viewport.width, same ? r.fitFrameSizes : undefined);
-          if (r.activePageId === pageId && r.navigationRevision === navigation) {
-            r.fitFrameSizes = measured.frames;
-            await applySize(viewportSize(measured.width, measured.width * height / width));
-          }
-        }
+        if (fit && current()) await fitPageViewport(r, page, base, width / height, mode === 'panel', same, applySize);
       } catch (error) {
         if (r.closed || r.switching) return { ...this.publicSession(r), viewportSkipped: true };
         throw error;
       }
+      if (!current()) return { ...this.publicSession(r), viewportSkipped: true };
       r.viewportHint = { mode, width, height, pageId, navigation };
       r.nextLayoutCheck = Date.now() + 1000;
       if (this.preferences.viewport !== mode) await this.savePreferences({ viewport: mode });

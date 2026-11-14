@@ -11,6 +11,136 @@ import { registerBrowserTools } from '../../integrations/dsh-remote-ops/lib/brow
 import { browserRuntimeMetadata } from '../../integrations/dsh-remote-ops/lib/browser-runtime.js';
 import { prepareEmbeddedBrowser } from '../../integrations/dsh-remote-ops/lib/embedded-browser.js';
 
+async function removeTestRoot(root) {
+  assert.equal(dirname(resolve(root)), resolve(tmpdir()));
+  // Windows can still hold the Chromium executable briefly after context.close().
+  await rm(root, { recursive: true, force: true, maxRetries: 6, retryDelay: 150 });
+}
+
+test('panel fits a fixed device console in both dimensions and preserves responsive layouts', { timeout: 60000 }, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'remote-ops-panel-'));
+  const server = createServer((_req, res) => res.end('<!doctype html><title>Panel test</title>'));
+  const workspace = new BrowserWorkspace({ root, browserCacheRoot: join(root, 'cache') });
+  t.after(async () => {
+    await workspace.dispose();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await removeTestRoot(root);
+  });
+  await new Promise(done => server.listen(0, '127.0.0.1', done));
+  const owner = 'panel-test';
+  const { id } = await workspace.openUrl(owner, 'http://127.0.0.1:' + server.address().port);
+  const session = workspace.session(owner, id), page = session.pages.get(session.activePageId);
+  const fixture = css => page.setContent('<!doctype html><style>body{margin:0}main{height:100vh;position:relative}' + css +
+    '</style><div><main><input id="draft"><button style="position:absolute;bottom:0;right:0">Apply</button></main></div>');
+  const resize = (width, height) => workspace.resizeViewport(owner, id, { mode: 'panel', width, height });
+  const recheck = () => workspace.resizeViewport(owner, id, session.viewportHint, true);
+  const view = () => page.evaluate(() => [innerWidth, innerHeight]);
+
+  await fixture('main{width:720px;height:480px}');
+  await page.locator('#draft').fill('keep me');
+  for (const [panelW, panelH, expected] of [[1000,700,[720,504]], [960,640,[720,480]], [1000,500,[960,480]], [400,200,[960,480]], [400,600,[720,1080]]]) {
+    await resize(panelW, panelH);
+    assert.deepEqual(await view(), expected);
+    const revision = session.revision;
+    await recheck(); await recheck();
+    assert.equal(session.revision, revision, 'a stable page must keep its viewport');
+    const corner = await page.getByRole('button').boundingBox();
+    assert.ok(corner.x + corner.width <= expected[0] && corner.y + corner.height <= expected[1]);
+    assert.equal(await page.locator('#draft').inputValue(), 'keep me');
+  }
+
+  // Switching the page layout without a navigation must also release the fixed zoom.
+  await fixture('main{width:100%}');
+  await recheck();
+  assert.deepEqual(await view(), [400,600]);
+  for (const css of ['main{width:72vw}', 'main{width:100%;max-width:720px;margin:auto}',
+    'main{width:720px}@media(max-width:800px){main{width:100%}}']) {
+    await fixture(css);
+    await resize(1000, 700);
+    await recheck();
+    assert.deepEqual(await view(), [1000,700], css);
+    const revision = session.revision;
+    await recheck();
+    assert.equal(session.revision, revision, 'responsive layouts must not oscillate');
+    await resize(900, 680);
+  }
+  await fixture('main{width:720px;height:100vh}');
+  await resize(1000, 700);
+  assert.deepEqual(await view(), [720,504]);
+  assert.deepEqual(await page.locator('main').boundingBox(), { x:0, y:0, width:720, height:504 });
+  await workspace.resizeViewport(owner, id, { mode:'desktop', width:1000, height:700 });
+  assert.deepEqual(await view(), [1024,717]);
+  await page.setContent('<!doctype html><style>body{margin:0}canvas{display:block}</style><canvas width="720" height="480"></canvas>');
+  await resize(1000, 500);
+  assert.deepEqual(await view(), [960,480]);
+  await fixture('main{box-sizing:border-box;width:320px;padding:0 6%}');
+  await resize(3199, 1190);
+  assert.deepEqual(await view(), [320,119]);
+  assert.equal((await page.locator('main').boundingBox()).width, 320);
+});
+
+test('background tools reuse the device login and follow a popup while the selected tab keeps its draft', { timeout: 60000 }, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'remote-ops-background-'));
+  let saved = 0;
+  const server = createServer((req, res) => {
+    const signedIn = req.headers.cookie?.includes('fixture=logged-in');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    if (req.url === '/manual') {
+      res.setHeader('Set-Cookie', 'fixture=logged-in; HttpOnly; Path=/');
+      res.end('<title>Operator</title><input id="draft">');
+    } else if (req.url === '/job' && signedIn) {
+      res.end('<title>Port</title><h1>Fixture login verified</h1><a id="form" href="/popup" target="_blank">Settings</a>');
+    } else if (req.url === '/popup' && signedIn) {
+      res.end('<title>Settings</title><input id="port"><button id="save" onclick="fetch(\'/saved\',{method:\'POST\'}).then(r=>r.text()).then(s=>document.querySelector(\'output\').textContent=s)">Save</button><output></output>');
+    } else if (req.url === '/saved' && req.method === 'POST' && signedIn) {
+      saved++;
+      res.end('Device saved');
+    } else res.writeHead(403).end();
+  });
+  const workspace = new BrowserWorkspace({ root, browserCacheRoot: join(root, 'cache') });
+  t.after(async () => {
+    await workspace.dispose();
+    server.closeAllConnections(); await new Promise(done => server.close(done));
+    await removeTestRoot(root);
+  });
+  await new Promise(done => server.listen(0, '127.0.0.1', done));
+  const url = 'http://127.0.0.1:' + server.address().port, owner = 'background-test';
+  const tools = new Map();
+  registerBrowserTools({ tools: { register: tool => tools.set(tool.name, tool) }, systemPrompt: { section() {} } }, { browser: workspace });
+  const call = (name, args) => tools.get('remote_browser_' + name).execute(args, { agent: { id: owner } });
+  const manual = await call('open', { url: url + '/manual' }), record = workspace.session(owner, manual.id);
+  const visible = record.pages.get(manual.activePageId);
+  await visible.locator('#draft').fill('unfinished');
+  await visible.locator('#draft').focus();
+  const job = await call('open', { url: url + '/job', background: true });
+  assert.equal(job.id, manual.id); assert.notEqual(job.pageId, manual.activePageId);
+  const target = { browserId: job.id, pageId: job.pageId };
+  assert.equal((await call('open', { url: url + '/job', background: true })).pageId, job.pageId);
+  assert.match((await call('read', target)).page.text, /Fixture login verified/);
+  assert.equal((await call('read', { ...target, target: '#form' })).target.count, 1);
+  const recording = await call('recording', { action: 'start', browserId: job.id });
+  await call('run', { ...target, background: true, requestId: 'ports', steps: [
+    { action: 'click', target: '#form', expectPopup: true },
+    { action: 'fill', target: '#port', value: 'GE 1/0/1' },
+    { action: 'click', target: '#save', expect: { target: 'output', text: 'Device saved' } },
+  ] });
+  await record.job.done;
+  const { browser } = await call('read', target);
+  assert.equal(browser.job.status, 'completed', browser.job.error?.message);
+  assert.notEqual(browser.job.pageId, target.pageId);
+  const result = await call('read', { browserId: job.id, pageId: browser.job.pageId });
+  assert.match(result.page.text, /Device saved/);
+  assert.equal(result.browser.activePageId, manual.activePageId);
+  assert.equal(saved, 1);
+  assert.equal(await visible.locator('#draft').inputValue(), 'unfinished');
+  assert.equal(await visible.evaluate(() => document.activeElement.id), 'draft');
+  await call('recording', { action: 'stop', recordingId: recording.id });
+  const { events } = await call('recording', { action: 'read', recordingId: recording.id, limit: 200 });
+  assert.ok(events.some(e => e.pageId === browser.job.pageId && e.target?.css === '#save'));
+  await assert.rejects(call('read', { browserId: job.id, pageId: 'missing' }), /BROWSER_PAGE_INVALID/);
+});
+
 test('Agent signs in and reads and exports exact literal and parameterized passwords', { timeout: 60000 }, async t => {
   const passwords = ['  demo &+$" device  ', ' 设备 {{literal}} $&  '];
   let accepted = 0;
@@ -36,8 +166,7 @@ test('Agent signs in and reads and exports exact literal and parameterized passw
   t.after(async () => {
     await workspace.dispose();
     server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
-    assert.equal(dirname(resolve(root)), resolve(tmpdir()));
-    await rm(root, { recursive: true, force: true });
+    await removeTestRoot(root);
   });
   const tools = new Map();
   registerBrowserTools({ tools: { register: tool => tools.set(tool.name, tool) }, systemPrompt: { section() {} } }, { browser: workspace });
@@ -92,7 +221,7 @@ test('saved-site login records the resolved password and screenshots follow the 
   t.after(async () => {
     await workspace.dispose();
     server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
-    assert.equal(dirname(resolve(root)), resolve(tmpdir())); await rm(root, {recursive:true,force:true});
+    await removeTestRoot(root);
   });
   const site = await workspace.saveSite({ name:'Login fixture', url:`http://127.0.0.1:${server.address().port}/`, username:'demo',
     login:{username:'#account',password:'#pwd',submit:'#login',success:'#ok'} }, password);
@@ -123,7 +252,7 @@ test('saved-site login records the resolved password and screenshots follow the 
 
 test('the package builder prepares a missing browser bundle offline and reuses it', {timeout:120000}, async t=>{
   const root=await mkdtemp(join(tmpdir(),'remote-ops-browser-prepare-'));
-  t.after(async()=>{assert.ok(resolve(root).startsWith(resolve(tmpdir())+'\\')||resolve(root).startsWith(resolve(tmpdir())+'/'));await rm(root,{recursive:true,force:true});});
+  t.after(() => removeTestRoot(root));
   const plugin=fileURLToPath(new URL('../../integrations/dsh-remote-ops/',import.meta.url));
   for(const directory of ['lib','scripts'])await mkdir(join(root,directory),{recursive:true});
   await writeFile(join(root,'package.json'),JSON.stringify({type:'module'}));
@@ -154,7 +283,7 @@ test('bundled browser records genuine human/Agent events, cross-origin frames, p
   });
   await new Promise(resolve=>server.listen(0,resolve));
   const w=new BrowserWorkspace({root,browserCacheRoot:join(root,'cache')});await w.ready;
-  t.after(async()=>{await w.dispose();await new Promise(resolve=>server.close(resolve));assert.ok(resolve(root).startsWith(resolve(tmpdir())+'\\')||resolve(root).startsWith(resolve(tmpdir())+'/'));await rm(root,{recursive:true,force:true});});
+  t.after(async()=>{await w.dispose();await new Promise(resolve=>server.close(resolve));await removeTestRoot(root);});
   const opened=await w.openUrl('live',`http://127.0.0.1:${server.address().port}/?token=do-not-export`),record=w.session('live',opened.id),page=record.pages.get(record.activePageId);
   const runtime=await w.runtime();assert.equal(runtime.modes.embedded.source,'bundled');assert.equal(runtime.modes.embedded.ready,true);
   const started=await w.recording('live',{action:'start',browserId:opened.id,name:'Real document events'});

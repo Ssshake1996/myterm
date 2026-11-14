@@ -45,6 +45,26 @@ test('a URL opens without a saved site and defaults to embedded; active selectio
   await assert.rejects(w.openUrl('a','javascript:alert(1)'),/BROWSER_URL_INVALID/);
 });
 
+test('background opens leave the visible browser, its OS focus and display preference alone', async t => {
+  const { w, launches } = await fixture(t);
+  const shown = await w.openUrl('operator', 'https://shown.test/', { display: 'window' });
+  const foreground = w.session('operator', shown.id);
+  let focusCalls = 0;
+  foreground.pages.get(shown.activePageId).bringToFront = async () => { focusCalls++; };
+  await w.savePreferences({ display: 'window' });
+  const hidden = await w.openUrl('operator', 'https://other.test/', { background: true });
+  assert.equal(launches.at(-1).options.headless, true);
+  assert.equal(w.snapshot('operator').activeBrowserId, shown.id);
+  assert.equal(w.preferences.display, 'window');
+  assert.equal(hidden.pageId, hidden.activePageId);
+  w.session('operator', hidden.id).pages.get(hidden.pageId).bringToFront = async () => { focusCalls++; };
+  await w.openUrl('operator', 'https://other.test/', { background: true });
+  assert.equal(focusCalls, 0);
+  await assert.rejects(w.openUrl('operator', 'https://shown.test/', { background: true }), /BROWSER_BACKGROUND_WINDOW/);
+  assert.equal(foreground.display, 'window');
+  assert.equal(foreground.closed, false);
+});
+
 test('panel viewport resizes are owner scoped, invalidate old coordinates and deduplicate unchanged sizes',async t=>{
   const {w,inputs}=await fixture(t),one=await w.openUrl('a','https://example.test/'),r=w.session('a',one.id);
   const frame=await w.frame('a',one.id,{});

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
 
-const titles = { overview: '设备概览', ports: '端口状态', legacy: '固定宽度设备', framed: '设备内嵌表单' };
+const titles = { overview: '设备概览', ports: '端口状态', legacy: '固定宽度设备', compact: '定宽设备控制台', framed: '设备内嵌表单' };
 
 export function serveLayoutFixture(path, response, origin) {
   const name = path.split('/').at(-1);
@@ -21,13 +21,13 @@ export function serveLayoutFixture(path, response, origin) {
   }
   response.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><title>${titles[name]}</title>
     <style>*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui;color:#233643;background:#eef3f4}
-    main{height:100vh;min-width:${name === 'legacy' ? '1100px' : '0'};position:relative;padding:56px 6%;background:linear-gradient(#f7fafa,#e2ecee)}
+    main{height:100vh;${name === 'compact' ? 'width:320px;' : ''}min-width:${name === 'legacy' ? '1100px' : '0'};position:relative;padding:56px 6%;background:linear-gradient(#f7fafa,#e2ecee)}
     h1{font-size:24px;margin:6px 0 20px}p{margin:0}table{width:100%;background:white;border-collapse:collapse}th,td{border-bottom:1px solid #d4e0e3;padding:8px;text-align:left}
     button{position:absolute;background:#235565;color:white;border:0;border-radius:4px;width:64px;height:36px}
     .t{top:3px}.b{bottom:3px}.l{left:3px}.r{right:3px}footer{padding:30px}</style>
     <main><p>设备管理</p><h1>${titles[name]}</h1><table><tr><th>接口</th><th>状态</th><th>速率</th></tr><tr><td>GE 1/0/1</td><td>已连接</td><td>1 Gbps</td></tr><tr><td>GE 1/0/2</td><td>已连接</td><td>1 Gbps</td></tr></table>
     ${[['tl','左上'],['tr','右上'],['bl','左下'],['br','右下']].map(([id,label]) => `<button id="${id}" class="${id[0]} ${id[1]}">${label}</button>`).join('')}
-    <input id="draft" aria-label="设备名称"><output id="last"></output></main><footer>接口列表末尾</footer>
+    <input id="draft" aria-label="设备名称"><output id="last"></output></main>${name === 'compact' ? '' : '<footer>接口列表末尾</footer>'}
     <script>draft.oninput=()=>last.textContent=draft.value;document.onclick=e=>{if(e.target.tagName==='BUTTON')last.textContent='hit-'+e.target.id}</script></html>`);
   return true;
 }
@@ -57,7 +57,9 @@ export async function checkBrowserLayout({ page, owner, api, snapshot, until, st
     });
     if (!box.encodedW || box.revision !== current.revision || Math.abs(box.imageW - box.w) > 2 || Math.abs(box.imageH - box.h) > 2) return false;
     const { width, height } = current.viewport;
-    if (fixed ? width < 1100 : Math.abs(width - box.w) > 1 || Math.abs(height - box.h) > 1) return false;
+    if (typeof fixed === 'number') {
+      if (width !== fixed || Math.abs(height - fixed * box.h / box.w) > 1) return false;
+    } else if (fixed ? width < 1100 : Math.abs(width - box.w) > 1 || Math.abs(height - box.h) > 1) return false;
     return { ...box, width, height };
   });
   const record = (action, recordingId) => api('browser', { sessionId: owner, action: 'recording', recording: { action, recordingId, ...(action === 'read' ? { limit: 200 } : {}) } });
@@ -124,6 +126,37 @@ export async function checkBrowserLayout({ page, owner, api, snapshot, until, st
     evidence.panelLayout.framed = frame;
     evidence.panelLayout.afterSwitch = await geometry();
     await open('overview');
+  });
+  await step('侧栏变宽时放大窄设备网页，四角点击与元素操作命中同一标签', async () => {
+    await open('compact');
+    const initial = await geometry(320);
+    const tabId = (await active()).activePageId;
+    const divider = await page.locator('[data-side="rightbar"]').boundingBox();
+    const x = divider.x + divider.width / 2, y = divider.y + divider.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    const samples = [];
+    try {
+      for (const dx of [80,160,240]) {
+        await page.mouse.move(x - dx, y, { steps: 6 });
+        const model = await geometry(320);
+        assert.ok(model.w > (samples.at(-1) ?? initial).w + 25);
+        samples.push(model);
+      }
+    } finally { await page.mouse.up(); }
+    evidence.panelLayout.compactHeld = samples;
+    evidence.panelLayout.compactCorners = await corners(samples.at(-1));
+    await api('browser', { sessionId: owner, action: 'run', pageId: tabId, steps: [
+      { action: 'fill', target: '#draft', value: '同一标签', expect: { target: '#last', text: '同一标签' } },
+    ] });
+    await until(async () => (await active()).job?.status === 'completed');
+    assert.equal((await active()).activePageId, tabId);
+    assert.ok((await api('browser', { sessionId: owner, action: 'observe' })).result.text.includes('同一标签'));
+    await page.locator('.dsh-remote-ops__webBrowser').screenshot({ path: join(out, 'compact-fit.png') });
+    const moved = await page.locator('[data-side="rightbar"]').boundingBox();
+    await page.mouse.move(moved.x + moved.width / 2, y); await page.mouse.down();
+    try { await page.mouse.move(x, y, { steps: 12 }); } finally { await page.mouse.up(); }
+    await open('overview'); await geometry();
   });
   await step('固定宽度设备适宽显示，四角点击与录制对应', async () => {
     await open('ports', true); await open('legacy', true);

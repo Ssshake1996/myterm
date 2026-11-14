@@ -26,7 +26,8 @@ export class BrowserSessions {
   }
   attachPage(record, page, fixedId) {
     for (const [id, existing] of record.pages) if (existing === page) return id;
-    const id = fixedId??randomUUID(); record.pages.set(id, page); if (!record.activePageId || finished(record.job)) record.activePageId = id;
+    const id = fixedId??randomUUID(); record.pages.set(id, page);
+    if (!record.activePageId || !record.openingBackgroundPage && finished(record.job)) record.activePageId = id;
     const context=record.context;
     void this.recordings.append(record,{kind:'page',action:'open',source:'browser',status:'observed',pageId:id,url:recordingUrl(page.url())});
     this.recordings.observePage(record,page,id);
@@ -59,23 +60,37 @@ export class BrowserSessions {
     if (!owner || typeof owner !== "string") throw browserError("BROWSER_OWNER_REQUIRED", "Select a DSH conversation first");
     if (this.disposed) throw browserError("BROWSER_DISPOSED", "The plugin is unloading");
     const key = `${owner}:${siteId}`;
-    if (this.openings.has(key)) return this.openings.get(key);
+    if (this.openings.has(key)) {
+      await this.openings.get(key);
+      return this.open(owner, siteId, options);
+    }
     const savedSite = options.site ?? this.sites.find(item => item.id === siteId);
     const site = options.browser != null && savedSite ? { ...savedSite, browser: options.browser } : savedSite;
     if (!site) throw browserError("BROWSER_SITE_NOT_FOUND", "Save a web site first");
+    if (options.background && options.display === 'window') throw browserError('BROWSER_DISPLAY_INVALID', 'Choose embedded display for background work.');
     const existing = [...this.sessions.values()].find(record => !record.closed && record.owner === owner && record.site.id === siteId);
     if (existing && (options.browser != null || options.site) && existing.site.browser !== site.browser) throw browserError('BROWSER_ENGINE_CHANGED', 'This site is already open with another browser setting. Close that browser explicitly before reopening with the requested engine; its current page was preserved.');
-    if (existing) { this.active?.set(owner,existing.id);if(options.display&&existing.display!==options.display)await this.changeDisplay(owner,existing.id,options.display);await existing.pages.get(existing.activePageId)?.bringToFront(); return this.publicSession(existing); }
+    if (existing) {
+      if (options.background) {
+        if (existing.display !== 'embedded') throw browserError('BROWSER_BACKGROUND_WINDOW', 'This site is already open in an independent window. Use its open page or ask before changing its display.');
+      } else {
+        this.active?.set(owner,existing.id);
+        if (options.display && existing.display !== options.display) await this.changeDisplay(owner,existing.id,options.display);
+        await existing.pages.get(existing.activePageId)?.bringToFront();
+      }
+      return this.publicSession(existing);
+    }
     if(options.display)this.validatePreferences({display:options.display});
     const active = [...this.sessions.values()].filter(record => !record.closed);
     if (active.filter(record => record.owner === owner).length + [...this.openings.keys()].filter(key => key.startsWith(`${owner}:`)).length >= 3 || active.length + this.openings.size >= 8) throw browserError("BROWSER_SESSION_LIMIT", "Maximum 3 browsers per conversation, 8 per plugin");
     const opening = (async () => {
-      const display=options.display??'window';
+      const display=options.background ? 'embedded' : options.display??'window';
       const context = await this.launch(site, owner,display);
       if (this.disposed) { await context.close(); throw browserError("BROWSER_DISPOSED", "The plugin is unloading"); }
       const record = { id: randomUUID(), owner, site, context, display, viewport:{mode:this.preferences?.viewport??'panel',width:1024,height:768}, revision:0, pages: new Map(), secrets: new Set(), closed: false, createdAt: new Date().toISOString(), history: [] };
+      const selected = this.sessions.get(this.active?.get(owner));
       this.sessions.set(record.id, record);
-      this.active?.set(owner,record.id);
+      if (!options.background || !selected || selected.closed) this.active?.set(owner,record.id);
       this.bindContext(record,context);
       for (const page of context.pages()) this.attachPage(record, page);
       const page = record.pages.values().next().value ?? await context.newPage();
@@ -88,6 +103,32 @@ export class BrowserSessions {
     this.openings.set(key, opening);
     try { return await opening; } finally { this.openings.delete(key); }
   }
+  async openBackgroundUrl(owner, id, url) {
+    const record = this.session(owner, id);
+    const pending = (record.inputQueue ?? Promise.resolve()).then(async () => {
+      if (record.closed || record.switching || record.display !== 'embedded') throw browserError('BROWSER_CLOSED', 'The embedded browser is no longer available');
+      const match = [...record.pages].find(([, page]) => page.url() === url);
+      if (match) return { ...this.publicSession(record), pageId: match[0] };
+      if (record.pages.size >= 12) throw browserError('BROWSER_PAGE_LIMIT', 'At most twelve pages per browser');
+      record.openingBackgroundPage = true;
+      let page, pageId;
+      try {
+        page = await record.context.newPage();
+        pageId = this.attachPage(record, page);
+      } finally { record.openingBackgroundPage = false; }
+      const handle = await this.recordings.begin(record, 'agent', 'goto', { url: recordingUrl(url) }, pageId);
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await this.recordings.end(record, handle, 'completed');
+      } catch (error) {
+        await this.recordings.end(record, handle, 'unknown', { code: error.code ?? 'BROWSER_NAVIGATION_FAILED' });
+        throw error;
+      }
+      return { ...this.publicSession(record), pageId };
+    });
+    record.inputQueue = pending.catch(() => {});
+    return pending;
+  }
   publicSession(record) {
     return { id: record.id, siteId: record.site.id, name: record.site.name, display:record.display??'window', viewport:record.viewport??{mode:'desktop',width:1024,height:768}, temporary:!!record.site.temporary, revision:record.revision??0, closed: record.closed, holder: "shared", activePageId: record.activePageId ?? null,
       pages: [...record.pages].map(([id, page]) => ({ id, url: displayUrl(page.url()), title:this.redact(record,record.pageTitles?.get(id)??'').slice(0,120), active: id === record.activePageId })),
@@ -96,7 +137,7 @@ export class BrowserSessions {
       screenshotAt: record.screenshot?.at ?? null, recording:this.recordings.summary(record) };
   }
   publicJob(record, job) {
-    return { id: job.id, status: job.status, index: job.index, count: job.steps.length, results: job.results, error: job.error ?? null, startedAt: job.startedAt, finishedAt: job.finishedAt ?? null, inFlight: job.inFlight };
+    return { id: job.id, pageId: job.pageId, status: job.status, index: job.index, count: job.steps.length, results: job.results, error: job.error ?? null, startedAt: job.startedAt, finishedAt: job.finishedAt ?? null, inFlight: job.inFlight };
   }
   snapshot(owner) { return { sites: this.sites, flows: this.flows, preferences:this.preferences, activeBrowserId:this.active?.get(owner)??null, sessions: [...this.sessions.values()].filter(record => record.owner === owner).map(record => this.publicSession(record)) }; }
   async navigate(owner,id,action,value,source='human') {
@@ -145,7 +186,7 @@ export class BrowserSessions {
     }catch(error){r.closed=true;await r.context.close().catch(()=>{});throw error;}
     finally{r.switching=false;}
   }
-  async run(owner, id, source, { requestId = randomUUID(), mode = "run", variables = {}, pageId, actor = 'agent' } = {}) {
+  async run(owner, id, source, { requestId = randomUUID(), mode = "run", variables = {}, pageId, actor = 'agent', background = false } = {}) {
     await this.ready;
     variables ??= {};
     pageId ??= undefined;
@@ -158,10 +199,11 @@ export class BrowserSessions {
     const templateSteps = browserSteps(flow?.steps ?? source);
     const steps = expandBrowserSteps(templateSteps, variables);
     if (typeof requestId !== "string" || !requestId || requestId.length > 160) throw browserError("BROWSER_REQUEST_INVALID", "Use a request ID up to 160 characters");
-    const hash = createHash("sha256").update(JSON.stringify({ steps, mode, pageId })).digest("hex"), key = `${owner}:${id}:${requestId}`;
+    const hash = createHash("sha256").update(JSON.stringify({ steps, mode, pageId, ...(background ? { background } : {}) })).digest("hex"), key = `${owner}:${id}:${requestId}`;
     for (const [receiptKey, receipt] of this.receipts) if (finished(receipt.job) && (Date.now() - receipt.at > 600000 || this.receipts.size > 100)) this.receipts.delete(receiptKey);
     const previous = this.receipts.get(key);
     if (previous) { if (previous.hash !== hash) throw browserError("BROWSER_REQUEST_CONFLICT", "This request ID already has a different operation"); return previous.job; }
+    if (background && record.display !== 'embedded') throw browserError('BROWSER_BACKGROUND_WINDOW', 'Use a plugin-managed embedded browser for background work.');
     if (!finished(record.job)) throw browserError("BROWSER_BUSY", "Pause or finish the current flow before starting another");
     if (!["run", "step"].includes(mode) || !record.pages.has(pageId ?? record.activePageId)) throw browserError("BROWSER_PAGE_INVALID", "Choose an existing page and run/step mode");
     const password = variables.password;
@@ -169,7 +211,7 @@ export class BrowserSessions {
       (record.passwords ??= new Set()).add(password);
       record.secrets.add(password);
     }
-    const job = { id: randomUUID(), steps, actor, pageId: pageId ?? record.activePageId, index: 0, status: mode === "step" ? "paused" : "running", paused: mode === "step", results: [], startedAt: new Date().toISOString(), inFlight: false };
+    const job = { id: randomUUID(), steps, actor, background, pageId: pageId ?? record.activePageId, index: 0, status: mode === "step" ? "paused" : "running", paused: mode === "step", results: [], startedAt: new Date().toISOString(), inFlight: false };
     job.passwordFills = templateSteps.map(step => step.action === "fill" && step.value === "{{password}}");
     record.job = job;
     this.receipts.set(key, { at: Date.now(), hash, job });
@@ -222,10 +264,13 @@ export class BrowserSessions {
   }
   async login(owner, id, options = {}) {
     const record = this.session(owner, id), login = record.site.login;
+    if (options.background && record.display !== 'embedded') throw browserError('BROWSER_BACKGROUND_WINDOW', 'Use a plugin-managed embedded browser for background work.');
     if (!login || !record.site.passwordRef) throw browserError("BROWSER_LOGIN_CONFIG_REQUIRED", "Use remote_browser_run with the user-supplied password, or configure a saved login for this site");
-    const page = record.pages.get(record.activePageId), success = locateBrowser(page, login.success);
+    const pageId = options.pageId ?? record.activePageId, page = record.pages.get(pageId);
+    if (record.closed || !page) throw browserError("BROWSER_PAGE_INVALID", "The requested page is no longer open");
+    const success = locateBrowser(page, login.success);
     if (await success.count() === 1 && await success.isVisible()) return { authenticated: true };
-    return this.run(owner, id, [{ action: "fill", target: login.username, value: record.site.username }, { action: "fill", target: login.password, secretRef: record.site.passwordRef }, { action: "click", target: login.submit, expect: { target: login.success } }], options);
+    return this.run(owner, id, [{ action: "fill", target: login.username, value: record.site.username }, { action: "fill", target: login.password, secretRef: record.site.passwordRef }, { action: "click", target: login.submit, expect: { target: login.success } }], { ...options, pageId });
   }
   async control(owner, id, action, value, source='human') {
     const record = this.session(owner, id), job = record.job;
@@ -256,22 +301,28 @@ export class BrowserSessions {
     return this.publicSession(record);
     }catch(error){await this.recordings.end(record,handle,'unknown',{code:error.code??'BROWSER_CONTROL_FAILED'});throw error;}
   }
-  async observe(owner, id) {
-    const record = this.session(owner, id), page = record.pages.get(record.activePageId);
-    if (!page || record.closed) throw browserError("BROWSER_CLOSED", "The page was closed");
+  async observe(owner, id, pageId) {
+    const record = this.session(owner, id);
+    pageId ??= record.activePageId;
+    if (record.closed) throw browserError("BROWSER_CLOSED", "The page was closed");
+    const page = record.pages.get(pageId);
+    if (!page) throw browserError("BROWSER_PAGE_INVALID", "The requested page is no longer open");
     const content = await page.evaluate(() => ({
       text: (document.body?.innerText ?? "").slice(0, 16000),
       elements: [...document.querySelectorAll('button,a,input,textarea,select,[role="button"],[contenteditable="true"]')].slice(0, 100).map(node => ({ tag: node.tagName.toLowerCase(), id: node.id, type: node.getAttribute("type"), role: node.getAttribute("role"), name: node.getAttribute("aria-label") || node.labels?.[0]?.innerText || node.getAttribute("placeholder") || (node.matches("button,a") ? node.innerText.slice(0, 100) : "") })),
     }));
     const clean = value => typeof value === "string" ? this.redact(record, value) : Array.isArray(value) ? value.map(clean) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clean(item)])) : value;
-    return { pageId: record.activePageId, url: displayUrl(page.url()), title: this.redact(record, await page.title()), ...clean(content) };
+    return { pageId, url: displayUrl(page.url()), title: this.redact(record, await page.title()), ...clean(content) };
   }
-  async testTarget(owner, id, target) {
-    const record = this.session(owner, id), page = record.pages.get(record.activePageId);
+  async testTarget(owner, id, target, pageId) {
+    const record = this.session(owner, id);
+    pageId ??= record.activePageId;
+    const page = record.pages.get(pageId);
+    if (record.closed || !page) throw browserError("BROWSER_PAGE_INVALID", "The requested page is no longer open");
     if (record.job?.inFlight) throw browserError("BROWSER_BUSY", "Wait for the current action");
     const locator = locateBrowser(page, target), count = await locator.count();
     if (count === 1) await locator.highlight();
-    return { count, unique: count === 1, pageId: record.activePageId };
+    return { count, unique: count === 1, pageId };
   }
   async capture(record) {
     const page = record.pages.get(record.activePageId);

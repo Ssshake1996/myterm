@@ -13,6 +13,8 @@ Enter a URL in **网页** to browse. **设置 → 网页** contains engines, run
 
 ## Open and observe
 
+For a silent or background task, use `background: true` with `remote_browser_open`, `remote_browser_run`, and configured `remote_browser_login`. The open result's `id` identifies the browser and `pageId` identifies the task tab. Pass both as `browserId` and `pageId` to run and read. To continue an existing plugin tab, take its IDs from `remote_browser_list`. A different URL on the same site can open in a background tab and reuse the site's login. Leave the user's selected tab and display in place. The sidebar may stay collapsed. After an expected popup, use the job's current `pageId` for subsequent reads and steps. Start recording with the same browser ID when requested. This mode uses myterm's embedded Chromium profile.
+
 Open the URL directly with `remote_browser_open`. On Windows x64 and Linux x64, the embedded browser prepares itself offline from the plugin and opening a page waits for it. If preparation fails, inspect `remote_browser_runtime` with `action: "status"` and read `modes.embedded.error`. Use `action: "repair"` to retry from the bundle after resolving the cause. Use `action: "install"` for a requested dedicated Chromium independent window, and poll `modes.window.ready` after that download. Preserve the user's engine choice.
 
 To capture human and Agent operations, use `remote_browser_recording` and load the bundled `remote-ops-web-recordings` skill. The Web toolbar provides start/stop, saved-record reads and JSON downloads. Records contain observations; generate automation in the user's chosen framework only when requested.

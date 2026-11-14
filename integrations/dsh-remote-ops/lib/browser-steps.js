@@ -209,7 +209,7 @@ export async function executeBrowserStep(workspace, record, job, step, begin = (
             const opened = await popup;
             await opened.waitForLoadState("domcontentloaded", { timeout });
             job.pageId = workspace.attachPage(record, opened);
-            record.activePageId = job.pageId;
+            if (!job.background) record.activePageId = job.pageId;
           } else await locator.click({ timeout });
         }
       }
