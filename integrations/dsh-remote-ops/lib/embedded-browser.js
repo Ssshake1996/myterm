@@ -1,13 +1,26 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 export const bundledBrowserRoot = fileURLToPath(new URL('../browser/runtime/', import.meta.url));
+export const browserPartBytes = 32 * 1024 * 1024;
+
+export function* browserFileParts(file) {
+  if (!file.partSize) {
+    yield { path: file.path, size: file.size };
+    return;
+  }
+  let number = 1;
+  for (let offset = 0; offset < file.size; offset += file.partSize) {
+    yield { path: `${file.path}.part-${number++}`, size: Math.min(file.partSize, file.size - offset) };
+  }
+}
 const run = promisify(execFile);
 const probeBrowser = file => run(file, ['--version'], { windowsHide: true, timeout: 15000, maxBuffer: 65536 });
 
@@ -33,13 +46,15 @@ async function readBundle(metadata, base) {
   const raw = await readFile(join(directory, 'runtime.json'), 'utf8');
   const manifest = JSON.parse(raw);
   const executable = metadata.executables.embedded.replaceAll('\\', '/');
-  if (manifest.schema !== 1 || manifest.platform !== metadata.platform || manifest.arch !== metadata.arch ||
+  if (![1, 2].includes(manifest.schema) || manifest.platform !== metadata.platform || manifest.arch !== metadata.arch ||
       manifest.playwrightVersion !== metadata.playwrightVersion || manifest.executable !== executable || !Array.isArray(manifest.files)) {
     throw Object.assign(new Error('随包 Chromium 版本或平台不匹配'), { reason: 'mismatch' });
   }
   for (const file of manifest.files) {
     if (typeof file.path !== 'string' || /[:\\\0]/.test(file.path) || file.path.split('/').some(p => !p || p === '.' || p === '..') ||
-        !Number.isSafeInteger(file.size) || file.size < 0 || (file.sha256 !== undefined && !/^[a-f0-9]{64}$/.test(file.sha256))) {
+        !Number.isSafeInteger(file.size) || file.size < 0 || (file.sha256 !== undefined && !/^[a-f0-9]{64}$/.test(file.sha256)) ||
+        (file.partSize !== undefined && (manifest.schema !== 2 || !file.sha256 || !Number.isSafeInteger(file.partSize) ||
+          file.partSize <= 0 || file.partSize > browserPartBytes || file.partSize >= file.size || ![0o644, 0o755].includes(file.mode)))) {
       throw new Error('随包 Chromium 文件清单无效');
     }
   }
@@ -67,9 +82,21 @@ const ready = executable => ({ source: 'bundled', ready: true, status: 'ready', 
 export async function inspectBundledBrowser(metadata, base = bundledBrowserRoot) {
   try {
     const bundle = await readBundle(metadata, base);
-    if (!await matches(bundle.directory, bundle.files)) return failure('incomplete', '随包 Chromium 文件不完整');
+    for (const file of bundle.files) {
+      if (!await matches(bundle.directory, browserFileParts(file))) return failure('incomplete', '随包 Chromium 文件不完整');
+    }
+    if (bundle.files.some(file => file.partSize)) return { source: 'bundled', ready: false, status: 'preparing' };
     return ready(join(bundle.directory, bundle.executable));
   } catch (error) { return unavailable(error); }
+}
+
+async function* readParts(directory, file) {
+  for (const part of browserFileParts(file)) {
+    const path = join(directory, part.path);
+    const entry = await lstat(path);
+    if (!entry.isFile() || entry.size !== part.size) throw new Error('随包 Chromium 分片不完整');
+    yield* createReadStream(path);
+  }
 }
 
 // Publish a verified generation with an atomic pointer. Another DSH profile can
@@ -97,7 +124,11 @@ export async function prepareEmbeddedBrowser(metadata, { bundleRoot = bundledBro
       for (const file of bundle.files) {
         const dest = join(stage, file.path);
         await mkdir(dirname(dest), { recursive: true });
-        await copyFile(join(bundle.directory, file.path), dest);
+        if (file.partSize) {
+          await pipeline(readParts(bundle.directory, file), createWriteStream(dest, { flags: 'wx', mode: file.mode }));
+        } else {
+          await copyFile(join(bundle.directory, file.path), dest);
+        }
       }
       if (!await matches(stage, bundle.files, bundle.directory)) throw new Error('随包 Chromium 校验失败，请检查插件安装包');
       const executable = join(stage, bundle.executable);

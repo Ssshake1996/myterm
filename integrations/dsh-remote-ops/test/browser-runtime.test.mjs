@@ -92,6 +92,33 @@ test('bundled internal browser works without a cache and rejects missing, mismat
   await save({ ...manifest, files: [{ path: executable, size: 999 }] }); assert.equal((await inspectBundledBrowser(f.metadata, bundleRoot)).reason, 'incomplete');
 });
 
+test('a split Chromium executable is restored offline and missing or corrupt parts never become active', async t => {
+  const f = await fixture(t), bundleRoot = join(f.root, 'bundle'), cacheRoot = join(f.root, 'short');
+  const directory = join(bundleRoot, `${f.metadata.platform}-${f.metadata.arch}`);
+  const executable = f.metadata.executables.embedded.replaceAll('\\', '/');
+  const source = join(directory, executable);
+  await mkdir(dirname(source), { recursive: true });
+  await writeFile(source, 'abcdefg');
+  const sha256 = await browserFileHash(source);
+  await rm(source);
+  const manifest = { schema: 2, platform: f.metadata.platform, arch: f.metadata.arch, playwrightVersion: f.metadata.playwrightVersion,
+    executable, files: [{ path: executable, size: 7, sha256, partSize: 3, mode: 0o755 }] };
+  await writeFile(join(directory, 'runtime.json'), JSON.stringify(manifest));
+  await writeFile(source + '.part-1', 'abc');
+  await writeFile(source + '.part-3', 'g');
+  const prepare = () => prepareEmbeddedBrowser(f.metadata, { bundleRoot, cacheRoot, probe: async path => assert.equal(await readFile(path, 'utf8'), 'abcdefg') });
+  assert.equal((await inspectBundledBrowser(f.metadata, bundleRoot)).reason, 'incomplete');
+  assert.equal((await prepare()).ready, false);
+  await writeFile(source + '.part-2', 'XYZ');
+  assert.equal((await inspectBundledBrowser(f.metadata, bundleRoot)).status, 'preparing');
+  assert.match((await prepare()).error, /校验失败/);
+  await writeFile(source + '.part-2', 'def');
+  const installed = await prepare();
+  assert.ok(installed.ready, installed.error);
+  assert.equal(await readFile(installed.executable, 'utf8'), 'abcdefg');
+  assert.equal((await prepare()).executable, installed.executable);
+});
+
 test('matching managed browsers take precedence and a missing variant can use the matching default cache', async t => {
   const f = await fixture(t);
   for (const mode of ['embedded', 'window']) { await f.put(f.managed, mode); await f.put(f.cache, mode); }
