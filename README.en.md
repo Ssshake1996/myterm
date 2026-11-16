@@ -120,14 +120,14 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 ## Manual intranet HTTP/HTTPS updates
 
-In v0.15.8, the embedded browser resizes as you drag DSH’s right sidebar divider. The live image follows the panel and responsive pages reflow at the new width. [Release notes](docs/releases/dsh-remote-ops-v0.15.8.md)
+In v0.15.11, wide embedded pages have a bottom scrollbar. You can save a minimum width before opening a site, or choose Fit for an overview. [Release notes](docs/releases/dsh-remote-ops-v0.15.11.md)
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.15.10.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.10.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.15.11.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.11.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.10.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.11.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -207,7 +207,7 @@ Browsers run on the DSH host. Enter an address in Web or call `remote_browser_op
 - **终端 / 网页 / 文件 / API** workspace tabs support arrows and Home/End. Environment management opens inside the panel; **设置 → 通用** contains diagnostics and refresh, while **设置 → 更新** handles updates. The native DSH right Sidebar and the main conversation are preserved.
 - The module, selected terminal and environment filter recover per conversation after closing/reopening or refreshing. File path/sort/scroll/bookmarks keep their existing persistence. File filters, path drafts and reconciled selections survive module/panel switches within one webpage; a full reload fetches fresh entries and does not restore old selections.
 - **设置 → 终端** contains font size, wrapping, highlighting and the active SSH connection size. Search and current transcript export are directly beside the session tabs; **更多** contains independent commands and all-log ZIP export. The path and technical status sit in the bottom status bar. ASCII/SGR logs use a fast parser; cursor control, Unicode and full-screen programs retain the VT model.
-- Embedded pages default to a viewport following the panel, with an optional 1024×768 desktop viewport. Resizing does not deliberately navigate/reload; the website's responsive behavior can still change content. Independent windows use their own size. Page titles and close-current-tab are available; display switching warns that pages reload and unsaved inputs can be lost.
+- Embedded pages default to **Follow panel → Original size**. Width and height follow the available space independently. Use the bottom horizontal scrollbar to reach controls on a wide page. The vertical wheel scrolls the webpage. For an overview, choose **设置 → 网页 → 网页画面缩放 → 适应画面** (Fit). If a site checks its width at startup, save its URL under **适用网站** and its minimum width (for example `1280`) in the same settings before opening it. The setting applies to the same scheme, host and port. Clear the width and save to restore automatic detection. A 1024×768 desktop viewport is also available. Save unsent forms before switching between the embedded view and an independent window.
 - Files add filtering, select-all, Shift range selection and Enter for directories. Narrow panels switch between source A and target B, copy labels identify the destination, and finished transfer history is collapsed. Browser upload/download refers to the browser device, distinct from the DSH host.
 - UI independent commands run in the backend and survive closing the result view, switching modules and refreshing DSH Web. Reopening reads the current target's latest job/result. Completed results are memory-only, capped at 32 records and ten minutes; command drafts survive only within the current webpage. DSH restart does not restore/replay commands. A timeout/unknown remote exit never proves process termination.
 - Panel-local dialogs replace browser prompts/confirmations, contain Tab and close with Escape/restore focus. The main conversation remains usable. Environment validation and directory retry appear beside the operation; diagnostics show readable event summaries with expandable JSON.
@@ -246,7 +246,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from the [latest stable release](https://github.com/Ssshake1996/myterm/releases/latest), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.15.10.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.15.11.tgz
 dsh web
 ```
 
@@ -293,15 +293,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.10
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.11
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.15.10
-node scripts/release-dsh-remote-ops.mjs 0.15.10 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.15.11
+node scripts/release-dsh-remote-ops.mjs 0.15.11 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

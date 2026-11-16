@@ -283,6 +283,10 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__webState{min-height:34px;font-size:12px}.dsh-remote-ops__webState>button{margin-left:auto;border-color:transparent;background:transparent;font-size:12px;min-height:28px;padding:3px 5px}
       .dsh-remote-ops__liveTools{order:2;border-top:1px solid var(--ro-border);min-height:28px;padding:2px 10px;gap:6px}
       .dsh-remote-ops__webPage,.dsh-remote-ops__live{min-height:0}.dsh-remote-ops__liveSurface[data-fit=true]{overflow:hidden}
+      .dsh-remote-ops__liveSurface[data-panel-scroll=true]{overflow-x:auto;overflow-y:hidden;min-width:0;overscroll-behavior-x:contain}
+      .dsh-remote-ops__liveSurface[data-panel-scroll=true]::-webkit-scrollbar{height:14px}
+      .dsh-remote-ops__liveSurface[data-panel-scroll=true]::-webkit-scrollbar-track{background:var(--ro-surface,#f2f4f7)}
+      .dsh-remote-ops__liveSurface[data-panel-scroll=true]::-webkit-scrollbar-thumb{background:var(--ro-muted,#687480);border:3px solid var(--ro-surface,#f2f4f7);border-radius:8px}
       .dsh-remote-ops__liveSurface[data-fit=true]>img{position:absolute;inset:0;width:100%;height:100%;max-width:none;max-height:none}
       .dsh-remote-ops__liveOptions{position:relative;margin-left:auto}.dsh-remote-ops__liveOptions>summary{padding:3px;cursor:pointer}
       .dsh-remote-ops__liveOptions>div{position:absolute;bottom:100%;right:0;z-index:15;width:180px;background:var(--ro-bg);border:1px solid var(--ro-border);border-radius:7px;padding:12px;display:grid;gap:8px;box-shadow:0 5px 18px #0002}
@@ -498,7 +502,7 @@ window.__ModuleLoader__.load({
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const updateRecovery = createUpdateRecovery((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.15.10", update: { currentVersion: "0.15.10", latestVersion: "0.15.10", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.15.11", update: { currentVersion: "0.15.11", latestVersion: "0.15.11", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -1474,11 +1478,12 @@ window.__ModuleLoader__.load({
 
     const browserStatus = { running: "执行中", paused: "已暂停", pausing: "等待当前步骤结束", stopping: "等待当前步骤结束后停止", manual: "人工接管中", completed: "步骤已完成", failed: "执行失败", unknown: "结果待确认，请检查网页", stopped: "已停止" };
     const webTarget = () => ({ kind: "css", value: "" });
-    function BrowserLiveView({ sessionId, browser, inputBarrier, visible = true, zoom = "fit", viewportMode = browser.viewport?.mode ?? "panel" }) {
+    function BrowserLiveView({ sessionId, browser, inputBarrier, visible = true, zoom = "actual", viewportMode = "panel" }) {
       const [frame,setFrame]=useState(null),[message,setMessage]=useState('正在连接网页画面…');
       const image=useRef(null),capture=useRef(null),surface=useRef(null),current=useRef(null),queue=useRef(Promise.resolve()),alive=useRef(true),composing=useRef(false);
       current.current={frame};
-      const fit = viewportMode === 'panel' || zoom === 'fit';
+      const fit = zoom === 'fit', measure = viewportMode === 'panel' || fit;
+      useEffect(()=>{if(surface.current)surface.current.scrollLeft=0;},[browser.activePageId,fit]);
       useEffect(()=>{
         const node = surface.current;
         if (!visible || !node) return;
@@ -1486,9 +1491,9 @@ window.__ModuleLoader__.load({
         const resize = async () => {
           if (stopped) return;
           const width = node.clientWidth, height = node.clientHeight;
-          const size = fit ? width + 'x' + height : 'actual';
+          const size = measure ? width + 'x' + height : 'actual';
           if (!width || !height || size === lastSize) return;
-          const viewport = { mode: viewportMode, pageId: browser.activePageId, ...(fit ? { width, height } : {}) };
+          const viewport = { mode: viewportMode, zoom, pageId: browser.activePageId, ...(measure ? { width, height } : {}) };
           try {
             await request('/api/dsh-remote-ops/browser', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'viewport', sessionId, browserId: browser.id, viewport }) });
             lastSize = size;
@@ -1506,14 +1511,14 @@ window.__ModuleLoader__.load({
               const width = node.clientWidth, height = node.clientHeight;
               await resize();
               scheduled = false;
-              if (fit && (node.clientWidth !== width || node.clientHeight !== height)) schedule(0);
+              if (measure && (node.clientWidth !== width || node.clientHeight !== height)) schedule(0);
             });
           }, delay);
         };
         const observer = new ResizeObserver(() => schedule());
         observer.observe(node); schedule(0);
         return () => { stopped = true; clearTimeout(timer); observer.disconnect(); };
-      },[sessionId,viewportMode,fit,browser.id,browser.activePageId,browser.display,visible]);
+      },[sessionId,viewportMode,zoom,browser.id,browser.activePageId,browser.display,visible]);
 
       useEffect(()=>{
         if(!visible)return;
@@ -1557,9 +1562,18 @@ window.__ModuleLoader__.load({
       if(inputBarrier)inputBarrier.current=()=>queue.current;
       useEffect(()=>{
         const node=surface.current;if(!node)return;
-        const wheel=event=>{event.preventDefault();inputHandler.current({kind:'wheel',x:Math.max(-3000,Math.min(3000,event.deltaX)),y:Math.max(-3000,Math.min(3000,event.deltaY))});};
+        const wheel=event=>{
+          event.preventDefault();
+          const dx=event.deltaX || (event.shiftKey ? event.deltaY : 0);
+          const dy=event.shiftKey && !event.deltaX ? 0 : event.deltaY;
+          if(dx && !fit && node.scrollWidth>node.clientWidth){
+            node.scrollLeft+=dx*(event.deltaMode===1?16:event.deltaMode===2?node.clientWidth:1);
+            if(!dy)return;
+            inputHandler.current({kind:'wheel',x:0,y:Math.max(-3000,Math.min(3000,dy))});
+          }else inputHandler.current({kind:'wheel',x:Math.max(-3000,Math.min(3000,dx)),y:Math.max(-3000,Math.min(3000,dy))});
+        };
         node.addEventListener('wheel',wheel,{passive:false});return()=>node.removeEventListener('wheel',wheel);
-      },[]);
+      },[fit,visible]);
       const key=event=>{
         if(event.ctrlKey&&event.key==='Escape'){event.preventDefault();event.stopPropagation();surface.current?.closest('section')?.querySelector('input[aria-label="网页地址"]')?.focus();return;}
         if(event.isComposing||event.nativeEvent?.isComposing||composing.current)return;
@@ -1572,7 +1586,7 @@ window.__ModuleLoader__.load({
       const flush=event=>{if(composing.current)return;const value=event.currentTarget.value;event.currentTarget.value='';if(value)send({kind:'text',text:value});};
       return h('div',{className:'dsh-remote-ops__live'},
         frame&&message?h('div',{className:'dsh-remote-ops__liveTools',role:'status'},message):null,
-        h('div',{ref:surface,className:'dsh-remote-ops__liveSurface','data-fit':fit},frame?h('img',{ref:image,alt:'网页实时画面','data-revision':frame.revision,draggable:false,src:'data:image/jpeg;base64,'+frame.data,style:fit?undefined:{width:frame.width,height:frame.height,maxWidth:'none'},onContextMenu:event=>event.preventDefault(),onClick:event=>{
+        h('div',{ref:surface,className:'dsh-remote-ops__liveSurface','data-fit':fit,'data-panel-scroll':viewportMode==='panel'&&!fit},frame?h('img',{ref:image,alt:'网页实时画面','data-revision':frame.revision,draggable:false,src:'data:image/jpeg;base64,'+frame.data,style:fit?undefined:{width:frame.width,height:frame.height,maxWidth:'none'},onContextMenu:event=>event.preventDefault(),onClick:event=>{
           const rect=image.current.getBoundingClientRect();capture.current?.focus({preventScroll:true});send({kind:'click',x:(event.clientX-rect.left)*frame.width/rect.width,y:(event.clientY-rect.top)*frame.height/rect.height,button:event.button===2?'right':event.button===1?'middle':'left',count:Math.min(2,event.detail||1)});
         }}):h('div',{className:'dsh-remote-ops__empty',role:'status'},message||'等待新网页画面…'),
         h('textarea',{ref:capture,className:'dsh-remote-ops__webCapture','aria-label':'网页键盘输入',autoComplete:'off',spellCheck:false,onKeyDown:key,onChange:flush,onCompositionStart:()=>{composing.current=true;},onCompositionEnd:event=>{composing.current=false;flush(event);},onPaste:event=>{event.preventDefault();const text=event.clipboardData.getData('text');if(text)send({kind:'text',text});}})));
@@ -1665,10 +1679,24 @@ window.__ModuleLoader__.load({
         h('button', { type: 'button', className: 'dsh-remote-ops__webTabNew', 'aria-label': '新建网页', title: '新建网页', disabled: busy, onClick: () => action({ action: 'navigate', navigation: 'new-page' }) }, h(IconPlusOutline16)));
     }
 
+    function SiteWidthSettings({ defaultUrl, widths, busy, action }) {
+      const [address,setAddress]=useState(null),[draft,setDraft]=useState(null),[saved,setSaved]=useState(false);
+      const url=address??defaultUrl;
+      let origin='';
+      try { const parsed=new URL(url); if(['https:','http:'].includes(parsed.protocol))origin=parsed.origin; } catch {}
+      const value=draft??widths?.[origin]??'';
+      return h(React.Fragment,null,
+        h('label',null,'适用网站',h('input',{type:'url',placeholder:'https://example.com','aria-label':'适用网站',value:url,onChange:e=>{setAddress(e.target.value);setDraft(null);setSaved(false);}})),
+        h('label',null,'网站最低宽度（CSS 像素）',h('input',{type:'number',min:1,max:8192,step:1,placeholder:'自动检测','aria-label':'网站最低宽度',value,onChange:e=>{setDraft(e.target.value);setSaved(false);}})),
+        h('button',{type:'button',disabled:busy||!origin||(value!==''&&(!Number.isInteger(Number(value))||Number(value)<1||Number(value)>8192)),onClick:async()=>{
+          const result=await action({action:'site-width.save',url:origin,minimum:value===''?null:Number(value)});
+          if(result){setDraft(null);setSaved(true);}
+        }},'保存网站宽度'),
+        h('small',{role:'status'},saved?'已保存 · '+origin:'同一协议、主机和端口共用宽度。留空并保存可恢复自动检测。'));
+    }
     function BrowserWorkspacePanel({ sessionId, visible = true, settings = false }) {
       const draft=webDrafts.get(sessionId)??{},[data,setData]=useState({sites:[],flows:[],sessions:[],preferences:{display:'embedded',browser:'chromium'},runtime:{}});
-      const [viewportIntent,setViewportIntent]=useState(null),[zoom,setZoom]=useState(()=>{try{return localStorage.getItem('remote-ops.web-zoom')==='actual'?'actual':'fit';}catch{return 'fit';}});
-      useEffect(()=>{try{localStorage.setItem('remote-ops.web-zoom',zoom);}catch{}},[zoom]);
+      const zoom=data.preferences.zoom??'actual', viewportMode=data.preferences.viewport??'panel';
       const [address,setAddress]=useState(draft.address??''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[library,setLibrary]=useState(false),[synced,setSynced]=useState(false),[utility,setUtility]=useState(''),[displayDraft,setDisplayDraft]=useState(null);
       const alive=useRef(true),pending=useRef(false),revision=useRef(0),signature=useRef(''),addressDirty=useRef(!!draft.addressDirty),seenPage=useRef('');
       const inputBarrier=useRef(()=>Promise.resolve());
@@ -1720,7 +1748,7 @@ window.__ModuleLoader__.load({
         h('form',{className:'dsh-remote-ops__webAddress',onSubmit:go},nav('网页后退','←','back'),nav('网页前进','→','forward'),nav('刷新网页','↻','reload'),h('input',{'aria-label':'网页地址',placeholder:'输入网址，按 Enter 打开',value:address,onChange:event=>{addressDirty.current=true;setAddress(event.target.value);},required:true,disabled:navigating}),h('button',{type:'submit','aria-label':'打开网页',className:'dsh-remote-ops__primary',disabled:!sessionId||navigating||!address.trim()},busy?'打开中…':'打开')),
         error?h('div',{className:'dsh-remote-ops__webError',role:'alert'},error.split('\n').slice(1).join(' · ')||error,!synced?h('button',{onClick:()=>{setError('');void load().catch(failure=>{if(alive.current)setError(failure.message);});}},'重试读取网页状态'):null):null,
         session?.dialog?h('div',{className:'dsh-remote-ops__webNotice'},`网页弹窗：${session.dialog.message}。请在主对话告诉 Agent 如何处理。`):null,
-        h('div',{className:'dsh-remote-ops__webPage',role:session?'tabpanel':undefined,id:session?'web-panel-'+session.id:undefined,'aria-labelledby':session?'web-tab-'+session.activePageId:undefined},session?.display==='embedded'?h(BrowserLiveView,{key:session.id,sessionId,browser:session,inputBarrier,visible:visible&&!settings&&utility!=='library'&&utility!=='recording',zoom,viewportMode:viewportIntent??session.viewport?.mode??data.preferences.viewport??'panel'}):session?h('div',{className:'dsh-remote-ops__webWindow'},h('p',null,'网页正在独立浏览器窗口中显示。'),h('button',{disabled:navigating,onClick:()=>action({action:'control',control:'focus'})},'显示浏览器')):h('div',{className:'dsh-remote-ops__webWelcome'},h(BrowserIcon,{size:26}),h('strong',null,!synced?'正在读取网页状态…':data.preferences.display==='embedded' && data.preferences.browser==='chromium' && data.runtime.modes?.embedded?.status==='preparing'?'正在准备插件内浏览器…':'打开网页，直接开始'),h('p',null,'无需先保存网站或编排流程。'))),
+        h('div',{className:'dsh-remote-ops__webPage',role:session?'tabpanel':undefined,id:session?'web-panel-'+session.id:undefined,'aria-labelledby':session?'web-tab-'+session.activePageId:undefined},session?.display==='embedded'?h(BrowserLiveView,{key:session.id,sessionId,browser:session,inputBarrier,visible:visible&&!settings&&utility!=='library'&&utility!=='recording',zoom,viewportMode}):session?h('div',{className:'dsh-remote-ops__webWindow'},h('p',null,'网页正在独立浏览器窗口中显示。'),h('button',{disabled:navigating,onClick:()=>action({action:'control',control:'focus'})},'显示浏览器')):h('div',{className:'dsh-remote-ops__webWelcome'},h(BrowserIcon,{size:26}),h('strong',null,!synced?'正在读取网页状态…':data.preferences.display==='embedded' && data.preferences.browser==='chromium' && data.runtime.modes?.embedded?.status==='preparing'?'正在准备插件内浏览器…':'打开网页，直接开始'),h('p',null,'无需先保存网站或编排流程。'))),
 
           h('div',{className:'dsh-remote-ops__webState',role:'status'},
             h('span',null,session?(job?browserStatus[job.status]:'网页已打开'):'输入网址开始浏览'),job?h('span',{className:'dsh-remote-ops__muted'},`${job.index}/${job.count} 步`):null,
@@ -1734,7 +1762,11 @@ window.__ModuleLoader__.load({
               h('select',{'aria-label':'网页显示方式',value:session?.display??data.preferences.display,disabled:navigating||!!unfinished,onChange:event=>changeDisplay(event.target.value)},h('option',{value:'embedded'},'插件内'),h('option',{value:'window'},'独立窗口')),
               h('button',{type:'button',className:'dsh-remote-ops__webSettingsTrigger','aria-label':'收藏网站与流程',onClick:()=>{setLibrary(true);setUtility('library');}},'收藏')))),
           h('div',{className:'dsh-remote-ops__webSettings',hidden:!settings},h('label',null,'浏览器引擎',h('select',{'aria-label':'浏览器引擎',value:data.preferences.browser,disabled:navigating,onChange:event=>action({action:'preferences.save',preferences:{browser:event.target.value}})},h('option',{value:'chromium'},'专用 Chromium'),h('option',{value:'msedge'},'Microsoft Edge'),h('option',{value:'chrome'},'Google Chrome'))),h('label',null,'独立窗口浏览器',h('select',{'aria-label':'独立窗口浏览器',value:data.preferences.windowBrowser??'system',disabled:navigating,onChange:event=>action({action:'preferences.save',preferences:{windowBrowser:event.target.value}})},h('option',{value:'system'},'Windows 默认浏览器'),h('option',{value:'chromium'},'专用 Chromium'),h('option',{value:'msedge'},'Microsoft Edge'),h('option',{value:'chrome'},'Google Chrome'))),h('small',null,'浏览器引擎用于插件内网页；独立窗口默认跟随 Windows 默认浏览器。设置对新打开的浏览器生效；收藏网站的显式选择优先。'),h(BrowserRuntimeControls,{data,busy:navigating,action}),
-          h('label',null,'网页视口',h('select',{'aria-label':'网页视口',value:viewportIntent??session?.viewport?.mode??data.preferences.viewport??'panel',disabled:navigating,onChange:event=>{setViewportIntent(event.target.value);void action({action:'preferences.save',preferences:{viewport:event.target.value}});}},h('option',{value:'panel'},'跟随面板'),h('option',{value:'desktop'},'桌面视口'))),h('label',null,'网页画面缩放',h('select',{'aria-label':'网页画面缩放',value:zoom,onChange:event=>setZoom(event.target.value)},h('option',{value:'fit'},'适应画面'),h('option',{value:'actual'},'原始大小'))),h('small',null,'视口设置在返回插件内网页时应用。缩放用于桌面视口。')),
+          h('label',null,'网页视口',h('select',{'aria-label':'网页视口',value:viewportMode,disabled:navigating,onChange:event=>action({action:'preferences.save',preferences:{viewport:event.target.value}})},h('option',{value:'panel'},'跟随面板'),h('option',{value:'desktop'},'桌面视口'))),
+          h('label',null,'网页画面缩放',h('select',{'aria-label':'网页画面缩放',value:zoom,disabled:navigating,onChange:event=>action({action:'preferences.save',preferences:{zoom:event.target.value}})},h('option',{value:'actual'},'原始大小'),h('option',{value:'fit'},'适应画面'))),
+          h('small',null,'原始大小保留网页字号，超宽时可在画面底部横向滚动。选择适应画面可查看全宽。'),
+          settings?h(SiteWidthSettings,{defaultUrl:page?.url?.startsWith('http')?page.url:address,widths:data.siteWidths,busy:navigating,action}):null,
+          settings&&error?h('p',{role:'alert'},error):null),
         h('section',{className:'dsh-remote-ops__webUtility',hidden:settings||utility!=='library','aria-label':'收藏网站与流程'},h('div',{className:'dsh-remote-ops__drawerHead'},h('strong',null,'收藏网站与流程'),h('button',{type:'button','aria-label':'返回网页',onClick:closeUtility},'返回')),library?h(BrowserLibraryPanel,{sessionId}):null),
         !settings&&utility==='recording'?h('section',{className:'dsh-remote-ops__webUtility','aria-label':'网页录制'},h('div',{className:'dsh-remote-ops__drawerHead'},h('strong',null,'网页录制'),h('button',{type:'button',onClick:closeUtility},'返回网页')),h(BrowserRecordingPanel,{sessionId,initialId:session?.recording?.id})):null,
         !settings&&utility==='log'&&job?h('div',{className:'dsh-remote-ops__webLog dsh-remote-ops__webLogBottom'},job.error?h('p',{role:'alert'},job.error.message,job.error.note?' · 操作结果未确认，不会自动重试。':''):null,job.results.map(item=>h('div',{key:item.index,className:'dsh-remote-ops__webResult'},`${item.index}. ${{goto:'打开网页',click:'点击',fill:'输入',press:'按键',read:'读取',scroll:'滚动',wait:'等待',assert:'检查',select:'选择',check:'勾选',uncheck:'取消勾选'}[item.action]??item.action} · ${item.completion==='checked'?'检查通过':item.completion==='observed'?'已读取':'动作完成，业务结果未检查'}`,item.value!==undefined?h('pre',null,item.value):null))):null,

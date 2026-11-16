@@ -33,7 +33,6 @@ export class BrowserSessions {
     this.recordings.observePage(record,page,id);
     const title=()=>{const url=page.url();if(typeof page.title==='function')void page.title().then(value=>{if(record.context===context&&record.pages.get(id)===page&&page.url()===url){record.pageTitles??=new Map();record.pageTitles.set(id,value);}}).catch(()=>{});};
     page.on('domcontentloaded',title);title();
-    if(record.display==='embedded'&&record.viewport&&(record.viewport.width!==1024||record.viewport.height!==768))void page.setViewportSize?.({width:record.viewport.width,height:record.viewport.height}).catch(()=>{});
     page.on('framenavigated',frame=>{
       if (context !== record.context || id !== record.activePageId || frame !== page.mainFrame()) return;
       record.revision = (record.revision ?? 0) + 1;
@@ -87,7 +86,7 @@ export class BrowserSessions {
       const display=options.background ? 'embedded' : options.display??'window';
       const context = await this.launch(site, owner,display);
       if (this.disposed) { await context.close(); throw browserError("BROWSER_DISPOSED", "The plugin is unloading"); }
-      const record = { id: randomUUID(), owner, site, context, display, viewport:{mode:this.preferences?.viewport??'panel',width:1024,height:768}, revision:0, pages: new Map(), secrets: new Set(), closed: false, createdAt: new Date().toISOString(), history: [] };
+      const record = { id: randomUUID(), owner, site, context, display, viewport:{mode:this.preferences.viewport,...this.initialViewport(site.url)}, revision:0, pages: new Map(), secrets: new Set(), closed: false, createdAt: new Date().toISOString(), history: [] };
       const selected = this.sessions.get(this.active?.get(owner));
       this.sessions.set(record.id, record);
       if (!options.background || !selected || selected.closed) this.active?.set(owner,record.id);
@@ -95,7 +94,7 @@ export class BrowserSessions {
       for (const page of context.pages()) this.attachPage(record, page);
       const page = record.pages.values().next().value ?? await context.newPage();
       this.attachPage(record, page);
-      try { await page.goto(site.url, { waitUntil: "domcontentloaded", timeout: 30000 }); }
+      try { await this.prepareNavigationViewport(record, page, site.url); await page.goto(site.url, { waitUntil: "domcontentloaded", timeout: 30000 }); }
       catch { record.notice = "The browser opened, but navigation did not finish. Inspect the visible page before continuing"; }
       for (const [id, old] of this.sessions) if (old.closed && this.sessions.size > 24) this.sessions.delete(id);
       return this.publicSession(record);
@@ -118,6 +117,7 @@ export class BrowserSessions {
       } finally { record.openingBackgroundPage = false; }
       const handle = await this.recordings.begin(record, 'agent', 'goto', { url: recordingUrl(url) }, pageId);
       try {
+        await this.prepareNavigationViewport(record, page, url);
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
         await this.recordings.end(record, handle, 'completed');
       } catch (error) {
@@ -139,17 +139,17 @@ export class BrowserSessions {
   publicJob(record, job) {
     return { id: job.id, pageId: job.pageId, status: job.status, index: job.index, count: job.steps.length, results: job.results, error: job.error ?? null, startedAt: job.startedAt, finishedAt: job.finishedAt ?? null, inFlight: job.inFlight };
   }
-  snapshot(owner) { return { sites: this.sites, flows: this.flows, preferences:this.preferences, activeBrowserId:this.active?.get(owner)??null, sessions: [...this.sessions.values()].filter(record => record.owner === owner).map(record => this.publicSession(record)) }; }
+  snapshot(owner) { return { sites: this.sites, flows: this.flows, siteWidths:this.siteWidths, preferences:this.preferences, activeBrowserId:this.active?.get(owner)??null, sessions: [...this.sessions.values()].filter(record => record.owner === owner).map(record => this.publicSession(record)) }; }
   async navigate(owner,id,action,value,source='human') {
     const r=this.session(owner,id);
     if(r.closed||r.switching)throw browserError('BROWSER_CLOSED','This browser was closed or is changing display');
     const page=r.pages.get(r.activePageId);
     const handle=await this.recordings.begin(r,source,action,{...(value?{url:recordingUrl(value)}:{})});
     try {
-    if(action==='goto')await page.goto(browserUrl(value),{waitUntil:'domcontentloaded',timeout:30000});
+    if(action==='goto'){const url=browserUrl(value);await this.prepareNavigationViewport(r,page,url);await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});}
     else if(action==='back')await page.goBack({waitUntil:'domcontentloaded',timeout:30000});
     else if(action==='forward')await page.goForward({waitUntil:'domcontentloaded',timeout:30000});
-    else if(action==='reload')await page.reload({waitUntil:'domcontentloaded',timeout:30000});
+    else if(action==='reload'){await this.prepareNavigationViewport(r,page,page.url());await page.reload({waitUntil:'domcontentloaded',timeout:30000});}
     else if(action==='new-page') {if(r.pages.size>=12)throw browserError('BROWSER_PAGE_LIMIT','At most twelve pages per browser');const opened=await r.context.newPage();r.activePageId=this.attachPage(r,opened);if(r.display==='embedded'&&r.viewport)await opened.setViewportSize?.({width:r.viewport.width,height:r.viewport.height});}
     else throw browserError('BROWSER_ACTION_INVALID','Unknown navigation action');
     await this.recordings.end(r,handle,'completed');
@@ -172,13 +172,13 @@ export class BrowserSessions {
       const context=await this.launch(r.site,owner,display,launchOptions);r.context=context;r.pages=new Map();r.closed=false;
       r.display = display;
       r.viewportHint = undefined;
-      if (display === 'embedded') r.viewport = { mode: this.preferences.viewport, width: 1024, height: 768 };
+      if (display === 'embedded') r.viewport = { mode: this.preferences.viewport, ...this.initialViewport(r.site.url) };
       if(r.recording?.metadata.status==='recording')await this.recordings.install(r);
       const initial=context.pages();
       for(let n=1;n<initial.length;n++)await initial[n].close();
       for(let n=0;n<urls.length;n++) {
         const page=n===0&&initial[0]?initial[0]:await context.newPage();this.attachPage(r,page,urls[n][0]);
-        if(/^https?:/.test(urls[n][1]))await page.goto(urls[n][1],{waitUntil:'domcontentloaded',timeout:30000});
+        if(/^https?:/.test(urls[n][1])){await this.prepareNavigationViewport(r,page,urls[n][1]);await page.goto(urls[n][1],{waitUntil:'domcontentloaded',timeout:30000});}
       }
       r.activePageId=selected;this.bindContext(r,context);
       r.notice='显示模式已切换，网页已重新载入；登录状态保留，未提交表单不会恢复。';

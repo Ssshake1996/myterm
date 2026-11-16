@@ -92,6 +92,7 @@ export const liveBrowserScenario={id:'web-live',title:'网址直开、实时画�
   });
   await t.step('停止录制、分页读取并从界面下载人工与 Agent 的原始记录',async()=>{
     await p.getByRole('button',{name:'停止网页录制',exact:true}).click();
+    await p.getByRole('button',{name:'开始网页录制',exact:true}).waitFor();
     const saved=await tool('remote_browser_recording',{action:'read',recordingId:recording.id,limit:200});
     assert.equal(saved.recording.status,'stopped');assert.ok(saved.events.some(e=>e.source==='agent'));assert.ok(saved.events.some(e=>e.source==='human'));
     await p.getByRole('button',{name:'网页录制记录',exact:true}).click();

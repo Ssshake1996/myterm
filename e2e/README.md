@@ -1,5 +1,13 @@
 # Remote Ops 浏览器测试
 
+## 嵌入网页的视口与滚动条
+
+设置 `DSH_CLI` 为宿主的 `lib/bin.js`，执行 `node e2e/runner/browser-recording-native.mjs <tgz>`。脚本将候选包安装进独立的 DSH 配置，使用本地 HTTP 测试页。可用 `RECORDING_NATIVE_OUTPUT` 指定证据目录。
+
+- 默认使用原始大小。用真实宿主窗口调出 1027×768 的网页可视区，打开最低宽度 1280 的测试页。画面以 1280 CSS 像素显示，底部滚动条占用的空间从可用高度扣除。拖到最右端时偏移为 253 像素。点击右上按钮，网页结果及录制中的元素和坐标均需匹配。
+- 在设置中为网址保存最低宽度，打开仅在初次加载时判定宽度的页面，检查初始宽度和控件可用性。清空并保存后，再次打开要恢复面板宽度。
+- 手动选择适应画面后，测试持续拖动分栏、定宽页面、跨域内嵌表单、四角命中和切换标签。记录宿主版本、安装包 SHA256、画面尺寸及点击结果到 `evidence.json` 和 `panel-layout.json`。
+
 ## 真实 DSH 热加载验收
 
 Windows 主机可运行 `node e2e/runner/hot-reload-native.mjs <tgz>`，设置 `DSH_CLI` 为待验收 DSH 的 `lib/bin.js`，并先安装插件与 `e2e` 的依赖。升级回归需分别覆盖 0.2.0-rc.2、0.2.1-rc.2 与 0.2.1-rc.5。可用 `HOT_RELOAD_OUTPUT` 指定证据目录，`NPM_CLI` 覆盖 npm 的 `bin/npm-cli.js` 路径；设置 `BOOTSTRAP_PACKAGE` 为旧版正式 tgz，可验证先通过 DSH CLI 迁移到修复版，再执行后续热加载。

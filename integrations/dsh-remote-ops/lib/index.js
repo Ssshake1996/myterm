@@ -64,6 +64,8 @@ export function mountRemoteOps(ctx) {
     Object.setPrototypeOf(state, RemoteOpsState.prototype);
     state.ctx = ctx; state.disposed = false; state.runtimeId = randomUUID();
     Object.setPrototypeOf(state.browser, BrowserWorkspace.prototype);
+    state.browser.siteWidths ??= {};
+    state.browser.preferences.zoom ??= 'actual';
     Object.setPrototypeOf(state.api, ApiWorkspace.prototype);
     if (state.desktop) { Object.setPrototypeOf(state.desktop, DesktopWorkspace.prototype); state.desktop.state = state; state.desktop.connector = connectDesktop; }
     Object.setPrototypeOf(state.transfers, TransferManager.prototype);

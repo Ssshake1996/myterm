@@ -181,6 +181,7 @@ export async function executeBrowserStep(workspace, record, job, step, begin = (
   }
   let value;
   if (step.action === "goto") {
+    await workspace.prepareNavigationViewport(record, page, step.url);
     job.effectStarted = true;
     await page.goto(step.url, { waitUntil: "domcontentloaded", timeout });
     value = displayUrl(page.url());

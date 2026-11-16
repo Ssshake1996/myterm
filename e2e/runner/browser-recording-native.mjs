@@ -100,7 +100,7 @@ try {
   host = spawn(process.execPath, [cli, '--profile', 'web', '--host', '127.0.0.1', '--port', String(port), '--no-open'], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   logs.push(createWriteStream(join(out, 'stdout.log')), createWriteStream(join(out, 'stderr.log'))); host.stdout.pipe(logs[0]); host.stderr.pipe(logs[1]);
   const url = await until(async () => { if (host.exitCode !== null) throw Error('DSH exited'); return (await readFile(join(out, 'stdout.log'), 'utf8').catch(() => '')).match(new RegExp(`http://127\\.0\\.0\\.1:${port}/\\?\\S+`))?.[0]; });
-  browser = await chromium.launch({ channel: 'chrome', headless: true });
+  browser = await chromium.launch({ channel: 'chrome', headless: true, ignoreDefaultArgs: ['--hide-scrollbars'] });
   page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1500, height: 1000 } }); page.setDefaultTimeout(20000);
   page.on('pageerror', error => evidence.errors.push(error.message));
   page.on('request', request => { const url = new URL(request.url()); if (url.pathname === '/api/dsh-remote-ops/state' && url.searchParams.get('sessionId')) owner = url.searchParams.get('sessionId'); });

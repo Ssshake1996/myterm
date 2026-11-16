@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
 
-const titles = { overview: '设备概览', ports: '端口状态', legacy: '固定宽度设备', compact: '定宽设备控制台', framed: '设备内嵌表单' };
+const titles = { overview: '设备概览', ports: '端口状态', legacy: '固定宽度设备', compact: '定宽设备控制台', framed: '设备内嵌表单', wide: '宽屏设备', startup: '首次加载宽度' };
 
 export function serveLayoutFixture(path, response, origin) {
   const name = path.split('/').at(-1);
@@ -13,6 +13,10 @@ export function serveLayoutFixture(path, response, origin) {
   }
   if (!path.startsWith('/panel/') || !Object.hasOwn(titles, name)) return false;
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
+  if (name === 'startup') {
+    response.end('<!doctype html><title>首次加载宽度</title><output></output><script>document.querySelector("output").textContent="startup-width="+innerWidth;if(innerWidth>=1280)document.body.insertAdjacentHTML("beforeend","<button>设备配置</button>");</script>');
+    return true;
+  }
   if (name === 'framed') {
     response.end(`<!doctype html><title>${titles.framed}</title><style>*{box-sizing:border-box}body{margin:0}header{height:48px}section{height:calc(100vh - 48px);display:flex}nav{width:180px;flex:none}iframe{border:0;flex:1;min-width:0}output{display:block}</style>
       <header>设备设置 <output></output></header><section><nav>系统</nav><iframe src="${origin.replace('127.0.0.1', 'localhost')}/panel/form"></iframe></section>
@@ -21,7 +25,7 @@ export function serveLayoutFixture(path, response, origin) {
   }
   response.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><title>${titles[name]}</title>
     <style>*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui;color:#233643;background:#eef3f4}
-    main{height:100vh;${name === 'compact' ? 'width:320px;' : ''}min-width:${name === 'legacy' ? '1100px' : '0'};position:relative;padding:56px 6%;background:linear-gradient(#f7fafa,#e2ecee)}
+    main{height:100vh;${name === 'compact' ? 'width:320px;' : ''}min-width:${name === 'wide' ? '1280px' : name === 'legacy' ? '1100px' : '0'};position:relative;padding:56px 6%;background:linear-gradient(#f7fafa,#e2ecee)}
     h1{font-size:24px;margin:6px 0 20px}p{margin:0}table{width:100%;background:white;border-collapse:collapse}th,td{border-bottom:1px solid #d4e0e3;padding:8px;text-align:left}
     button{position:absolute;background:#235565;color:white;border:0;border-radius:4px;width:64px;height:36px}
     .t{top:3px}.b{bottom:3px}.l{left:3px}.r{right:3px}footer{padding:30px}</style>
@@ -77,6 +81,19 @@ export async function checkBrowserLayout({ page, owner, api, snapshot, until, st
     return expected.length;
   };
   await page.getByRole('tab', { name: '网页', exact: true }).click();
+  const webSettings = async () => {
+    await page.locator('.dsh-remote-ops__headAction[aria-label="设置"]').click();
+    await page.getByRole('tablist',{name:'设置分类'}).getByRole('tab',{name:'网页',exact:true}).click();
+    await page.getByLabel('网页画面缩放',{exact:true}).waitFor();
+  };
+  const selectZoom = async zoom => {
+    await page.getByLabel('网页画面缩放',{exact:true}).selectOption(zoom);
+    await until(async ()=>(await snapshot()).preferences.zoom===zoom);
+    await page.getByRole('button',{name:'返回工作区',exact:true}).click();
+  };
+  await webSettings();
+  assert.equal(await page.getByLabel('网页画面缩放',{exact:true}).inputValue(),'actual');
+  await selectZoom('fit');
   await step('拖动真实 DSH 分栏，设备网页随面板重新排版', async () => {
     await open('overview');
     const initial = await geometry();
@@ -197,6 +214,66 @@ export async function checkBrowserLayout({ page, owner, api, snapshot, until, st
     assert.ok(wide.encodedW < wide.width);
     evidence.panelLayout.wide = wide;
     evidence.panelLayout.wideCorners = await corners(wide);
-    await writeFile(join(out,'panel-layout.json'), JSON.stringify(evidence.panelLayout, null, 2));
   });
+  await step('原始大小：1027×768 面板横滚到 1280 宽网页最右侧并点击', async () => {
+    await webSettings(); await selectZoom('actual');
+    await open('wide');
+    const surface = image.locator('..');
+    // Resize the real host window. Measure the visible surface inside DSH, including its native scrollbar.
+    await until(async () => {
+      const {width,height} = await surface.boundingBox(), win = page.viewportSize();
+      if (Math.round(width)===1027 && Math.round(height)===768) return true;
+      await page.setViewportSize({width:win.width+1027-Math.round(width),height:win.height+768-Math.round(height)});
+      return false;
+    });
+    const box = await until(async () => {
+      const current = await active();
+      const b = await image.evaluate(img=>{
+        const s=img.parentElement, r=s.getBoundingClientRect();
+        return {panelWidth:r.width,panelHeight:r.height,clientWidth:s.clientWidth,clientHeight:s.clientHeight,
+          imageWidth:img.getBoundingClientRect().width,scrollWidth:s.scrollWidth,revision:Number(img.dataset.revision),
+          horizontal:getComputedStyle(s).overflowX,hostOverflow:document.documentElement.scrollWidth-innerWidth};
+      });
+      return current.viewport.width===1280 && current.viewport.height===b.clientHeight && b.imageWidth===1280 &&
+        b.scrollWidth===1280 && b.revision===current.revision && b;
+    });
+    assert.equal(box.horizontal,'auto'); assert.equal(box.hostOverflow,0);
+    const bounds=await surface.boundingBox();
+    const scrollbarHeight=box.panelHeight-box.clientHeight;
+    assert.ok(scrollbarHeight>=8,'A visible bottom scrollbar must have a draggable thumb');
+    const barY=bounds.y+box.clientHeight+scrollbarHeight/2;
+    await page.mouse.move(bounds.x+box.clientWidth/2,barY);await page.mouse.down();
+    await page.mouse.move(bounds.x+box.clientWidth-2,barY,{steps:12});await page.mouse.up();
+    const offset = await until(async () => {
+      const left=await surface.evaluate(s=>s.scrollLeft);return left===1280-1027 && left;
+    });
+    const {id}= (await record('start')).result;
+    await page.mouse.click(bounds.x+box.clientWidth-30,bounds.y+17);
+    await until(async ()=>(await api('browser',{sessionId:owner,action:'observe'})).result.text.includes('hit-tr'));
+    await record('stop',id);
+    const {events}=(await record('read',id)).result;
+    const hit=events.find(e=>e.action==='click'&&e.target?.css==='#tr'&&Math.abs(e.pointer.x-1250)<3);
+    assert.ok(hit,'The remote page must receive the physical click at the right edge');
+    evidence.panelLayout.originalSize={...box,offset,remotePointer:hit.pointer,target:hit.target.css};
+  });
+  await step('保存站点最低宽度后，首次加载时已显示宽屏控件', async () => {
+    await webSettings();
+    await page.getByRole('textbox',{name:'适用网站',exact:true}).fill(url+'/panel/startup');
+    await page.getByRole('spinbutton',{name:'网站最低宽度'}).fill('1280');
+    await page.getByRole('button',{name:'保存网站宽度'}).click();
+    await until(async ()=>(await snapshot()).siteWidths[url]===1280);
+    await page.getByRole('button',{name:'返回工作区',exact:true}).click();
+    await open('startup');
+    const observed=(await api('browser',{sessionId:owner,action:'observe'})).result.text;
+    assert.match(observed,/startup-width=1280/); assert.match(observed,/设备配置/);
+    evidence.panelLayout.startup={origin:url,width:1280,button:'设备配置'};
+    await webSettings();
+    await page.getByRole('spinbutton',{name:'网站最低宽度'}).fill('');
+    await page.getByRole('button',{name:'保存网站宽度'}).click();
+    await until(async ()=>(await snapshot()).siteWidths[url]===undefined);
+    await page.getByRole('button',{name:'返回工作区',exact:true}).click();
+    await open('overview');await open('startup');
+    assert.match((await api('browser',{sessionId:owner,action:'observe'})).result.text,/startup-width=1027/);
+  });
+  await writeFile(join(out,'panel-layout.json'), JSON.stringify(evidence.panelLayout, null, 2));
 }
