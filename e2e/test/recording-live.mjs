@@ -17,7 +17,7 @@ async function removeTestRoot(root) {
   await rm(root, { recursive: true, force: true, maxRetries: 6, retryDelay: 150 });
 }
 
-test('panel fits a fixed device console in both dimensions and preserves responsive layouts', { timeout: 60000 }, async t => {
+test('panel preserves original size by default and fits both dimensions when selected', { timeout: 60000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), 'remote-ops-panel-'));
   const server = createServer((_req, res) => res.end('<!doctype html><title>Panel test</title>'));
   const workspace = new BrowserWorkspace({ root, browserCacheRoot: join(root, 'cache') });
@@ -39,6 +39,13 @@ test('panel fits a fixed device console in both dimensions and preserves respons
 
   await fixture('main{width:720px;height:480px}');
   await page.locator('#draft').fill('keep me');
+  await resize(1000,700);
+  assert.deepEqual(await view(), [1000,700]);
+  await resize(400,600);
+  assert.deepEqual(await view(), [720,600]);
+  await recheck();
+  assert.deepEqual(await view(), [720,600]);
+  await workspace.savePreferences({zoom:'fit'});
   for (const [panelW, panelH, expected] of [[1000,700,[720,504]], [960,640,[720,480]], [1000,500,[960,480]], [400,200,[960,480]], [400,600,[720,1080]]]) {
     await resize(panelW, panelH);
     assert.deepEqual(await view(), expected);
