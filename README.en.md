@@ -18,6 +18,10 @@
 
 These screenshots show v0.9.2 installed in real DSH 0.2.0-rc.2; the installed package matches the official Release SHA256. A deterministic test provider drives real tools against isolated local SSH, web and API services.
 
+## Encrypted SSH private keys (v0.15.12)
+
+In **环境 → 终端环境**, create or edit an SSH environment and enter the private key path on the DSH host. Enter the key’s decryption passphrase in **私钥口令（可选）**. Leave it empty for an unencrypted key. DSH stores the account password and key passphrase separately. Leaving the passphrase blank while editing keeps the saved value. To remove it, select **清除已保存的私钥口令** and save. Use the environment’s Test or Connect action to verify the login.
+
 ## Collapsible environment groups (v0.15.4)
 
 Click a group name in the environment drawer to collapse or expand it. Groups start expanded. Terminal and API environments remember their groups independently. Searching reveals matches and clearing the search restores your layout. Bulk selection includes only visible environments in expanded groups.
@@ -120,14 +124,14 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 ## Manual intranet HTTP/HTTPS updates
 
-In v0.15.11, wide embedded pages have a bottom scrollbar. You can save a minimum width before opening a site, or choose Fit for an overview. [Release notes](docs/releases/dsh-remote-ops-v0.15.11.md)
+v0.15.12 adds stored decryption passphrases for SSH private keys. [Release notes](docs/releases/dsh-remote-ops-v0.15.12.md)
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.15.11.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.11.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.15.12.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.12.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.11.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.12.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -246,7 +250,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from the [latest stable release](https://github.com/Ssshake1996/myterm/releases/latest), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.15.11.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.15.12.tgz
 dsh web
 ```
 
@@ -293,15 +297,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.11
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.12
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.15.11
-node scripts/release-dsh-remote-ops.mjs 0.15.11 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.15.12
+node scripts/release-dsh-remote-ops.mjs 0.15.12 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and

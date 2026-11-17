@@ -15,12 +15,15 @@ export function closeSshClient(client) {
   if (typeof client.destroy === "function") client.destroy();else client.end?.();
 }
 
-export async function connectSsh(environment, { password, verifyHost, signal, ClientType = Client } = {}) {
+export async function connectSsh(environment, { password, passphrase, verifyHost, signal, ClientType = Client } = {}) {
   signal?.throwIfAborted();
   const client = new ClientType();
   const config = { host: environment.host, port: environment.port ?? 22, username: environment.username,
     readyTimeout: environment.readyTimeoutMs ?? 15000, keepaliveInterval: 10000, keepaliveCountMax: 3 };
-  if (environment.privateKeyPath) config.privateKey = await readFile(environment.privateKeyPath);
+  if (environment.privateKeyPath) {
+    config.privateKey = await readFile(environment.privateKeyPath);
+    if (passphrase) config.passphrase = passphrase;
+  }
   if (password) config.password = password;
   let identity, identityError;
   config.hostVerifier = (key, done) => {
@@ -37,12 +40,22 @@ export async function connectSsh(environment, { password, verifyHost, signal, Cl
       client.once("close", () => finish(sessionError("SSH_CONNECTION_CLOSED", "SSH closed before authentication completed")));
       client.once("ready", () => finish());
       signal?.addEventListener("abort", abort, { once: true });
-      if (signal?.aborted) abort(); else client.connect(config);
+      if (signal?.aborted) abort();
+      else { try { client.connect(config); } catch (error) { finish(error); } }
     });
     return { client, identity: identity ?? null };
   } catch (cause) {
     client.destroy();
     if (identityError) throw identityError;
+    if (/^Cannot parse privateKey:/i.test(cause.message)) {
+      let code = 'SSH_KEY_INVALID', message = '无法读取 SSH 私钥格式，请检查所选私钥文件';
+      if (/no passphrase given/i.test(cause.message)) {
+        code = 'SSH_KEY_PASSPHRASE_REQUIRED'; message = '此 SSH 私钥已加密，请在环境中填写私钥口令';
+      } else if (passphrase && /bad passphrase|bad decrypt|unable to authenticate data/i.test(cause.message)) {
+        code = 'SSH_KEY_PASSPHRASE_INVALID'; message = 'SSH 私钥解密失败，请核对私钥口令和私钥文件';
+      }
+      throw Object.assign(sessionError(code, message), { stage: 'private-key' });
+    }
     const error = sessionError(cause.level === "client-authentication" ? "SSH_AUTH_FAILED" : cause.code ?? "SSH_CONNECT_FAILED", `${environment.name} (${config.host}:${config.port}): ${cause.message}`, cause);
     error.stage = cause.level === "client-authentication" ? "authentication" : "connection";
     throw error;

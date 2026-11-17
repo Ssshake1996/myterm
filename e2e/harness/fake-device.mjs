@@ -138,13 +138,14 @@ function execCommand(device, stream, command) {
   device.log.execs.push(command);
   const echo = /^echo (.*)$/.exec(command);
   if (echo) { stream.write(`${echo[1]}\n`); stream.exit(0); }
+  else if (device.auth === "publickey" && command === "uname -s; pwd") { stream.write("Linux\n/home/test\n"); stream.exit(0); }
   else if (command === "uname -a") { stream.write("FakeOS 1.0 e2e-device x86_64\n"); stream.exit(0); }
   else if (command === "fail") { stream.stderr.write("boom: simulated failure\n"); stream.exit(3); }
   else { stream.stderr.write(`sh: ${command}: command not found\n`); stream.exit(127); }
   stream.end();
 }
 
-export async function startFakeDevice({ name = "Fake Array", username = DEVICE_USER, password = DEVICE_PASSWORD, auth = "password", prompt = "admin:/>", dropOn } = {}) {
+export async function startFakeDevice({ name = "Fake Array", username = DEVICE_USER, password = DEVICE_PASSWORD, auth = "password", publicKey, prompt = "admin:/>", dropOn } = {}) {
   const sockets = new Set();
   const log = { connections: 0, authAttempts: 0, raw: [], commands: [], replies: [], executed: [], execs: [], windows: [], interrupts: 0 };
   const device = { name, host: "127.0.0.1", port: 0, username, password, auth, prompt, log, dropOn, dropConnections: () => { for (const socket of sockets) socket.destroy(); } };
@@ -154,7 +155,15 @@ export async function startFakeDevice({ name = "Fake Array", username = DEVICE_U
       log.authAttempts += 1;
       if (auth === "none" && context.method === "none") return context.accept();
       if (auth === "password" && context.method === "password" && context.username === username && context.password === password) return context.accept();
-      return context.reject(auth === "password" ? ["password"] : ["none"]);
+      if (auth === "publickey" && context.method === "publickey" && context.username === username &&
+          context.key.algo === publicKey.type && context.key.data.equals(publicKey.getPublicSSH())) {
+        if (!context.signature) return context.accept();
+        if (publicKey.verify(context.blob, context.signature, context.hashAlgo) === true) {
+          log.verifiedSignatures = (log.verifiedSignatures ?? 0) + 1;
+          return context.accept();
+        }
+      }
+      return context.reject([auth]);
     });
     client.on("error", () => {});
     client.on("ready", () => client.on("session", (accept) => {
@@ -164,6 +173,10 @@ export async function startFakeDevice({ name = "Fake Array", username = DEVICE_U
       session.on("window-change", (acceptChange, _reject, info) => { log.windows.push({ event: "window-change", rows: info.rows, cols: info.cols }); acceptChange?.(); });
       session.on("shell", (acceptShell) => new DeviceCli(acceptShell(), device));
       session.on("exec", (acceptExec, _reject, info) => execCommand(device, acceptExec(), info.command));
+      if (auth === "publickey") session.on("sftp", acceptSftp => {
+        const sftp = acceptSftp();
+        sftp.on("REALPATH", id => sftp.name(id, [{ filename: "/", longname: "/", attrs: {} }]));
+      });
     }));
   });
   const tcp = net.createServer((socket) => {

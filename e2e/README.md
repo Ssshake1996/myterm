@@ -1,5 +1,9 @@
 # Remote Ops 浏览器测试
 
+## SSH 私钥口令
+
+在 Windows 上将 `DSH_CLI` 指向宿主的 `lib/bin.js`，再运行 `node e2e/runner/environment-password-native.mjs <tgz>`。可用 `PASSWORD_OUTPUT` 指定一个新的验收目录。脚本在独立 DSH 配置中安装该包，通过 Chrome 操作环境表单和 DSH 工具。两个仅接受公钥的本地 SSH 服务分别验证未加密、已加密 Ed25519 私钥的签名。验收还会重启宿主，检查留空、错误口令、清除和补录。结果和签名次数写入 `evidence.json`，表单截图为 `ssh-key-form.png`。测试结束后移除生成的私钥。
+
 ## 嵌入网页的视口与滚动条
 
 设置 `DSH_CLI` 为宿主的 `lib/bin.js`，执行 `node e2e/runner/browser-recording-native.mjs <tgz>`。脚本将候选包安装进独立的 DSH 配置，使用本地 HTTP 测试页。可用 `RECORDING_NATIVE_OUTPUT` 指定证据目录。

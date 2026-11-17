@@ -9,12 +9,12 @@ export function safeRequestUrl(address, base = 'http://local.invalid/') {
 }
 
 export function safeDiagnosticText(value, limit = 1200) {
-  const sensitive = /password|passwd|secret|token|cookie|authorization|api[-_]?key|credential|signature/i;
+  const sensitive = /password|passwd|passphrase|secret|token|cookie|authorization|api[-_]?key|credential|signature/i;
   const scrub = text => String(text)
     .replace(/https?:\/\/[^\s<>"']+/gi, address => safeRequestUrl(address))
     .replace(/((?:authorization|proxy-authorization|set-cookie|cookie)\s*:\s*)[^\r\n]+/gi, '$1[REDACTED]')
     .replace(/\b(Bearer|Basic)\s+[^\s,;"'<>]+/gi, '$1 [REDACTED]')
-    .replace(/(["']?[\w-]*(?:password|passwd|secret|token|cookie|authorization|api[-_]?key|credential|signature)[\w-]*["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*(?:"|$)|'[^']*(?:'|$)|[^\s,;<>]+)/gi, '$1[REDACTED]');
+    .replace(/(["']?[\w-]*(?:password|passwd|passphrase|secret|token|cookie|authorization|api[-_]?key|credential|signature)[\w-]*["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*(?:"|$)|'[^']*(?:'|$)|[^\s,;<>]+)/gi, '$1[REDACTED]');
   const clean = (item, depth = 0) => {
     if (depth > 12) return '[内容省略]';
     if (typeof item === 'string') return scrub(item);

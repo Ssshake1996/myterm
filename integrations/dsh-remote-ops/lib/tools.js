@@ -4,7 +4,7 @@ import { MAX_SESSIONS_PER_ENVIRONMENT } from "./constants.js";
 import { MAX_SCRIPT_STEPS, runScript } from "./terminal-script.js";
 import { toolParameters } from "./tool-schema.js";
 import { listSerialPorts } from "./serial-connection.js";
-import { validateNewPassword } from "./environment-password.js";
+import { publicEnvironment, validateNewPassword } from "./environment-password.js";
 
 const output = { schema: { type: "object", additionalProperties: true }, render: (_args, value) => [{ type: "text", text: JSON.stringify(value) }] };
 const stringParam = (description, required = false) => ({ type: "string", description, ...(required ? { required: true } : {}) });
@@ -160,7 +160,8 @@ export function registerTools(ctx, state) {
       username: stringParam("Required for SSH and Telnet username-password login; optional for other Telnet login modes"),
       group: stringParam("Environment group"),
       port: numberParam("Port; defaults to 22 for SSH or 23 for Telnet"),
-      privateKeyPath: stringParam("Local private key path"),
+      privateKeyPath: stringParam("SSH private key file on the DSH host. For an encrypted key also supply passphrase"),
+      passphrase: { oneOf: [stringParam("Optional SSH private key decryption passphrase for privateKeyPath. Preserve the exact value. Separate from the remote login password"), { type: "null" }] },
       passwordRef: stringParam("Harness credential reference"),
       password: { oneOf: [stringParam("User-supplied login password, 1-8192 characters, preserved exactly. Stored in DSH credentials, never in environment JSON or tool results. Omit/null keeps the credential"), { type: "null" }] },
       ...SSH_ENVIRONMENT_PARAMETERS,
@@ -169,14 +170,14 @@ export function registerTools(ctx, state) {
     },
     execute: async (args, exec) => {
       await state.ready;
-      const { password, ...fields } = args;
+      const { password, passphrase, ...fields } = args;
       validateNewPassword(password, fields.passwordRef);
       const value = state.normalizeEnvironment({ ...fields, group: normalizeGroupName(fields.group) });
       const validation = validateEnvironment(value);
       if (!validation.ok) throw sessionError("REMOTE_ENV_INVALID", validation.errors.join(", "));
-      const saved = await state.saveEnvironmentWithPassword(value, password);
+      const saved = await state.saveEnvironmentWithPassword(value, password, {passphrase});
       state.event(owner(exec), "environment.create", { environment: value.name });
-      return { saved: true, environment: { ...saved, passwordRef: saved.passwordRef ? "configured" : undefined } };
+      return { saved: true, environment: publicEnvironment(saved) };
     },
   }));
   registerWithFallback(ctx, state, (withNested) => ({
@@ -192,6 +193,8 @@ export function registerTools(ctx, state) {
         group: stringParam("New non-empty environment group; created if absent"),
         port: numberParam("Port, integer 1-65535; SSH defaults to 22 and Telnet to 23"),
         privateKeyPath: stringParam("Private key path on the DSH host; empty string clears it"),
+        passphrase: stringParam("SSH key decryption passphrase. Omit, null or empty keeps the saved value. Preserve whitespace"),
+        clearPassphrase: { type:"boolean", description:"Set true to remove the saved private key passphrase while keeping the key path and account password" },
         passwordRef: stringParam("Existing Harness credential reference; empty string clears it. Never pass a password or the display marker configured"),
         password: stringParam("New user-supplied login password, 1-8192 characters, preserved exactly. Omit/null keeps the saved password; empty string is rejected"),
         ...SSH_ENVIRONMENT_PARAMETERS,
@@ -201,7 +204,7 @@ export function registerTools(ctx, state) {
     execute: async ({ environment, ...changes }, exec) => {
       const saved = await state.updateEnvironment(environment, changes);
       state.event(owner(exec), "environment.update", { environment: saved.name });
-      return { saved: true, environment: { ...saved, passwordRef: saved.passwordRef ? "configured" : undefined }, connectionEffect: "new-connections-only" };
+      return { saved: true, environment: publicEnvironment(saved), connectionEffect: "new-connections-only" };
     },
   }));
   registerTool(ctx, state, {

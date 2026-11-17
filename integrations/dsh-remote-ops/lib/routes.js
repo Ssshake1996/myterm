@@ -2,6 +2,7 @@ import { listSerialPorts } from "./serial-connection.js";
 import { registerRuntimeFetch } from "./hot-reload.js";
 import { describeFailure } from "./diagnostics.js";
 import { LOCAL_SESSION_ID } from "./constants.js";
+import { publicEnvironment } from "./environment-password.js";
 import { normalizeGroupName, sessionError, summarizeError } from "./common.js";
 
 const registerRoute = (ctx, state, label, definition) => ctx.effect(() => registerRuntimeFetch(ctx, state, definition), label);
@@ -13,7 +14,8 @@ const connectionSummary = (opened, extra = {}) => ({ sessionId: opened.sessionId
 async function saveEnvironmentAction(state, body) {
   const environment = state.normalizeEnvironment({ ...body.environment, group: normalizeGroupName(body.environment?.group) });
   const password = body.password === "" ? undefined : body.password;
-  return { saved: true, environment: await state.saveEnvironmentWithPassword(environment, password) };
+  const saved = await state.saveEnvironmentWithPassword(environment, password, { passphrase: body.passphrase, clearPassphrase: body.clearPassphrase });
+  return { saved: true, environment: { ...publicEnvironment(saved), passwordRef: saved.passwordRef } };
 }
 
 const ACTIONS = {

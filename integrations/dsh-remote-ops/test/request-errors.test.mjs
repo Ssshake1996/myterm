@@ -72,9 +72,9 @@ test('network failures include operation and address; cancellation remains cance
   await assert.rejects(requestWith(async()=>{throw aborted;})('/api/dsh-remote-ops/state'),error=>error===aborted);
 });
 test('JSON errors retain their code, bound the preview, and redact credentials',async()=>{
-  const request=requestWith(async()=>Response.json({code:'EXAMPLE_ERROR',error:'Denied',password:'fixture-password',access_token:'fixture-token',nested:{cookie:'fixture-cookie'},detail:'x'.repeat(9000)},{status:403}));
+  const request=requestWith(async()=>Response.json({code:'EXAMPLE_ERROR',error:'Denied',password:'fixture-password',access_token:'fixture-token',nested:{cookie:'fixture-cookie',passphrase:'fixture-key-phrase'},detail:'x'.repeat(9000)},{status:403}));
   await assert.rejects(request('/api/dsh-remote-ops/action',{method:'POST',body:'secret request body'}),error=>{
-    assert.equal(error.code,'EXAMPLE_ERROR');assert.match(error.message,/HTTP 403/);assert.doesNotMatch(error.message,/fixture-password|fixture-token|fixture-cookie|secret request body/);assert.ok(error.message.length<2500);return true;
+    assert.equal(error.code,'EXAMPLE_ERROR');assert.match(error.message,/HTTP 403/);assert.doesNotMatch(error.message,/fixture-password|fixture-token|fixture-cookie|fixture-key-phrase|secret request body/);assert.ok(error.message.length<2500);return true;
   });
 });
 test('upstream update diagnostics distinguish upstream HTTP 404 from the plugin HTTP 400',async()=>{

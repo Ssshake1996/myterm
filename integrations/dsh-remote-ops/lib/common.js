@@ -5,6 +5,7 @@ import { validateCliProfile, validateTerminalSize } from "./cli-profile.js";
 import { WINDOWS_SHELLS } from "./windows-shell.js";
 import { validateSerial } from "./serial-config.js";
 import { validateTelnet } from "./telnet-config.js";
+import { keyPassphraseRef } from "./environment-password.js";
 
 export { sessionError, summarizeError } from "./errors.js";
 
@@ -55,6 +56,8 @@ export function validateEnvironment(value) {
   const errors = [];
   if (!value || typeof value !== "object") return { ok: false, errors: ["environment must be an object"] };
   if (Object.hasOwn(value, "password")) errors.push("Pass password as a tool/save argument so it is stored in DSH credentials; environment definitions contain only passwordRef");
+  if (["passphrase", "clearPassphrase", "passphraseConfigured"].some(key => Object.hasOwn(value, key))) errors.push("Key passphrases belong in the separate SSH credential input");
+  if (value.passphraseRef && (typeof value.id !== "string" || value.passphraseRef !== keyPassphraseRef(value.id))) errors.push("Invalid environment key passphrase reference");
   const telnet = value.transport === "telnet";
   const serial = value.transport === "serial";
   if (serial) errors.push(...validateSerial(value.serial));

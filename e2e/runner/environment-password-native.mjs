@@ -1,11 +1,12 @@
 // Official DSH tool dispatch and credentials service; loopback-only device/model fixtures.
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { resolve, join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
+import ssh2 from 'ssh2';
 import { chromium } from '../../integrations/dsh-remote-ops/node_modules/playwright-core/index.mjs';
 import { startFakeDevice } from '../harness/fake-device.mjs';
 import { startTelnetDevice } from '../harness/telnet-device.mjs';
@@ -115,6 +116,68 @@ try{
     await until(async()=>(await page.getByLabel('终端输出',{exact:true}).innerText()).includes('TELNET_AGENT_VERIFIED'));
   });
   await step('重启隔离 DSH 后配置和凭据保留，新连接使用新密码',async()=>{await stop();plan=[];await boot();await verify('RESTART');assert.equal(sshNext.log.connections,1);assert.equal(telnetNext.stats.logins,1);assert.equal(apiLogins,4);assert.equal(apiRequests,4);});
+  const keySecret='  测试 key !  ';
+  secrets.push(keySecret);
+  const keyFixtures=[];
+  try {
+    for(const encrypted of [false,true]){
+      const pair=ssh2.utils.generateKeyPairSync('ed25519',encrypted?{cipher:'aes256-ctr',passphrase:keySecret}:{});
+      const keyPath=join(out,encrypted?'encrypted-test-key':'plain-test-key');
+      const device=await startFakeDevice({auth:'publickey',publicKey:ssh2.utils.parseKey(pair.public)});
+      keyFixtures.push({keyPath,device});
+      await writeFile(keyPath,pair.private,{mode:0o600});
+    }
+    const [plain,locked]=keyFixtures;
+    const panel=page.locator('.dsh-remote-ops'), form=panel.locator('form').filter({has:page.getByLabel('私钥路径',{exact:true})});
+    const drawer=async()=>{await panel.getByRole('button',{name:'环境管理',exact:true}).click();await panel.getByRole('tab',{name:'终端环境',exact:true}).click();};
+    const edit=async()=>{
+      await panel.getByRole('button',{name:'更多环境操作 Key console',exact:true}).click();
+      await panel.getByRole('group',{name:'环境管理操作',exact:true}).getByRole('button',{name:'编辑',exact:true}).click();
+    };
+    const save=async()=>{await form.getByRole('button',{name:'保存',exact:true}).click();await form.waitFor({state:'hidden'});};
+    const closeDrawer=()=>panel.getByRole('button',{name:'关闭环境抽屉',exact:true}).click();
+    let keyId;
+    const testKey=async()=>{
+      const result=await api('action',{action:'environment.test',environment:keyId});
+      const stages=result.stages.map(({stage,ok,code})=>({stage,ok,code}));
+      (evidence.keyTests??=[]).push(stages);
+      return result;
+    };
+    await step('未加密私钥留空，Agent 通过签名认证连接并执行命令',async()=>{
+      const [created]=await agent('PLAIN_KEY',[['remote_environment_create',{host:'127.0.0.1',port:plain.device.port,username:plain.device.username,name:'Plain key console',privateKeyPath:plain.keyPath}]]);
+      assert.equal(created.environment.passphraseConfigured,false);
+      const [opened,output]=await agent('PLAIN_CONNECT',[['remote_terminal_open',{environment:created.environment.id}],['remote_terminal_send',r=>({session:r[0].sessionId,text:'show version',quietMs:150})]]);
+      assert.ok(opened.sessionId && plain.device.log.verifiedSignatures===1);assert.match(JSON.stringify(output),/Array OS/);
+    });
+    await step('GUI 新建加密私钥环境、留空编辑，测试连接和终端命令均通过',async()=>{
+      await drawer();await panel.getByRole('button',{name:'+ 环境',exact:true}).click();
+      await form.getByLabel('显示名称',{exact:true}).fill('Key console');await form.getByLabel('主机地址',{exact:true}).fill('127.0.0.1');
+      await form.getByLabel('用户名',{exact:true}).fill(locked.device.username);await form.getByLabel('端口',{exact:true}).fill(String(locked.device.port));
+      await form.getByLabel('私钥路径',{exact:true}).fill(locked.keyPath);
+      const field=form.getByLabel('私钥口令（可选）',{exact:true});
+      assert.equal(await field.getAttribute('type'),'password');await field.fill(keySecret);
+      await form.screenshot({path:join(out,'ssh-key-form.png')});await save();
+      keyId=await until(async()=>(await state()).environments.find(e=>e.name==='Key console'&&e.passphraseConfigured)?.id);
+      await edit();assert.equal(await field.inputValue(),'');await save();await closeDrawer();
+      const checked=await testKey();assert.equal(checked.ok,true,JSON.stringify(checked.stages));
+      const [,output]=await agent('KEY_CONNECT',[['remote_terminal_open',{environment:keyId}],['remote_terminal_send',r=>({session:r[0].sessionId,text:'show version',quietMs:150})]]);
+      assert.match(JSON.stringify(output),/Array OS/);assert.ok(locked.device.log.verifiedSignatures>=2);
+      assert.ok(!JSON.stringify((await configs()).ssh).includes(keySecret));
+    });
+    await step('重启保留口令，错误与缺失分别提示，清除后 Agent 能补录',async()=>{
+      await stop();plan=[];await boot();assert.equal((await testKey()).ok,true);
+      await agent('WRONG_KEY',[['remote_environment_update',{environment:keyId,password:keySecret,passphrase:'fixture-wrong-key'}]]);
+      const connections=locked.device.log.connections;
+      assert.equal((await testKey()).stages[0].code,'SSH_KEY_PASSPHRASE_INVALID');
+      await drawer();await edit();await form.getByRole('button',{name:'清除已保存的私钥口令',exact:true}).click();await save();await closeDrawer();
+      assert.equal((await testKey()).stages[0].code,'SSH_KEY_PASSPHRASE_REQUIRED');
+      assert.equal(locked.device.log.connections,connections);
+      await agent('RESTORE_KEY',[['remote_environment_update',{environment:keyId,passphrase:keySecret}]]);
+      assert.equal((await testKey()).ok,true);evidence.keySignatures={plain:plain.device.log.verifiedSignatures,encrypted:locked.device.log.verifiedSignatures};
+    });
+  } finally {
+    for(const f of keyFixtures){await f.device.close();await unlink(f.keyPath).catch(error=>{if(error.code!=='ENOENT')throw error;});}
+  }
   assert.deepEqual(evidence.errors,[]);evidence.status='passed';evidence.api={logins:apiLogins,requests:apiRequests};
 }catch(error){evidence.status='failed';evidence.error=error.stack;process.exitCode=1;console.error(error);await page?.screenshot({path:join(out,'failure.png')}).catch(()=>{});}
 finally{await writeFile(join(out,'evidence.json'),JSON.stringify(evidence,null,2));await browser?.close();await stop().catch(()=>{});logs.forEach(x=>x.end());service.closeAllConnections();await new Promise(r=>service.close(r));await Promise.all([ssh.close(),sshNext.close(),telnet.close(),telnetNext.close()]);console.log('Evidence: '+join(out,'evidence.json'));}

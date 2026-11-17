@@ -12,6 +12,7 @@ async function setup(t) {
   const { state, ctx } = await fixture(t, () => '');
   const secrets = new Map([['SHARED_PASSWORD', 'old-shared-secret']]), writes = [];
   ctx.credentials.set = async (ref, value) => { writes.push(ref); secrets.set(ref, value); };
+  ctx.credentials.unset = async ref => { secrets.delete(ref); };
   ctx.credentials.resolve = async ref => ({ value: secrets.get(ref) });
   state.api = new ApiWorkspace({ root: join(state.base, 'api'), credentials: ctx.credentials });
   await state.api.ready; t.after(() => state.api.dispose());
@@ -52,6 +53,92 @@ test('password updates detach only the selected environment from a shared refere
   assert.equal(await state.resolvePassword(state.findEnvironment('two')), 'old-shared-secret');
   assert.equal(secrets.get('SHARED_PASSWORD'), 'old-shared-secret');
   assert.equal(await state.resolvePassword(state.findEnvironment('one')), 'one-only-new-secret');
+});
+
+test('SSH key passphrase and account password remain independent across edits, a reload and explicit clearing', async t => {
+  const { state, secrets, call, schema } = await setup(t);
+  const password = 'account-password', passphrase = '  key 口令 !  ';
+  const args = { name:'keys', host:'localhost', username:'u', privateKeyPath:'my-key', password, passphrase };
+  schema('remote_environment_create', args);
+  const created = await call('remote_environment_create', args), id = created.environment.id;
+  assert.equal(created.environment.passphraseConfigured, true);
+  const { passwordRef, passphraseRef } = state.findEnvironment(id);
+  assert.notEqual(passwordRef, passphraseRef);
+  assert.equal(secrets.get(passphraseRef), passphrase);
+  const disk = await readFile(state.envFile('default'), 'utf8');
+  assert.equal(JSON.parse(disk)[0].passphraseRef, passphraseRef);
+  assert.ok(!disk.includes(passphrase) && !disk.includes(password));
+  for (const view of [created, state.catalog(), await call('remote_environment_list')]) {
+    const text = JSON.stringify(view);
+    for (const secret of [password, passphrase, passphraseRef]) assert.ok(!text.includes(secret));
+  }
+  state.environments.clear(); await state.load();
+  for (const blank of [null, '']) await call('remote_environment_update', { environment:id, name:'renamed', passphrase:blank });
+  assert.equal(secrets.get(state.findEnvironment(id).passphraseRef), passphrase);
+  await call('remote_environment_update', {environment:id, passphrase:'replacement'});
+  assert.equal(secrets.get(state.findEnvironment(id).passphraseRef), 'replacement');
+  const clear = {environment:id, clearPassphrase:true}; schema('remote_environment_update', clear);
+  const cleared = await call('remote_environment_update', clear);
+  assert.equal(cleared.environment.passphraseConfigured, false);
+  assert.equal(secrets.has(passphraseRef), false);
+  assert.equal(state.findEnvironment(id).privateKeyPath,'my-key');
+  assert.equal(secrets.get(passwordRef),password);
+  await call('remote_environment_update', {environment:id, passphrase});
+  await call('remote_environment_update', {environment:id, privateKeyPath:''});
+  assert.ok(!state.findEnvironment(id).passphraseRef && !secrets.has(passphraseRef));
+  await call('remote_environment_update', {environment:id, privateKeyPath:'other',passphrase});
+  await call('remote_environment_delete', {environment:id});
+  assert.equal(secrets.has(passphraseRef),false);
+});
+
+test('invalid SSH key credential inputs are rejected before any vault write; vault failures omit values',async t=>{
+  const { ctx,state,call,writes } = await setup(t);
+  const args={host:'localhost',username:'u',privateKeyPath:'key',password:'account'};
+  for(const patch of [{passphrase:7},{passphrase:'x'.repeat(8193)},{passphrase:'s',privateKeyPath:''},
+    {passphrase:'s',transport:'telnet',privateKeyPath:''},{passphrase:'s',transport:'serial',password:null,serial:{path:'COM3'}}]){
+    await assert.rejects(call('remote_environment_create',{...args,...patch}), {code:'SSH_KEY_PASSPHRASE_INVALID'});
+  }
+  assert.equal(writes.length,0);
+  const { environment:{id} }=await call('remote_environment_create',args);
+  await assert.rejects(call('remote_environment_update',{environment:id,passphrase:'conflict',clearPassphrase:true}),{code:'SSH_KEY_PASSPHRASE_INVALID'});
+  ctx.credentials.set=async(_ref,value)=>{throw new Error(value);};
+  await assert.rejects(call('remote_environment_update',{environment:id,passphrase:'sensitive-fixture-value'}),err=>
+    err.code==='SSH_KEY_PASSPHRASE_SAVE_FAILED' && !err.message.includes('sensitive-fixture-value'));
+  assert.equal(state.findEnvironment(id).passphraseRef,undefined);
+});
+
+test('failed persistence restores key and account credentials and leaves the saved environment intact', async t => {
+  const { state, secrets, call } = await setup(t);
+  const created = await call('remote_environment_create', {
+    host: 'localhost', name: 'console', username: 'test', privateKeyPath: 'key', passphrase: 'old-key', password: 'old-password',
+  });
+  const id = created.environment.id;
+  const before = state.findEnvironment(id);
+  const beforeVault = new Map(secrets);
+  const disk = await readFile(state.envFile('default'), 'utf8');
+  const saveGroup = state.saveGroup.bind(state);
+  state.saveGroup = (group, list) => {
+    if (group === 'default') throw Error('fixture definition write failed');
+    return saveGroup(group, list);
+  };
+  await assert.rejects(call('remote_environment_update', {
+    environment: id, group: 'moved', passphrase: 'new-key', password: 'new-password',
+  }), /fixture definition write failed/);
+  await assert.rejects(call('remote_environment_delete', { environment: id }), /fixture definition write failed/);
+  assert.deepEqual(state.findEnvironment(id), before);
+  assert.deepEqual(secrets, beforeVault);
+  assert.equal(await readFile(state.envFile('default'), 'utf8'), disk);
+  await assert.rejects(readFile(state.envFile('moved')), { code: 'ENOENT' });
+  state.saveGroup = saveGroup;
+  await Promise.all([
+    call('remote_environment_update', { environment: id, passphrase: 'new-key' }),
+    call('remote_environment_update', { environment: id, clearPassphrase: true }),
+    call('remote_environment_update', { environment: id, name: 'new-name' }),
+  ]);
+  assert.equal(state.findEnvironment(id).name, 'new-name');
+  assert.equal(state.findEnvironment(id).passphraseRef, undefined);
+  assert.equal(secrets.has(before.passphraseRef), false);
+  assert.equal(secrets.get(before.passwordRef), 'old-password');
 });
 
 test('SSH password validation, duplicate names and conflicting references do not write credentials', async t => {

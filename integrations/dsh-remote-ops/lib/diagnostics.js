@@ -7,7 +7,8 @@ export function describeFailure(error, stage = "operation") {
   const details = chain.join("\nCaused by: ");
   const code = String(error?.code ?? "REMOTE_OPERATION_FAILED");
   let title = "操作未完成", recovery = "retry";
-  if (/auth|credential|password/i.test(details)) { title = "认证失败，请检查凭据"; recovery = "credentials"; }
+  if (/^SSH_KEY_/.test(code)) { title = "请检查 SSH 私钥与口令"; recovery = "credentials"; }
+  else if (/auth|credential|password/i.test(details)) { title = "认证失败，请检查凭据"; recovery = "credentials"; }
   else if (/SESSION_REQUIRED|OWNER_UNAVAILABLE|session\/not-found/.test(code)) { title = "需要选择可用的 Harness 会话"; recovery = "session"; }
   else if (/SESSION_NOT_FOUND|SESSION_EXITED|NO_SESSION/.test(code)) { title = "终端已断开"; recovery = "connect"; }
   else if (/MANUAL_CONTROL|AGENT_ACTIVE/.test(code)) { title = "终端输入由另一方持有"; recovery = "control"; }

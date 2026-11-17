@@ -2,6 +2,10 @@
 
 DeepSeek Harness plugin for SSH, Windows desktop, web and RESTful API operations. Users and Agents share visible terminals, application windows, webpages and request records.
 
+## Encrypted SSH private keys (v0.15.12)
+
+In **环境 → 终端环境**, create or edit an SSH environment and enter the private key path on the DSH host. Enter the key’s decryption passphrase in **私钥口令（可选）**. Leave it empty for an unencrypted key. DSH stores the account password and key passphrase separately. Leaving the passphrase blank while editing keeps the saved value. To remove it, select **清除已保存的私钥口令** and save. Use the environment’s Test or Connect action to verify the login.
+
 ## Collapsible environment groups (v0.15.4)
 
 Click a group name in the environment drawer to collapse or expand it. Groups start expanded. Terminal and API environments remember their groups independently. Searching reveals matches and clearing the search restores your layout. Bulk selection includes only visible environments in expanded groups.
@@ -104,10 +108,10 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.15.11.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.11.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.15.12.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.12.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.11.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.12.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -235,7 +239,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.15.11.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.15.12.tgz
 dsh web
 ```
 
@@ -306,9 +310,9 @@ An update changes only supplied non-null fields. For example, call `remote_envir
 {"environment":"actual-id-from-list","name":"storage-primary","group":"production"}
 ```
 
-Supported fields: `name`, `host`, `username`, `group`, `port`, `privateKeyPath`, `passwordRef`, `encoding`, `cliProfile`, `terminal`. The ID stays fixed. Omission/null retains the old field; an entirely empty update rejects. Non-empty text is required for name/host/username/group. Port must be an integer 1–65535. Name conflicts, unknown fields, invalid nested options and the credential display marker `configured` reject before writing. Exact IDs take precedence over matching display names.
+Supported fields include `name`, `host`, `username`, `group`, `port`, `privateKeyPath`, `passphrase`, `clearPassphrase`, `passwordRef`, `encoding`, `cliProfile` and `terminal`. The ID stays fixed. Omitted or null fields keep their values. An update needs at least one non-null field. Name, host, username and group require non-empty text. Port must be an integer from 1 to 65535. Name conflicts, unknown fields, invalid nested options and the credential display marker `configured` reject before writing. Exact IDs take precedence over matching display names.
 
-`cliProfile` and `terminal` replace their entire respective sections when supplied; `{}` resets a section to defaults. Empty `passwordRef`/`privateKeyPath` strings clear that setting without deleting the stored credential or key file. These tools accept a user-supplied password or an existing credential reference. The plugin stores new passwords through DSH credentials; GUI entry is optional. Omit the masked `passwordRef: "configured"` returned by listing when retaining authentication.
+`cliProfile` and `terminal` replace their entire respective sections when supplied. Use `{}` to reset a section to defaults. An empty `passwordRef` detaches the account password reference. Clearing `privateKeyPath` also removes that environment’s saved key passphrase. The key file stays on disk. These tools accept a user-supplied password or an existing credential reference. DSH stores new passwords in its credential service. Omit the masked `passwordRef: "configured"` returned by listing when retaining authentication.
 
 Saved changes apply to new SSH connections. Existing connections retain their captured name, address, authentication and CLI/terminal defaults; the tool does not disconnect or reconnect them. `saved: true` confirms persistence, not connectivity. Environment deletion removes the saved definition and closes connections owned by the calling conversation, leaving other conversations' already-open connections intact. A group move creates an absent target group and leaves the old group present.
 

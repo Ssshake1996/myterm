@@ -1,5 +1,31 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { sessionError } from './errors.js';
+
+// The full environment ID determines a private vault slot; user-supplied
+// account password references are never used for key decryption or clearing.
+export function keyPassphraseRef(id) {
+  return 'DSH_REMOTE_OPS_KEY_' + createHash('sha256').update(id).digest('hex').toUpperCase() + '_PASSPHRASE';
+}
+
+export function publicEnvironment(environment) {
+  const { passphraseRef, ...fields } = environment;
+  return { ...fields, passwordRef: environment.passwordRef ? 'configured' : undefined, passphraseConfigured: Boolean(passphraseRef) };
+}
+
+export function validateKeyPassphrase(passphrase, clear, environment) {
+  if (clear != null && typeof clear !== 'boolean') throw sessionError('SSH_KEY_PASSPHRASE_INVALID', 'clearPassphrase must be a boolean');
+  if (passphrase == null || passphrase === '') return;
+  if (typeof passphrase !== 'string' || passphrase.length > 8192 || clear) throw sessionError('SSH_KEY_PASSPHRASE_INVALID', 'Supply one key passphrase of at most 8192 characters or clearPassphrase, separately');
+  if ((environment.transport ?? 'ssh') !== 'ssh' || !environment.privateKeyPath?.trim()) throw sessionError('SSH_KEY_PASSPHRASE_INVALID', 'An SSH private key path is required to save a key passphrase');
+}
+
+export async function writeKeyPassphrase(credentials, id, passphrase) {
+  const ref = keyPassphraseRef(id);
+  try {
+    if (passphrase) await credentials.set(ref, passphrase); else await credentials.unset(ref);
+  } catch { throw sessionError('SSH_KEY_PASSPHRASE_SAVE_FAILED', 'DSH 未能保存私钥口令更改，请重试'); }
+  return passphrase ? ref : '';
+}
 
 export function validateNewPassword(password, passwordRef, family = 'REMOTE') {
   if (password == null) return false;

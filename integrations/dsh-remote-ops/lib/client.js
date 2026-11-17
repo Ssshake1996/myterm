@@ -383,12 +383,12 @@ window.__ModuleLoader__.load({
     }
 
     function safeDiagnosticText(value, limit = 1200) {
-      const sensitive = /password|passwd|secret|token|cookie|authorization|api[-_]?key|credential|signature/i;
+      const sensitive = /password|passwd|passphrase|secret|token|cookie|authorization|api[-_]?key|credential|signature/i;
       const scrub = text => String(text)
         .replace(/https?:\/\/[^\s<>"']+/gi, address => safeRequestUrl(address))
         .replace(/((?:authorization|proxy-authorization|set-cookie|cookie)\s*:\s*)[^\r\n]+/gi, '$1[REDACTED]')
         .replace(/\b(Bearer|Basic)\s+[^\s,;"'<>]+/gi, '$1 [REDACTED]')
-        .replace(/(["']?[\w-]*(?:password|passwd|secret|token|cookie|authorization|api[-_]?key|credential|signature)[\w-]*["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*(?:"|$)|'[^']*(?:'|$)|[^\s,;<>]+)/gi, '$1[REDACTED]');
+        .replace(/(["']?[\w-]*(?:password|passwd|passphrase|secret|token|cookie|authorization|api[-_]?key|credential|signature)[\w-]*["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*(?:"|$)|'[^']*(?:'|$)|[^\s,;<>]+)/gi, '$1[REDACTED]');
       const clean = (item, depth = 0) => {
         if (depth > 12) return '[内容省略]';
         if (typeof item === 'string') return scrub(item);
@@ -502,7 +502,7 @@ window.__ModuleLoader__.load({
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const updateRecovery = createUpdateRecovery((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.15.11", update: { currentVersion: "0.15.11", latestVersion: "0.15.11", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.15.12", update: { currentVersion: "0.15.12", latestVersion: "0.15.12", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -2318,7 +2318,7 @@ window.__ModuleLoader__.load({
       const keySequence = (event) => { if (event.ctrlKey && !event.altKey && !event.metaKey) { const key = event.key.toLowerCase(); if (key === "v") return undefined; if (key.length === 1 && key >= "a" && key <= "z") return String.fromCharCode(key.charCodeAt(0) - 96); if (key === "[") return "\u001b"; if (key === "\\") return "\u001c"; if (key === "]") return "\u001d"; if (key === "^") return "\u001e"; if (key === "_") return "\u001f"; if (key === " ") return "\u0000"; } if (event.key === "Tab") return event.shiftKey ? "\u001b[Z" : "\t"; const sequences = { Enter: "\r", Escape: "\u001b", Backspace: "\u007f", Delete: "\u001b[3~", ArrowUp: "\u001b[A", ArrowDown: "\u001b[B", ArrowRight: "\u001b[C", ArrowLeft: "\u001b[D", Home: "\u001b[H", End: "\u001b[F", PageUp: "\u001b[5~", PageDown: "\u001b[6~", Insert: "\u001b[2~" }; return sequences[event.key]; };
       const addGroup = async () => { const name = await askPanel("环境分组名称", ""); if (name) { const result = await action({ action: "group.create", name }); if (result) setEnvironmentGroup(result.group); } };
       const editGroup = async (group) => { const name = await askPanel("新的环境分组名称", group); if (name && name !== group) { const result = await action({ action: "group.rename", group, name }); if (result) setEnvironmentGroup(result.group); } };
-      const openEnvironmentForm = (initial) => { setEnvironmentError(""); setEnvironmentTest(null); setEnvironmentForm({ mode: initial ? "edit" : "create", id: initial?.id ?? "", name: initial?.name ?? "", host: initial?.host ?? "", username: initial?.username ?? "root", group: initial?.group ?? (environmentGroup || snapshot.groups[0] || "default"), port: String(initial?.port ?? (initial?.transport === "telnet" ? 23 : 22)), passwordRef: initial?.passwordRef === "configured" ? "" : initial?.passwordRef ?? "", password: "", privateKeyPath: initial?.privateKeyPath ?? "", credentialConfigured: initial?.passwordRef === "configured", ...environmentProfileValues(initial), ...environmentConnectionValues(initial) }); };
+      const openEnvironmentForm = (initial) => { setEnvironmentError(""); setEnvironmentTest(null); setEnvironmentForm({ mode: initial ? "edit" : "create", id: initial?.id ?? "", name: initial?.name ?? "", host: initial?.host ?? "", username: initial?.username ?? "root", group: initial?.group ?? (environmentGroup || snapshot.groups[0] || "default"), port: String(initial?.port ?? (initial?.transport === "telnet" ? 23 : 22)), passwordRef: initial?.passwordRef === "configured" ? "" : initial?.passwordRef ?? "", password: "", privateKeyPath: initial?.privateKeyPath ?? "", passphrase: "", passphraseConfigured: !!initial?.passphraseConfigured, clearPassphrase: false, credentialConfigured: initial?.passwordRef === "configured", ...environmentProfileValues(initial), ...environmentConnectionValues(initial) }); };
       const updateEnvironmentForm = (field, value) => setEnvironmentForm((current) => current ? { ...current, [field]: value } : current);
       const saveEnvironmentForm = async event => {
         event.preventDefault();
@@ -2336,10 +2336,14 @@ window.__ModuleLoader__.load({
           const port = Number(form.port);
           if (!Number.isInteger(port) || port < 1 || port > 65535) { setEnvironmentError("端口必须是 1-65535 的整数"); return; }
           Object.assign(environment, {host:form.host.trim(), username:form.username.trim(), port});
-          if (form.transport === "ssh" && form.privateKeyPath.trim()) environment.privateKeyPath = form.privateKeyPath.trim();
+          if (form.transport === "ssh" && (form.privateKeyPath.trim() || form.mode === "edit")) environment.privateKeyPath = form.privateKeyPath.trim();
         }
         const body = {action:"environment.save", environment};
         if (!serial && form.password) body.password = form.password;
+        if (form.transport === "ssh" && environment.privateKeyPath) {
+          if (form.clearPassphrase) body.clearPassphrase = true;
+          else if (form.passphrase) body.passphrase = form.passphrase;
+        }
         if (await action(body)) { setEnvironmentForm(null); setEnvironmentTest(null); }
       };
       const testSavedEnvironment = async environment => { const value = await action({ action: "environment.test", environment: environment.id }); if (value) setEnvironmentTest(value); };
@@ -2523,6 +2527,14 @@ window.__ModuleLoader__.load({
           environmentForm.transport === "telnet" ? h("div", null, h("label", null, "回车换行", h("select", { "aria-label": "Telnet 回车换行", value: environmentForm.telnetLineEnding, onChange: event => updateEnvironmentForm("telnetLineEnding", event.target.value) }, ["crlf", "cr", "lf"].map(value => h("option", { value, key: value }, value.toUpperCase())))), [["telnetUsernamePrompt", "用户名提示符"], ["telnetPasswordPrompt", "密码提示符"], ["telnetShellPrompt", "就绪提示符"]].map(([field, label]) => h("label", { key: field }, label, h("input", { "aria-label": "Telnet " + label, value: environmentForm[field], placeholder: "留空使用内置规则", onChange: event => updateEnvironmentForm(field, event.target.value) }))), h("p", { className: "dsh-remote-ops__formNote" }, "提示符填写正则表达式。默认识别 login/username、password，以及行尾的 >、#、$；提示符匹配不等于命令成功。自动登录凭据仅提交一次，失败后保留回显。")) : h("p", { className: "dsh-remote-ops__formNote" }, "指定 Windows Shell 时使用 UTF-8，仅影响新连接。未固定指纹时首次连接记录主机密钥，后续变化会拒绝连接；可向管理员核对后填写指纹。"))),
         environmentForm.transport === "serial" || !drawer || environmentKind !== "ssh" ? null : h(EnvironmentPasswordField, { key: environmentForm.id || "new", id: "remote-ops-password-" + encodeURIComponent(sessionId ?? "local"), environmentId: environmentForm.id, configured: environmentForm.credentialConfigured, value: environmentForm.password, onChange: value => updateEnvironmentForm("password", value) }),
         environmentForm.transport === "ssh" ? h("label", null, "私钥路径", h("input", { value: environmentForm.privateKeyPath, onChange: (event) => updateEnvironmentForm("privateKeyPath", event.target.value), placeholder: "可选，本机路径" })) : null,
+        environmentForm.transport === "ssh" && environmentForm.privateKeyPath.trim() ? h(React.Fragment, null,
+          h("label", null, "私钥口令（可选）", h("input", { type: "password", autoComplete: "new-password", "aria-label": "私钥口令（可选）", maxLength: 8192,
+            value: environmentForm.passphrase, disabled: environmentForm.clearPassphrase,
+            placeholder: environmentForm.clearPassphrase ? "保存后清除口令" : environmentForm.passphraseConfigured ? "已配置，留空保留" : "仅加密私钥需要",
+            onChange: event => updateEnvironmentForm("passphrase", event.target.value) })),
+          environmentForm.passphraseConfigured ? h("button", { type: "button", className: "dsh-remote-ops__tiny", "aria-pressed": environmentForm.clearPassphrase,
+            onClick: () => setEnvironmentForm(current => ({ ...current, passphrase: "", clearPassphrase: !current.clearPassphrase })) },
+            environmentForm.clearPassphrase ? "撤销清除" : "清除已保存的私钥口令") : null) : null,
         environmentAdvancedFields(environmentForm, updateEnvironmentForm),
         h("div", { className: "dsh-remote-ops__formNote" }, `${environmentForm.credentialConfigured ? "凭据已配置；密码留空保持原密码，输入新密码会更新凭据。" : "输入密码后由系统自动保存到 Harness credentials；凭据引用由系统管理。"} 名称留空时使用主机地址。`),
         h("div", { className: "dsh-remote-ops__formActions" },

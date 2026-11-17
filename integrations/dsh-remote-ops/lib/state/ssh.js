@@ -46,7 +46,12 @@ export const withSsh = Base => class SshLayer extends Base {
   async connectSshEnvironment(environment, signal) {
     if (environment.transport === "serial") throw sessionError("SERIAL_SFTP_UNSUPPORTED", "Serial is a terminal connection. File transfer requires SSH.");
     if (environment.transport === "telnet") throw sessionError("TELNET_SFTP_UNSUPPORTED", "This operation requires an SSH environment. Telnet supports terminal input/output only.");
-    return connectSsh(environment, { password: await this.resolvePassword(environment), signal, verifyHost: fingerprint => this.verifySshHost(environment, fingerprint) });
+    let passphrase;
+    if (environment.privateKeyPath && environment.passphraseRef) {
+      try { passphrase = (await this.ctx.credentials.resolve(environment.passphraseRef))?.value; } catch {}
+      if (typeof passphrase !== 'string' || !passphrase) throw Object.assign(sessionError('SSH_KEY_PASSPHRASE_UNAVAILABLE', '未能读取已保存的私钥口令，请在 SSH 环境中重新填写'), { stage: 'private-key' });
+    }
+    return connectSsh(environment, { password: await this.resolvePassword(environment), passphrase, signal, verifyHost: fingerprint => this.verifySshHost(environment, fingerprint) });
   }
 
   async testEnvironment(id, { signal } = {}) {

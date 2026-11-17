@@ -45,6 +45,8 @@ Call `remote_environment_list`. Match the requested environment and reuse its re
 
 SSH/Telnet creation needs `host`; SSH also requires `username`. Serial needs `serial.path` instead. It generates the internal ID; `name` defaults to the host and `group` defaults to `default`. Optional settings include `port`, `password` or `passwordRef`, `privateKeyPath`, `cliProfile`, `terminal`, `platform`, `shell`, `encoding`, `readyTimeoutMs` and `hostKeySha256`. Transport defaults to SSH. Telnet uses `transport: "telnet"`; username is only required for username-password login. This saves a definition without connecting.
 
+For SSH public-key login, pass `privateKeyPath` on the DSH host. For an encrypted key, pass the exact user-supplied decryption secret as `passphrase` to `remote_environment_create` or `remote_environment_update`. Use `password` for the remote account password. An unencrypted key needs only the path. Lists and tool results expose `passphraseConfigured`. Omitted, null or empty passphrase keeps the current value. On an explicit removal request, send `clearPassphrase: true` to update. Use `remote_environment_test` before opening a fresh terminal. For `SSH_KEY_PASSPHRASE_REQUIRED` request the key passphrase or direct the user to **私钥口令（可选）**. For `SSH_KEY_PASSPHRASE_INVALID` verify the key file and its passphrase.
+
 Example tool invocation (replace example values with the user's target):
 
 ```json
@@ -81,7 +83,7 @@ For an existing entry use `remote_environment_update`, with `environment` plus o
 - `password` accepts the exact password explicitly supplied by the user (1–8192 characters); preserve spaces and special characters. Create and update both support it for SSH and Telnet. Omit it or use null to retain the current password; an empty string is rejected. Do not invent a password or send the example placeholder. If using an existing `passwordRef`, omit `password`; supplying both is rejected.
 - A new password creates a separate DSH credential reference for this environment, preserving other environments that shared the old reference. Tool results and plugin environment files contain no password. Existing terminal connections remain open; new connections use the new credential. DSH's conversation/tool-call history is managed by the host; do not claim that a chat-supplied password has been removed from that history.
 - If the user wants to see a saved password, direct them to **环境 → 终端环境 → the environment's 编辑 → the eye button beside the password field**. It resolves the current credential only on that click; hiding it or closing the editor/drawer clears the revealed value. Viewing and saving other fields preserves the password. If the credential is missing, the user can re-enter it there. Keep password viewing in this user-facing flow; environment tools expose the configured marker. Do not read credential files or call the UI reveal route from an Agent tool.
-- An empty string for `passwordRef` or `privateKeyPath` clears that setting only; it does not delete the credential/key itself. Omission keeps it. Do not clear a credential when merely renaming or moving an environment.
+- An empty `passwordRef` unlinks the account credential. An empty `privateKeyPath` removes the path and its stored passphrase. The key file remains on the DSH host. Omission keeps it. Do not clear a credential when merely renaming or moving an environment.
 
 After a successful change, read the list to verify the saved values and report what changed. Do not claim connectivity based on `saved: true`.
 

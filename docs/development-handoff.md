@@ -176,7 +176,7 @@ remote-ops/
 └─ update-settings.json     # 更新源配置
 ```
 
-环境 JSON 不能保存明文 SSH 密码。密码由 Harness `credentials.set` 保存，环境只保存合法的 `passwordRef`。私钥只保存本机路径引用。
+环境 JSON 不能保存明文 SSH 密码。密码由 Harness `credentials.set` 保存，环境只保存合法的 `passwordRef`。私钥文件保留在 DSH 主机上的原路径。加密私钥使用独立的 DSH 凭据引用保存解密口令，连接时传入 ssh2 的 `passphrase`。环境列表只返回 `passphraseConfigured` 状态。
 
 本地 CMD 的工作目录同样是 `$DSH_HOME/remote-ops`。SSH PTY 是进程内状态，重启后需要重新打开；环境定义和快捷命令会保留。
 
