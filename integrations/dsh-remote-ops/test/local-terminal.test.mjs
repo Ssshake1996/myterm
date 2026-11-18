@@ -164,4 +164,3 @@ test("registered Agent tools expose discovery and precise reuse semantics", asyn
   assert.equal(tools.get("remote_local_shells").parameters.type,"object");
   assert.equal(tools.get("remote_local_open").parameters.properties.reuse.type,"boolean");
 });
-
