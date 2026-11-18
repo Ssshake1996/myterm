@@ -31,6 +31,16 @@
 
 ---
 
+## 本地终端：按需打开（v0.16.0）
+
+启动时只打开 **一个默认本地终端**，首次使用为 CMD。终端标签旁的 **+** 新建一个默认终端；旁边的 **下拉箭头** 可选择 CMD、Windows PowerShell 5.1、PowerShell 7 或已安装的 WSL 发行版，每次选择只打开一个标签。未安装或未检测到的选项置灰并显示原因。PowerShell 7 与 WSL 发行版需要先在运行 DSH 的电脑上安装，安装后点击 **设置 → 终端 → 重新检测**。
+
+在 **设置 → 终端 → 本地终端** 修改默认类型和启动目录；WSL 还可选择默认发行版并填写可选用户名，目录使用 `~` 或 Linux 绝对路径。保存只影响后续新建与下次启动，现有终端保持原状。Windows 终端目录留空时使用 `$DSH_HOME/remote-ops`。多个本地终端共享于当前 DSH 工作区，每个标签有独立进程、回显和日志；重启后仅恢复一个默认终端，不恢复此前额外打开的标签。
+
+默认标签保留在工作区，其他本地标签可单独关闭。输入 `exit` 后标签变灰并保留最后输出，可点 **重新打开终端**；重新打开不会重放命令。“全部关闭”仍只清理当前对话的远程标签，所有本地终端保留。复制粘贴、命令回显高亮和 TXT／ZIP 日志导出沿用同一套操作；日志保留受容量限制，重启前请导出需要留存的记录。
+
+Agent 先加载随包 `remote-ops-environments` skill，用 `remote_local_shells` 查看可用 Shell 和现有会话，再用 `remote_local_open` 按需打开；默认优先复用匹配且未被已知任务占用的会话，明确需要独立进程时传 `reuse:false`。后续命令使用返回的精确 `sessionId`。默认会话 ID `local-cmd` 为兼容保留，实际 Shell 以返回的 `shell` 字段为准。
+
 ## SSH 加密私钥（v0.15.12）
 
 在 **环境 → 终端环境** 新建或编辑 SSH 环境，填写 DSH 主机上的 **私钥路径**。如果私钥已加密，在下方的 **私钥口令（可选）** 输入解密口令。未加密的私钥留空即可。远端账号密码与私钥口令分别保存在 DSH 凭据服务中。编辑时口令留空会保留原值。要移除它，点击 **清除已保存的私钥口令** 并保存，再用环境的 **测试** 或 **连接** 验证。
@@ -91,7 +101,7 @@ v0.12.3 兼容 DSH 安装时自动重载插件的流程：必要时先等待当�
 
 ## 远程标签状态与全部关闭
 
-终端标签栏直接提供“全部关闭”：只关闭点击时当前对话中的全部 SSH、TELNET 和 SERIAL 标签及对应连接，保留本地 CMD、保存的环境和其他对话连接。存在连接或已知执行任务时集中确认一次，并显示正在操作的数量；仅清理没有执行任务的已断开标签时直接完成。关闭失败的标签保留并列出原因，可核对后重试。确认期间新开的标签不加入本次关闭。
+终端标签栏直接提供“全部关闭”：只关闭点击时当前对话中的全部 SSH、TELNET 和 SERIAL 标签及对应连接，保留所有本地终端、保存的环境和其他对话连接。存在连接或已知执行任务时集中确认一次，并显示正在操作的数量；仅清理没有执行任务的已断开标签时直接完成。关闭失败的标签保留并列出原因，可核对后重试。确认期间新开的标签不加入本次关闭。
 
 | 提示 | 含义 |
 | --- | --- |
@@ -161,7 +171,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 
 ## 终端复制与粘贴
 
-终端支持本地 CMD、SSH、Telnet 和 Serial 的统一复制粘贴：先用鼠标或触摸板选中回显，再按 `Ctrl+C`，或在终端内右键选择“复制选中内容”。没有选区时，`Ctrl+C` 仍向当前程序发送中断信号。`Ctrl+V` 和右键“粘贴到终端”会把剪贴板内容送入当前会话；单行文本直接输入，包含换行的内容会先打开确认框，确认后才提交，避免误执行多行命令。
+终端支持本地 CMD／PowerShell／WSL、SSH、Telnet 和 Serial 的统一复制粘贴：先用鼠标或触摸板选中回显，再按 `Ctrl+C`，或在终端内右键选择“复制选中内容”。没有选区时，`Ctrl+C` 仍向当前程序发送中断信号。`Ctrl+V` 和右键“粘贴到终端”会把剪贴板内容送入当前会话；单行文本直接输入，包含换行的内容会先打开确认框，确认后才提交，避免误执行多行命令。
 
 右键菜单还提供“全选输出”。复制的是纯文本，不包含颜色和光标装饰；剪贴板权限受浏览器限制时，界面会显示原因，可直接选择文本或手动输入。复制、粘贴不会改变 Agent 工具协议，也不会把内容写入终端日志。
 
@@ -227,7 +237,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 - 环境分组、SSH 环境的创建、编辑、删除和持久化。
 - 多 SSH 终端标签，终端始终作为主要工作区。
 - 终端使用轻量 VT 屏幕模型处理 ConPTY 清屏、光标定位和回车覆盖；输出增量传输，完整滚动条可滚动到最后一行。
-- 无 SSH 会话时默认进入本地 CMD，工作目录为 `$DSH_HOME/remote-ops`；可直接执行 `ssh` 等命令，SSH 断开后自动回退。
+- 启动只打开一个默认本地终端（初始为 CMD），工作目录为 `$DSH_HOME/remote-ops`；可直接执行 `ssh` 等命令，SSH 断开后自动回退。
 - Agent 与界面读取同一终端输出流；发送返回有界增量，可用 `streamId` 和游标续读，不因回显或静默重复发送。静默不等于命令完成。
 - 终端显示连接、Agent 绑定及等待状态；阅读历史时保留位置，新输出可一键回到底部，SFTP 切换和窗口缩放保持滚动意图。
 - 常用命令按钮位于终端下方，直接向当前终端下发；支持增删改查、分组、排序、隐藏按钮及按命令开启执行前确认。
@@ -248,7 +258,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 从 [最新稳定版](https://github.com/Ssshake1996/myterm/releases/latest) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.15.12.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.16.0.tgz
 dsh web
 ```
 
@@ -266,7 +276,7 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ## 内网 HTTP/HTTPS 手动更新
 
-v0.15.12 支持在终端环境中配置加密 SSH 私钥的解密口令。[版本说明](docs/releases/dsh-remote-ops-v0.15.12.md)
+v0.16.0 支持按需打开 CMD、PowerShell 和 WSL，启动默认只保留一个本地终端。[版本说明](docs/releases/dsh-remote-ops-v0.16.0.md)
 
 Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后显示等待原因，任务结束后自动热加载；“新版已生效”与运行版本共同确认结果。
 
@@ -275,14 +285,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.15.12.tgz
-  SHA256SUMS-dsh-remote-ops-v0.15.12.txt
+  dsh-remote-ops-v0.16.0.tgz
+  SHA256SUMS-dsh-remote-ops-v0.16.0.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.12.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.16.0.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -325,14 +335,14 @@ SSH/Telnet 密码可通过 Agent 环境工具或 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.15.12
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.16.0
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.15.12            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.15.12 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.16.0            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.16.0 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后下载正式包，核对其实际 SHA256、校验文件及 GitHub 提供的摘要。

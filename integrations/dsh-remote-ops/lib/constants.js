@@ -1,5 +1,6 @@
 export const ROOT = "remote-ops";
 export const LOCAL_SESSION_ID = "local-cmd";
+export const isLocalSessionId = id => id === LOCAL_SESSION_ID || typeof id === "string" && id.startsWith("local-shell-");
 export const LOCAL_SESSION_NAME = "本地 CMD";
 export const MAX_SCROLLBACK_BYTES = 4 * 1024 * 1024;
 export const RETAINED_SCROLLBACK_BYTES = 3 * 1024 * 1024;

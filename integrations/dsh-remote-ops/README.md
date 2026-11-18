@@ -2,6 +2,16 @@
 
 DeepSeek Harness plugin for SSH, Windows desktop, web and RESTful API operations. Users and Agents share visible terminals, application windows, webpages and request records.
 
+## Local terminals on demand (v0.16.0)
+
+Startup opens **one default local terminal**, initially CMD on Windows. The **+** beside the terminal tabs opens another default terminal; its dropdown opens CMD, Windows PowerShell 5.1, PowerShell 7 or one installed WSL distribution. Unavailable entries are disabled with a reason. Install PowerShell 7 or WSL distributions on the DSH host first, then use **Settings → Terminal → Redetect**.
+
+**Settings → Terminal → Local terminal** stores the default shell and starting directory, plus an optional WSL user. Use `~` or an absolute Linux path for WSL. Saving affects future opens and the next startup; existing processes remain unchanged. An empty Windows directory uses `$DSH_HOME/remote-ops`. Local terminals are shared across conversations in the DSH workspace, with separate processes, output and logs. A restart opens only the default, without restoring additional tabs.
+
+The default tab stays pinned; additional local tabs can be closed individually. After `exit`, the tab turns grey and retains its last output with an explicit **Reopen terminal** action. Reopening never replays commands. **Close all** remains limited to current-conversation remote tabs and preserves every local terminal. Copy/paste, echoed-command highlighting and TXT/ZIP export work across local terminals. Log retention is bounded and in memory; export required records before restarting.
+
+Agents load the bundled `remote-ops-environments` skill, discover engines and sessions with `remote_local_shells`, then call `remote_local_open`. It reuses a matching running session with no known active task by default; use `reuse:false` for an independent process. Route subsequent operations to its returned `sessionId`. The pinned default retains the legacy ID `local-cmd`; inspect `shell` instead of assuming CMD syntax.
+
 ## Encrypted SSH private keys (v0.15.12)
 
 In **环境 → 终端环境**, create or edit an SSH environment and enter the private key path on the DSH host. Enter the key’s decryption passphrase in **私钥口令（可选）**. Leave it empty for an unencrypted key. DSH stores the account password and key passphrase separately. Leaving the passphrase blank while editing keeps the saved value. To remove it, select **清除已保存的私钥口令** and save. Use the environment’s Test or Connect action to verify the login.
@@ -108,10 +118,10 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.15.12.tgz` and `SHA256SUMS-dsh-remote-ops-v0.15.12.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.16.0.tgz` and `SHA256SUMS-dsh-remote-ops-v0.16.0.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.12.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.16.0.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -239,7 +249,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.15.12.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.16.0.tgz
 dsh web
 ```
 

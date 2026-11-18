@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { setImmediate as yieldToIo } from "node:timers/promises";
-import { LOCAL_SESSION_ID, MAX_SCROLLBACK_BYTES } from "../constants.js";
+import { isLocalSessionId, MAX_SCROLLBACK_BYTES } from "../constants.js";
 import { ownerId, sessionError } from "../common.js";
 import { readPage } from "../output-render.js";
 import { logText, zipLogs } from "../log-archive.js";
@@ -9,7 +9,7 @@ const ARCHIVE_BYTES = 16 * 1024 * 1024, EXPORT_BYTES = 32 * 1024 * 1024, EXPORT_
 const ownerKey = owner => owner ? ownerId(owner) : null;
 const visible = (record, owner) => record.ownerId === null || record.ownerId === ownerKey(owner);
 const safeName = name => String(name).replace(/[\x00-\x1f<>:"/\\|?*]/gu, "_").replace(/[. ]+$/u, "").slice(0, 60) || "terminal";
-const closed = (state, record) => record.session.status().kind === "exited" || (record.sessionId === LOCAL_SESSION_ID ? state.localSession !== record.session : !state.sessions.has(record.sessionId));
+const closed = (state, record) => record.session.status().kind === "exited" || (isLocalSessionId(record.sessionId) ? !state.localTerminalEntries().some(([id, s]) => id === record.sessionId && s === record.session) : !state.sessions.has(record.sessionId));
 const metadata = (state, record) => {
   const buffer = record.session.outputBuffer;
   return { logId: record.logId, sessionId: record.sessionId, name: record.name, kind: record.kind, host: record.host, port: record.port, ...(record.serialPath ? {serialPath:record.serialPath} : {}),
@@ -36,8 +36,8 @@ export const withLogs = Base => class LogsLayer extends Base {
     this.terminalLogs ??= new Map();
     if (!session.remoteLogId) session.remoteLogId = session.outputBuffer.streamId;
     if (!this.terminalLogs.has(session.remoteLogId)) this.terminalLogs.set(session.remoteLogId, {
-      logId: session.remoteLogId, ownerId: sessionId === LOCAL_SESSION_ID ? null : ownerKey(owner), sessionId, session,
-      name: environment.name, host: environment.host, serialPath: environment.serial?.path, port: environment.transport === "serial" ? undefined : environment.port ?? (environment.transport === "telnet" ? 23 : 22), kind: sessionId === LOCAL_SESSION_ID ? "local" : environment.transport ?? "ssh", adopted,
+      logId: session.remoteLogId, ownerId: isLocalSessionId(sessionId) ? null : ownerKey(owner), sessionId, session,
+      name: environment.name, host: environment.host, serialPath: environment.serial?.path, port: environment.transport === "serial" ? undefined : environment.port ?? (environment.transport === "telnet" ? 23 : 22), kind: isLocalSessionId(sessionId) ? "local" : environment.transport ?? "ssh", adopted,
     });
     this.pruneTerminalLogs();
   }
@@ -62,7 +62,7 @@ export const withLogs = Base => class LogsLayer extends Base {
         this.trackTerminalLog(owner, record.sessionId, record.session, record.environment, Boolean(record.adopted));
       }
     }
-    if (this.localSession) this.trackTerminalLog(undefined, LOCAL_SESSION_ID, this.localSession, this.localSession.environment);
+    for (const [id, session] of this.localTerminalEntries()) this.trackTerminalLog(undefined, id, session, session.environment);
     this.pruneTerminalLogs();
     return { logs: [...(this.terminalLogs?.values() ?? [])].filter(record => visible(record, owner)).map(record => metadata(this, record)),
       retention: { storage: "process-memory", maxBytesPerTerminal: MAX_SCROLLBACK_BYTES, maxArchivedBytes: ARCHIVE_BYTES, maxArchivedLogs: 32, survivesRestart: false },

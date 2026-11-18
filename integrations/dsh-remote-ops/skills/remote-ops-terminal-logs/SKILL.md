@@ -9,7 +9,7 @@ Use the plugin's log tools when the user asks for execution records, a terminal 
 
 ## Discover and read
 
-Call `remote_terminal_logs {}` to obtain the actual `logId` values, terminal names, host/port, session IDs, status and raw stream ranges. For SERIAL logs use `serialPath` instead of host/port. SSH, Telnet and Serial logs belong to the calling conversation; the local terminal is shared. Recently closed terminals may remain available.
+Call `remote_terminal_logs {}` to obtain the actual `logId` values, terminal names, host/port, session IDs, status and raw stream ranges. For SERIAL logs use `serialPath` instead of host/port. SSH, Telnet and Serial logs belong to the calling conversation; all local CMD/PowerShell/WSL terminals are shared. Recently closed terminals may remain available.
 
 To inspect a log, call `remote_terminal_log_read` with its `logId`. Omit `cursor` to start at the earliest retained output. Continue with the returned `nextOffset` as `cursor` and the returned `streamId` until `hasMore` is false. These offsets refer to the raw stream, not the cleaned text length. `gap`, `truncated` and `evictedLogs` mean some history is unavailable; do not rerun device commands to recreate it.
 
@@ -32,7 +32,7 @@ Pass either `logIds` or `all:true`, not both. A single terminal can use `format:
 Return the real absolute `downloadUrl` as a Markdown download link, with the filename and any missing-history limits. It uses the authenticated DSH browser's observed origin. If `downloadUrl` is null (no supported browser origin was observed), direct the user to the download button beside the terminal tabs (**导出当前终端 TXT**) or **更多 → 一键打包本会话全部日志**; `downloadPath` is for same-host API clients, not a clickable chat link. Never invent a host or file path. The link requires the authenticated DSH web session and expires after one hour, earlier export-cache eviction or a host restart. A ZIP contains one UTF-8 TXT file per terminal and `manifest.json` with source IDs, times, raw offsets and truncation flags. `sha256` verifies the package.
 
 
-**全部关闭** only clears the selected current-conversation SSH, Telnet and Serial tabs and connections; it keeps local CMD and retained logs. Discover closed records through `remote_terminal_logs` and export their actual log IDs within the existing retention limits. Do not reconnect or rerun commands to recreate a closed transcript. Amber/green/gray tab indicators describe known operation/connection/disconnection state, not a command exit code.
+**全部关闭** only clears the selected current-conversation SSH, Telnet and Serial tabs and connections; it keeps all local terminals and retained logs. Discover closed records through `remote_terminal_logs` and export their actual log IDs within the existing retention limits. Do not reconnect or rerun commands to recreate a closed transcript. Amber/green/gray tab indicators describe known operation/connection/disconnection state, not a command exit code.
 
 ## Copy and paste in the visible terminal
 

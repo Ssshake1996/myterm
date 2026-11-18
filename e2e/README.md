@@ -1,5 +1,11 @@
 # Remote Ops 浏览器测试
 
+## 本地 CMD、PowerShell 和 WSL
+
+Windows 主机设置 `DSH_CLI` 为宿主的 `lib/bin.js`，执行 `node e2e/runner/local-terminal-native.mjs <tgz>`。测试主机需有 CMD、Windows PowerShell 5.1、PowerShell 7；设置 `LOCAL_WSL_DISTRIBUTION` 指定允许执行测试命令的已安装 WSL 发行版。不设置时明确记录 WSL 未验收，不自动安装发行版。`LOCAL_SHELL_OUTPUT` 可指定新的独立证据目录。
+
+脚本在隔离 DSH_HOME 安装候选包，真实启动本地 Shell，验证单终端启动、GUI 按需新建、Agent 加载随包 skill 并复用会话、中文及空格路径、真实退出码、输入隔离、退出重开、日志 ZIP 下载、默认配置重启与窄栏。WSL 在 `/tmp/dsh-remote-ops-0160.txt` 写入固定测试内容。热加载脚本同时检查额外本地终端的 sessionId 和输出流保持，并在新运行版本中继续下发命令。
+
 ## SSH 私钥口令
 
 在 Windows 上将 `DSH_CLI` 指向宿主的 `lib/bin.js`，再运行 `node e2e/runner/environment-password-native.mjs <tgz>`。可用 `PASSWORD_OUTPUT` 指定一个新的验收目录。脚本在独立 DSH 配置中安装该包，通过 Chrome 操作环境表单和 DSH 工具。两个仅接受公钥的本地 SSH 服务分别验证未加密、已加密 Ed25519 私钥的签名。验收还会重启宿主，检查留空、错误口令、清除和补录。结果和签名次数写入 `evidence.json`，表单截图为 `ssh-key-form.png`。测试结束后移除生成的私钥。

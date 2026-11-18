@@ -182,6 +182,7 @@ test("disposal does not wait for an installation that itself waits for disposal"
   let finishInstall, closed = 0;
   const state = { updateInstallId: "install", updatePromise: new Promise(resolve => finishInstall = resolve), updateManager: { cancelInstall: async () => ({ status: "too-late" }) }, api: { dispose: async () => {} }, desktop: { dispose: async () => {} }, browser: { dispose: async () => {} }, commands: new Map(), transfers: { close: async () => {} }, localSession: { close: async () => { closed++; } }, sessions: new Map() };
   try {
+    state.localTerminalEntries = () => [["local-cmd", state.localSession]];
     await Promise.race([plugin.disposeState(state, { terminals: {} }), new Promise((_, reject) => setTimeout(() => reject(Error("lifecycle deadlock")), 250))]);
     assert.equal(state.disposed, true);
     assert.equal(closed, 1);

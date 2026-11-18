@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { describeFailure } from "../diagnostics.js";
-import { LOCAL_SESSION_ID } from "../constants.js";
+import { isLocalSessionId } from "../constants.js";
 import { normalizeGroupName, ownerId, sessionError } from "../common.js";
 
 // Quick command groups and commands: persistence, ordering and the direct-dispatch button path.
@@ -62,7 +62,7 @@ export const withQuickCommands = (Base) => class QuickCommandsLayer extends Base
   async dispatchQuick(owner, body) {
     await this.ready;
     if (typeof body.requestId !== "string" || !body.requestId || body.requestId.length > 128) throw sessionError("QUICK_REQUEST_INVALID", "A unique requestId is required");
-    const ownerKey = body.session === LOCAL_SESSION_ID ? "local" : ownerId(owner);
+    const ownerKey = isLocalSessionId(body.session) ? "local" : ownerId(owner);
     const key = JSON.stringify([ownerKey, body.requestId]);
     const fingerprint = JSON.stringify([body.session, body.streamId, body.commandId, body.revision, body.confirmed === true]);
     const now = Date.now();
@@ -77,9 +77,9 @@ export const withQuickCommands = (Base) => class QuickCommandsLayer extends Base
     const command = this.quickCommands.find(item => item.id === body.commandId);
     if (!command || !body.revision || command.revision !== body.revision) throw sessionError("QUICK_COMMAND_CHANGED", "Command changed or was deleted; reload before dispatch");
     if (command.confirm && body.confirmed !== true) throw sessionError("QUICK_CONFIRM_REQUIRED", "Review the command and terminal before dispatch");
-    const record = body.session === LOCAL_SESSION_ID ? undefined : this.getSession(owner, body.session);
+    const record = isLocalSessionId(body.session) ? undefined : this.getSession(owner, body.session);
     if (record && record.sessionId !== body.session) throw sessionError("REMOTE_SESSION_NOT_FOUND", "An exact terminal session ID is required");
-    const session = record?.session ?? this.localSession;
+    const session = record?.session ?? this.getLocalSession(body.session);
     if (!session || session.status().kind === "exited") throw sessionError("REMOTE_SESSION_EXITED", "Terminal is closed; reconnect explicitly before dispatch");
     if (!body.streamId || body.streamId !== session.outputBuffer.streamId) throw sessionError("TERMINAL_STREAM_CHANGED", "Terminal was replaced; review the new terminal before dispatch");
     this.claimInput(session, "manual", body.streamId);

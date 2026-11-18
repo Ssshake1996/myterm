@@ -1,6 +1,6 @@
 ---
 name: remote-ops-environments
-description: Manage saved SSH, Telnet and SERIAL terminal connection environments and groups in the DSH Remote Ops plugin, including listing, creating, updating, renaming, moving and deleting configurations. Use for SSH/Telnet 环境管理, not OS environment variables or configuring resources on a remote device.
+description: Discover, open and reuse visible local CMD, PowerShell and WSL terminals; manage saved SSH, Telnet and SERIAL terminal connection environments and groups in the DSH Remote Ops plugin, including listing, creating, updating, renaming, moving and deleting configurations. Use for SSH/Telnet 环境管理, not OS environment variables or configuring resources on a remote device.
 ---
 
 # Remote Ops environments
@@ -8,6 +8,37 @@ description: Manage saved SSH, Telnet and SERIAL terminal connection environment
 For RESTful/API environments use **remote-ops-api** and `remote_api_environment_list/save/delete`. API environments require baseUrl, not SSH host/username fields. Their IDs are distinct; sshEnvironmentId links the API configuration to an existing SSH environment without sharing credentials. Use `remote_api_login/request/records` for visible API execution rather than terminal tools.
 
 Use the installed `remote_environment_*` tools for the user's requested configuration changes. If the user explicitly supplies a username/password in the conversation for an environment, pass them directly to create/update; do not redirect them to the GUI. The plugin saves the password through DSH credentials and stores only its reference in the environment. GUI entry remains an option. Saved environments are shared within this DSH home. Remote terminal connections belong to conversations.
+
+## Local CMD, PowerShell and WSL
+
+Use this section for local terminal requests, not `remote_environment_create`. The plugin opens one default local terminal at startup; additional processes are on demand and shared across DSH conversations.
+
+1. Call `remote_local_shells {}`. It returns installed engines/distributions, availability reasons, startup preferences and existing local sessions without opening processes. Use `refresh:true` after a shell or distro is installed.
+2. Choose a matching session or call `remote_local_open`. Shell values: `cmd`, `powershell` (Windows PowerShell 5.1), `pwsh` (PowerShell 7), `wsl` (with an exact discovered `distribution`), or `sh` on a POSIX DSH host. Do not guess an unavailable engine or distro. Omit `shell` to use the configured default.
+3. `reuse:true` is the default: reuse a running process with matching launch options and no known active wait/command. Use `reuse:false` only when an independent process is wanted. Supply `cwd` to specify a launch directory; for WSL use `~` or an absolute Linux path and optionally `user`.
+4. Use the exact returned `sessionId` for `remote_terminal_send/read/input/script/signal` and `remote_command_execute`. Never substitute a Harness shell or whichever GUI tab is selected. The pinned `local-cmd` ID can now be PowerShell or WSL: read `shell` and `distribution` first. Use correct shell syntax and preserve spaces/quoting.
+5. `remote_terminal_send` runs in the interactive process and can use its variables/current directory. `remote_command_execute` starts a separate process of that session's shell and returns an exit code; it does not inherit interactive variables/directory. WSL independent commands use `/bin/sh -c`; provide `workingDirectory` explicitly when needed. An idle PTY is not completion evidence; check the actual output/results.
+6. Use exact `logId` values from `remote_terminal_logs` to export through `remote_terminal_log_export`; all shared local terminals are included. An exited terminal retains bounded output; the GUI offers **重新打开终端**. A new open returns a fresh stream, never replays prior commands. Close an additional local terminal with `remote_terminal_close`; the default `local-cmd` remains pinned.
+
+Examples (replace the distribution and session ID with discovered values):
+
+```json
+{"tool":"remote_local_open","arguments":{"shell":"powershell"}}
+```
+
+```json
+{"tool":"remote_terminal_send","arguments":{"session":"<returned sessionId>","text":"Get-Location; Get-ChildItem","quietMs":700}}
+```
+
+```json
+{"tool":"remote_local_open","arguments":{"shell":"wsl","distribution":"Ubuntu","cwd":"/tmp","reuse":false}}
+```
+
+```json
+{"tool":"remote_terminal_send","arguments":{"session":"<returned WSL sessionId>","text":"pwd; ls -la"}}
+```
+
+GUI: **+** opens one default terminal; the adjacent dropdown opens one chosen shell. **设置 → 终端 → 本地终端** configures defaults and redetects installed engines. Saving changes future opens and next startup, not existing terminals. Every restart opens only one default session. PowerShell 7 and WSL distributions must already be installed on the DSH host; do not install them without the user's authorization.
 
 ## Serial consoles
 
@@ -27,13 +58,13 @@ Open once with `remote_terminal_open` and use its sessionId for `remote_terminal
 
 The top **终端 / 网页 / 文件 / API** tabs form a compact group on the left; the blue line spans the selected tab. Background badges remain visible. Use the tab labels or ArrowLeft / ArrowRight / Home / End; do not identify workspaces by screen coordinates or badge text. Environment management is the separate **环境** entry.
 
-Open **环境 → 终端环境** for saved terminal connections or **环境 → API** for API configurations. The **返回工作区** button at the top left returns to the previous terminal, webpage or API draft without releasing connections. Local CMD, SSH, TELNET and SERIAL sessions share one terminal tab strip; the selected tab is the visible terminal, while tools must still use the exact session ID returned by the plugin.
+Open **环境 → 终端环境** for saved terminal connections or **环境 → API** for API configurations. The **返回工作区** button at the top left returns to the previous terminal, webpage or API draft without releasing connections. Local CMD/PowerShell/WSL, SSH, TELNET and SERIAL sessions share one terminal tab strip; the selected tab is the visible terminal, while tools must still use the exact session ID returned by the plugin.
 
 The environment page has group navigation (a dropdown in narrow panels), search, and an environment list. SSH/Telnet rows expose **进入 / 编辑 / 测试**. Row **更多环境操作** contains **新建独立连接** and **删除环境**. The selected group's **分组操作** menu renames it or deletes an empty group. **批量管理** reveals checkboxes; **删除所选** confirms exact names and addresses, and partial failures retain the failed selection with its reason. UI deletion closes the deleted environment's existing remote terminal connections; **返回工作区** only leaves the management page. Keep this distinction when explaining the UI to a user.
 
 ## Copy and paste in the shared terminal
 
-The visible local CMD, SSH, Telnet and Serial terminals support human copy/paste without a separate Agent tool. Select output and press `Ctrl+C`, or use the terminal right-click menu's **复制选中内容**. If there is no selection, `Ctrl+C` remains the foreground program's interrupt signal. `Ctrl+V` or **粘贴到终端** sends clipboard text to the exact active session; single-line text is sent directly, while multiline text opens a confirmation dialog before submission. **全选输出** selects the current transcript for copying. Clipboard colors/cursor decoration are never sent, and clipboard text is not added to retained logs. If the browser denies clipboard access, explain the displayed error and use a manual selection or input; do not replace this with a tool call or a second command.
+The visible local CMD/PowerShell/WSL, SSH, Telnet and Serial terminals support human copy/paste without a separate Agent tool. Select output and press `Ctrl+C`, or use the terminal right-click menu's **复制选中内容**. If there is no selection, `Ctrl+C` remains the foreground program's interrupt signal. `Ctrl+V` or **粘贴到终端** sends clipboard text to the exact active session; single-line text is sent directly, while multiline text opens a confirmation dialog before submission. **全选输出** selects the current transcript for copying. Clipboard colors/cursor decoration are never sent, and clipboard text is not added to retained logs. If the browser denies clipboard access, explain the displayed error and use a manual selection or input; do not replace this with a tool call or a second command.
 
 ## Select an existing environment
 
@@ -96,7 +127,7 @@ Call `remote_environment_test` to inspect actual OS facts, PTY/SFTP capabilities
 Updates do not close, retarget or reconnect existing SSH/Telnet sessions. Each live session keeps the settings captured when it opened, including its old name, connection settings and CLI/terminal defaults. Saved changes apply to newly opened connections. Report this distinction when updating a connected environment. Open or close connections only when needed for the user's request; reuse exact returned session IDs for terminal operations.
 
 
-The terminal strip offers **全部关闭** for the current conversation's SSH, Telnet and Serial tabs and connections. Local CMD, saved environments and other conversations remain. Live connections or known running commands receive one combined confirmation; failed closures remain visible. Connections opened after the selection are excluded. This is a UI action, not environment deletion. If the user asks the Agent to close terminals, use `remote_environment_list` and exact returned remote session IDs with `remote_terminal_close`; exclude `local-cmd`. Do not delete environments to clear tabs.
+The terminal strip offers **全部关闭** for the current conversation's SSH, Telnet and Serial tabs and connections. All local terminals, saved environments and other conversations remain. Live connections or known running commands receive one combined confirmation; failed closures remain visible. Connections opened after the selection are excluded. This is a UI action, not environment deletion. If the user asks the Agent to close terminals, use `remote_environment_list` and exact returned remote session IDs with `remote_terminal_close`; exclude `local-cmd`. Do not delete environments to clear tabs.
 
 Amber means a known wait/independent command/close is active; green means connected, not command completion; gray means disconnected without a known running command. A disconnected PTY with an active independent command stays amber and still requires close confirmation. Hover/accessible descriptions give the specific state. Status does not grant exclusive ownership: humans can still type. Closing cancels associated waits and independent commands, but remote process termination remains unconfirmed. Inspect state before repeating a mutating command.
 

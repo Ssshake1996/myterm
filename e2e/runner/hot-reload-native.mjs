@@ -128,10 +128,19 @@ try {
     await api("update", { action: "settings", settings: { source: "custom", url: origin + "/feed/" } });
   });
   let before, pendingRequest;
+  await step("additional local shells are ready before hot reload", async () => {
+    const catalog = await api("action", { action: "local.catalog" });
+    for (const shell of ["cmd", "powershell", "pwsh", ...(process.env.LOCAL_WSL_DISTRIBUTION ? ["wsl"] : [])].filter(shell => catalog.shells.some(item => item.shell === shell && item.available))) {
+      const opened = await api("action", { action: "local.open", options: { shell, reuse: false, ...(shell === "wsl" ? { distribution: process.env.LOCAL_WSL_DISTRIBUTION } : {}) } });
+      const marker = "LOCAL_HOT_" + shell;
+      const sent = await api("action", { action: "send", session: opened.sessionId, text: "echo " + marker, quietMs: 1000 });
+      assert.match(JSON.stringify(sent), new RegExp(marker));
+    }
+  });
   await step("update waits for an active API request instead of cancelling it", async () => {
-    pendingRequest = api("api", { action: "request", sessionId: owner, args: { environment: apiId, path: "slow", requestId: "slow-before-update" } }); await until(() => slowResponse);
+    pendingRequest = api("api", { action: "request", sessionId: owner, args: { environment: apiId, path: "slow", requestId: "slow-before-update" } }); pendingRequest.catch(() => {}); await until(() => slowResponse);
     before = await state(); await editor.fill("对话草稿在热加载后保留");
-    await page.locator(".dsh-remote-ops__headAction").filter({hasText:"设置"}).click();
+    if (!await page.getByRole("tab", { name: "更新", exact: true }).isVisible()) await page.locator(".dsh-remote-ops__headAction").filter({hasText:"设置"}).click();
     await page.getByRole("tab", { name: "更新", exact: true }).click();
     const clientLoadsBefore = moduleRequests.length;
     const submitted = page.waitForResponse(response => { try { return response.url().endsWith('/api/dsh-remote-ops/update') && response.request().postDataJSON()?.action === 'install'; } catch { return false; } });
@@ -152,6 +161,11 @@ try {
   await step("backend and browser module update without restarting DSH or replacing connections", async () => {
     const after = await until(async () => { try { const s = await state(); return s.bound && s.pluginVersion === feed.version && s; } catch {} });
     assert.notEqual(after.runtimeId, before.runtimeId); assert.equal(host.exitCode, null);
+    for (const local of before.sessions.filter(s => s.kind === "local")) {
+      assert.equal(after.sessions.find(s => s.sessionId === local.sessionId)?.outputCursor.streamId, local.outputCursor.streamId);
+      const sent = await api("action", { action: "send", session: local.sessionId, text: "echo LOCAL_AFTER_RELOAD", quietMs: 500 });
+      assert.match(JSON.stringify(sent), /LOCAL_AFTER_RELOAD/);
+    }
     assert.equal(after.sessions.find(s => s.sessionId === "local-cmd").outputCursor.streamId, before.sessions.find(s => s.sessionId === "local-cmd").outputCursor.streamId);
     assert.equal(after.sessions.find(s => s.sessionId === sshId).outputCursor.streamId, before.sessions.find(s => s.sessionId === sshId).outputCursor.streamId);
     assert.equal(ssh.log.connections, 1); assert.match(await editor.innerText(), /对话草稿在热加载后保留/);
@@ -238,6 +252,7 @@ try {
   evidence.failedOwner = owner; evidence.sshId = sshId; evidence.sshConnections = ssh.log.connections;
   if (page) { evidence.failedView = await page.locator("body").innerText().catch(() => "unavailable"); await page.screenshot({ path: join(out, "failure.png"), timeout: 5000 }).catch(() => {}); }
 } finally {
+  if (slowResponse && !slowResponse.writableEnded) releaseSlow?.();
   evidence.status = process.exitCode ? "failed" : "passed"; evidence.finishedAt = new Date().toISOString();
   await writeFile(join(out, "evidence.json"), JSON.stringify(evidence, null, 2)); await browser?.close();
   if (host?.exitCode === null) await run("taskkill.exe", ["/PID", String(host.pid), "/T", "/F"]).catch(() => {});

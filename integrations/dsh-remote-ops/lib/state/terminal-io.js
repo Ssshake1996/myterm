@@ -1,7 +1,7 @@
 import { DEFAULT_TERMINAL_COLS, DEFAULT_TERMINAL_ROWS, resolveRenderOptions } from "../cli-profile.js";
 import { readPage, renderOutput } from "../output-render.js";
 import { performSend } from "../terminal-send.js";
-import { AGENT_OUTPUT_CHARS, LOCAL_SESSION_ID, UI_SCROLLBACK_CHARS } from "../constants.js";
+import { AGENT_OUTPUT_CHARS, isLocalSessionId, UI_SCROLLBACK_CHARS } from "../constants.js";
 import { sessionError } from "../common.js";
 import { AdoptedTerminalSession } from "../terminal-sessions.js";
 
@@ -12,8 +12,8 @@ export const withTerminalIo = (Base) => class TerminalIoLayer extends Base {
     let environmentId;
     let name;
     let kind;
-    if (target === LOCAL_SESSION_ID) {
-      session = await this.ensureLocalSession();
+    if (isLocalSessionId(target)) {
+      session = this.getLocalSession(target);
       name = session.environment.name;
       kind = "local";
     } else {
@@ -51,8 +51,8 @@ export const withTerminalIo = (Base) => class TerminalIoLayer extends Base {
   async readTerminal(owner, target, args = {}) {
     await this.ready;
     if (args.cursor !== undefined && (!Number.isSafeInteger(args.cursor) || args.cursor < 0)) throw sessionError("REMOTE_OFFSET_INVALID", "cursor must be a non-negative integer");
-    const record = target === LOCAL_SESSION_ID ? undefined : this.getSession(owner, target);
-    const session = record ? record.session : await this.ensureLocalSession();
+    const record = isLocalSessionId(target) ? undefined : this.getSession(owner, target);
+    const session = record ? record.session : this.getLocalSession(target);
     const render = resolveRenderOptions(args, record?.environment?.cliProfile);
     const rendering = render.stripAnsi || render.headTailChars;
     if (args.offset !== undefined || args.count !== undefined) {
@@ -79,7 +79,7 @@ export const withTerminalIo = (Base) => class TerminalIoLayer extends Base {
   }
 
   async control(owner, target, action) {
-    const session = target === LOCAL_SESSION_ID ? await this.ensureLocalSession() : this.getSession(owner, target).session;
+    const session = isLocalSessionId(target) ? this.getLocalSession(target) : this.getSession(owner, target).session;
     if (!["takeover", "release", "stop-wait"].includes(action)) throw sessionError("TERMINAL_CONTROL_INVALID", `Unknown input control action: ${action}`);
     const pending = session.pendingSend;
     const operation = session.active ?? pending;
@@ -96,11 +96,12 @@ export const withTerminalIo = (Base) => class TerminalIoLayer extends Base {
   send(owner, target, args) { return performSend(this, owner, target, args); }
 
   async input(owner, target, text, actor = "agent", streamId) {
-    if (target === LOCAL_SESSION_ID) {
-      const session = await this.ensureLocalSession();
+    if (isLocalSessionId(target)) {
+      const session = this.getLocalSession(target);
+      if (session.closing) throw sessionError("REMOTE_SESSION_CLOSING", "This terminal is closing; no input was dispatched");
       this.claimInput(session, actor, streamId);
       const result = await session.writeInput(text);
-      return { sessionId: LOCAL_SESSION_ID, environment: session.environment.name, ...result };
+      return { sessionId: target, environment: session.environment.name, ...result };
     }
     const record = this.getSession(owner, target);
     if (record.session.closing) throw sessionError("REMOTE_SESSION_CLOSING", "This terminal is closing; no input was dispatched");
@@ -111,9 +112,9 @@ export const withTerminalIo = (Base) => class TerminalIoLayer extends Base {
   }
 
   async signal(owner, target, signal) {
-    if (target === LOCAL_SESSION_ID) {
-      const session = await this.ensureLocalSession();
-      return { sessionId: LOCAL_SESSION_ID, ...await session.signal(signal) };
+    if (isLocalSessionId(target)) {
+      const session = this.getLocalSession(target);
+      return { sessionId: target, ...await session.signal(signal) };
     }
     const record = this.getSession(owner, target);
     return { sessionId: record.sessionId, ...await record.session.signal(signal) };

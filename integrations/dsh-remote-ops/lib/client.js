@@ -330,6 +330,7 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__tabs .dsh-remote-ops__tabClose{min-width:26px;min-height:28px;height:28px;padding:3px!important;border:0!important;border-radius:4px!important;background:transparent;color:var(--ro-muted)}
       .dsh-remote-ops__tabs .dsh-remote-ops__tabClose:hover{color:var(--dsw-alias-state-error-primary,#b42318);background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#b42318) 9%,var(--ro-bg))}
       .dsh-remote-ops__terminalHead{min-height:36px;padding:2px 6px;gap:6px;flex-wrap:nowrap;box-sizing:border-box;background:var(--ro-soft)}
+      .dsh-remote-ops__localLauncher{display:flex;flex:none;align-items:center;gap:0}.dsh-remote-ops__localLauncher>button,.dsh-remote-ops__localMenu>summary{box-sizing:border-box;display:flex;align-items:center;justify-content:center;min-width:26px;width:26px;height:30px;min-height:30px;padding:3px;border:1px solid var(--ro-border);background:var(--ro-bg);color:var(--ro-text);cursor:pointer}.dsh-remote-ops__localLauncher>button{font-size:18px;border-radius:5px 0 0 5px}.dsh-remote-ops__localMenu{position:relative}.dsh-remote-ops__localMenu>summary{list-style:none;width:21px;min-width:21px;border-left:0;border-radius:0 5px 5px 0}.dsh-remote-ops__localMenu>summary::-webkit-details-marker{display:none}.dsh-remote-ops__localMenu>div{position:absolute;top:34px;right:0;z-index:20;width:240px;max-width:calc(100vw - 40px);max-height:320px;overflow:auto;padding:6px;border:1px solid var(--ro-border);border-radius:8px;background:var(--ro-bg);box-shadow:0 8px 24px #0002;display:grid;gap:3px}.dsh-remote-ops__localMenu>div>button{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:3px;padding:8px 10px;text-align:left;border:0;background:transparent;white-space:normal;overflow-wrap:anywhere}.dsh-remote-ops__localMenu>div>button:hover:enabled{background:var(--ro-soft)}.dsh-remote-ops__localMenu small{font-size:11px;color:var(--ro-muted)}
       .dsh-remote-ops__terminalActions{gap:2px;align-items:center;flex-wrap:nowrap}
       .dsh-remote-ops__terminalActions>button{width:30px;height:30px;min-height:30px;padding:5px}
       .dsh-remote-ops__terminalActions>button.dsh-remote-ops__closeAll{width:auto;padding:4px 7px;font-size:11px;white-space:nowrap}
@@ -502,7 +503,7 @@ window.__ModuleLoader__.load({
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const updateRecovery = createUpdateRecovery((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.15.12", update: { currentVersion: "0.15.12", latestVersion: "0.15.12", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.16.0", update: { currentVersion: "0.16.0", latestVersion: "0.16.0", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -917,7 +918,7 @@ window.__ModuleLoader__.load({
     };
     const outputMatches = (text, query) => query ? String(text).split("\n").flatMap((line, index) => line.toLowerCase().includes(query.toLowerCase()) ? [index] : []) : [];
     const fileEndpoint = pane => ({ kind: pane.kind, path: pane.path, ...(pane.kind === "ssh" ? { environment: pane.environment } : {}) });
-    const mergeSessionTabs = (previous, current) => [...current.map(item => ({ ...item, disconnected: item.status?.kind === "exited" })), ...previous.filter(item => !current.some(live => live.sessionId === item.sessionId)).slice(-12).map(item => ({ ...item, disconnected: true, status: { kind: "exited" }, operation: { kind: "disconnected" } }))];
+    const mergeSessionTabs = (previous, current) => [...current.map(item => ({ ...item, disconnected: item.status?.kind === "exited" })), ...previous.filter(item => item.kind !== "local" && !current.some(live => live.sessionId === item.sessionId)).slice(-12).map(item => ({ ...item, disconnected: true, status: { kind: "exited" }, operation: { kind: "disconnected" } }))];
     const terminalTabStatus = (item, frame) => {
       const sameStream = frame && frame.streamId === item.outputCursor?.streamId;
       if ((item.disconnected || item.status?.kind === "exited") && ["command", "closing"].includes(item.operation?.kind)) return { state: "busy", label: item.operation.kind === "closing" ? "正在关闭连接" : `${item.operation.actor === "agent" ? "Agent 操作中" : "操作中"} · 终端已断开，独立命令仍在执行` };
@@ -1976,6 +1977,64 @@ window.__ModuleLoader__.load({
       else if(failures.length)badges.browser={label:"待检查",tone:"error",description:"网页操作失败或结果待确认"};
       return badges;
     };
+    function LocalTerminalPicker({ settings = false, onOpen, onSettings, onError }) {
+      const [catalog, setCatalog] = useState(null), [draft, setDraft] = useState(null);
+      const [loading, setLoading] = useState(false), [message, setMessage] = useState("");
+      const pending = useRef(null);
+      const call = async (body) => {
+        pending.current?.abort();
+        const controller = new AbortController(); pending.current = controller;
+        setLoading(true); setMessage("");
+        try {
+          const result = await request("/api/dsh-remote-ops/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+          return pending.current === controller ? result : undefined;
+        } catch (error) { if (!controller.signal.aborted) { setMessage(error.message); onError?.(error.message); } }
+        finally { if (pending.current === controller) { pending.current = null; setLoading(false); } }
+      };
+      const load = async () => {
+        const result = await call({ action: "local.catalog", refresh: true });
+        if (result) { setCatalog(result); setDraft(current => current ?? result.settings); }
+      };
+      useEffect(() => { if (settings) void load(); return () => pending.current?.abort(); }, [settings]);
+      const open = async (options) => {
+        const result = await call({ action: "local.open", options: { ...options, reuse: false } });
+        if (result) onOpen?.(result);
+      };
+      const choices = catalog?.shells ?? [];
+      const key = item => JSON.stringify([item.shell, item.distribution || ""]);
+      if (settings) return h("form", { className: "dsh-remote-ops__form", "aria-label": "本地终端设置", onSubmit: async event => {
+        event.preventDefault();
+        const result = await call({ action: "local.settings", settings: draft });
+        if (result) { setDraft(result.settings); setMessage("已保存，后续新建和下次启动使用此默认终端"); }
+      } },
+        h("h3", null, "本地终端"),
+        h("p", { className: "dsh-remote-ops__muted" }, "DSH 启动时打开一个默认终端，其他终端按需新建。"),
+        draft ? h(React.Fragment, null,
+          h("label", null, "默认终端", h("select", { "aria-label": "默认本地终端", value: key(draft), onChange: event => {
+            const [shell, distribution] = JSON.parse(event.target.value);
+            setDraft({ shell, distribution, user: "", cwd: "" });
+          } }, !choices.some(item => key(item) === key(draft)) ? h("option", { value: key(draft), disabled: true }, "已保存的终端暂不可用") : null,
+          choices.map(item => h("option", { key: key(item), value: key(item), disabled: !item.available }, item.name + (item.available ? "" : " · 未就绪"))))),
+          h("label", null, "启动目录", h("input", { "aria-label": "本地终端启动目录", value: draft.cwd, placeholder: draft.shell === "wsl" ? "~ 或 /home/user" : "留空使用 DSH 工作目录", onChange: event => setDraft(current => ({ ...current, cwd: event.target.value })) })),
+          draft.shell === "wsl" ? h("label", null, "WSL 用户（可选）", h("input", { value: draft.user, placeholder: "使用发行版默认用户", onChange: event => setDraft(current => ({ ...current, user: event.target.value })) })) : null,
+          h("div", { className: "dsh-remote-ops__settingsActions" },
+            h("button", { type: "submit", disabled: loading }, "保存本地终端设置"),
+            h("button", { type: "button", disabled: loading, onClick: () => void load() }, "重新检测"))
+        ) : h("button", { type: "button", disabled: loading, onClick: () => void load() }, loading ? "正在检测…" : "检测本地终端"),
+        choices.filter(item => !item.available).map(item => h("p", { key: key(item), className: "dsh-remote-ops__muted" }, item.name + " · " + item.reason)),
+        message ? h("p", { role: "status" }, message) : null);
+      return h("div", { className: "dsh-remote-ops__localLauncher" },
+        h("button", { type: "button", "aria-label": "新建默认本地终端", title: "新建默认本地终端", disabled: loading, onClick: () => void open({}) }, "+"),
+        h("details", { className: "dsh-remote-ops__localMenu", onToggle: event => { if (event.currentTarget.open && !catalog && !loading) void load(); },
+          onKeyDown: event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } } },
+          h("summary", { "aria-label": "选择本地终端类型", title: "选择本地终端类型" }, h(IconChevronDownOutline14)),
+          h("div", null,
+            loading ? h("span", { role: "status" }, "正在检测…") : null,
+            choices.map(item => h("button", { key: key(item), type: "button", disabled: loading || !item.available, title: item.reason || item.executable,
+              onClick: event => { event.currentTarget.closest("details").open = false; void open({ shell: item.shell, ...(item.distribution ? { distribution: item.distribution } : {}) }); } }, item.name, !item.available ? h("small", null, item.reason) : null)),
+            h("button", { type: "button", onClick: event => { event.currentTarget.closest("details").open = false; onSettings(); } }, "配置本地终端…"),
+            message ? h("span", { role: "alert" }, message) : null)));
+    }
     function RemoteOpsPanel({ sessionId }) {
       const browserUpload = useSyncExternalStore(browserUploads.subscribe, () => browserUploads.get(sessionId));
       const [restoredView] = useState(() => workspaceView(sessionId));
@@ -2084,7 +2143,10 @@ window.__ModuleLoader__.load({
             value.viewOwner = sessionId ?? "";
             if (dismissedTabs.current.owner !== sessionId) dismissedTabs.current = { owner: sessionId, ids: new Set() };
             value.sessions = value.sessions.filter(item => !dismissedTabs.current.ids.has(item.sessionId));
+            const previousTabs = knownTabs.current.owner === sessionId ? knownTabs.current.tabs : [];
+            const removedLocal = new Set(previousTabs.filter(item => item.kind === "local" && !value.sessions.some(live => live.sessionId === item.sessionId)).map(item => item.sessionId));
             value.tabs = mergeSessionTabs(knownTabs.current.owner === sessionId ? knownTabs.current.tabs : [], value.sessions).filter(item => !dismissedTabs.current.ids.has(item.sessionId));
+            if (!previousTabs.length || removedLocal.size) setActiveSessionId(current => removedLocal.has(current) || !previousTabs.length && !value.tabs.some(item => item.sessionId === current) ? value.tabs[0]?.sessionId ?? "" : current);
             knownTabs.current = { owner: sessionId, tabs: value.tabs };
             const signature = JSON.stringify(value);
             if (signature !== snapshotSignature.current) {
@@ -2202,7 +2264,7 @@ window.__ModuleLoader__.load({
       }, [workspaceVisible, module, snapshot.activity, browserUpload]);
       const tabBadges = workspaceBadges(activity, browserUpload, terminalUnread, seenFailures);
       if(activity.desktops?.some(s=>s.status==="busy"))tabBadges.desktop={tone:"active",label:"操作中",description:"Windows 桌面正在执行操作"};
-      const terminalReady = terminalInputEnabled(snapshot) && !activeSession?.disconnected && Boolean(activeTerminalFrame?.streamId) && outputConnection === "connected" && reviewStream !== activeFrameKey;
+      const terminalReady = terminalInputEnabled(snapshot) && !activeSession?.disconnected && activeSession?.status?.kind !== "exited" && activeTerminalFrame?.status?.kind !== "exited" && Boolean(activeTerminalFrame?.streamId) && outputConnection === "connected" && reviewStream !== activeFrameKey;
       const frameRows = activeTerminalFrame?.size?.rows || 40, frameCols = activeTerminalFrame?.size?.cols || 160;
       const terminalScreen = useMemo(() => terminalScreenModel(activeTerminalFrame?.raw ?? "", frameRows, frameCols, { decorate: true, highlight: preferences.highlight, commandAnnotations: activeTerminalFrame?.commandAnnotations, startOffset: (activeTerminalFrame?.nextOffset ?? 0) - (activeTerminalFrame?.raw?.length ?? 0) }), [activeTerminalFrame?.raw, activeTerminalFrame?.commandAnnotations, activeTerminalFrame?.nextOffset, frameRows, frameCols, preferences.highlight]);
       const terminalOutput = terminalScreen.text;
@@ -2443,9 +2505,9 @@ window.__ModuleLoader__.load({
       };
       const dismissTab = target => dismissTabs([target]);
       const releaseSession = async session => {
-        if (session.disconnected && terminalTabStatus(session).state !== "busy") { dismissTab(session.sessionId); return; }
+        if (session.kind !== "local" && session.disconnected && terminalTabStatus(session).state !== "busy") { dismissTab(session.sessionId); return; }
         const owner = sessionId, revision = viewRevision.current;
-        if (!await askPanel(`关闭连接“${session.name}”？这会结束该终端会话，取消关联命令的等待；远端进程不一定随之停止。`)) return;
+        if (session.status?.kind !== "exited" && !await askPanel(session.kind === "local" ? `关闭本地终端“${session.name}”？正在运行的命令会被中断，已记录的日志仍可导出。` : `关闭连接“${session.name}”？这会结束该终端会话，取消关联命令的等待；远端进程不一定随之停止。`)) return;
         if (viewOwner.current !== owner || viewRevision.current !== revision) return;
         const value = await action({ action: "close", session: session.sessionId });
         if (value?.closed) dismissTab(session.sessionId);
@@ -2459,13 +2521,13 @@ window.__ModuleLoader__.load({
         closeBatch.current = batch; setClosingAll(true);
         const current = () => viewOwner.current === owner && viewRevision.current === revision;
         try {
-          if ((selection.connected || selection.operating) && !await askPanel(`关闭当前对话的 ${selection.targets.length} 个远程标签？${selection.connected} 个连接未断开，${selection.operating} 个正在操作，${selection.targets.length - selection.connected} 个终端已断开。保留本地 CMD、环境配置和可导出的日志。操作可能中断，远端进程不一定随之停止。`)) return;
+          if ((selection.connected || selection.operating) && !await askPanel(`关闭当前对话的 ${selection.targets.length} 个远程标签？${selection.connected} 个连接未断开，${selection.operating} 个正在操作，${selection.targets.length - selection.connected} 个终端已断开。保留本地终端、环境配置和可导出的日志。操作可能中断，远端进程不一定随之停止。`)) return;
           if (!current()) return;
           const result = await action({ action: "close-many", sessions: selection.targets.map(item => item.sessionId) });
           if (!result || !current()) return;
           const outcome = terminalCloseResult(selection.targets, result.results);
           dismissTabs(outcome.closed);
-          setActionNotice(`已关闭 ${outcome.closed.length} 个远程标签${outcome.failures.length ? `，${outcome.failures.length} 个未完成` : "，本地 CMD 已保留"}`);
+          setActionNotice(`已关闭 ${outcome.closed.length} 个远程标签${outcome.failures.length ? `，${outcome.failures.length} 个未完成` : "，本地终端已保留"}`);
           if (outcome.failures.length) setError("部分远程标签未关闭\n" + outcome.failures.join("\n"));
         } finally {
           if (closeBatch.current === batch) closeBatch.current = null;
@@ -2576,7 +2638,7 @@ window.__ModuleLoader__.load({
             onClick: event => { selectTerminal(item); revealTerminalTab(event.currentTarget.parentElement); if (event.detail > 0) terminalInputRef.current?.focus({ preventScroll: true }); },
             onKeyDown: event => { const next = { ArrowRight: (index + 1) % tabs.length, ArrowLeft: (index + tabs.length - 1) % tabs.length, Home: 0, End: tabs.length - 1 }[event.key]; if (next !== undefined) { event.preventDefault(); selectTerminal(tabs[next]); const target = terminalTabsRef.current?.querySelectorAll('[role="tab"]')[next]; target?.focus({ preventScroll: true }); revealTerminalTab(target?.parentElement); } }
           }, h("span", { className: "dsh-remote-ops__connectionState", "data-state": status.state, "aria-hidden": true }), h("span", { className: "dsh-remote-ops__tabName" }, item.name), item.disconnected || terminalUnread[item.sessionId] ? h("span", { className: "dsh-remote-ops__tabState", "aria-hidden": true }, item.disconnected ? "已断开" : "●") : null),
-          ["ssh", "telnet", "serial"].includes(item.kind) ? h("button", { type: "button", className: "dsh-remote-ops__tabClose", title: status.state === "busy" ? "关闭标签并取消关联等待" : item.disconnected ? "关闭记录" : "释放此连接", "aria-label": `释放${item.name}`, disabled: busy, onClick: event => { event.stopPropagation(); void releaseSession(item); } }, h(IconCloseOutline16, { "aria-hidden": true })) : null); }));
+          ["ssh", "telnet", "serial"].includes(item.kind) || item.kind === "local" && item.sessionId !== "local-cmd" ? h("button", { type: "button", className: "dsh-remote-ops__tabClose", title: status.state === "busy" ? "关闭标签并取消关联等待" : item.disconnected ? "关闭记录" : "关闭此终端", "aria-label": `释放${item.name}`, disabled: busy, onClick: event => { event.stopPropagation(); void releaseSession(item); } }, h(IconCloseOutline16, { "aria-hidden": true })) : null); }));
       const terminalLocation = localActive ? activeSession.workingDirectory : activeSession?.kind === "serial" ? (connectedEndpoint?.path ?? activeEnvironment?.serial?.path) : connectedEndpoint ? `${connectedEndpoint.username ? connectedEndpoint.username + "@" : ""}${connectedEndpoint.host}:${connectedEndpoint.port ?? (activeSession?.kind === "telnet" ? 23 : 22)}` : activeSession?.sessionId;
       const clipboardMenuView = terminalMenu ? h("div", { className: "dsh-remote-ops__clipboardMenu", role: "menu", style: { left: terminalMenu.x, top: terminalMenu.y }, onPointerDown: event => event.stopPropagation() },
         h("button", { type: "button", role: "menuitem", disabled: !terminalMenu.selection, onClick: () => { setTerminalMenu(null); void copyTerminalSelection(terminalMenu.selection); } }, h(IconCopyOutline16, { size: 16, "aria-hidden": true }), "复制选中内容"),
@@ -2587,8 +2649,9 @@ window.__ModuleLoader__.load({
       const terminal = h("section", { className: "dsh-remote-ops__terminal", hidden: module !== "terminal" || diagnosticsOpen || !!settingsTab },
         h("div", { className: "dsh-remote-ops__terminalHead" },
           h("div", { className: "dsh-remote-ops__tabNavigation" }, terminalTabScrollButton("left"), terminalTabs, terminalTabScrollButton("right")),
+          h(LocalTerminalPicker, { onOpen: value => { setActiveSessionId(value.sessionId); stickToBottom.current = true; void refresh(); }, onSettings: () => openSettings("terminal"), onError: setError }),
         h("div", { className: "dsh-remote-ops__toolbar dsh-remote-ops__terminalActions" },
-          tabs.some(item => ["ssh", "telnet", "serial"].includes(item.kind)) ? h("button", { type: "button", className: "dsh-remote-ops__closeAll", title: "关闭当前对话全部远程标签，保留本地 CMD", "aria-label": "全部关闭远程标签", "aria-busy": closingAll, disabled: busy || closingAll || !sessionId, onClick: () => void releaseAll() }, closingAll ? "关闭中…" : "全部关闭") : null,
+          tabs.some(item => ["ssh", "telnet", "serial"].includes(item.kind)) ? h("button", { type: "button", className: "dsh-remote-ops__closeAll", title: "关闭当前对话全部远程标签，保留本地终端", "aria-label": "全部关闭远程标签", "aria-busy": closingAll, disabled: busy || closingAll || !sessionId, onClick: () => void releaseAll() }, closingAll ? "关闭中…" : "全部关闭") : null,
           h("button", { title: "搜索输出", "aria-label": "搜索输出", "aria-expanded": searchOpen, onClick: () => setSearchOpen(value => !value) }, h(IconSearchOutline16)),
           h("button", { title: "导出当前终端 TXT", "aria-label": "导出当前终端 TXT", disabled: logExporting || !activeSession, onClick: () => void exportLogs(false) }, h(IconDownloadOutline16)),
           h("details", { className: "dsh-remote-ops__terminalLook dsh-remote-ops__operationMenu", onKeyDown: event => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } } },
@@ -2603,14 +2666,15 @@ window.__ModuleLoader__.load({
         )
         ),
         activeSession?.kind === "telnet" && !activeSession.disconnected ? h("div", { className: "dsh-remote-ops__screenHint", role: "status" }, "Telnet · " + terminalTabStatus(activeSession, activeTerminalFrame).label) : null,
-        activeSession?.disconnected ? h("div", { className: "dsh-remote-ops__toolbar", role: "status" }, h("span", { title: "不会自动重放任何命令" }, `连接已断开 · 保留最后输出${snapshot.disconnects?.find((item) => item.sessionId === activeSession.sessionId)?.reason ? ` · ${snapshot.disconnects.find((item) => item.sessionId === activeSession.sessionId).reason}` : ""}`), activeEnvironment ? h("button", { disabled: busy, onClick: () => void reconnect() }, "重新连接") : null, h("button", { disabled: busy, onClick: () => void releaseSession(activeSession) }, terminalTabStatus(activeSession).state === "busy" ? "关闭标签并取消等待" : "关闭记录")) : null,
+        localActive && activeSession.status?.kind === "exited" ? h("div", { className: "dsh-remote-ops__toolbar", role: "status" }, h("span", null, "终端已退出 · 保留最后输出"), h("button", { disabled: busy, onClick: async () => { const result = await action({ action: "local.reopen", session: activeTerminalId }); if (result) { setReviewStream(null); void refresh(); } } }, "重新打开终端")) : null,
+        activeSession?.disconnected && !localActive ? h("div", { className: "dsh-remote-ops__toolbar", role: "status" }, h("span", { title: "不会自动重放任何命令" }, `连接已断开 · 保留最后输出${snapshot.disconnects?.find((item) => item.sessionId === activeSession.sessionId)?.reason ? ` · ${snapshot.disconnects.find((item) => item.sessionId === activeSession.sessionId).reason}` : ""}`), activeEnvironment ? h("button", { disabled: busy, onClick: () => void reconnect() }, "重新连接") : null, h("button", { disabled: busy, onClick: () => void releaseSession(activeSession) }, terminalTabStatus(activeSession).state === "busy" ? "关闭标签并取消等待" : "关闭记录")) : null,
         reviewStream === activeFrameKey ? h("div", { className: "dsh-remote-ops__toolbar", role: "status" }, "终端已重建", h("button", { onClick: () => { setReviewStream(null); terminalInputRef.current?.focus(); } }, "启用新终端输入")) : null,
         searchOpen ? h("div", { className: "dsh-remote-ops__toolbar" }, h("input", { className: "dsh-remote-ops__search", "aria-label": "搜索终端输出", value: outputSearch, onChange: event => { setOutputSearch(event.target.value); setMatchIndex(0); }, onKeyDown: event => { if (event.key === "Enter") moveMatch(event.shiftKey ? -1 : 1); } }), h("span", null, `${matches.length ? matchIndex % matches.length + 1 : 0}/${matches.length}`), h("button", { disabled: !matches.length, title: "上一处", "aria-label": "上一处匹配", onClick: () => moveMatch(-1) }, "↑"), h("button", { disabled: !matches.length, title: "下一处", "aria-label": "下一处匹配", onClick: () => moveMatch(1) }, "↓")) : null,
         activeSession ? h("div", { className: "dsh-remote-ops__screen", role: "tabpanel", id: terminalPanelId, "aria-labelledby": terminalTabId(activeTerminalId), "data-focused": inputFocused, onClick: () => { if (!window.getSelection()?.toString()) terminalInputRef.current?.focus(); }, onContextMenu: openTerminalMenu, onKeyDown: terminalKeyDown, onPaste: handleTerminalPaste },
           h("pre", { className: "dsh-remote-ops__output", ref: outputRef, style: { fontSize: preferences.fontSize, whiteSpace: preferences.wrap && !terminalUsesGrid(terminalScreen) ? "pre-wrap" : "pre", overflowWrap: preferences.wrap && !terminalUsesGrid(terminalScreen) ? "anywhere" : "normal" }, tabIndex: 0, "aria-label": "终端输出", onWheel: markUserScrollIntent, onPointerDown: markUserScrollIntent, onScroll: (event) => { const node = event.currentTarget; rememberScroll(node); const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 48; if (userScrollIntent.current) stickToBottom.current = nearBottom; else if (nearBottom) stickToBottom.current = true; if (nearBottom) setUnreadOutput(false); } }, terminalOutputView),
           terminalInputCapture,
           unreadOutput ? h("button", { className: "dsh-remote-ops__newOutput", onClick: jumpToLatest, title: "回到最新输出" }, "↓ 新输出") : null,
-        ) : h("div", { className: "dsh-remote-ops__screen dsh-remote-ops__screenEmpty", onClick: () => terminalInputRef.current?.focus(), onContextMenu: openTerminalMenu, onKeyDown: terminalKeyDown, onPaste: handleTerminalPaste }, h("div", { className: "dsh-remote-ops__empty" }, h("div", null, h("div", { style: { fontSize: "22px", marginBottom: "8px" } }, "›_"), h("div", null, terminalReady ? "输入 ssh [user@]host 并按 Enter 连接，或从环境抽屉选择环境。" : "等待本地 CMD 启动…"), pendingSshInput ? h("pre", { className: "dsh-remote-ops__pendingCommand" }, pendingSshInput) : null)), terminalInputCapture, h("div", { className: "dsh-remote-ops__screenHint" }, terminalReady ? "输入 SSH 命令 · Enter 连接" : "等待本地 CMD 启动…")),
+        ) : h("div", { className: "dsh-remote-ops__screen dsh-remote-ops__screenEmpty", onClick: () => terminalInputRef.current?.focus(), onContextMenu: openTerminalMenu, onKeyDown: terminalKeyDown, onPaste: handleTerminalPaste }, h("div", { className: "dsh-remote-ops__empty" }, h("div", null, h("div", { style: { fontSize: "22px", marginBottom: "8px" } }, "›_"), h("div", null, terminalReady ? "输入 ssh [user@]host 并按 Enter 连接，或从环境抽屉选择环境。" : "本地终端尚未就绪，可通过 + 按需新建"), pendingSshInput ? h("pre", { className: "dsh-remote-ops__pendingCommand" }, pendingSshInput) : null)), terminalInputCapture, h("div", { className: "dsh-remote-ops__screenHint" }, terminalReady ? "输入 SSH 命令 · Enter 连接" : "本地终端尚未就绪，可通过 + 按需新建")),
         h("div", { className: "dsh-remote-ops__terminalStatus", role: "status" },
           logExporting ? h("span", null, "正在打包日志…") : null,
           clipboardNotice ? h("span", { className: "dsh-remote-ops__clipboardNotice" }, clipboardNotice) : null,
@@ -2656,7 +2720,7 @@ window.__ModuleLoader__.load({
       const settingsGeneral = h("div", settingsPanelProps("general"), h("div", {className:"dsh-remote-ops__settingsBody"},
         h("h3",null,"外观与状态"),h("label",null,"界面密度",h("select",{"aria-label":"界面密度",value:density,onChange:event=>changeDensity(event.target.value)},h("option",{value:"comfortable"},"舒适"),h("option",{value:"compact"},"紧凑"))),
         h("div",{className:"dsh-remote-ops__settingsActions"},h("button",{disabled:refreshBusy,"aria-label":"刷新状态",onClick:()=>void refreshNow()},"刷新状态"),h("button",{"aria-label":"诊断",onClick:()=>{setDiagnosticsOpen(true);setSettingsTab("");}},"诊断记录")),h("p",{className:"dsh-remote-ops__muted"},`Remote Ops v${snapshot.pluginVersion ?? update.currentVersion ?? "?"}`)));
-      const settingsTerminal = h("div", settingsPanelProps("terminal"), h("div", {className:"dsh-remote-ops__settingsBody"},h("h3",null,"终端显示"),
+      const settingsTerminal = h("div", settingsPanelProps("terminal"), h("div", {className:"dsh-remote-ops__settingsBody"}, settingsTab === "terminal" ? h(LocalTerminalPicker, { settings: true }) : null, h("h3",null,"终端显示"),
           h("label", null, "字号", h("input", { type: "number", min: 11, max: 22, "aria-label": "终端字号", value: preferences.fontSize, onChange: event => setPreferences(current => terminalPreferences({ ...current, fontSize: event.target.value })) })),
           h("label", null, h("input", { type: "checkbox", checked: preferences.wrap, onChange: event => setPreferences(current => ({ ...current, wrap: event.target.checked })) }), "换行"),
           h("label", null, h("input", { type: "checkbox", checked: preferences.highlight, onChange: event => setPreferences(current => ({ ...current, highlight: event.target.checked })) }), "命令与关键状态高亮"),

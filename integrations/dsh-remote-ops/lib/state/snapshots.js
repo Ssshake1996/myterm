@@ -5,20 +5,22 @@ import { publicEnvironment } from "../environment-password.js";
 
 // What the UI and the model see: snapshots, the catalog, diagnostics events and tool receipts.
 export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
-  localSnapshot() {
-    const session = this.localSession;
-    if (!session || session.status().kind === "exited") return undefined;
-    return { sessionId: LOCAL_SESSION_ID, name: session.environment.name, kind: "local", status: session.status(), workingDirectory: this.base, ownerId: "shared", lastActivity: session.lastActivity, outputCursor: this.outputCursor(session), control: this.controlSnapshot(session), operation: this.terminalOperation(session, LOCAL_SESSION_ID) };
+  localSnapshot(id = LOCAL_SESSION_ID, session = this.localSession) {
+    if (!session) return undefined;
+    return { sessionId: id, name: session.environment.name, kind: "local", shell: session.localOptions?.shell ?? (process.platform === "win32" ? "cmd" : "sh"), distribution: session.localOptions?.distribution || undefined,
+      status: session.status(), workingDirectory: session.workingDirectory ?? this.base, ownerId: "shared", lastActivity: session.lastActivity,
+      outputCursor: this.outputCursor(session), control: this.controlSnapshot(session), operation: this.terminalOperation(session, id) };
   }
 
+  localSnapshots() { return this.localTerminalEntries().map(([id, session]) => this.localSnapshot(id, session)); }
+
   catalog() {
-    const local = this.localSnapshot();
     return {
       groups: this.groupList(),
       environments: this.allEnvironments().map((value) => ({ ...publicEnvironment(value), active: false, running: false, status: "idle", connectionCount: 0, maxConnections: value.transport === "serial" ? 1 : MAX_SESSIONS_PER_ENVIRONMENT })),
       quickGroups: this.quickGroupList(),
       quickCommands: this.quickCommands,
-      sessions: local ? [local] : [],
+      sessions: this.localSnapshots(),
       events: [],
       bound: false,
       localError: this.localError || undefined,
@@ -83,10 +85,9 @@ export const withSnapshots = (Base) => class SnapshotsLayer extends Base {
   snapshot(owner) {
     const id = ownerId(owner);
     this.reconcileHostSessions(owner);
-    const local = this.localSnapshot();
     const executing = new Set([...this.commands.values()].filter(job => job.owner === id && job.status === "running").map(job => job.target));
     const remoteSessions = [...this.sessions.values()].filter((x) => x.ownerId === id && (x.session.status().kind !== "exited" || executing.has(x.sessionId))).map(x => this.connectionSnapshot(x));
-    const sessions = [...(local ? [local] : []), ...remoteSessions];
+    const sessions = [...this.localSnapshots(), ...remoteSessions];
     const environments = this.allEnvironments().map((x) => {
       const connectionCount = remoteSessions.filter((session) => session.environmentId === x.id && session.status.kind !== "exited").length;
       return { ...publicEnvironment(x), active: connectionCount > 0, running: connectionCount > 0, status: connectionCount > 0 ? "running" : "idle", connectionCount, maxConnections: x.transport === "serial" ? 1 : MAX_SESSIONS_PER_ENVIRONMENT };

@@ -270,20 +270,20 @@ export class LocalCmdTerminalSession {
   }
 
   startSend(request) {
-    if (this.closed) throw sessionError("LOCAL_SESSION_EXITED", "Local CMD session has exited");
-    if (this.active) throw sessionError("SEND_ACTIVE", "Local CMD already has an active send");
+    if (this.closed) throw sessionError("LOCAL_SESSION_EXITED", "Local terminal session has exited");
+    if (this.active) throw sessionError("SEND_ACTIVE", "Local terminal already has an active send");
     return new SendOperation(this, request);
   }
 
   async write(text) {
-    if (this.closed) throw sessionError("LOCAL_SESSION_EXITED", "Local CMD session has exited");
+    if (this.closed) throw sessionError("LOCAL_SESSION_EXITED", "Local terminal session has exited");
     const value = String(text ?? "");
     if (!value) return;
     await this.terminal.write(value);
   }
 
   async writeInput(text) {
-    if (this.closed) throw sessionError("LOCAL_SESSION_EXITED", "Local CMD session has exited");
+    if (this.closed) throw sessionError("LOCAL_SESSION_EXITED", "Local terminal session has exited");
     const value = String(text ?? "");
     if (!value) return { accepted: true, bytes: 0 };
     await this.terminal.write(value);
@@ -307,19 +307,19 @@ export class LocalCmdTerminalSession {
   }
 
   async signal(signal) {
-    if (this.closed) throw sessionError("LOCAL_SESSION_EXITED", "Local CMD session has exited");
+    if (this.closed) throw sessionError("LOCAL_SESSION_EXITED", "Local terminal session has exited");
     try {
       const targetPgid = await this.terminal.signalForeground(signal === "INT" ? "SIGINT" : signal);
       return { delivered: true, targetPgid };
     } catch (error) {
-      throw sessionError("LOCAL_SIGNAL_FAILED", `Unable to signal local CMD: ${summarizeError(error)}`);
+      throw sessionError("LOCAL_SIGNAL_FAILED", `Unable to signal local terminal: ${summarizeError(error)}`);
     }
   }
 
   async close() {
     if (this.closePromise) return this.closePromise;
     this.closePromise = this.terminal.terminate().catch((error) => {
-      throw sessionError("LOCAL_SESSION_CLOSE_FAILED", "Unable to close local CMD session", error);
+      throw sessionError("LOCAL_SESSION_CLOSE_FAILED", "Unable to close local terminal session", error);
     });
     await this.closePromise;
   }

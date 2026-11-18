@@ -2,6 +2,16 @@
 
 面向 DeepSeek Harness 的终端、网页、Windows 桌面与 RESTful API 运维插件。用户与 Agent 共享可见终端、软件窗口、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
 
+## 本地终端：按需打开（v0.16.0）
+
+启动时只打开 **一个默认本地终端**，首次使用为 CMD。终端标签旁的 **+** 新建一个默认终端；旁边的 **下拉箭头** 可选择 CMD、Windows PowerShell 5.1、PowerShell 7 或已安装的 WSL 发行版，每次选择只打开一个标签。未安装或未检测到的选项置灰并显示原因。PowerShell 7 与 WSL 发行版需要先在运行 DSH 的电脑上安装，安装后点击 **设置 → 终端 → 重新检测**。
+
+在 **设置 → 终端 → 本地终端** 修改默认类型和启动目录；WSL 还可选择默认发行版并填写可选用户名，目录使用 `~` 或 Linux 绝对路径。保存只影响后续新建与下次启动，现有终端保持原状。Windows 终端目录留空时使用 `$DSH_HOME/remote-ops`。多个本地终端共享于当前 DSH 工作区，每个标签有独立进程、回显和日志；重启后仅恢复一个默认终端，不恢复此前额外打开的标签。
+
+默认标签保留在工作区，其他本地标签可单独关闭。输入 `exit` 后标签变灰并保留最后输出，可点 **重新打开终端**；重新打开不会重放命令。“全部关闭”仍只清理当前对话的远程标签，所有本地终端保留。复制粘贴、命令回显高亮和 TXT／ZIP 日志导出沿用同一套操作；日志保留受容量限制，重启前请导出需要留存的记录。
+
+Agent 先加载随包 `remote-ops-environments` skill，用 `remote_local_shells` 查看可用 Shell 和现有会话，再用 `remote_local_open` 按需打开；默认优先复用匹配且未被已知任务占用的会话，明确需要独立进程时传 `reuse:false`。后续命令使用返回的精确 `sessionId`。默认会话 ID `local-cmd` 为兼容保留，实际 Shell 以返回的 `shell` 字段为准。
+
 ## SSH 加密私钥（v0.15.12）
 
 在 **环境 → 终端环境** 新建或编辑 SSH 环境，填写 DSH 主机上的 **私钥路径**。如果私钥已加密，在下方的 **私钥口令（可选）** 输入解密口令。未加密的私钥留空即可。远端账号密码与私钥口令分别保存在 DSH 凭据服务中。编辑时口令留空会保留原值。要移除它，点击 **清除已保存的私钥口令** 并保存，再用环境的 **测试** 或 **连接** 验证。
@@ -62,7 +72,7 @@ v0.12.3 兼容 DSH 安装时自动重载插件的流程：必要时先等待当�
 
 ## 远程标签状态与全部关闭
 
-终端标签栏直接提供“全部关闭”：只关闭点击时当前对话中的全部 SSH、TELNET 和 SERIAL 标签及对应连接，保留本地 CMD、保存的环境和其他对话连接。存在连接或已知执行任务时集中确认一次，并显示正在操作的数量；仅清理没有执行任务的已断开标签时直接完成。关闭失败的标签保留并列出原因，可核对后重试。确认期间新开的标签不加入本次关闭。
+终端标签栏直接提供“全部关闭”：只关闭点击时当前对话中的全部 SSH、TELNET 和 SERIAL 标签及对应连接，保留所有本地终端、保存的环境和其他对话连接。存在连接或已知执行任务时集中确认一次，并显示正在操作的数量；仅清理没有执行任务的已断开标签时直接完成。关闭失败的标签保留并列出原因，可核对后重试。确认期间新开的标签不加入本次关闭。
 
 | 提示 | 含义 |
 | --- | --- |
@@ -113,14 +123,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.15.12.tgz
-  SHA256SUMS-dsh-remote-ops-v0.15.12.txt
+  dsh-remote-ops-v0.16.0.tgz
+  SHA256SUMS-dsh-remote-ops-v0.16.0.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.15.12.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.16.0.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -156,7 +166,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 
 ## 终端复制与粘贴
 
-本地 CMD、SSH、Telnet 和 Serial 终端共用复制粘贴逻辑。选中回显后按 `Ctrl+C`，或右键选择“复制选中内容”；没有选区时 `Ctrl+C` 仍发送中断信号。`Ctrl+V` 和右键“粘贴到终端”向当前会话输入剪贴板内容，单行直接发送，包含换行的内容先进入确认框，确认后才提交。
+本地 CMD／PowerShell／WSL、SSH、Telnet 和 Serial 终端共用复制粘贴逻辑。选中回显后按 `Ctrl+C`，或右键选择“复制选中内容”；没有选区时 `Ctrl+C` 仍发送中断信号。`Ctrl+V` 和右键“粘贴到终端”向当前会话输入剪贴板内容，单行直接发送，包含换行的内容先进入确认框，确认后才提交。
 
 右键菜单还提供“全选输出”。复制结果是纯文本，不携带颜色和光标装饰。浏览器不允许读取或写入剪贴板时，界面会显示原因，可改用鼠标选区或手动输入。复制粘贴只影响可见终端，不改变 Agent 工具协议，也不会额外写入终端日志。
 
@@ -223,7 +233,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 - 环境和快捷命令都支持手动创建、编辑、删除和分组管理；删除非空分组会被拒绝。
 - 使用 `ctx.terminals` 管理按 Agent 隔离的 SSH 会话。
 - 支持完整命令下发、直接终端键盘输入和信号控制；终端支持 Tab 补齐、方向键、退格、Enter、Ctrl+C 等按键。
-- 插件启动后默认提供本地 CMD，工作目录为 `$DSH_HOME/remote-ops`；可直接运行 `ssh`、网络检查及其他本地命令，不要求先初始化 Agent。
+- 插件启动后只打开一个配置的默认本地终端（初始为 CMD），工作目录为 `$DSH_HOME/remote-ops`；可直接运行 `ssh`、网络检查及其他本地命令，不要求先初始化 Agent。
 - 保存环境建立的 SSH 会话断开后自动回到本地 CMD；本地 CMD 中启动的 `ssh` 退出后自然返回同一提示符。
 - 终端会请求 UTF-8 locale，界面保留常见 ANSI 配色并处理 VT 控制序列；环境字节流支持 UTF-8、GB18030、Big5 等编码配置。
 - 前端使用轻量 VT 屏幕模型还原 ConPTY 清屏、光标定位、行覆盖和滚屏，避免屏幕快照产生大段空白；终端高度严格受容器约束，纵向滚动条始终完整可用。
@@ -243,7 +253,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.15.12.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.16.0.tgz
 dsh web
 ```
 
@@ -301,7 +311,7 @@ DSH Web 启动后，点击左侧底部 `Remote Ops` 打开原生右侧 Sidebar�
 - 独立执行默认 30 秒、最长 300 秒；每路输出默认 64 KiB、最大 256 KiB；每目标最多一个、总计最多八个活动命令。取消/超时不等于远程进程已经终止。
 - 终端新增备用屏、滚动区域和字符集转义处理，全屏表格不软换行。当前宿主本地 PTY 无运行时 resize API，仍为固定 160x40，操作系统输入法需在对应设备上验收。
 
-- `remote_terminal_send/read/signal` 都支持 `session: "local-cmd"`，指向插件内共享的本地 CMD，不是 Harness 内置 bash/pwsh。SSH 应优先复用环境列表中的明确 sessionId；按环境发送时复用唯一连接，多连接时要求明确指定。
+- `remote_terminal_send/read/signal` 都支持 `session: "local-cmd"`，指向插件内共享的默认本地终端（实际类型见 shell），不是 Harness 内置 bash/pwsh。SSH 应优先复用环境列表中的明确 sessionId；按环境发送时复用唯一连接，多连接时要求明确指定。
 - 发送等待新输出，默认只返回最多 16,384 个 UTF-16 码元的增量（不拆分代理对）；需要最近历史时显式传 `includeViewport: true`。
 - 续读使用 `remote_terminal_read`，传入 `session`、上次的 `nextOffset` 作为 `cursor`、`streamId` 和 `waitMs: 20000`。`hasMore` 为 true 时继续读完，不要通过重发命令获取输出。
 - 省略游标读取最近历史；显式 `offset/count` 按行向前翻阅。`reset/truncated` 表示流已替换或历史已过期，不能假定遗漏部分不存在。

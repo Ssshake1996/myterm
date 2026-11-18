@@ -1,4 +1,4 @@
-import { AGENT_OUTPUT_CHARS, LOCAL_SESSION_ID, UI_SCROLLBACK_CHARS } from "./constants.js";
+import { AGENT_OUTPUT_CHARS, isLocalSessionId, UI_SCROLLBACK_CHARS } from "./constants.js";
 import { ownerId, sessionError, summarizeError } from "./common.js";
 import {
   AUTO_SIGINT_MARKER, AUTO_SIGINT_SETTLE_MS, CONTAMINATION_TAIL_CHARS, PROMPT_TAIL_CHARS,
@@ -15,8 +15,8 @@ async function resolveSendTarget(state, owner, target, args) {
     const environment = state.findEnvironment(args.environment);
     if (environment && state.activeRemoteSessions(ownerId(owner), environment.id).length) target = state.getSession(owner, environment.id).sessionId;
   }
-  const record = target === LOCAL_SESSION_ID
-    ? { sessionId: LOCAL_SESSION_ID, session: await state.ensureLocalSession() }
+  const record = isLocalSessionId(target)
+    ? { sessionId: target, session: state.getLocalSession(target) }
     : target ? state.getSession(owner, target) : await state.open(owner, args.environment);
   return { target, record };
 }
@@ -55,7 +55,7 @@ export async function performSend(state, owner, target, args) {
   const runSend = async (request) => {
     if (session.closing) throw sessionError("REMOTE_SESSION_CLOSING", "This terminal is closing; no command was dispatched");
     if (args.actor !== "manual") expectAgentEcho(session.outputBuffer, request.text, request.submit);
-    const operation = target === LOCAL_SESSION_ID ? session.startSend(request) : state.ctx.terminals.startSend(owner, record.sessionId, request);
+    const operation = isLocalSessionId(target) ? session.startSend(request) : state.ctx.terminals.startSend(owner, record.sessionId, request);
     session.pendingSend = operation;
     session.pendingSendActor = args.actor === "manual" ? "manual" : "agent";
     session.outputBuffer.notify();
@@ -107,12 +107,12 @@ export async function performSend(state, owner, target, args) {
   const rendered = options.stripAnsi || options.headTailChars ? renderOutput(page, options) : undefined;
   const delta = {
     sessionId: record.sessionId, name: environment.name,
-    kind: target === LOCAL_SESSION_ID ? "local" : record.environment.transport ?? "ssh", status: session.status(), completion: "unknown", format: "terminal-stream",
+    kind: isLocalSessionId(target) ? "local" : record.environment.transport ?? "ssh", status: session.status(), completion: "unknown", format: "terminal-stream",
     ...page,
     ...(replaced ? { reset: true, truncated: true } : {}),
     ...(rendered ? { text: rendered.text, nextOffset: rendered.nextOffset, hasMore: rendered.hasMore } : {}),
   };
-  if (owner) state.event(owner, target === LOCAL_SESSION_ID ? "local.send" : "ssh.send", { sessionId: record.sessionId, environment: delta.name, inputChars: submittedText.length, waitReason: result.waitReason });
+  if (owner) state.event(owner, isLocalSessionId(target) ? "local.send" : "ssh.send", { sessionId: record.sessionId, environment: delta.name, inputChars: submittedText.length, waitReason: result.waitReason });
   if (args.actor !== "manual") state.recordToolReceipt(owner, session, { ...delta, truncated: Boolean(delta.truncated || rendered?.summarized) }, "send");
   const { text, ...metadata } = delta;
   const output = sigintCleared ? `${text}${text && !/\n$/.test(text) ? "\n" : ""}${AUTO_SIGINT_MARKER}` : text;
@@ -122,7 +122,7 @@ export async function performSend(state, owner, target, args) {
     ...(rendered?.ansiStripped ? { ansiStripped: true } : {}),
     ...(rendered?.summarized ? { summarized: true, omitted: rendered.omitted } : {}),
     ...(autoActions.length ? { autoActions } : {}),
-    ...(target !== LOCAL_SESSION_ID && session.status().kind === "exited" ? { reconnect: reconnectHint(environment, session.status()) } : {}),
+    ...(!isLocalSessionId(target) && session.status().kind === "exited" ? { reconnect: reconnectHint(environment, session.status()) } : {}),
     ...(viewport !== undefined ? { viewport: options.stripAnsi ? stripAnsi(viewport) : viewport } : {}),
     ...(args.collectRaw === true ? { rawOutput: session.outputBuffer.readFrom(replaced ? undefined : startOffset, UI_SCROLLBACK_CHARS).text } : {}),
   };

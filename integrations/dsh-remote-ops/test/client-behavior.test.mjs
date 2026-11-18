@@ -183,6 +183,16 @@ test("disconnected tabs retain identity and never silently select a different te
   assert.ok(delay(100) <= 30000);
 });
 
+test("closed local tabs disappear while exited local processes retain their output tab", () => {
+  const merge = loadClientFunction("mergeSessionTabs", "\n    const retryDelay");
+  const base = {sessionId:"local-cmd",kind:"local",status:{kind:"running"}};
+  const extra = {sessionId:"local-shell-extra",kind:"local",status:{kind:"exited"}};
+  assert.equal(merge([base,extra],[base]).length,1);
+  const retained = merge([base,extra],[base,extra]);
+  assert.equal(retained.length,2); assert.equal(retained[1].disconnected,true);
+  assert.equal(terminalCloseSelection(retained).targets.length,0);
+});
+
 test("file workspace preferences retain positions but never stale rows or selections", () => {
   const prefs = loadClientFunction("fileWorkspacePreferences", "\n    const sortedFileEntries");
   const value = prefs({panes:[{kind:"ssh",environment:"env",path:"/work",sort:"size",scrollTop:121,entries:["secret"],selected:["bad"]}],bookmarks:[{kind:"ssh",environment:"env",path:"/work"}]});

@@ -1,13 +1,13 @@
 import { listSerialPorts } from "./serial-connection.js";
 import { registerRuntimeFetch } from "./hot-reload.js";
 import { describeFailure } from "./diagnostics.js";
-import { LOCAL_SESSION_ID } from "./constants.js";
+import { isLocalSessionId } from "./constants.js";
 import { publicEnvironment } from "./environment-password.js";
 import { normalizeGroupName, sessionError, summarizeError } from "./common.js";
 
 const registerRoute = (ctx, state, label, definition) => ctx.effect(() => registerRuntimeFetch(ctx, state, definition), label);
 
-const OWNERLESS_ACTIONS = new Set(["serial.ports", "group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "environment.test", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]);
+const OWNERLESS_ACTIONS = new Set(["local.catalog", "local.settings", "local.open", "local.reopen", "serial.ports", "group.create", "group.rename", "group.delete", "environment.save", "environment.delete", "environment.test", "quick-group.create", "quick-group.rename", "quick-group.delete", "quick.save", "quick.delete"]);
 
 const connectionSummary = (opened, extra = {}) => ({ sessionId: opened.sessionId, environment: opened.environment.name, transport: opened.environment.transport ?? "ssh", ...(opened.session.login ? { login: { ...opened.session.login } } : {}), status: opened.session.status(), viewport: opened.session.output.slice(-64 * 1024), ...extra });
 
@@ -19,6 +19,10 @@ async function saveEnvironmentAction(state, body) {
 }
 
 const ACTIONS = {
+  "local.catalog": ({ state, body }) => state.localShellCatalog(body.refresh === true),
+  "local.settings": ({ state, body }) => state.saveLocalSettings(body.settings),
+  "local.open": ({ state, body }) => state.openLocalTerminal(body.options ?? {}),
+  "local.reopen": ({ state, body }) => state.reopenLocalTerminal(body.session),
   "group.create": ({ state, body }) => state.createGroup(body.name),
   "group.rename": ({ state, body }) => state.renameGroup(body.group, body.name),
   "group.delete": ({ state, body }) => state.deleteGroup(body.group),
@@ -92,7 +96,7 @@ export function registerRoutes(ctx, state) {
       const offset = rawOffset === null ? undefined : Number(rawOffset);
       if (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0)) return Response.json({ error: "REMOTE_OFFSET_INVALID" }, { status: 400 });
       const agent = sessionId ? ctx.agents.get(sessionId) : undefined;
-      if (target !== LOCAL_SESSION_ID && !agent) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 });
+      if (!isLocalSessionId(target) && !agent) return Response.json({ error: "REMOTE_SESSION_NOT_ACTIVE" }, { status: 404 });
       try { await state.ready; return Response.json(await state.terminalOutput(agent, target, offset, waitMs, request.signal, url.searchParams.get("streamId")), { headers: { "Cache-Control": "no-store" } }); } catch (error) { return Response.json({ error: summarizeError(error), code: error?.code }, { status: 400, headers: { "Cache-Control": "no-store" } }); }
     },
   });
@@ -130,7 +134,7 @@ export function registerRoutes(ctx, state) {
     fetch: async (request) => {
       const body = await request.json();
       await state.ready;
-      const localTerminalAction = body.session === LOCAL_SESSION_ID && ["send", "input", "signal"].includes(body.action);
+      const localTerminalAction = isLocalSessionId(body.session) && ["send", "input", "signal", "close"].includes(body.action);
       const localSftpAction = body.action === "sftp" && body.operation === "local-list";
       const ownerOptional = OWNERLESS_ACTIONS.has(body.action) || localTerminalAction || localSftpAction;
       let agent = body.sessionId ? ctx.agents.get(body.sessionId) : undefined;

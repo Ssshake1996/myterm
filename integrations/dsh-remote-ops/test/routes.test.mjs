@@ -79,6 +79,24 @@ test("action route keeps owner-free actions available without a Harness session"
   assert.equal(invalid.body.code, "REMOTE_ENV_INVALID");
 });
 
+test("local terminal discovery, creation, input, output and close work before an Agent exists", async t => {
+  const { post, routes, terminals } = await pluginFixture(t);
+  const catalog = await post({ action: "local.catalog" });
+  assert.equal(catalog.status, 200); assert.equal(terminals.length, 1);
+  const opened = await post({ action: "local.open", options: { reuse: false } });
+  assert.equal(opened.status, 200); assert.equal(terminals.length, 2);
+  const id = opened.body.sessionId;
+  assert.match(id, /^local-shell-/);
+  const input = await post({ action: "input", session: id, text: "exact manual text" });
+  assert.equal(input.status, 200); assert.deepEqual(terminals[0].writes, []); assert.deepEqual(terminals[1].writes, ["exact manual text"]);
+  const output = await routes.get("/api/dsh-remote-ops/terminal").fetch(new Request("http://localhost/api/dsh-remote-ops/terminal?session=" + id));
+  assert.equal(output.status, 200); assert.equal((await output.json()).sessionId, id);
+  const closed = await post({ action: "close", session: id });
+  assert.equal(closed.status, 200); assert.equal(closed.body.closed, true);
+  const pinned = await post({ action: "close", session: "local-cmd" });
+  assert.equal(pinned.body.code, "LOCAL_DEFAULT_PINNED");
+});
+
 const passwordRoute = routes => {
   const route = routes.get("/api/dsh-remote-ops/environment-password");
   assert.ok(route, "the environment form needs a dedicated authenticated reveal route");

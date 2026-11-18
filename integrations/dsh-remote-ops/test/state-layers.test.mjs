@@ -28,7 +28,7 @@ const PUBLIC_METHODS = [
   "loadUpdateSettings", "updateProgress", "updateStatus", "saveUpdateSettings", "checkForUpdate", "performUpgrade", "upgrade",
   "localSnapshot", "catalog", "connectionSnapshot", "snapshot", "outputCursor", "workspaceActivity", "controlSnapshot", "terminalOperation", "toolReceipt", "recordToolReceipt", "event",
   "activeRemoteSessions", "getSession", "reconcileHostSessions", "resolvePassword", "storePassword", "spawnBackend", "open", "openDirect", "resolveOwner", "enter", "recordDisconnect", "resize", "close", "closeMany",
-  "ensureLocalSession", "startLocalSession",
+  "ensureLocalSession", "startLocalSession", "localTerminalEntries", "getLocalSession", "localSnapshots", "loadLocalSettings", "localShellCatalog", "saveLocalSettings", "openLocalTerminal", "closeLocalTerminal", "reopenLocalTerminal",
   "terminalOutput", "readTerminal", "claimInput", "control", "send", "input", "signal",
   "execute", "cancelCommand", "cancelCommandsFor", "startCommand", "commandJob", "commandJobsFor",
   "verifySshHost", "connectSshEnvironment", "testEnvironment",

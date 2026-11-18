@@ -2,6 +2,7 @@ import { PLUGIN_NAME, PLUGIN_VERSION } from "./version.js";
 import { randomUUID } from "node:crypto";
 import { HotReload, peekHandoff } from "./hot-reload.js";
 import { TransferManager } from "./transfers.js";
+import { LocalCmdTerminalSession } from "./terminal-sessions.js";
 export { HOT_RELOAD_PROTOCOL } from "./hot-reload.js";
 import { RemoteOpsState } from "./state/index.js";
 import { registerWorkspaceRoutes } from "./workspace-routes.js";
@@ -45,7 +46,7 @@ export async function disposeState(state, ctx) {
   await Promise.allSettled([...state.commands.values()].map((job) => job.done));
   state.commandHistory?.clear();
   await state.transfers.close();
-  await state.localSession?.close("dsh-remote-ops disposed").catch(() => {});
+  await Promise.allSettled(state.localTerminalEntries().map(([, session]) => session.close()));
   for (const record of state.sessions.values()) await ctx.terminals.kill(record.owner, record.sessionId, "dsh-remote-ops disposed").catch(() => {});
   state.sessions.clear();
   state.terminalLogs?.clear();
@@ -71,6 +72,10 @@ export function mountRemoteOps(ctx) {
     Object.setPrototypeOf(state.transfers, TransferManager.prototype);
     state.browser.credentials = ctx.credentials; state.api.credentials = ctx.credentials;
     state.release = { ...state.release, currentVersion: PLUGIN_VERSION, updateAvailable: false };
+    for (const [, session] of state.localTerminalEntries()) {
+      Object.setPrototypeOf(session, LocalCmdTerminalSession.prototype);
+      session.onClose = () => session.outputBuffer.notify();
+    }
   }
   ctx.inject?.(["pluginManager"], ready => ready.effect(() => {
     state.updateManager = ready.pluginManager;

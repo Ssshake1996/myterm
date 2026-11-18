@@ -20,7 +20,7 @@ export function validateCommand(command, timeoutMs = 30000, maxBytes = 65536) {
 }
 
 // This channel never writes to, or infers completion from, the interactive PTY.
-export async function executeCommand({ subprocess, client, command, cwd, input, workingDirectory, encoding = "utf-8", signal, timeoutMs = 30000, maxBytes = 65536, platform = process.platform }) {
+export async function executeCommand({ subprocess, client, command, cwd, input, workingDirectory, argv: suppliedArgv, encoding = "utf-8", signal, timeoutMs = 30000, maxBytes = 65536, platform = process.platform }) {
   validateCommand(command, timeoutMs, maxBytes);
   const started = Date.now(), stdout = bounded(maxBytes, encoding), stderr = bounded(maxBytes, encoding);
   let stop, outcome, stopped = false, cause, abortResolve, timer;
@@ -51,7 +51,7 @@ export async function executeCommand({ subprocess, client, command, cwd, input, 
         });
       } else {
         if (!subprocess?.spawn) throw failure("COMMAND_PROVIDER_UNAVAILABLE", "Harness subprocess.spawn is unavailable");
-        const argv = platform === "win32" ? [process.env.ComSpec || "cmd.exe", "/D", "/S", "/C", "chcp 65001>nul & " + command] : ["/bin/sh", "-c", command];
+        const argv = suppliedArgv ?? (platform === "win32" ? [process.env.ComSpec || "cmd.exe", "/D", "/S", "/C", "chcp 65001>nul & " + command] : ["/bin/sh", "-c", command]);
         const handle = await subprocess.spawn({ argv, cwd, stdio: { stdin: "ignore", stdout: "pipe", stderr: "pipe" }, graceMs: 1000, signal });
         listen(handle.stdout, "data", chunk => stdout.append(chunk));
         listen(handle.stderr, "data", chunk => stderr.append(chunk));
@@ -70,7 +70,7 @@ export async function executeCommand({ subprocess, client, command, cwd, input, 
     const out = stdout.result(), err = stderr.result();
     const knownExit = Number.isInteger(facts?.exitCode);
     return {
-      mode: "independent", inheritsTerminalState: false, workingDirectory: client ? workingDirectory ?? null : cwd,
+      mode: "independent", inheritsTerminalState: false, workingDirectory: workingDirectory ?? (client ? null : cwd),
       status: cause ?? (knownExit ? facts.exitCode === 0 ? "completed" : "failed" : "unknown"),
       completion: !stopped && knownExit ? "exited" : "unknown",
       exitCode: facts?.exitCode ?? null, signal: facts?.signal ?? null,

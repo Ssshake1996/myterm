@@ -1,4 +1,5 @@
 import { registerRuntimeFetch, retainDownload, uploadBatch } from "./hot-reload.js";
+import { isLocalSessionId } from "./constants.js";
 import { Readable } from "node:stream";
 import { describeFailure, diagnosticReport } from "./diagnostics.js";
 import { transferName } from "./transfers.js";
@@ -14,7 +15,7 @@ export function registerWorkspaceRoutes(ctx, state) {
       let body;
       try {
         body = await request.json(); await state.ready;
-        const localControl = body.session === "local-cmd" && ["control", "quick.dispatch"].includes(body.action);
+        const localControl = isLocalSessionId(body.session) && ["control", "quick.dispatch"].includes(body.action);
         const localList = body.action === "files" && body.endpoint?.kind === "host";
         const owner = (localControl || localList || ["diagnostics", "quick.move"].includes(body.action)) ? ctx.agents.get(body.sessionId) : await state.resolveOwner(body.sessionId);
         if (body.action === "activate") return json({ bound: true });

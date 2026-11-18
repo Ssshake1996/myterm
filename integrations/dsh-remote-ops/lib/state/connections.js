@@ -1,4 +1,4 @@
-import { CREDENTIAL_REF_RE, LOCAL_SESSION_ID, MAX_SESSIONS_PER_ENVIRONMENT } from "../constants.js";
+import { CREDENTIAL_REF_RE, isLocalSessionId, MAX_SESSIONS_PER_ENVIRONMENT } from "../constants.js";
 import { newSessionName, ownerId, sessionError, summarizeError, validateEnvironment } from "../common.js";
 import { AdoptedTerminalSession, SshTerminalSession, buildSshShellOptions } from "../terminal-sessions.js";
 import { interactiveWindowsCommand, windowsProbeCommand, isWindowsEnvironment } from "../windows-shell.js";
@@ -26,7 +26,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
 
   async resize(owner, target, rows, cols) {
     if (rows === undefined && cols === undefined) throw sessionError("TERMINAL_OPTION_INVALID", "Pass rows and/or cols");
-    if (target === LOCAL_SESSION_ID) throw sessionError("TERMINAL_RESIZE_UNSUPPORTED", "The shared local terminal has a fixed 40x160 size chosen by the DSH host; resizing applies to SSH connections");
+    if (isLocalSessionId(target)) throw sessionError("TERMINAL_RESIZE_UNSUPPORTED", "Local terminals use the initial host terminal size");
     const record = this.getSession(owner, target);
     if (typeof record.session.resize !== "function") throw sessionError("TERMINAL_RESIZE_UNSUPPORTED", "This connection is held by the DSH host (adopted after a plugin reload) and cannot be resized; open a new connection");
     const size = record.session.resize(rows, cols);
@@ -207,6 +207,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
   }
 
   async close(owner, target) {
+    if (isLocalSessionId(target)) return this.closeLocalTerminal(target);
     const record = this.getSession(owner, target);
     if (record.closeTask) return record.closeTask;
     record.session.closing = true;
@@ -229,7 +230,7 @@ export const withConnections = (Base) => class ConnectionsLayer extends Base {
   }
 
   async closeMany(owner, targets) {
-    if (!Array.isArray(targets) || !targets.length || targets.length > 128 || targets.some(id => typeof id !== "string" || !id || id === LOCAL_SESSION_ID) || new Set(targets).size !== targets.length) throw sessionError("REMOTE_CLOSE_INVALID", "Provide 1-128 distinct remote session IDs; the shared local terminal cannot be closed here");
+    if (!Array.isArray(targets) || !targets.length || targets.length > 128 || targets.some(id => typeof id !== "string" || !id || isLocalSessionId(id)) || new Set(targets).size !== targets.length) throw sessionError("REMOTE_CLOSE_INVALID", "Provide 1-128 distinct remote session IDs");
     if (!owner?.id) throw sessionError("REMOTE_SESSION_REQUIRED", "Select the current conversation");
     const id = ownerId(owner);
     // Validate the whole selection before dispatch. Never resolve environment names,
