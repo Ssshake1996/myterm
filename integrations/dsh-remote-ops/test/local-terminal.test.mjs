@@ -38,9 +38,11 @@ test("startup and discovery keep one default; concurrent Agent opens reuse it; e
   assert.equal(state.localSnapshots().length, 1);
   assert.equal(state.localSnapshot().sessionId, "local-cmd");
   // Discovery must not create a terminal, including unavailable engines.
+  const resolveExecutable = state.ctx.subprocess.resolveExecutable;
   state.ctx.subprocess.resolveExecutable = async name => { if (name !== process.env.ComSpec && name !== (process.platform === "win32" ? "cmd.exe" : "/bin/sh")) throw Error("absent"); return name; };
   const catalog = await state.localShellCatalog();
   assert.equal(catalog.shells.filter(s => s.available).length, 1);
+  state.ctx.subprocess.resolveExecutable = resolveExecutable;
   const [a,b] = await Promise.all([state.openLocalTerminal(), state.openLocalTerminal()]);
   assert.equal(a.sessionId, "local-cmd"); assert.equal(b.reused, true); assert.equal(terminals.length, 1);
   const extra = await state.openLocalTerminal({ reuse: false });
