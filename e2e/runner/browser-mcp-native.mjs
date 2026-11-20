@@ -75,6 +75,11 @@ try{
   browser=await chromium.launch({headless:true,...(process.env.BROWSER_EXECUTABLE?{executablePath:process.env.BROWSER_EXECUTABLE}:{channel:'chrome'})});
   page=await browser.newPage({locale:'zh-CN',viewport:{width:1500,height:1000}});page.setDefaultTimeout(60000);page.on('pageerror',e=>evidence.errors.push(e.message));
   evidence.responses=[];page.on('response',response=>{if(response.url().includes('/api/'))evidence.responses.push({path:new URL(response.url()).pathname,status:response.status()});});
+  evidence.sockets=[];page.on('websocket',socket=>{
+    const detail={path:new URL(socket.url()).pathname,sent:0,received:0};evidence.sockets.push(detail);
+    socket.on('framesent',()=>detail.sent++);socket.on('framereceived',()=>detail.received++);
+    socket.on('socketerror',error=>detail.error=String(error));socket.on('close',()=>detail.closed=true);
+  });
   page.on('requestfailed',request=>evidence.errors.push(request.method()+' '+new URL(request.url()).pathname+' '+request.failure()?.errorText));
   await page.goto(url);
   const editor=page.getByRole('textbox',{name:/描述你想要|发消息或创建任务|describe what|message or create/i});await editor.waitFor();
@@ -89,7 +94,7 @@ try{
   await until(async()=>{const v=(await agent('READ'))[0];return v?.browser?.job?.status==='completed'&&v?.page?.text?.includes('Visual entry opened');});pass('native Agent coordinate action changes the actual plugin page');
   await page.screenshot({path:join(out,'native-mcp.png'),animations:'disabled'});
   assert.deepEqual(evidence.errors,[]);evidence.status='passed';
-}catch(error){evidence.status='failed';evidence.error=error.stack;evidence.proofs=Object.fromEntries(proofs);process.exitCode=1;console.error(error);if(page)evidence.dom=await page.locator('body').ariaSnapshot().catch(()=>null);await page?.screenshot({path:join(out,'failure.png')}).catch(()=>{});}
+}catch(error){evidence.status='failed';evidence.error=error.stack;evidence.proofs=Object.fromEntries(proofs);process.exitCode=1;console.error(error);if(page){evidence.dom=await page.locator('body').ariaSnapshot().catch(()=>null);evidence.navigatorOnline=await page.evaluate(()=>navigator.onLine).catch(()=>null);}await page?.screenshot({path:join(out,'failure.png')}).catch(()=>{});}
 finally{
   await writeFile(join(out,'evidence.json'),JSON.stringify(evidence,null,2));await browser?.close();
   if(host?.exitCode===null){if(process.platform==='win32')await new Promise(r=>{const p=spawn('taskkill.exe',['/PID',String(host.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});p.on('close',r);p.on('error',r);});else host.kill('SIGTERM');}

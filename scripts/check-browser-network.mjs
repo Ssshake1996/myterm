@@ -23,6 +23,6 @@ for(let line of source.split('\n')){
     (probe?blockedChromiumIpv6Probes:unexpected).push(entry);
   }
 }
-const report={scope:'Observed connect/sendto/sendmsg/sendmmsg IPv4/IPv6 destinations in this isolated test',osIsolation:'Linux network namespace with loopback only',inspectedDestinations,publicOrNonLoopbackAttempts:attempts,blockedChromiumIpv6Probes,unexpectedNonLoopbackAttempts:unexpected,passed:inspectedDestinations>0&&unexpected.length===0};
+const report={scope:'Observed connect/sendto/sendmsg/sendmmsg IPv4/IPv6 destinations in this isolated test',osIsolation:process.env.REMOTE_OPS_NETWORK_ISOLATION??'see isolation-probe.txt and routes.txt',inspectedDestinations,publicOrNonLoopbackAttempts:attempts,blockedChromiumIpv6Probes,unexpectedNonLoopbackAttempts:unexpected,passed:inspectedDestinations>0&&unexpected.length===0};
 await writeFile(path+'.json',JSON.stringify(report,null,2));
 console.log(JSON.stringify(report,null,2));if(!report.passed)process.exitCode=1;
