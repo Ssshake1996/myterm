@@ -47,7 +47,11 @@ const until=async fn=>{const end=Date.now()+60000;while(Date.now()<end){const v=
 const pass=name=>{evidence.checks.push(name);console.log('PASS '+name);};
 try{
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
-  await writeFile(join(profile,'cordis.patch.yml'),`- id: ui-settings-general
+  const documents=join(out,'fixture-documents');await mkdir(documents,{recursive:true});
+  await writeFile(join(profile,'cordis.patch.yml'),`- id: workspace-controller
+  config:
+    documentsDirectory: ${JSON.stringify(documents)}
+- id: ui-settings-general
   config:
     welcomeNoticeVersion: 2026-09-28.1
 - id: agent-default-model
