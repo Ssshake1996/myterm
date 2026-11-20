@@ -1,0 +1,47 @@
+{
+  "date": "2026-11-20",
+  "sourceRun": "https://github.com/Ssshake1996/myterm/actions/runs/44696321124",
+  "packageSha256": "8f17a703ea2665a047b1a7a095ef1e1ee3e6c163094559a6da2020839afe8098",
+  "localNative": {
+    "hostVersion": "0.2.1-rc.5",
+    "installedVersion": "0.17.0",
+    "packageSha256": "8f17a703ea2665a047b1a7a095ef1e1ee3e6c163094559a6da2020839afe8098",
+    "checks": [
+      "installed bundled skill is loaded and native Agent opens a plugin browser",
+      "native Agent receives the MCP menu snapshot",
+      "actual screenshot bytes reach the configured image-capable model",
+      "native Agent coordinate action changes the actual plugin page"
+    ],
+    "status": "passed",
+    "imageSeen": true,
+    "errors": []
+  },
+  "network": {
+    "browser": {
+      "passed": true,
+      "osIsolation": "linux-private-namespace-no-uplink",
+      "destinations": 112,
+      "blockedIpv6Probes": 5,
+      "unexpectedDestinations": []
+    },
+    "dsh": {
+      "passed": true,
+      "osIsolation": "linux-private-namespace-no-uplink",
+      "destinations": 119,
+      "blockedIpv6Probes": 9,
+      "unexpectedDestinations": []
+    },
+    "dns": {
+      "queries": 205,
+      "names": [
+        "audit-negative.invalid",
+        "www.gstatic.com",
+        "www.google.com",
+        "accounts.google.com",
+        "content-autofill.googleapis.com",
+        "update.googleapis.com"
+      ],
+      "allRejectedWithoutForwarding": true
+    }
+  }
+}
