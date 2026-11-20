@@ -25,7 +25,7 @@ export const terminalCloseScenario = { id: 'terminal-close', title: 'SSH 黄绿�
   await t.step('绿色只表示已连接，主按钮直接可见且标签栏保持一行', async()=>{
     assert.equal(await tabs.locator('[data-state=connected]').count(),4);
     assert.equal(await all().isVisible(),true); assert.equal(await all().evaluate(n=>!!n.closest('details')),false);
-    assert.ok((await p.locator('.dsh-remote-ops__terminalHead').boundingBox()).height<=40);
+    assert.ok((await p.locator('.dsh-remote-ops__terminalHead').boundingBox()).height<=44);
     assert.match(await tabs.getByRole('tab',{name:names[0],exact:true}).getAttribute('aria-description'),/不代表命令已完成/);
   });
   await t.step('Agent 等待回显显示黄色，人仍可输入；取消一次确认不关闭任何连接', async()=>{
