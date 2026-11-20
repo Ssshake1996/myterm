@@ -73,8 +73,10 @@ try{
   logs.push(createWriteStream(join(out,'stdout.log')),createWriteStream(join(out,'stderr.log')));host.stdout.pipe(logs[0]);host.stderr.pipe(logs[1]);
   const url=await until(async()=>{if(host.exitCode!==null)throw Error('DSH exited');return(await readFile(join(out,'stdout.log'),'utf8').catch(()=>'' )).match(new RegExp(`http://127\\.0\\.0\\.1:${port}/\\?\\S+`))?.[0];});
   browser=await chromium.launch({headless:true,...(process.env.BROWSER_EXECUTABLE?{executablePath:process.env.BROWSER_EXECUTABLE}:{channel:'chrome'})});
-  page=await browser.newPage({locale:'zh-CN',viewport:{width:1500,height:1000}});page.setDefaultTimeout(20000);page.on('pageerror',e=>evidence.errors.push(e.message));await page.goto(url);
-  const editor=page.getByRole('textbox',{name:/描述你想要|发消息或创建任务/});await editor.waitFor();
+  page=await browser.newPage({locale:'zh-CN',viewport:{width:1500,height:1000}});page.setDefaultTimeout(30000);page.on('pageerror',e=>evidence.errors.push(e.message));
+  page.on('requestfailed',request=>evidence.errors.push(request.method()+' '+new URL(request.url()).pathname+' '+request.failure()?.errorText));
+  await page.goto(url);
+  const editor=page.getByRole('textbox',{name:/描述你想要|发消息或创建任务|describe what|message or create/i});await editor.waitFor();
   const agent=async stage=>{proofs.delete(stage);await until(()=>editor.isEditable());await editor.fill('MCP_NATIVE_'+stage);await editor.press('Enter');return until(()=>proofs.get(stage));};
   const ready=await agent('READY');assert.match(String(ready[0]),/remote-ops-browser/);live=ready[1];assert.ok(live?.id,JSON.stringify(ready));pass('installed bundled skill is loaded and native Agent opens a plugin browser');
   await page.getByRole('button',{name:'Remote Ops',exact:true}).click();await page.getByRole('tab',{name:'网页',exact:true}).click();await page.getByAltText('网页实时画面',{exact:true}).waitFor();
@@ -86,7 +88,7 @@ try{
   await until(async()=>{const v=(await agent('READ'))[0];return v?.browser?.job?.status==='completed'&&v?.page?.text?.includes('Visual entry opened');});pass('native Agent coordinate action changes the actual plugin page');
   await page.screenshot({path:join(out,'native-mcp.png'),animations:'disabled'});
   assert.deepEqual(evidence.errors,[]);evidence.status='passed';
-}catch(error){evidence.status='failed';evidence.error=error.stack;evidence.proofs=Object.fromEntries(proofs);process.exitCode=1;console.error(error);await page?.screenshot({path:join(out,'failure.png')}).catch(()=>{});}
+}catch(error){evidence.status='failed';evidence.error=error.stack;evidence.proofs=Object.fromEntries(proofs);process.exitCode=1;console.error(error);if(page)evidence.dom=await page.locator('body').ariaSnapshot().catch(()=>null);await page?.screenshot({path:join(out,'failure.png')}).catch(()=>{});}
 finally{
   await writeFile(join(out,'evidence.json'),JSON.stringify(evidence,null,2));await browser?.close();
   if(host?.exitCode===null){if(process.platform==='win32')await new Promise(r=>{const p=spawn('taskkill.exe',['/PID',String(host.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});p.on('close',r);p.on('error',r);});else host.kill('SIGTERM');}
