@@ -13,6 +13,15 @@ ip link set mcp1 up
 test -z "$(ip route show default)"
 test -z "$(ip -6 route show default)"
 mkdir -p output/browser-mcp-network
+# This mount is private to the CI mount namespace. The runner's DNS is untouched.
+printf 'nameserver 127.0.0.1\noptions timeout:1 attempts:1\n' > output/browser-mcp-network/resolv.conf
+mount --bind "$PWD/output/browser-mcp-network/resolv.conf" /etc/resolv.conf
+node scripts/browser-network-dns.mjs "$PWD/output/browser-mcp-network" &
+dns_pid=$!
+trap 'kill "$dns_pid" 2>/dev/null || true' EXIT
+for i in {1..50}; do test -f output/browser-mcp-network/dns-ready && break; sleep 0.1; done
+test -f output/browser-mcp-network/dns-ready
+node --input-type=module -e 'import {Resolver} from "node:dns/promises";const r=new Resolver();r.setServers(["127.0.0.1"]);try{await r.resolve4("audit-negative.invalid");process.exit(1)}catch(e){if(e.code!=="ENOTFOUND")throw e;console.log("PASS local DNS rejects without forwarding")}' > output/browser-mcp-network/dns-probe.txt
 ip route show table all > output/browser-mcp-network/routes.txt
 node --input-type=module -e '
 import net from "node:net";

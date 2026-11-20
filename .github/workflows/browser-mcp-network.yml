@@ -55,7 +55,7 @@ jobs:
           echo "BROWSER_EXECUTABLE=$(command -v google-chrome)" >> "$GITHUB_ENV"
       - name: Run actual MCP and native DSH with no external network interface
         run: |
-          sudo --preserve-env=PATH,DSH_CLI,MCP_NATIVE_OUTPUT,BROWSER_EXECUTABLE unshare --net bash scripts/browser-network-isolated.sh "$GITHUB_WORKSPACE/$(echo output/mcp-package/*.tgz)"
+          sudo --preserve-env=PATH,DSH_CLI,MCP_NATIVE_OUTPUT,BROWSER_EXECUTABLE unshare --net --mount --propagation private bash scripts/browser-network-isolated.sh "$GITHUB_WORKSPACE/$(echo output/mcp-package/*.tgz)"
       - if: always()
         uses: actions/upload-artifact@v4
         with:
