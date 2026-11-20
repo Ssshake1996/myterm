@@ -17,7 +17,7 @@ async function removeTestRoot(root) {
   await rm(root, { recursive: true, force: true, maxRetries: 6, retryDelay: 150 });
 }
 
-test('panel preserves original size by default and fits both dimensions when selected', { timeout: 60000 }, async t => {
+test('panel defaults to automatic fit and preserves original-size and dynamic-fit choices', { timeout: 60000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), 'remote-ops-panel-'));
   const server = createServer((_req, res) => res.end('<!doctype html><title>Panel test</title>'));
   const workspace = new BrowserWorkspace({ root, browserCacheRoot: join(root, 'cache') });
@@ -37,6 +37,10 @@ test('panel preserves original size by default and fits both dimensions when sel
   const recheck = () => workspace.resizeViewport(owner, id, session.viewportHint, true);
   const view = () => page.evaluate(() => [innerWidth, innerHeight]);
 
+  assert.equal(workspace.preferences.zoom,'auto');
+  await resize(400,600);
+  assert.deepEqual(await view(),[1280,768]);
+  await workspace.savePreferences({zoom:'actual'});
   await fixture('main{width:720px;height:480px}');
   await page.locator('#draft').fill('keep me');
   await resize(1000,700);
