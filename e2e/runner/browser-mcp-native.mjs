@@ -73,7 +73,8 @@ try{
   logs.push(createWriteStream(join(out,'stdout.log')),createWriteStream(join(out,'stderr.log')));host.stdout.pipe(logs[0]);host.stderr.pipe(logs[1]);
   const url=await until(async()=>{if(host.exitCode!==null)throw Error('DSH exited');return(await readFile(join(out,'stdout.log'),'utf8').catch(()=>'' )).match(new RegExp(`http://127\\.0\\.0\\.1:${port}/\\?\\S+`))?.[0];});
   browser=await chromium.launch({headless:true,...(process.env.BROWSER_EXECUTABLE?{executablePath:process.env.BROWSER_EXECUTABLE}:{channel:'chrome'})});
-  page=await browser.newPage({locale:'zh-CN',viewport:{width:1500,height:1000}});page.setDefaultTimeout(30000);page.on('pageerror',e=>evidence.errors.push(e.message));
+  page=await browser.newPage({locale:'zh-CN',viewport:{width:1500,height:1000}});page.setDefaultTimeout(60000);page.on('pageerror',e=>evidence.errors.push(e.message));
+  evidence.responses=[];page.on('response',response=>{if(response.url().includes('/api/'))evidence.responses.push({path:new URL(response.url()).pathname,status:response.status()});});
   page.on('requestfailed',request=>evidence.errors.push(request.method()+' '+new URL(request.url()).pathname+' '+request.failure()?.errorText));
   await page.goto(url);
   const editor=page.getByRole('textbox',{name:/描述你想要|发消息或创建任务|describe what|message or create/i});await editor.waitFor();

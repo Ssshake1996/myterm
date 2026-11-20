@@ -31,7 +31,16 @@ try{
   s=await w.observeSnapshot('tester',r.id);assert.doesNotMatch(s.snapshot,/Example user/);
   job=await act(r.id,s,{kind:'ref',value:ref(s,'Save')});assert.equal(job.status,'completed',job.error?.message);assert.equal(await page.locator('output').innerText(),'Saved Example user');check('MCP fills and submits in the same browser session');
   s=await w.observeSnapshot('tester',r.id,undefined,true);assert.ok(s.imageBuffer.length>500);
-  job=await act(r.id,s,{kind:'point',x:350,y:225});assert.equal(job.status,'completed',job.error?.message);assert.equal(await page.locator('output').innerText(),'Canvas opened');check('actual screenshot coordinates operate a canvas entry');
+  for(let attempt=0;attempt<3;attempt++){
+    job=await act(r.id,s,{kind:'point',x:350,y:225});
+    if(job.status==='completed')break;
+    // A pre-dispatch stale-image rejection is explicitly safe to re-observe.
+    if(job.status!=='failed'||job.error?.code!=='BROWSER_OBSERVATION_STALE')break;
+    evidence.visualObservationRetries=(evidence.visualObservationRetries??0)+1;
+    if(process.env.MCP_EVIDENCE){const dir=resolve(process.env.MCP_EVIDENCE);await mkdir(dir,{recursive:true});await writeFile(join(dir,'observed-'+attempt+'.png'),s.imageBuffer);await page.screenshot({path:join(dir,'current-'+attempt+'.png'),animations:'disabled',scale:'css'});}
+    s=await w.observeSnapshot('tester',r.id,undefined,true);
+  }
+  assert.equal(job.status,'completed',job.error?.message);assert.equal(await page.locator('output').innerText(),'Canvas opened');check('actual screenshot coordinates operate a canvas entry');
   const stale=s;job=await act(r.id,stale,{kind:'point',x:350,y:225});assert.equal(job.status,'failed');assert.match(job.error.message,/STALE/);check('consumed screenshots cannot be replayed');
   s=await w.observeSnapshot('tester',r.id);await page.locator('#menu').evaluate(el=>el.textContent='Changed by human');job=await act(r.id,s,{kind:'ref',value:ref(s,'System settings')});assert.equal(job.status,'failed');assert.match(job.error.message,/STALE/);check('human page changes invalidate old navigation observations');
   assert.throws(()=>w.observeSnapshot('foreign-owner',r.id),/NOT_FOUND/);check('observations stay in their DSH conversation');
