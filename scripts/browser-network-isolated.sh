@@ -15,7 +15,7 @@ socket.on("error",error=>{if(!["ENETUNREACH","EHOSTUNREACH"].includes(error.code
 ' > output/browser-mcp-network/isolation-probe.txt
 export REMOTE_OPS_NETWORK_ISOLATION=linux-loopback-only
 export MCP_EVIDENCE="$PWD/output/browser-mcp-network/browser"
-strace -f -e trace=network -s 160 -o output/browser-mcp-network/browser.trace node integrations/dsh-remote-ops/test/browser-mcp-live.mjs
+strace -f -e trace=network,close -s 160 -o output/browser-mcp-network/browser.trace node integrations/dsh-remote-ops/test/browser-mcp-live.mjs
 node scripts/check-browser-network.mjs output/browser-mcp-network/browser.trace
-strace -f -e trace=network -s 160 -o output/browser-mcp-network/dsh.trace node e2e/runner/browser-mcp-native.mjs "$1"
+strace -f -e trace=network,close -s 160 -o output/browser-mcp-network/dsh.trace node e2e/runner/browser-mcp-native.mjs "$1"
 node scripts/check-browser-network.mjs output/browser-mcp-network/dsh.trace

@@ -286,7 +286,7 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ## 内网 HTTP/HTTPS 手动更新
 
-v0.16.2 收紧顶部导航，突出环境入口，并加入终端文字对比度保护。[版本说明](docs/releases/dsh-remote-ops-v0.16.2.md)
+v0.17.0 加入网页结构快照、元素引用与截图坐标操作，复用现有浏览器，并增加系统级网络隔离验收。[版本说明](docs/releases/dsh-remote-ops-v0.17.0.md)
 
 Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后显示等待原因，任务结束后自动热加载；“新版已生效”与运行版本共同确认结果。
 

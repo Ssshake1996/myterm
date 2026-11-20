@@ -144,7 +144,7 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 ## Manual intranet HTTP/HTTPS updates
 
-v0.16.2 combines workspace navigation and settings, highlights the environment entry, and protects terminal text contrast. [Release notes](docs/releases/dsh-remote-ops-v0.16.2.md)
+v0.17.0 adds structured browser snapshots, element references and screenshot coordinates on the existing browser, with an isolated network release gate. [Release notes](docs/releases/dsh-remote-ops-v0.17.0.md)
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 

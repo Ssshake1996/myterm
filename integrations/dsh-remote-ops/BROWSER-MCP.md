@@ -35,7 +35,7 @@
 }
 ```
 
-坐标是截图视口中的 **CSS 像素**，不是 DSH 面板缩放后的显示像素。`image:true` 同时返回结构、截图和视口宽高。`ref` 支持 `click`、`hover`、`fill`；`point` 支持 `click`、`hover`。原有 role、label、text、CSS、XPath 定位及多步骤流程继续可用；引用与坐标每次只允许一个动作。
+坐标是截图视口中的 **CSS 像素**，不是 DSH 面板缩放后的显示像素。若 DSH 对图片预览进行了缩小，需按返回的视口宽高与预览宽高的比例换算坐标。`image:true` 同时返回结构、截图和视口宽高。`ref` 支持 `click`、`hover`、`fill`；`point` 支持 `click`、`hover`。原有 role、label、text、CSS、XPath 定位及多步骤流程继续可用；引用与坐标每次只允许一个动作。
 
 观察有效期为 60 秒，动作执行后失效。页面结构、地址、滚动或视口变化，以及坐标操作前截图变化，会报 `BROWSER_OBSERVATION_STALE`；重新观察再决定操作，不自动重放。动态页面可能需要重新截图。`remote_browser_run` 返回的是任务，需读取任务状态并核实页面结果；完成一个点击不代表业务成功。
 
@@ -63,3 +63,5 @@ MCP 是工具通信协议，本身不决定数据是否出网。网页正文与�
 - 验证时同时查看网络连接与防火墙日志。阻断负责保证不能外发，抓包或系统调用审计负责说明测试过程中尝试连接了什么。
 
 仓库中的 `scripts/browser-network-isolated.sh` 在 CI 的独立 Linux network namespace 内只保留 loopback，先证明外部路由被拒绝，再运行真实 MCP/浏览器和原生 DSH 安装包测试，并用 `strace` 审计网络目标。安装与依赖下载在隔离前完成。结果是固定依赖、指定场景下的证据，不代表所有网站、浏览器版本和宿主配置永远零外联。真实内网模型的识图准确率仍需要在目标环境验收。
+
+网络报告单独列出 Chromium 对 `2001:4860:4860::8888:443` 的 IPv6 路由探测：只有核实为 UDP socket 的 `connect` 且系统明确返回 `ENETUNREACH` 时，才归为被阻断的路由检查；其他非 loopback 目标或数据发送仍使门禁失败。这与 [Chromium 的 IPv6 连通性说明](https://github.com/chromium/chromium/blob/main/net/dns/README.md#ipv6-and-connectivity)一致，不能表述为“没有任何外联尝试”。

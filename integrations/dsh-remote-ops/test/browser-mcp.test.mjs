@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import { browserSteps } from '../lib/browser-steps.js';
 import { validateObservedTarget } from '../lib/browser-mcp.js';
 import { registerBrowserTools } from '../lib/browser-tools.js';
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {spawnSync} from 'node:child_process';
 
 test('observed references and coordinates retain their observation identity', () => {
   assert.deepEqual(browserSteps([{action:'click',target:{kind:'ref',value:'e12',snapshotId:'observation-1'}}])[0].target,
@@ -59,4 +64,20 @@ test('text-only models reject images before capture; snapshots still work',async
 test('cancelled observation is rejected before dispatch or attachment creation',async()=>{
   const {tool,calls}=readTool();const exec=execution(),abort=new AbortController();abort.abort();exec.signal=abort.signal;
   await assert.rejects(tool.execute({image:true},exec));assert.deepEqual(calls,[]);
+});
+test('network gate rejects empty traces and non-loopback IPv4/IPv6 destinations',async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'mcp-trace-test-')),path=join(dir,'network.trace');
+  try{
+    const gate=fileURLToPath(new URL('../../../scripts/check-browser-network.mjs',import.meta.url));
+    for(const [trace,code] of [
+      ['',1],
+      ['connect(3, {sa_family=AF_INET, sin_addr=inet_addr("127.0.0.1")}, 16) = 0',0],
+      ['sendmmsg(3, {sa_family=AF_INET, sin_addr=inet_addr("192.0.2.1")}, 16) = -1',1],
+      ['connect(3, {sa_family=AF_INET6, inet_pton(AF_INET6, "2001:db8::1", &sin6_addr)}, 28) = -1',1],
+      ['connect(3, {sa_family=AF_INET6, inet_pton(AF_INET6, "::ffff:127.0.0.1", &sin6_addr)}, 28) = 0',0],
+      ['socket(AF_INET6, SOCK_DGRAM, IPPROTO_IP) = 3\nconnect(3, {sa_family=AF_INET6, sin6_port=htons(443), inet_pton(AF_INET6, "2001:4860:4860::8888", &sin6_addr)}, 28) = -1 ENETUNREACH (Network is unreachable)',0],
+      ['socket(AF_INET6, SOCK_DGRAM, IPPROTO_IP) = 3\nconnect(3, {sa_family=AF_INET6, sin6_port=htons(443), inet_pton(AF_INET6, "2001:4860:4860::8888", &sin6_addr)}, 28) = 0',1],
+      ['socket(AF_INET6, SOCK_STREAM, IPPROTO_IP) = 3\nconnect(3, {sa_family=AF_INET6, sin6_port=htons(443), inet_pton(AF_INET6, "2001:4860:4860::8888", &sin6_addr)}, 28) = -1 ENETUNREACH (Network is unreachable)',1],
+    ]){await writeFile(path,trace);const r=spawnSync(process.execPath,[gate,path],{encoding:'utf8'});assert.equal(r.status,code,r.stdout+r.stderr);}
+  }finally{await rm(dir,{recursive:true,force:true});}
 });
