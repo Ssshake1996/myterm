@@ -1,6 +1,6 @@
 {
   "date": "2026-11-20",
-  "sourceRun": "https://github.com/Ssshake1996/myterm/actions/runs/44696321124",
+  "sourceRun": "https://github.com/Ssshake1996/myterm/actions/runs/44697265513",
   "packageSha256": "8f17a703ea2665a047b1a7a095ef1e1ee3e6c163094559a6da2020839afe8098",
   "localNative": {
     "hostVersion": "0.2.1-rc.5",
@@ -20,19 +20,19 @@
     "browser": {
       "passed": true,
       "osIsolation": "linux-private-namespace-no-uplink",
-      "destinations": 112,
+      "destinations": 118,
       "blockedIpv6Probes": 5,
       "unexpectedDestinations": []
     },
     "dsh": {
       "passed": true,
       "osIsolation": "linux-private-namespace-no-uplink",
-      "destinations": 119,
-      "blockedIpv6Probes": 9,
+      "destinations": 131,
+      "blockedIpv6Probes": 10,
       "unexpectedDestinations": []
     },
     "dns": {
-      "queries": 205,
+      "queries": 220,
       "names": [
         "audit-negative.invalid",
         "www.gstatic.com",
@@ -43,5 +43,27 @@
       ],
       "allRejectedWithoutForwarding": true
     }
+  },
+  "publishedDownload": {
+    "publicAnonymousDownload": true,
+    "version": "0.17.0",
+    "bytes": 247095420,
+    "sha256": "8f17a703ea2665a047b1a7a095ef1e1ee3e6c163094559a6da2020839afe8098",
+    "checksumSha256": "29070efab3a4814750a75a1769fdb075f568f45adfbe224341386d9c57eb2566",
+    "ranges": 30,
+    "passed": true
+  },
+  "isolatedNative": {
+    "hostVersion": "0.2.1-rc.5",
+    "installedVersion": "0.17.0",
+    "packageSha256": "8f17a703ea2665a047b1a7a095ef1e1ee3e6c163094559a6da2020839afe8098",
+    "status": "passed",
+    "imageSeen": true,
+    "checks": [
+      "installed bundled skill is loaded and native Agent opens a plugin browser",
+      "native Agent receives the MCP menu snapshot",
+      "actual screenshot bytes reach the configured image-capable model",
+      "native Agent coordinate action changes the actual plugin page"
+    ]
   }
 }

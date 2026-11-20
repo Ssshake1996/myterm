@@ -13,22 +13,29 @@
 
 ## 系统级网络验收
 
-[隔离网络验收](https://github.com/Ssshake1996/myterm/actions/runs/44696321124)通过。安装依赖在隔离前完成；运行时使用独立 Linux network/mount namespace，没有外部网卡、默认路由、桥接或 NAT。两端均在内部的虚拟网卡模拟内网链路，DNS 由仅返回 NXDOMAIN、从不转发的本地服务处理。
+[隔离网络验收](https://github.com/Ssshake1996/myterm/actions/runs/44697265513)通过。安装依赖在隔离前完成；运行时使用独立 Linux network/mount namespace，没有外部网卡、默认路由、桥接或 NAT。两端均在内部的虚拟网卡模拟内网链路，DNS 由仅返回 NXDOMAIN、从不转发的本地服务处理。
 
 负向对照确认外部地址被系统返回 `ENETUNREACH`；DNS 负向对照确认查询被本地拒绝。随后跟踪 Node、浏览器和原生 DSH 的网络系统调用，实际完成上述网页操作。审计与功能测试使用真实进程，没有替换 MCP 或浏览器工具实现。
 
 | 项目 | 实际结果 |
 | --- | --- |
-| MCP/浏览器审计 | 112 个解析到的目标记录；5 次 Chromium IPv6 路由探测被系统阻断；没有其他非 loopback 目标 |
-| 原生 DSH 审计 | 119 个解析到的目标记录；9 次同类探测被系统阻断；没有其他非 loopback 目标；4 项工具/图片验收通过 |
-| DNS | 205 次查询，全部在本地拒绝，未转发；包含负向测试域名及下述 Chrome 后台域名 |
-| 发布门禁 | 正式发布流程必须对冻结候选包再次完成网络隔离、Windows 与原生 DSH 门禁 |
+| MCP/浏览器审计 | 118 个解析到的目标记录；5 次 Chromium IPv6 路由探测被系统阻断；没有其他非 loopback 目标 |
+| 原生 DSH 审计 | 131 个解析到的目标记录；10 次同类探测被系统阻断；没有其他非 loopback 目标；4 项工具/图片验收通过 |
+| DNS | 220 次查询，全部在本地拒绝，未转发；包含负向测试域名及下述 Chrome 后台域名 |
+| 发布门禁 | 正式发布流程已对同一 SHA256 候选包完成网络隔离、Windows 与原生 DSH 门禁 |
 
 Chrome 后台查询包括 `www.gstatic.com`、`www.google.com`、`accounts.google.com`、`content-autofill.googleapis.com` 和 `update.googleapis.com`。这说明“运行本地 MCP”不能替代浏览器和整机出站策略。测试未发现微软服务请求，但不能据此保证所有网站、浏览器版本和宿主配置永远没有外联尝试。
 
 IPv6 记录对应 `2001:4860:4860::8888:443`。只有已核实 UDP socket 的 `connect` 明确返回 `ENETUNREACH` 时，审计才将其归为被阻断的路由检查；其余非 loopback 连接/发送使门禁失败。依据是 [Chromium 的 IPv6 连通性实现说明](https://github.com/chromium/chromium/blob/main/net/dns/README.md#ipv6-and-connectivity)。完整查询和系统调用日志保存在该工作流的 `browser-mcp-network-evidence` 资产；摘要见[结构化回执](receipts/browser-mcp-v0.17.0.json)。
 
 早期验收保留了将 IPv6 探测一律视为失败、Linux 未配置文档目录、浏览器读取 CI 默认外部 DNS 时的失败记录。最终配置使用独立工作区和不转发的内网 DNS；没有通过删除流量记录或忽略任意外部地址使测试通过。
+
+## 其他发布检查
+
+- [完整浏览器回归](https://github.com/Ssshake1996/myterm/actions/runs/44696964964)、[Windows 桌面](https://github.com/Ssshake1996/myterm/actions/runs/44696965000)、[Windows OpenSSH](https://github.com/Ssshake1996/myterm/actions/runs/44696965060)均通过。
+- [正式发布流程](https://github.com/Ssshake1996/myterm/actions/runs/44697265513)全部通过，包含原生 DSH 串口与网页录制回归，以及本文网络门禁。
+- Release 已公开并标记 Latest，只有 tgz 和 SHA256 两个资产。
+- 已匿名下载公开发布的完整 tgz 与 SHA256 文件，核对文件大小及整个文件的 SHA256，结果与上述正式验收包一致；下载回执见[结构化回执](receipts/browser-mcp-v0.17.0.json)的 `publishedDownload`。
 
 ## 使用边界与复验
 

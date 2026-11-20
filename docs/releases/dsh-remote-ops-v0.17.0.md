@@ -11,6 +11,6 @@
 
 视觉操作需要 DSH 当前配置的模型支持图片输入。内网部署应配置内网模型，并由操作系统或网关控制出站网络；本地 MCP 本身不等于网络隔离。
 
-使用方式与网络边界见[网页操作指南](../../integrations/dsh-remote-ops/BROWSER-MCP.md)。验证范围见[验收记录](../testing/dsh-remote-ops-v0.17.0-acceptance.md)。
+使用方式与网络边界见[网页操作指南](https://github.com/Ssshake1996/myterm/blob/main/integrations/dsh-remote-ops/BROWSER-MCP.md)。验证范围见[验收记录](https://github.com/Ssshake1996/myterm/blob/main/docs/testing/dsh-remote-ops-v0.17.0-acceptance.md)。
 
 仅发布 `dsh-remote-ops-v0.17.0.tgz` 和 `SHA256SUMS-dsh-remote-ops-v0.17.0.txt`。
