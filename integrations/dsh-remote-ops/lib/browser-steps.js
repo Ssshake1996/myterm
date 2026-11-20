@@ -1,3 +1,4 @@
+import {focusLocator} from './browser-focus.js';
 export const browserError = (code, message) => Object.assign(new Error(`${code}: ${message}`), { code });
 export const browserUrl = value => {
   let url;
@@ -233,6 +234,7 @@ export async function executeBrowserStep(workspace, record, job, step, begin = (
       }
     }
   }
+  if (locator && !checking && step.action !== 'read') await focusLocator(record,page,locator,step.action);
   if (step.expect) await verify(record.pages.get(job.pageId), step.expect, timeout, job);
   return { action: step.action, status: "done", completion: step.expect || ["assert", "wait"].includes(step.action) ? "checked" : step.action === "read" ? "observed" : "unverified", ...(value !== undefined ? { value } : {}), pageId: job.pageId };
 }

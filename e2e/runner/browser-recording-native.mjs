@@ -214,10 +214,11 @@ try {
       const active = (await snapshot()).sessions.find(s => s.id === opened.id);
       const box = await image.boundingBox();
       return box && Number(await image.getAttribute('data-revision')) === active.revision &&
-        Math.abs(box.width - active.viewport.width) < 2 && Math.abs(box.height - active.viewport.height) < 2 && box;
+        Math.abs(box.width / box.height - active.viewport.width / active.viewport.height) < .001 &&
+        {...box,cssWidth:active.viewport.width,cssHeight:active.viewport.height};
     });
     const { id } = (await rec('start')).result;
-    await image.click({ position: { x: Math.min(65, bounds.width), y: 53 } });
+    await image.click({ position: { x: 65 * bounds.width / bounds.cssWidth, y: 53 * bounds.height / bounds.cssHeight } });
     await page.keyboard.insertText('edge-lab'); await page.keyboard.press('Tab');
     await until(async () => (await rec('read', id)).result.events.some(e => e.kind === 'interaction' && e.input?.value === 'edge-lab'));
     await agent('DEVICE');

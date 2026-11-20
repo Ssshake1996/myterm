@@ -94,8 +94,15 @@ try{
   let result=(await agent('MENU'))[0];assert.ok(result?.id,JSON.stringify(result));
   await until(async()=>{const v=(await agent('READ'))[0];return v?.browser?.job?.status==='completed'&&v;});
   snapshot=(await agent('IMAGE'))[0]?.page;assert.ok(snapshot?.snapshotId);assert.equal(evidence.imageSeen,true);pass('actual screenshot bytes reach the configured image-capable model');
+  const liveImage=page.getByAltText('网页实时画面',{exact:true});
+  const divider=await page.locator('[data-side="rightbar"]').boundingBox();assert.ok(divider);
+  const oldImage=await liveImage.boundingBox();
+  await page.mouse.move(divider.x+divider.width/2,divider.y+divider.height/2);await page.mouse.down();
+  await page.mouse.move(divider.x+divider.width/2+110,divider.y+divider.height/2,{steps:12});await page.mouse.up();
+  await until(async()=>Math.abs((await liveImage.boundingBox()).width-oldImage.width)>30);
   result=(await agent('POINT'))[0];assert.ok(result?.id,JSON.stringify(result));
   await until(async()=>{const v=(await agent('READ'))[0];return v?.browser?.job?.status==='completed'&&v?.page?.text?.includes('Visual entry opened');});pass('native Agent coordinate action changes the actual plugin page');
+  pass('resizing the real DSH sidebar after observation preserves the native Agent screenshot coordinates');
   await page.screenshot({path:join(out,'native-mcp.png'),animations:'disabled'});
   assert.deepEqual(evidence.errors,[]);evidence.status='passed';
 }catch(error){evidence.status='failed';evidence.error=error.stack;evidence.proofs=Object.fromEntries(proofs);process.exitCode=1;console.error(error);if(page){evidence.dom=await page.locator('body').ariaSnapshot().catch(()=>null);evidence.navigatorOnline=await page.evaluate(()=>navigator.onLine).catch(()=>null);}await page?.screenshot({path:join(out,'failure.png')}).catch(()=>{});}

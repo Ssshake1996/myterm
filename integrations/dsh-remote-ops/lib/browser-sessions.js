@@ -2,6 +2,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { browserError, browserSteps, browserUrl, displayUrl, expandBrowserSteps, locateBrowser, executeBrowserStep } from "./browser-steps.js";
 import { recordingUrl } from './browser-recordings.js';
 import { observeBrowser, executeObservedStep, closeBrowserMcp } from './browser-mcp.js';
+import {installBrowserFocus} from './browser-focus.js';
 
 const finished = job => !job || ["completed", "failed", "unknown", "stopped"].includes(job.status);
 export class BrowserSessions {
@@ -41,6 +42,7 @@ export class BrowserSessions {
       record.revision = (record.revision ?? 0) + 1;
       record.navigationRevision = (record.navigationRevision ?? 0) + 1;
       record.navigatedAt = Date.now();
+      record.observation = undefined; record.viewFocus = undefined;
       record.view?.invalidate();
     });
     page.on("dialog", dialog => { if(context===record.context)record.dialog = dialog; });
@@ -97,6 +99,7 @@ export class BrowserSessions {
       for (const page of context.pages()) this.attachPage(record, page);
       const page = record.pages.values().next().value ?? await context.newPage();
       this.attachPage(record, page);
+      await installBrowserFocus(record);
       try { await this.prepareNavigationViewport(record, page, site.url); await page.goto(site.url, { waitUntil: "domcontentloaded", timeout: 30000 }); }
       catch { record.notice = "The browser opened, but navigation did not finish. Inspect the visible page before continuing"; }
       for (const [id, old] of this.sessions) if (old.closed && this.sessions.size > 24) this.sessions.delete(id);
@@ -175,7 +178,9 @@ export class BrowserSessions {
       const context=await this.launch(r.site,owner,display,launchOptions);r.context=context;r.pages=new Map();r.closed=false;
       r.display = display;
       r.viewportHint = undefined;
+      r.observation = undefined; r.pendingViewport = undefined; r.viewFocus = undefined;
       if (display === 'embedded') r.viewport = { mode: this.preferences.viewport, ...this.initialViewport(r.site.url) };
+      await installBrowserFocus(r);
       if(r.recording?.metadata.status==='recording')await this.recordings.install(r);
       const initial=context.pages();
       for(let n=1;n<initial.length;n++)await initial[n].close();
@@ -208,7 +213,7 @@ export class BrowserSessions {
     const previous = this.receipts.get(key);
     if (previous) { if (previous.hash !== hash) throw browserError("BROWSER_REQUEST_CONFLICT", "This request ID already has a different operation"); return previous.job; }
     if (background && record.display !== 'embedded') throw browserError('BROWSER_BACKGROUND_WINDOW', 'Use a plugin-managed embedded browser for background work.');
-    if (!finished(record.job)) throw browserError("BROWSER_BUSY", "Pause or finish the current flow before starting another");
+    if (!finished(record.job) || record.observing) throw browserError("BROWSER_BUSY", "Wait for the current browser operation before starting another");
     if (!["run", "step"].includes(mode) || !record.pages.has(pageId ?? record.activePageId)) throw browserError("BROWSER_PAGE_INVALID", "Choose an existing page and run/step mode");
     const password = variables.password;
     if (typeof password === "string" && password && steps.some(step => step.action === "fill" && step.value === password)) {
@@ -231,6 +236,7 @@ export class BrowserSessions {
           await new Promise(resolve => { job.wake = resolve; }); job.wake = undefined; continue;
         }
         job.status = "running"; job.inFlight = true;
+        await record.inputQueue;
         const started = Date.now();
         let handle;
         try {

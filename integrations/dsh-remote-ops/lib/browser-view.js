@@ -19,7 +19,7 @@ export class BrowserView {
         const timer=setTimeout(()=>{this.acks.delete(timer);void cdp.send('Page.screencastFrameAck',{sessionId:event.sessionId}).catch(()=>{});},100);
         timer.unref?.();this.acks.add(timer);
         if(event.metadata.timestamp&&event.metadata.timestamp*1000<(r.navigatedAt??0))return;
-        this.latest={sequence:++this.sequence,pageId:this.pageId,revision:r.revision??0,navigation:r.navigationRevision??0,width:event.metadata.deviceWidth,height:event.metadata.deviceHeight,at:new Date().toISOString(),data:event.data};
+        this.latest={sequence:++this.sequence,pageId:this.pageId,revision:r.revision??0,navigation:r.navigationRevision??0,width:event.metadata.deviceWidth,height:event.metadata.deviceHeight,scrollX:event.metadata.scrollOffsetX??0,scrollY:event.metadata.scrollOffsetY??0,at:new Date().toISOString(),data:event.data};
         for(const wake of this.waiters)wake();
       });
       await cdp.send('Page.startScreencast',{format:'jpeg',quality:75,maxWidth:2560,maxHeight:2160,everyNthFrame:1});
@@ -31,7 +31,7 @@ export class BrowserView {
     await this.start();clearTimeout(this.expiry);
     this.expiry=setTimeout(()=>void this.stop(),20000);this.expiry.unref?.();
     const valid=()=>this.latest?.pageId===this.record.activePageId&&this.latest.revision===(this.record.revision??0);
-    if(valid()&&this.latest.sequence>Number(after))return this.latest;
+    if(valid()&&this.latest.sequence>Number(after))return this.present();
     await new Promise((resolve,reject)=>{
       let timer;
       const cleanup=()=>{clearTimeout(timer);this.waiters.delete(wake);signal?.removeEventListener('abort',abort);};
@@ -42,7 +42,17 @@ export class BrowserView {
     if (!valid()) throw Object.assign(browserError('BROWSER_FRAME_PENDING', 'Waiting for a new page frame'), {
       pageId: this.record.activePageId, navigation: this.record.navigationRevision ?? 0,
     });
-    return this.latest;
+    return this.present();
+  }
+  present() {
+    const f=this.latest,focus=this.record.viewFocus;
+    const matches=focus && f && focus.pageId===f.pageId && focus.revision===f.revision && focus.navigation===f.navigation &&
+      focus.width===f.width && focus.height===f.height && Math.abs(focus.scrollX-f.scrollX)<2 && Math.abs(focus.scrollY-f.scrollY)<2 && Date.now()-focus.at<5000;
+    return {...f,focus:matches?focus:null};
+  }
+  focusChanged() {
+    if(this.latest)this.latest={...this.latest,sequence:++this.sequence};
+    for(const wake of this.waiters)wake();
   }
   async stop() {
     const cdp=this.cdp;this.cdp=null;this.latest=null;clearTimeout(this.expiry);

@@ -92,7 +92,14 @@ export async function checkBrowserLayout({ page, owner, api, snapshot, until, st
     await page.getByRole('button',{name:'返回工作区',exact:true}).click();
   };
   await webSettings();
-  assert.equal(await page.getByLabel('网页画面缩放',{exact:true}).inputValue(),'actual');
+  assert.equal(await page.getByLabel('网页画面缩放',{exact:true}).inputValue(),'auto');
+  await page.getByRole('button',{name:'返回工作区',exact:true}).click();
+  await step('首次打开自动采用桌面宽度，无需配置即可出现启动控件',async()=>{
+    await open('startup');
+    const text=(await api('browser',{sessionId:owner,action:'observe'})).result.text;
+    assert.match(text,/startup-width=1280/);assert.match(text,/设备配置/);
+  });
+  await webSettings();
   await selectZoom('fit');
   await step('拖动真实 DSH 分栏，设备网页随面板重新排版', async () => {
     await open('overview');
@@ -110,9 +117,10 @@ export async function checkBrowserLayout({ page, owner, api, snapshot, until, st
       await page.mouse.move(x + (initial.w - 390) * (0.5 - i * 0.07), y);
       const box = await image.evaluate(n => {
         const b = n.getBoundingClientRect(), p = n.parentElement.getBoundingClientRect();
-        return { width: p.width, right: p.right - b.right, bottom: p.bottom - b.bottom };
+        return { width: p.width, right: p.right - b.right, bottom: p.bottom - b.bottom,
+          ratio:b.width/b.height,encodedRatio:n.naturalWidth/n.naturalHeight };
       });
-      assert.ok(Math.abs(box.right) < 2 && Math.abs(box.bottom) < 2, JSON.stringify(box));
+      assert.ok(box.right >= -2 && box.bottom >= -2 && Math.abs(box.ratio-box.encodedRatio)<.02, JSON.stringify(box));
       heldWidths.push((await active()).viewport.width);
       await new Promise(resolve => setTimeout(resolve, 45));
     }
@@ -274,6 +282,45 @@ export async function checkBrowserLayout({ page, owner, api, snapshot, until, st
     await page.getByRole('button',{name:'返回工作区',exact:true}).click();
     await open('overview');await open('startup');
     assert.match((await api('browser',{sessionId:owner,action:'observe'})).result.text,/startup-width=1027/);
+  });
+  await step('自动适配在四种面板尺寸完整等比显示，保持浏览器坐标',async()=>{
+    await webSettings();await selectZoom('auto');await open('wide');
+    const surface=image.locator('..'); const models=[];
+    for(const [width,height] of [[1027,768],[390,640],[640,480],[1440,900]]){
+      await until(async()=>{
+        const box=await surface.boundingBox(),win=page.viewportSize();
+        if(Math.round(box.width)===width&&Math.round(box.height)===height)return true;
+        await page.setViewportSize({width:win.width+width-Math.round(box.width),height:win.height+height-Math.round(box.height)});return false;
+      });
+      const model=await until(async()=>{
+        const current=await active();
+        const box=await image.evaluate(img=>{const r=img.getBoundingClientRect(),s=img.parentElement.getBoundingClientRect();return {imageW:r.width,imageH:r.height,w:s.width,h:s.height,left:r.left-s.left,top:r.top-s.top,right:s.right-r.right,bottom:s.bottom-r.bottom,scroll:img.parentElement.scrollWidth-img.parentElement.clientWidth,revision:Number(img.dataset.revision)};});
+        if(box.revision!==current.revision||Math.min(box.left,box.top,box.right,box.bottom)<-1)return false;
+        if(Math.abs(box.imageW/box.imageH-current.viewport.width/current.viewport.height)>.001)return false;
+        return {...box,...current.viewport};
+      });
+      assert.equal(model.scroll,0);models.push(model);
+    }
+    assert.equal(new Set(models.map(m=>m.width+'x'+m.height)).size,1);
+    evidence.panelLayout.automatic=models;
+    const live=await active();
+    await api('browser',{sessionId:owner,action:'run',steps:[{action:'click',target:'#br'}]});
+    await page.locator('.dsh-remote-ops__browserFocus').waitFor({state:'visible'});
+    await until(async()=>(await api('browser',{sessionId:owner,action:'observe'})).result.text.includes('hit-br'));
+    assert.ok(live.viewport.width>=1280);
+  });
+  await step('原始大小自动跟随右侧操作目标，刷新后恢复显示偏好',async()=>{
+    await webSettings();await selectZoom('actual');await open('wide');
+    const surface=image.locator('..');
+    await until(async()=>{const b=await surface.boundingBox(),win=page.viewportSize();if(Math.round(b.width)===1027)return true;await page.setViewportSize({width:win.width+1027-Math.round(b.width),height:win.height});return false;});
+    await surface.evaluate(n=>n.scrollLeft=0);
+    await api('browser',{sessionId:owner,action:'run',steps:[{action:'click',target:'#tr'}]});
+    await until(()=>surface.evaluate(n=>n.scrollLeft>100));
+    await webSettings();await selectZoom('auto');
+    await page.reload();
+    await page.getByRole('tab',{name:'网页',exact:true}).waitFor();
+    await webSettings();assert.equal(await page.getByLabel('网页画面缩放',{exact:true}).inputValue(),'auto');
+    await page.getByRole('button',{name:'返回工作区',exact:true}).click();
   });
   await writeFile(join(out,'panel-layout.json'), JSON.stringify(evidence.panelLayout, null, 2));
 }

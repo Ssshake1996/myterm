@@ -17,6 +17,8 @@ Stop with `action: "stop", recordingId`. This ends capture, not the browser job 
 
 `action: "export", recordingId` writes a JSON snapshot on the DSH host and returns its path/name. The Web panel's recording list downloads the same format. A host file path is not necessarily accessible from your environment: use paginated reads when needed. IDs are conversation-scoped; never guess another conversation's ID.
 
+Embedded automatic fit, viewer panning and the operation marker are display-only: they add no page clicks, scrolls or recording events. Interpret recorded coordinates in the browser CSS-pixel viewport, never in the scaled GUI panel. Long pages and internal frames retain their normal scrolling.
+
 ## Interpret schema version 1
 
 Export envelope: `format: "myterm.web-recording"`, `schemaVersion: 1`, `exportedAt`, `recording`, `incompleteTail`, `events`. Metadata includes ID, browser ID, initial page URLs, timestamps, capture status/count, coverage notes and, on stop, unfinished actions. Capture status is not a test verdict. `interrupted`, `limited`, `error`, incomplete tails, gap events and unfinished actions require an explicit completeness note.

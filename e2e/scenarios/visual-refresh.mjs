@@ -55,7 +55,11 @@ export const visualRefreshScenario = { id: 'visual-refresh', title: '视觉工�
     for(const name of ['网页','终端','文件']){await tab(name).click();assert.ok(await p.locator('.dsh-remote-ops').evaluate(n=>n.scrollWidth-n.clientWidth)<=1);}
     await tab('网页').click();await p.getByAltText('网页实时画面',{exact:true}).waitFor();
     assert.ok((await p.locator('.dsh-remote-ops__liveSurface').boundingBox()).height>=360);
-    await until(async()=>{const state=await snapshot(),session=state.sessions.find(s=>!s.closed),surface=await p.locator('.dsh-remote-ops__liveSurface').boundingBox();return Math.abs(session.viewport.width-surface.width)<=2&&Number(await p.getByAltText('网页实时画面',{exact:true}).getAttribute('data-revision'))===session.revision;});
+    await until(async()=>{
+      const state=await snapshot(),session=state.sessions.find(s=>!s.closed),surface=await p.locator('.dsh-remote-ops__liveSurface').boundingBox(),image=await p.getByAltText('网页实时画面',{exact:true}).boundingBox();
+      return state.preferences.zoom==='auto'&&session.viewport.width>=1280&&image.width<=surface.width+1&&image.height<=surface.height+1&&
+        Math.abs(image.width/image.height-session.viewport.width/session.viewport.height)<.001&&Number(await p.getByAltText('网页实时画面',{exact:true}).getAttribute('data-revision'))===session.revision;
+    });
     await t.shot('390px 网页');
   });
   await t.step('选中文件在悬停时保留高亮，选择后显示批量操作',async()=>{

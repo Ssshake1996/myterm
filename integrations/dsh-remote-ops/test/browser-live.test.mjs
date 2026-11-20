@@ -30,6 +30,8 @@ async function fixture(t) {
     };
     launches.push({profile,options,context});await context.newPage();return context;
   }});await w.ready;
+  // These cases exercise the retained original-size mode; automatic defaults have separate coverage.
+  await w.savePreferences({zoom:'actual'});
   // Unit fixtures must not depend on CI's current user's Windows associations.
   w.systemBrowser=async()=>({browser:'chrome',executablePath:'C:\\Fixture\\chrome.exe'});
   t.after(async()=>{await w.dispose();await rm(root,{recursive:true,force:true});});
