@@ -31,7 +31,7 @@ export const environmentDrawerScenario = { id: 'environment-drawer', title: '环
     await p.getByLabel('显示名称',{exact:true}).fill('未保存的环境草稿');
     await p.getByLabel('主机地址',{exact:true}).fill('192.0.2.15');
     await p.keyboard.press('Escape');
-    assert.equal(await trigger.evaluate(node=>document.activeElement===node),true);
+    await until(()=>trigger.evaluate(node=>document.activeElement===node));
     assert.equal(await terminal.evaluate(node=>node===window.drawerTestTerminal),true);
     assert.doesNotMatch(await terminal.innerText(),/未保存的环境草稿|192\.0\.2\.15/);
     await trigger.click();

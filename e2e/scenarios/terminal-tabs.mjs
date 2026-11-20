@@ -92,12 +92,13 @@ export const terminalTabsScenario={id:'terminal-tabs',title:'CMD 与 SSH 统一�
   await t.step('抽屉关闭入口固定可见，返回原终端并恢复焦点',async()=>{
     await panel.getByRole('button',{name:'环境管理',exact:true}).click();await p.getByRole('button',{name:'+ 环境',exact:true}).click();
     const close=p.getByRole('button',{name:'关闭环境抽屉',exact:true});
-    assert.ok(await close.evaluate(n=>{const r=n.getBoundingClientRect(),head=n.parentElement.getBoundingClientRect();return head.right-r.right<=16;}),'close action stays at the right edge of the drawer header');
+    assert.ok(await close.evaluate(n=>{const r=n.getBoundingClientRect(),head=n.parentElement.getBoundingClientRect();return r.left-head.left<=16;}),'back action stays at the left edge of the drawer header');
+    assert.match(await close.innerText(),/返回/);
     const before=await close.boundingBox();await p.getByRole('button',{name:'保存',exact:true}).scrollIntoViewIfNeeded();const after=await close.boundingBox();
     assert.ok(Math.abs(before.y-after.y)<1);assert.ok(after.height>=30);assert.ok(after.y>=0&&after.y+after.height<844);
     await t.shot('环境抽屉固定关闭入口');await close.click();
     assert.equal(await tab('验收环境').getAttribute('aria-selected'),'true');assert.equal((await state()).sessions.filter(s=>s.kind==='ssh').length,3);
-    assert.equal(await panel.getByRole('button',{name:'环境管理',exact:true}).evaluate(n=>n===document.activeElement),true);
+    await until(()=>panel.getByRole('button',{name:'环境管理',exact:true}).evaluate(n=>n===document.activeElement));
   });
   await t.step('网页草稿往返保留，深色标签具有清晰的选中状态',async()=>{
     await workspace('网页').click();await p.getByLabel('网页地址',{exact:true}).fill('https://example.test/unsent');
