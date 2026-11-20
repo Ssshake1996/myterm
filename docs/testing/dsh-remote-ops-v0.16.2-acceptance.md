@@ -17,7 +17,7 @@
 
 ![真实 DSH 的终端对比度样例](../images/remote-ops/terminal-contrast-v0.16.2.png)
 
-本轮没有连接内网生产设备，也未重验 Windows 远程桌面、其他宿主版本、PowerShell 7 或 WSL。热加载后端未改动，本轮没有重新执行完整更新链路验收。
+本机上述验收没有连接内网生产设备，也未覆盖 PowerShell 7、WSL 或其他宿主版本。云端自动验收范围见下文。
 
 ## 回归和包校验
 
@@ -28,6 +28,15 @@
 - 云端完整浏览器场景通过 26/26。
 - tgz 中 98 个源码、说明及 skill 文件与本地候选源码逐字节一致，不含测试目录、凭据或 node_modules。随包运行时沿用已有打包方式。
 - 发布使用实际安装验收的同一 tgz，摘要固定在[发布包校验记录](../releases/dsh-remote-ops-v0.16.2.sha256)，仅提供 tgz 和 SHA256。
+
+## 云端发布验收
+
+- [完整浏览器回归](https://github.com/Ssshake1996/myterm/actions/runs/44679585923)：当前发布提交 `72854ac` 通过 26/26。
+- [Windows 桌面](https://github.com/Ssshake1996/myterm/actions/runs/44679586008)：Windows Server 2022、2025 均通过。
+- [Windows OpenSSH 与热加载](https://github.com/Ssshake1996/myterm/actions/runs/44679585872)：两种 Windows Server 环境的真实 SSH、跨对话终端、延迟热加载及启动失败恢复均通过。
+- [正式发布流程](https://github.com/Ssshake1996/myterm/actions/runs/44679754170)：Windows 运行时、安装包摘要、Linux 真实 DSH 串口 5 项、随包浏览器与操作录制 14 项通过。网页验收从独立空缓存启动，禁用浏览器下载，确认来源为 `bundled`，并验证随包 skill 可由原生 Agent 读取。
+- GitHub Release 已公开且标记 Latest，资产仅为 tgz 和 SHA256 校验文件。Linux 网页验收使用的 tgz 摘要与本机 17 项验收相同：`5fe562faccceba02dd9230f28ebab866306d4b48b92a05d3ed9b6897609979d6`。
+- 从公开下载地址重新取回完整安装包（247,072,158 字节），合并分段响应后计算完整 SHA256，与本机、云端及发布时固定的摘要一致；公开校验文件本身的摘要也匹配。回执：`output/header-layout-0162-published-direct/verification.json`。
 
 ## 复验
 
