@@ -19,7 +19,7 @@ export const terminalTabsScenario={id:'terminal-tabs',title:'CMD 与 SSH 统一�
   await t.step('标签与常用按钮同一行，输出紧邻其下且日志无需展开菜单',async()=>{
     const header=p.locator('.dsh-remote-ops__terminalHead');
     const row=await header.boundingBox(),label=await tab(localName).boundingBox(),output=await p.locator('.dsh-remote-ops__screen').boundingBox();
-    assert.ok(row.height<=40,'terminal chrome must fit a single compact row');
+    assert.ok(row.height<=44,'terminal chrome must fit a single compact row');
     assert.ok(label.y>=row.y&&label.y+label.height<=row.y+row.height+1,'session tab shares the action row');
     assert.ok(output.y-row.y-row.height<=2,'no separate context or operation row above terminal output');
     for(const name of ['搜索输出','导出当前终端 TXT']){
@@ -81,7 +81,7 @@ export const terminalTabsScenario={id:'terminal-tabs',title:'CMD 与 SSH 统一�
     assert.equal(await tab('验收环境').getAttribute('aria-selected'),'true');assert.equal(await tab('验收环境').evaluate(n=>n===document.activeElement),true);
     await until(()=>tab('验收环境').evaluate(n=>{const r=n.getBoundingClientRect(),b=n.closest('[role=tablist]').getBoundingClientRect();return r.left>=b.left-1&&r.right<=b.right+1;}));
     assert.ok(await panel.evaluate(n=>n.scrollWidth<=n.clientWidth+1));
-    const header=await p.locator('.dsh-remote-ops__terminalHead').boundingBox();assert.ok(header.height<=40);
+    const header=await p.locator('.dsh-remote-ops__terminalHead').boundingBox();assert.ok(header.height<=44);
     for(const name of ['搜索输出','导出当前终端 TXT']){
       const bounds=await p.getByRole('button',{name,exact:true}).boundingBox();assert.ok(bounds.x>=header.x&&bounds.x+bounds.width<=header.x+header.width+1);
     }

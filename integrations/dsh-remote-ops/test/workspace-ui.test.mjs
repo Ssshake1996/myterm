@@ -52,6 +52,22 @@ test("workspace tabs retain the chosen module across remounts and refresh withou
   assert.ok([...storage.values()].every(v=>!v.includes("password")&&!v.includes("stdout")));
 });
 
+test("navigation shares a row with settings and the environment trigger belongs to the terminal strip",async()=>{
+  const f=fixture(),view=f.mount("RemoteOpsPanel",{sessionId:"layout"});await tick();view.render();
+  const bar=view.find(n=>n.props.className==="dsh-remote-ops__workspaceBar");
+  assert.ok(bar,'one compact navigation row');
+  assert.ok(bar.children.some(n=>n?.props?.role==='tablist'));
+  assert.ok(bar.children.some(n=>n?.props?.['aria-label']==='设置'));
+  assert.equal(view.find(n=>n.props.className==='dsh-remote-ops__brand'),undefined);
+  const strip=view.find(n=>n.props.className==='dsh-remote-ops__terminalHead');
+  assert.equal(strip.children[0].props['aria-label'],'环境管理');
+  assert.notEqual(strip.children[0].props.role,'tab');
+  const trigger=strip.children[0];let returned=false;
+  trigger.props.onClick({currentTarget:{focus:()=>{returned=true;}}});view.render();
+  view.find(n=>n.props['aria-label']==='关闭环境抽屉').props.onClick();view.render();
+  assert.equal(returned,true,'return focus to the invoking environment button');
+});
+
 test("workspace tabs use roving focus and arrows activate the destination without toggling back to terminal",async()=>{
   const f=fixture(),view=f.mount("RemoteOpsPanel",{sessionId:"a"});await tick();view.render();
   let prevented=false,focused=false;
@@ -68,7 +84,7 @@ test("entering an environment from Web returns to its terminal workspace",async(
   const f=fixture();f.catalog({groups:["dev"],environments:[{id:"ssh-test",name:"Test",host:"fixture",username:"tester",group:"dev",connectionCount:0}]});
   const view=f.mount("RemoteOpsPanel",{sessionId:"a"});await tick();view.render();
   view.find(n=>n.props.role==="tab"&&n.props["aria-label"]==="网页").props.onClick();view.render();
-  view.find(n=>n.props["aria-label"]==="环境管理").props.onClick();view.render();
+  view.find(n=>n.props.environmentControl)?.props.environmentControl.props.onClick();view.render();
   const manager=view.find(n=>n.type?.name==="EnvironmentManager");assert.ok(manager);
   manager.props.onPrimary(manager.props.environments[0]);await tick();view.render();
   assert.equal(view.find(n=>n.props["data-module"]).props["data-module"],"terminal");

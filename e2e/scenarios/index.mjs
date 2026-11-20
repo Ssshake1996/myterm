@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { headerLayoutScenario } from './header-layout.mjs';
 import {requestErrorsScenario} from './request-errors.mjs';
 import { websiteScenario } from "./browser-workspace.mjs";
 import { apiScenario } from './api-workspace.mjs';
@@ -40,7 +41,7 @@ async function createDeviceEnvironment(t, name) {
   });
 }
 
-export const scenarios = [environmentDrawerScenario,environmentManagerScenario,requestErrorsScenario,terminalTabsScenario,terminalTabScrollScenario,layoutSimplificationScenario,updateScenario,workspaceUiScenario,liveBrowserScenario,
+export const scenarios = [headerLayoutScenario,environmentDrawerScenario,environmentManagerScenario,requestErrorsScenario,terminalTabsScenario,terminalTabScrollScenario,layoutSimplificationScenario,updateScenario,workspaceUiScenario,liveBrowserScenario,
   websiteScenario,
   {
     id: "sftp-narrow",

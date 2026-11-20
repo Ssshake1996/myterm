@@ -46,7 +46,7 @@ export function createApiPanel(React, request, EnvironmentManager) {
         h('span',{className:'ro-api__jsonValue','data-type':row.value===null?'null':typeof row.value},row.container?(Array.isArray(row.value)?'['+row.count+']':'{'+row.count+'}')+(row.depthLimited?' · 更深内容见原文':''):JSON.stringify(row.value)))),
       tree.more?h('div',null,h('p',null,'已显示 '+limit+' 个节点，可收起分支或查看原文。'),limit<2000?h('button',{type:'button',onClick:()=>setLimit(n=>Math.min(n+500,2000))},'显示更多节点'):null):null);
   }
-  return function ApiPanel({sessionId,sshEnvironments=[],mode='workspace',onManage,onUse,askPanel,environmentTarget,createPortal,onEnvironmentKeyDown}) {
+  return function ApiPanel({sessionId,sshEnvironments=[],mode='workspace',onManage,onUse,askPanel,environmentTarget,createPortal,onEnvironmentKeyDown,environmentControl}) {
     const [draft,setDraft]=useState(()=>drafts.get(sessionId)??{environment:'',method:'GET',path:'',body:'',headers:'{}'});
     const [data,setData]=useState({environments:[],sessions:[],records:[]});
     const [error,setError]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true);
@@ -113,7 +113,7 @@ export function createApiPanel(React, request, EnvironmentManager) {
       !manage?notices:null,
       environmentTarget&&createPortal?createPortal(environments,environmentTarget):environments,
       h('div',{hidden:manage&&!environmentTarget,className:'ro-api__work'},
-        h('div',{className:'ro-api__bar'},h('select',{'aria-label':'API 环境',value:draft.environment,onChange:e=>patch({environment:e.target.value})},h('option',{value:''},'选择 API 环境'),data.environments.map(env=>h('option',{value:env.id,key:env.id},env.group+' / '+env.name))),selected?badge(loggedIn?'completed':'idle',selected.auth.mode==='none'?'无需登录':loggedIn?'已登录':'未登录'):null,selected&&selected.auth.mode!=='none'?button(loggedIn?'重新登录':'登录',()=>void execute('login'),{disabled:busy||!sessionId}):null),
+        h('div',{className:'ro-api__bar'},environmentControl,h('select',{'aria-label':'API 环境',value:draft.environment,onChange:e=>patch({environment:e.target.value})},h('option',{value:''},'选择 API 环境'),data.environments.map(env=>h('option',{value:env.id,key:env.id},env.group+' / '+env.name))),selected?badge(loggedIn?'completed':'idle',selected.auth.mode==='none'?'无需登录':loggedIn?'已登录':'未登录'):null,selected&&selected.auth.mode!=='none'?button(loggedIn?'重新登录':'登录',()=>void execute('login'),{disabled:busy||!sessionId}):null),
         !loading&&!data.environments.length?h('div',{className:'ro-api__empty'},h('h2',null,'从一个 API 环境开始'),h('p',null,'保存地址与登录配置，Agent 和你共享请求过程与响应。'),button('新建 API 环境',()=>edit(),{className:'ro-api__primary'})):null,
         selected?h('div',{className:'ro-api__request'},h('div',{className:'ro-api__endpoint',title:'请求由 DSH 主机发送'},selected.baseUrl),
           h('div',{className:'ro-api__requestLine'},h('select',{'aria-label':'HTTP 方法',value:draft.method,onChange:e=>patch({method:e.target.value})},['GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS'].map(method=>h('option',{key:method},method))),h('input',{'aria-label':'API 请求路径',value:draft.path,onChange:e=>patch({path:e.target.value}),placeholder:'volumes?limit=20',spellCheck:false}),button(busy?'执行中…':'发送',()=>void execute('request'),{'aria-label':'发送请求',className:'ro-api__primary',disabled:busy||!draft.path||!sessionId||(selected.auth.mode!=='none'&&!loggedIn)})),

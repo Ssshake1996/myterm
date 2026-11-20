@@ -29,7 +29,7 @@ export function createDesktopPanel(React,request) {
     .dsh-remote-ops__desktopRecords{flex:none;max-height:160px;overflow:auto;font-size:12px}.dsh-remote-ops__desktopRecords summary{cursor:pointer;color:var(--dsw-alias-label-secondary,#667085)}
     .dsh-remote-ops__desktopRecords ol{padding-left:20px}.dsh-remote-ops__desktopRecords li{padding:3px;overflow-wrap:anywhere}
   `;
-  return function DesktopPanel({sessionId,environments=[],visible=true}) {
+  return function DesktopPanel({sessionId,environments=[],visible=true,environmentControl}) {
     const [state,setState]=useState({sessions:[],selected:null,localAvailable:true}),[environment,setEnvironment]=useState('local'),[windowsSession,setWindowsSession]=useState(''),[sessions,setSessions]=useState([]);
     const [observation,setObservation]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[showLaunch,setShowLaunch]=useState(false),[showConnect,setShowConnect]=useState(false),[path,setPath]=useState(''),[args,setArgs]=useState(''),[text,setText]=useState(''),[events,setEvents]=useState([]);
     const alive=useRef(true),busyRef=useRef(false),canvas=useRef(null),image=useRef(null),currentRef=useRef(),observationRef=useRef(),visibleRef=useRef(visible),refreshing=useRef(false),inputQueue=useRef(Promise.resolve()),queued=useRef(0);
@@ -80,9 +80,9 @@ export function createDesktopPanel(React,request) {
     return h('section',{className:'dsh-remote-ops__desktop','aria-label':'Windows 桌面'},h('style',null,styles),
       !current||showConnect?h(React.Fragment,null,
         current&&showConnect?h('button',{onClick:()=>setShowConnect(false)},'返回窗口'):state.retainedCount?h('button',{disabled:busy,onClick:exportLogs},'导出已保留的桌面日志'):null,
-        h('div',{className:'dsh-remote-ops__desktopBar'},h('select',{'aria-label':'桌面环境',value:environment,onChange:e=>{setEnvironment(e.target.value);setSessions([]);setWindowsSession('');}},state.localAvailable?h('option',{value:'local'},'本机 Windows'):h('option',{value:''},'选择 Windows 环境'),available.map(e=>h('option',{key:e.id,value:e.id},e.name))),h('button',{disabled:busy||!environment,onClick:connect},busy?'连接中…':'连接桌面'),h('button',{disabled:busy||!environment,onClick:inspect},'检查会话')),
+        h('div',{className:'dsh-remote-ops__desktopBar'},environmentControl,h('select',{'aria-label':'桌面环境',value:environment,onChange:e=>{setEnvironment(e.target.value);setSessions([]);setWindowsSession('');}},state.localAvailable?h('option',{value:'local'},'本机 Windows'):h('option',{value:''},'选择 Windows 环境'),available.map(e=>h('option',{key:e.id,value:e.id},e.name))),h('button',{disabled:busy||!environment,onClick:connect},busy?'连接中…':'连接桌面'),h('button',{disabled:busy||!environment,onClick:inspect},'检查会话')),
         sessions.length?h('select',{'aria-label':'Windows 登录会话',value:windowsSession,onChange:e=>setWindowsSession(e.target.value)},h('option',{value:''},'选择登录会话'),sessions.map(s=>h('option',{key:s.sessionId,value:s.sessionId,disabled:s.state!=='active'},`${s.user} · 会话 ${s.sessionId} · ${s.state}`))):null):
-      h('div',{className:'dsh-remote-ops__desktopBar'},
+      h('div',{className:'dsh-remote-ops__desktopBar'},environmentControl,
         state.sessions.length>1?h('select',{'aria-label':'桌面连接',value:state.selected,onChange:e=>void run(async()=>{await post('select',{desktopId:e.target.value});setObservation(null);})},state.sessions.map(s=>h('option',{key:s.desktopId,value:s.desktopId},s.environment+' · '+s.info.sessionId))):null,
         h('select',{'aria-label':'桌面窗口',value:observation?.windowId??'',onChange:e=>void run(async()=>{const frame=await post('observe',{desktopId:current.desktopId,windowId:e.target.value});setObservation(frame);})},h('option',{value:''},'选择软件窗口'),(observation?.windows??[]).map(w=>h('option',{key:w.windowId,value:w.windowId},w.title))),
         h('button',{disabled:busy||current.status==='disconnected',onClick:()=>setShowLaunch(v=>!v)},'打开应用'),h('button',{disabled:!imageData,onClick:()=>canvas.current?.requestFullscreen?.()},'全屏'),

@@ -38,8 +38,8 @@ export const environmentDrawerScenario = { id: 'environment-drawer', title: '环
     assert.equal(await p.getByLabel('显示名称',{exact:true}).inputValue(),'未保存的环境草稿');
     assert.equal(await p.getByLabel('主机地址',{exact:true}).inputValue(),'192.0.2.15');
     await close();
-    assert.ok(await panel.locator('.dsh-remote-ops__head').evaluate(n=>n.getBoundingClientRect().height<=40));
-    assert.ok(await panel.locator('.dsh-remote-ops__workspaceTabs').evaluate(n=>n.getBoundingClientRect().height<=37));
+    assert.ok(await panel.locator('.dsh-remote-ops__workspaceBar').evaluate(n=>n.getBoundingClientRect().height<=40));
+    assert.ok(await panel.locator('.dsh-remote-ops__workspaceTabs').evaluate(n=>n.getBoundingClientRect().height<=40));
   });
   await t.step('宽屏可固定，缩窄自动转浮层，390px 不溢出', async () => {
     await p.setViewportSize({width:1600,height:900});

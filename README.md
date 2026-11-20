@@ -31,6 +31,12 @@
 
 ---
 
+## 两行导航与终端可读性（v0.16.1）
+
+第一行集中显示 **终端、网页、桌面、文件、API**，**设置** 固定在右侧。终端第二行左侧是带边框的 **环境** 按钮，右侧保留会话标签、新建终端、搜索、导出和更多操作；环境入口不随标签滚动。环境抽屉左上角 **返回** 或 Esc 可回到原工作区。网页、桌面、文件和 API 的连接区域也可进入环境管理。
+
+终端使用蓝色命令、青绿色目录和清晰的深浅主题。**设置 → 终端 → 文字对比度保护** 默认开启：对 ANSI 标准色、256 色及真彩色中难以辨认的组合，仅调整文字颜色至至少 4.5:1 的对比度，保留程序背景与原始文本。关闭该选项可查看原始 ANSI 配色；复制、搜索、工具读取及日志导出不受影响。全屏程序不添加命令语义高亮，但仍可使用对比度保护。
+
 ## 本地终端：按需打开（v0.16.0）
 
 启动时只打开 **一个默认本地终端**，首次使用为 CMD。终端标签旁的 **+** 新建一个默认终端；旁边的 **下拉箭头** 可选择 CMD、Windows PowerShell 5.1、PowerShell 7 或已安装的 WSL 发行版，每次选择只打开一个标签。未安装或未检测到的选项置灰并显示原因。PowerShell 7 与 WSL 发行版需要先在运行 DSH 的电脑上安装，安装后点击 **设置 → 终端 → 重新检测**。
@@ -123,7 +129,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 
 ## 工作区标签
 
-顶部“终端 / 网页 / 文件 / API”紧凑靠左排列，蓝色选中条覆盖完整标签按钮。窄栏收紧留白，保留文字、后台任务徽标和方向键 / Home / End 操作；切换仍保留当前工作区内容。
+顶部“终端 / 网页 / 桌面 / 文件 / API”紧凑靠左排列，蓝色选中条覆盖完整标签按钮。窄栏收紧留白，保留文字、后台任务徽标和方向键 / Home / End 操作；切换仍保留当前工作区内容。
 
 后续 WinRM 方向见[分阶段设计](docs/proposals/windows-remote-implementation.md)。
 
@@ -140,7 +146,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 ## 工作区布局
 
 - 各工作区共用一个“设置”入口：通用、终端、网页、更新。环境入口统一管理 SSH、TELNET、SERIAL 和 API，表单与凭据仍分别保存。
-- 本地 CMD 与 SSH 使用同一终端标签栏，当前标签通过底色、边框和加粗文字突出，支持方向键切换；环境以插件内左侧抽屉打开，关闭按钮常驻顶部；Esc 关闭并将焦点还给环境入口，保留原终端和请求草稿。终端栏直接显示全部关闭、搜索、当前 TXT 导出和“更多”；快捷命令默认显示紧凑条，展开或进入“命令库”管理。
+- 本地 CMD 与 SSH 使用同一终端标签栏，当前标签通过底色、边框和加粗文字突出，支持方向键切换；环境以插件内左侧抽屉打开，左上角常驻“返回”按钮；Esc 关闭并将焦点还给环境入口，保留原终端和请求草稿。终端栏直接显示全部关闭、搜索、当前 TXT 导出和“更多”；快捷命令默认显示紧凑条，展开或进入“命令库”管理。
 - 顶部标签提示终端新输出、文件传输和网页执行状态；查看对应终端后清除新输出。传输总量可靠时显示百分比，否则显示“传输中”。
 - API 结果按“响应 / 记录”切换。JSON 树可折叠，点击字段名复制 JSON Pointer；复制失败可手动选择路径。HTTP 状态码带颜色和文字，2xx 提示“请检查业务结果”。大响应按节点分批显示，原文仍可查看。
 - 标签与设置切换保留终端、网页和 API 面板状态；后台任务继续，隐藏网页暂停画面取帧。
@@ -157,11 +163,11 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 
 ## 本地 CMD 命令和目录配色
 
-终端采用参考 [Catppuccin](https://catppuccin.com/palette/) 的 Latte / Mocha 配色，跟随 DSH 深浅主题：命令紫色、目录青色、文件蓝色，浅色强调色适当加深以保证文字对比度。错误、警告和成功前缀也有高亮，颜色用于辅助阅读，结果应结合实际输出核对。插件外围使用宿主样式。
+终端配色跟随 DSH 深浅主题：命令蓝色、目录青绿色、文件深浅蓝色，并默认启用文字对比度保护。错误、警告和成功前缀也有高亮，颜色用于辅助阅读，结果应结合实际输出核对。插件外围使用宿主样式。
 
 默认本地 CMD 中，用户手动输入、Agent 完整命令及原始按键方式输入的命令，在实际回显后统一使用强调色、字重和淡背景。识别在终端光标重绘之后进行，编辑、退格和历史回显可保持可读；不会为了着色额外执行命令或显示隐藏输入。
 
-标准 `dir` 列表的目录名使用青绿色、文件名使用蓝色，日期、大小和统计信息保留原样；原有 ANSI 颜色继续保留。支持常见 CMD、PowerShell 和带 `user@host` 的 Shell 提示符。自定义提示符、`dir /b` 等缺少类型信息的格式不猜测分类。全屏程序不添加这些语义颜色，“设置 → 终端”可统一关闭；复制、搜索和日志导出的文字不因配色改变。
+标准 `dir` 列表的目录名使用青绿色、文件名使用蓝色，日期、大小和统计信息保留原样；ANSI 背景保留，低对比文字由“文字对比度保护”按需调整。支持常见 CMD、PowerShell 和带 `user@host` 的 Shell 提示符。自定义提示符、`dir /b` 等缺少类型信息的格式不猜测分类。全屏程序不添加这些语义颜色，“设置 → 终端”可统一关闭；复制、搜索和日志导出的文字不因配色改变。
 
 ## 环境密码按需查看
 
@@ -212,7 +218,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 ## 工作区与交互
 
 - 环境抽屉默认浮在工作区上方，宽 360px；插件宽度小于 480px 时占满工作区，达到 960px 时可固定为 320px。浮层开关不重建终端、网页或 API 面板，也不改变网页视口或停止录制。搜索、分组选择和列表集中显示；行内保留“连接/使用”和“更多”，编辑、测试、删除及新建独立 SSH 连接位于更多菜单。表单保存/取消固定在底部，普通草稿保留，已查看的密码在关闭后清除。“批量管理”显示选择框，删除前确认所选名称与地址；取消不修改配置，部分失败保留失败项并显示原因。SSH 分组可重命名或删除空分组，API 分组在表单中设置。
-- 顶部“终端 / 网页 / 文件 / API”标签支持方向键、Home/End；环境管理独立展开在插件内，“设置 → 通用”收纳诊断和刷新，更新位于“设置 → 更新”。左侧入口仍打开 DSH 原生右栏，不替换主对话。
+- 顶部“终端 / 网页 / 桌面 / 文件 / API”标签支持方向键、Home/End；环境管理独立展开在插件内，“设置 → 通用”收纳诊断和刷新，更新位于“设置 → 更新”。左侧入口仍打开 DSH 原生右栏，不替换主对话。
 - 当前模块、选中终端和环境筛选按 DSH 对话恢复，关闭再打开面板及网页刷新均可恢复。文件路径、排序、滚动及书签沿用原有存储；文件筛选、路径草稿和仍存在的选中项在同一网页内跨模块/面板切换保留，整页刷新后重新读取目录，不恢复旧选择。
 - “设置 → 终端”统一管理字号、换行、高亮及当前 SSH 连接尺寸。终端标签旁可直接搜索和导出当前日志，“更多”提供独立命令和全部日志打包；路径与技术状态位于底部状态栏。普通日志使用快速解析，光标控制、Unicode 和全屏程序使用 VT 屏幕模型。
 - 插件内网页默认使用 **跟随面板 → 原始大小**。拖动分栏时宽、高独立调整。网页比面板宽时，在画面底部横向滚动即可查看并点击右侧控件，纵向滚轮继续滚动网页。需要全览时，在 **设置 → 网页 → 网页画面缩放** 选择 **适应画面**。对于首次打开就要求最低宽度的系统，在同一设置页填写**适用网站**和**网站最低宽度**（例如 `1280`），保存后再打开。相同协议、主机和端口共用设置，留空并保存可恢复自动检测。也可选择 1024×768 桌面视口。切换插件内和独立窗口会重新加载网页，请先保存表单。
@@ -258,7 +264,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 从 [最新稳定版](https://github.com/Ssshake1996/myterm/releases/latest) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.16.0.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.16.1.tgz
 dsh web
 ```
 
@@ -276,7 +282,7 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ## 内网 HTTP/HTTPS 手动更新
 
-v0.16.0 支持按需打开 CMD、PowerShell 和 WSL，启动默认只保留一个本地终端。[版本说明](docs/releases/dsh-remote-ops-v0.16.0.md)
+v0.16.1 收紧顶部导航，突出环境入口，并加入终端文字对比度保护。[版本说明](docs/releases/dsh-remote-ops-v0.16.1.md)
 
 Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后显示等待原因，任务结束后自动热加载；“新版已生效”与运行版本共同确认结果。
 
@@ -285,14 +291,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.16.0.tgz
-  SHA256SUMS-dsh-remote-ops-v0.16.0.txt
+  dsh-remote-ops-v0.16.1.tgz
+  SHA256SUMS-dsh-remote-ops-v0.16.1.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.16.0.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.16.1.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -335,14 +341,14 @@ SSH/Telnet 密码可通过 Agent 环境工具或 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.16.0
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.16.1
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.16.0            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.16.0 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.16.1            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.16.1 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后下载正式包，核对其实际 SHA256、校验文件及 GitHub 提供的摘要。

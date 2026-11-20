@@ -5,6 +5,8 @@ Remote Ops provides a browser in the native DSH right Sidebar. Type a URL to beg
 
 ## Workspace controls
 
+Workspace tabs and **设置** share the top row. The **环境** button beside the web address controls opens the terminal/API environment drawer; **返回** or Esc returns to the same page. Saved website login configurations remain under **收藏**.
+
 Use **设置 → 网页** for engines, browser runtime status, viewport and zoom; **返回工作区** returns to the same page and address draft. **网页 → 收藏** manages sites and flows. **操作记录** expands step results below the live page. These views do not pause or cancel browser work. Switching display mode first asks for confirmation; **取消** leaves it untouched, while **切换显示** reloads it and can discard unsent form data. Density and version are in **设置 → 通用**.
 
 ## Browser settings and installation

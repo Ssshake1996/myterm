@@ -2,6 +2,12 @@
 
 DeepSeek Harness plugin for SSH, Windows desktop, web and RESTful API operations. Users and Agents share visible terminals, application windows, webpages and request records.
 
+## Compact navigation and readable terminals (v0.16.1)
+
+The first row contains **Terminal, Web, Desktop, Files and API**, with **Settings** fixed on the right. The terminal's second row starts with a distinct **Environment** button outside the scrolling session tabs, followed by the terminal actions. Use **返回** (Back) at the top left of the environment drawer, or Esc, to return to the same workspace. Web, Desktop, Files and API also expose environment management beside their connection controls.
+
+Commands are blue and directories teal in both light and dark themes. **Settings → Terminal → 文字对比度保护** (text contrast protection) is on by default. It adjusts only unreadable foreground colors in ANSI 16-color, 256-color and truecolor output to at least 4.5:1 contrast, preserving backgrounds and text. Turn it off for original ANSI colors. Copy, search, tool reads and log export remain unchanged. Full-screen programs receive no semantic command highlighting but can still use contrast protection.
+
 ## Local terminals on demand (v0.16.0)
 
 Startup opens **one default local terminal**, initially CMD on Windows. The **+** beside the terminal tabs opens another default terminal; its dropdown opens CMD, Windows PowerShell 5.1, PowerShell 7 or one installed WSL distribution. Unavailable entries are disabled with a reason. Install PowerShell 7 or WSL distributions on the DSH host first, then use **Settings → Terminal → Redetect**.
@@ -118,10 +124,10 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.16.0.tgz` and `SHA256SUMS-dsh-remote-ops-v0.16.0.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.16.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.16.1.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.16.0.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.16.1.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -143,11 +149,11 @@ Verified packages are cached on the DSH host and installed by the current profil
 
 ## Local CMD commands and directory colors
 
-The terminal uses a [Catppuccin](https://catppuccin.com/palette/)-inspired Latte / Mocha palette following the DSH light/dark theme: purple commands, teal directories and blue files. Light accents are darkened for readable text contrast. Error, warning and success prefixes also receive emphasis; verify outcomes from the actual output. Surrounding plugin controls use host styling.
+The terminal follows the DSH light/dark theme with blue commands, teal directories and blue file names. Text contrast protection is enabled by default. Error, warning and success prefixes also receive emphasis; verify outcomes from the actual output. Surrounding plugin controls use host styling.
 
 Commands echoed after a standard prompt now use the same accent, weight and subtle background whether typed manually, sent as a complete Agent command or entered through raw keys. Recognition runs after terminal cursor redraws, so visible edits/backspaces remain readable. No extra command is executed and hidden input is never added to the display.
 
-Standard `dir` rows show directory names in teal and file names in blue, leaving timestamps, sizes and totals unchanged. Existing ANSI colors are retained. Common CMD, PowerShell and `user@host` Shell prompts are recognized; custom prompts and formats without type information, such as `dir /b`, are not guessed. Full-screen applications do not receive these semantic colors. Terminal display settings can disable them; copied, searched and exported text stays unchanged.
+Standard `dir` rows show directory names in teal and file names in blue, leaving timestamps, sizes and totals unchanged. ANSI backgrounds are preserved; contrast protection adjusts unreadable foreground colors. Common CMD, PowerShell and `user@host` Shell prompts are recognized; custom prompts and formats without type information, such as `dir /b`, are not guessed. Full-screen applications do not receive these semantic colors. Terminal display settings can disable them; copied, searched and exported text stays unchanged.
 
 ## Reveal environment passwords on demand
 
@@ -195,7 +201,7 @@ On Windows x64 and Linux x64 the plugin verifies its bundled Headless Shell in a
 ## Workspaces and interaction
 
 - Environments use a 360px overlay drawer inside the plugin. It fills panels below 480px; panels at least 960px wide can pin it at 320px. Opening and closing the overlay preserves terminal, browser and API instances, the webpage viewport and active recordings. Search, group selection and the list share the drawer. Rows expose Connect/Use and More; editing, testing, deletion and independent SSH connections live in More. Sticky Save/Cancel actions remain available; ordinary drafts persist, while revealed passwords clear on close. Batch management confirms selected names and addresses before deletion, retains failed selections with reasons, and leaves configuration unchanged on cancellation. SSH group menus rename or delete empty groups; API groups are set in the form.
-- **终端 / 网页 / 文件 / API** workspace tabs support arrows and Home/End. Environment management opens inside the panel; **设置 → 通用** contains diagnostics and refresh, while **设置 → 更新** handles updates. The native DSH right Sidebar and the main conversation are preserved.
+- **终端 / 网页 / 桌面 / 文件 / API** workspace tabs support arrows and Home/End. Environment management opens inside the panel; **设置 → 通用** contains diagnostics and refresh, while **设置 → 更新** handles updates. The native DSH right Sidebar and the main conversation are preserved.
 - The module, selected terminal and environment filter recover per conversation after closing/reopening or refreshing. File path/sort/scroll/bookmarks keep their existing persistence. File filters, path drafts and reconciled selections survive module/panel switches within one webpage; a full reload fetches fresh entries and does not restore old selections.
 - **设置 → 终端** contains font size, wrapping, highlighting and the active SSH connection size. Search and current transcript export are directly beside the session tabs; **更多** contains independent commands and all-log ZIP export. The path and technical status sit in the bottom status bar. ASCII/SGR logs use a fast parser; cursor control, Unicode and full-screen programs retain the VT model.
 - Embedded pages default to **Follow panel → Original size**. Width and height follow the available space independently. Use the bottom horizontal scrollbar to reach controls on a wide page. The vertical wheel scrolls the webpage. For an overview, choose **设置 → 网页 → 网页画面缩放 → 适应画面** (Fit). If a site checks its width at startup, save its URL under **适用网站** and its minimum width (for example `1280`) in the same settings before opening it. The setting applies to the same scheme, host and port. Clear the width and save to restore automatic detection. A 1024×768 desktop viewport is also available. Save unsent forms before switching between the embedded view and an independent window.
@@ -249,7 +255,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.16.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.16.1.tgz
 dsh web
 ```
 

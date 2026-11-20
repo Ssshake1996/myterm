@@ -83,6 +83,7 @@ const iconExports = [
   ["IconSettingsOutline16", "IconSettingsOutlineRegular"],
   ["IconCloseOutline16", "IconCloseOutlineRegular"],
   ["IconChevronDownOutline14", "IconChevronDownOutlineRegular"],
+  ["IconChevronLeftOutline14", "IconChevronLeftOutlineRegular"],
   ["IconChevronUpOutline14", "IconChevronUpOutlineRegular"],
 ];
 
@@ -123,7 +124,7 @@ function iconClientFixture(exportIndex) {
 }
 
 for (const [label, exportIndex] of [["legacy size-specific", 0], ["DSH 0.2.0-rc.2 Regular", 1]]) {
-  test(`all fourteen client icons resolve with ${label} exports`, () => {
+  test(`all client icons resolve with ${label} exports`, () => {
     const { plugin, primitives } = iconClientFixture(exportIndex);
     for (const names of iconExports)
       assert.equal(plugin.icons[names[0]], primitives[names[exportIndex]], `${names[0]} must resolve to ${names[exportIndex]}`);
@@ -214,7 +215,8 @@ test("alternate-screen applications restore the shell and respect scroll regions
 
 test("terminal preferences clamp invalid values and paste previews stay pinned to the original target", () => {
   const prefs = loadClientFunction("terminalPreferences", "\n    const pasteSubmission");
-  assert.deepEqual(JSON.parse(JSON.stringify(prefs({fontSize:100,wrap:false,quickHeight:-5}))), {fontSize:22,wrap:false,quickHeight:92,highlight:true});
+  assert.deepEqual(JSON.parse(JSON.stringify(prefs({fontSize:100,wrap:false,quickHeight:-5}))), {fontSize:22,wrap:false,quickHeight:92,highlight:true,contrast:true});
+  assert.equal(prefs({contrast:false}).contrast,false);
   const paste = loadClientFunction("pasteSubmission", "\n    const outputMatches");
   assert.equal(paste({session:"one",owner:"a",text:"echo one\r\necho two"},"a").text,"echo one\recho two");
   assert.throws(() => paste({session:"one",owner:"a",text:"x"},"b"), /PASTE_TARGET_CHANGED/);

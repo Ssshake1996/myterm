@@ -10,6 +10,7 @@ import { chromium } from '../../integrations/dsh-remote-ops/node_modules/playwri
 import { startFakeDevice } from '../harness/fake-device.mjs';
 import { verifyTerminalTabScroll } from '../scenarios/terminal-tab-scroll.mjs';
 import { verifyEnvironmentManager } from '../scenarios/environment-manager.mjs';
+import { verifyHeaderLayout } from '../scenarios/header-layout.mjs';
 
 const cli = process.env.DSH_CLI;
 if (!cli || !process.argv[2]) throw Error('Set DSH_CLI and pass a candidate tgz');
@@ -86,6 +87,7 @@ try {
     await work(); evidence.steps.push({ name, passed: true }); console.log('PASS ' + name);
     await page.screenshot({ path: join(out, `step-${evidence.steps.length}.png`), animations: 'disabled' });
   };
+  await verifyHeaderLayout({page,step,shot:name=>page.screenshot({path:join(out,name+'.png'),animations:'disabled'})},{sendSamples:()=>action({action:'send',session:'local-cmd',quietMs:500,text:`powershell -NoProfile -Command "$e=[char]27; [Console]::WriteLine($e+'[34;42mCONTRAST_ANSI'+$e+'[0m'); [Console]::WriteLine($e+'[38;5;21;48;5;28mCONTRAST_INDEX'+$e+'[0m'); [Console]::WriteLine($e+'[38;2;30;102;245;48;2;64;160;43mCONTRAST_RGB'+$e+'[0m'); [Console]::WriteLine($e+'[48;2;64;160;43mCONTRAST_DEFAULT'+$e+'[0m')"`})});
   await verifyTerminalTabScroll({ page, step }, { open, send: () => action({ action: 'send', session: 'local-cmd', text: 'echo TAB_SCROLL_BACKGROUND', quietMs: 100 }) });
   await step('原生对话切换重建标签导航，保留其他对话连接与草稿', async () => {
     await page.setViewportSize({ width: 1500, height: 1000 });

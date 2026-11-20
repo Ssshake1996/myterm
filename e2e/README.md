@@ -1,5 +1,9 @@
 # Remote Ops 浏览器测试
 
+## 顶部布局与终端对比度
+
+`node e2e/runner/index.mjs --grep header-layout` 检查两行导航、各工作区环境入口、返回焦点和深浅主题 ANSI 对比度。`terminal-tabs-native.mjs <tgz>` 在真实 DSH 中运行同样的检查，通过本地 CMD 调用 PowerShell 输出标准色、256 色、真彩色及默认前景样例，再验证 12 个 SSH 标签与环境管理。原始文本、背景颜色、关闭保护和当前对话内容均需保留。
+
 ## 本地 CMD、PowerShell 和 WSL
 
 Windows 主机设置 `DSH_CLI` 为宿主的 `lib/bin.js`，执行 `node e2e/runner/local-terminal-native.mjs <tgz>`。测试主机需有 CMD、Windows PowerShell 5.1、PowerShell 7；设置 `LOCAL_WSL_DISTRIBUTION` 指定允许执行测试命令的已安装 WSL 发行版。不设置时明确记录 WSL 未验收，不自动安装发行版。`LOCAL_SHELL_OUTPUT` 可指定新的独立证据目录。

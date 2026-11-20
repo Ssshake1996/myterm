@@ -40,7 +40,7 @@ export async function verifyTerminalTabScroll(t, { open, send }) {
     await tabs().first().focus(); await p.keyboard.press('End');
     await until(() => inside(tabs().last()));
     assert.equal(await left.isVisible(), true); await until(() => right.isDisabled());
-    assert.ok((await panel.locator('.dsh-remote-ops__terminalHead').boundingBox()).height <= 40);
+    assert.ok((await panel.locator('.dsh-remote-ops__terminalHead').boundingBox()).height <= 44);
   });
   await t.step('仅点击左箭头回到最早标签，不关闭连接、不切换当前终端', async () => {
     const active = await strip.locator('[aria-selected=true]').getAttribute('id');
@@ -80,7 +80,7 @@ export async function verifyTerminalTabScroll(t, { open, send }) {
     await until(() => inside(tabs().last()));
     assert.ok(await panel.evaluate(node => node.scrollWidth <= node.clientWidth + 1));
     const head = await panel.locator('.dsh-remote-ops__terminalHead').boundingBox();
-    assert.ok(head.height <= 40);
+    assert.ok(head.height <= 44);
     for (const button of [left, right, panel.getByRole('button', { name: '导出当前终端 TXT', exact: true })]) {
       const bounds = await button.boundingBox();
       assert.ok(bounds.x >= head.x && bounds.x + bounds.width <= head.x + head.width + 1);

@@ -19,6 +19,7 @@ export function createFakeLocalShell({ rows = 40, cols = 160, onInput } = {}) {
   };
   const run = (text) => {
     const command = text.trim();
+    if (command === "contrast-samples") return emit(`\r\n\x1b[34;42mCONTRAST_ANSI\x1b[0m\r\n\x1b[38;5;21;48;5;28mCONTRAST_INDEX\x1b[0m\r\n\x1b[38;2;30;102;245;48;2;64;160;43mCONTRAST_RGB\x1b[0m\r\n\x1b[48;2;64;160;43mCONTRAST_DEFAULT\x1b[0m\r\n${LOCAL_PROMPT}`);
     if (!command) return emit(`\r\n${LOCAL_PROMPT}`);
     if (command === "exit") { emit("\r\nlogout\r\n"); return finish({ exitCode: 0, signal: null }); }
     const echo = /^echo\s+(.*)$/.exec(command);
