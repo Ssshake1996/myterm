@@ -1,5 +1,9 @@
 # Third-party notices
 
+## Playwright MCP and Model Context Protocol SDK
+
+Browser discovery uses Microsoft Playwright MCP 0.0.83 (Apache-2.0, https://github.com/microsoft/playwright-mcp) and Model Context Protocol TypeScript SDK 1.25.2 (MIT, https://github.com/modelcontextprotocol/typescript-sdk). Their npm dependencies retain the upstream license files. The plugin uses the SDK in-memory transport; no upstream hosted model is configured by this integration.
+
 ## Bundled internal browser
 
 The package includes Chromium Headless Shell and the supporting browser files downloaded by the pinned `playwright-core` version. Platform directories under `browser/runtime/` retain the upstream license files, including `LICENSE.headless_shell` inside the browser directory. `runtime.json` identifies the Playwright version and packaged files. These files are redistributed unmodified; Playwright is licensed under Apache-2.0 and Chromium and its bundled components retain their upstream licenses.

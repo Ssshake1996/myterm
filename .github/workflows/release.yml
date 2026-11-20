@@ -116,8 +116,14 @@ jobs:
     with:
       package_artifact: remote-ops-package
       source_ref: ${{ inputs.release_tag || github.ref }}
+  browser-mcp-network:
+    needs: package
+    uses: ./.github/workflows/browser-mcp-network.yml
+    with:
+      package_artifact: remote-ops-package
+      source_ref: ${{ inputs.release_tag || github.ref }}
   release:
-    needs: [package, windows, serial-terminal]
+    needs: [package, windows, serial-terminal, browser-mcp-network]
     runs-on: ubuntu-latest
     concurrency:
       group: dsh-remote-ops-release-publication

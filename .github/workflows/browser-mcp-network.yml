@@ -1,0 +1,67 @@
+name: Browser MCP isolated network
+on:
+  push:
+    branches: ['codex/browser-mcp-0170']
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      package_artifact:
+        type: string
+        default: ''
+      source_ref:
+        type: string
+        default: ''
+permissions:
+  contents: read
+jobs:
+  isolated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
+      - run: sudo apt-get update && sudo apt-get install -y strace
+      - run: npm ci --prefix integrations/dsh-remote-ops
+      - run: npm install --prefix "$RUNNER_TEMP/mcp-host" @deepseek-ai/dsh@0.2.1-rc.5
+      - if: inputs.package_artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.package_artifact }}
+          path: output/mcp-package
+      - if: inputs.package_artifact != ''
+        run: sha256sum --check SHA256SUMS-*.txt
+        working-directory: output/mcp-package
+      - if: inputs.package_artifact == ''
+        working-directory: integrations/dsh-remote-ops
+        run: |
+          mkdir -p ../../output/mcp-package
+          node scripts/prepare-client.mjs
+          node scripts/bundle-browser-runtime.mjs
+          npm pack --ignore-scripts --silent --pack-destination ../../output/mcp-package
+      - name: Prepare installed candidate and browser before network isolation
+        run: |
+          export DSH_CLI="$RUNNER_TEMP/mcp-host/node_modules/@deepseek-ai/dsh/lib/bin.js"
+          export MCP_NATIVE_OUTPUT="$GITHUB_WORKSPACE/output/browser-mcp-native-ci"
+          MCP_NATIVE_PREPARE_ONLY=1 node e2e/runner/browser-mcp-native.mjs output/mcp-package/*.tgz
+          echo "DSH_CLI=$DSH_CLI" >> "$GITHUB_ENV"
+          echo "MCP_NATIVE_OUTPUT=$MCP_NATIVE_OUTPUT" >> "$GITHUB_ENV"
+          echo "BROWSER_EXECUTABLE=$(command -v google-chrome)" >> "$GITHUB_ENV"
+      - name: Run actual MCP and native DSH with no external network interface
+        run: |
+          sudo --preserve-env=PATH,DSH_CLI,MCP_NATIVE_OUTPUT,BROWSER_EXECUTABLE unshare --net bash scripts/browser-network-isolated.sh "$GITHUB_WORKSPACE/$(echo output/mcp-package/*.tgz)"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-mcp-network-evidence
+          path: |
+            output/browser-mcp-network/
+            output/browser-mcp-native-ci/evidence.json
+            output/browser-mcp-native-ci/*.png
+            output/browser-mcp-native-ci/*.log

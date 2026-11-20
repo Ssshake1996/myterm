@@ -3,6 +3,10 @@
 Remote Ops provides a browser in the native DSH right Sidebar. Type a URL to begin; saved sites and flows are optional. DSH manages the Agent and conversation. The user and Agent can operate the same browser session.
 
 
+## Finding unfamiliar entries
+
+Use `remote_browser_read` with `snapshot:true` for menu hierarchy and refs; request `image:true` immediately when structure does not identify the correct entry. The configured DSH image-capable model receives the actual screenshot through native attachments. Use fresh `ref` or `point` targets with `snapshotId` for a single action, then observe and verify. Official Playwright MCP shares the existing context through an in-memory connection. See [Browser MCP usage and network boundaries](BROWSER-MCP.md).
+
 ## Workspace controls
 
 Workspace tabs and **设置** share the top row. The **环境** button beside the web address controls opens the terminal/API environment drawer; **返回** or Esc returns to the same page. Saved website login configurations remain under **收藏**.

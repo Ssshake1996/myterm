@@ -2,6 +2,10 @@
 
 面向 DeepSeek Harness 的终端、网页、Windows 桌面与 RESTful API 运维插件。用户与 Agent 共享可见终端、软件窗口、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
 
+## 网页入口发现与视觉操作（v0.17.0）
+
+Agent 先读取菜单层级和元素引用；入口不明确时可立即读取真实截图，按视觉坐标操作图标或 Canvas，无需等待定位超时。Playwright MCP 在插件进程内复用当前网页和登录状态，随包 skill 指导观察、操作和结果核实。截图交给 DSH 当前配置的图片模型，纯文本模型仍可使用结构快照。内网模型与网络出口需要单独配置。详见[网页操作与网络边界](BROWSER-MCP.md)。
+
 ## 两行导航与终端可读性（v0.16.2）
 
 第一行集中显示 **终端、网页、桌面、文件、API**，**设置** 固定在右侧。终端第二行左侧是带边框的 **环境** 按钮，右侧保留会话标签、新建终端、搜索、导出和更多操作；环境入口不随标签滚动。环境抽屉左上角 **返回** 或 Esc 可回到原工作区。网页、桌面、文件和 API 的连接区域也可进入环境管理。
@@ -129,14 +133,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.16.2.tgz
-  SHA256SUMS-dsh-remote-ops-v0.16.2.txt
+  dsh-remote-ops-v0.17.0.tgz
+  SHA256SUMS-dsh-remote-ops-v0.17.0.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.16.2.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.17.0.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -259,7 +263,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.16.2.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.17.0.tgz
 dsh web
 ```
 

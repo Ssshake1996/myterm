@@ -1,9 +1,12 @@
 import { randomUUID, createHash } from "node:crypto";
 import { browserError, browserSteps, browserUrl, displayUrl, expandBrowserSteps, locateBrowser, executeBrowserStep } from "./browser-steps.js";
 import { recordingUrl } from './browser-recordings.js';
+import { observeBrowser, executeObservedStep, closeBrowserMcp } from './browser-mcp.js';
 
 const finished = job => !job || ["completed", "failed", "unknown", "stopped"].includes(job.status);
 export class BrowserSessions {
+  executeObservedStep(record,job,step,begin){return executeObservedStep(this,record,job,step,begin);}
+  observeSnapshot(owner,id,pageId,image){const record=this.session(owner,id);return observeBrowser(this,record,pageId??record.activePageId,image);}
   session(owner, id) {
     const record = this.sessions.get(id ?? this.active?.get(owner));
     if (!owner || !record || record.owner !== owner) throw browserError("BROWSER_SESSION_NOT_FOUND", "No browser session belongs to this DSH conversation");
@@ -52,7 +55,7 @@ export class BrowserSessions {
   }
   bindContext(record,context) {
     context.on('page',page=>{if(record.context===context&&!record.switching)this.attachPage(record,page);});
-    context.on('close',()=>{if(record.context!==context||record.switching)return;record.closed=true;record.job?.wake?.();void record.view?.stop();});
+    context.on('close',()=>{if(record.context!==context||record.switching)return;record.closed=true;record.job?.wake?.();void record.view?.stop();void closeBrowserMcp(record);});
   }
   async open(owner, siteId, options={}) {
     await this.ready;
@@ -168,7 +171,7 @@ export class BrowserSessions {
     catch(error) { r.switching=false;throw error; }
     const urls=[...r.pages].map(([id,page])=>[id,page.url()]),selected=r.activePageId;
     try {
-      await r.inputQueue;await this.saveStorage(r);await r.view?.stop();await r.context.close();
+      await r.inputQueue;await this.saveStorage(r);await r.view?.stop();await closeBrowserMcp(r);await r.context.close();
       const context=await this.launch(r.site,owner,display,launchOptions);r.context=context;r.pages=new Map();r.closed=false;
       r.display = display;
       r.viewportHint = undefined;
@@ -198,6 +201,7 @@ export class BrowserSessions {
     if (flow && flow.siteId !== record.site.id) throw browserError("BROWSER_FLOW_SITE_MISMATCH", "The saved flow belongs to another site. Open its siteId with remote_browser_open and use the returned browserId, or omit flowId for inline steps in the current browser. Nothing was dispatched");
     const templateSteps = browserSteps(flow?.steps ?? source);
     const steps = expandBrowserSteps(templateSteps, variables);
+    if(steps.length!==1&&steps.some(step=>['ref','point'].includes(step.target?.kind)))throw browserError('BROWSER_STEP_INVALID','Use one observed action per run, then observe again before the next action. Nothing was dispatched');
     if (typeof requestId !== "string" || !requestId || requestId.length > 160) throw browserError("BROWSER_REQUEST_INVALID", "Use a request ID up to 160 characters");
     const hash = createHash("sha256").update(JSON.stringify({ steps, mode, pageId, ...(background ? { background } : {}) })).digest("hex"), key = `${owner}:${id}:${requestId}`;
     for (const [receiptKey, receipt] of this.receipts) if (finished(receipt.job) && (Date.now() - receipt.at > 600000 || this.receipts.size > 100)) this.receipts.delete(receiptKey);
@@ -336,6 +340,7 @@ export class BrowserSessions {
     if (!record.closed) await this.saveStorage(record).catch(() => { record.notice = "Unable to save the login session"; });
     record.closed = true;
     await record.view?.stop();
+    await closeBrowserMcp(record);
     await record.context.close().catch(() => {}); await record.job?.done;
   }
 }

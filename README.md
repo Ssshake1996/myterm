@@ -31,6 +31,10 @@
 
 ---
 
+## 网页入口发现与视觉操作（v0.17.0）
+
+Agent 先读取菜单层级和元素引用；入口不明确时可立即读取真实截图，按视觉坐标操作图标或 Canvas，无需等待定位超时。Playwright MCP 在插件进程内复用当前网页和登录状态，随包 skill 指导观察、操作和结果核实。截图交给 DSH 当前配置的图片模型，纯文本模型仍可使用结构快照。内网模型与网络出口需要单独配置。详见[网页操作与网络边界](integrations/dsh-remote-ops/BROWSER-MCP.md)。
+
 ## 两行导航与终端可读性（v0.16.2）
 
 第一行集中显示 **终端、网页、桌面、文件、API**，**设置** 固定在右侧。终端第二行左侧是带边框的 **环境** 按钮，右侧保留会话标签、新建终端、搜索、导出和更多操作；环境入口不随标签滚动。环境抽屉左上角 **返回** 或 Esc 可回到原工作区。网页、桌面、文件和 API 的连接区域也可进入环境管理。
@@ -264,7 +268,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 从 [最新稳定版](https://github.com/Ssshake1996/myterm/releases/latest) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.16.2.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.17.0.tgz
 dsh web
 ```
 
@@ -291,14 +295,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.16.2.tgz
-  SHA256SUMS-dsh-remote-ops-v0.16.2.txt
+  dsh-remote-ops-v0.17.0.tgz
+  SHA256SUMS-dsh-remote-ops-v0.17.0.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.16.2.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.17.0.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -341,14 +345,14 @@ SSH/Telnet 密码可通过 Agent 环境工具或 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.16.2
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.17.0
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.16.2            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.16.2 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.17.0            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.17.0 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后下载正式包，核对其实际 SHA256、校验文件及 GitHub 提供的摘要。

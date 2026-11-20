@@ -10,7 +10,7 @@ export const displayUrl = value => {
 };
 const text = (value, max = 4000) => typeof value === "string" && value.length <= max;
 const kinds = new Set(["css", "xpath", "role", "label", "text", "placeholder"]);
-const actions = new Set(["goto", "click", "fill", "press", "select", "check", "uncheck", "scroll", "wait", "read", "assert"]);
+const actions = new Set(["goto", "click", "hover", "fill", "press", "select", "check", "uncheck", "scroll", "wait", "read", "assert"]);
 const stepInvalid = (path, message) => browserError("BROWSER_STEP_INVALID", `${path}: ${message}. Nothing was dispatched`);
 const record = value => value !== null && typeof value === "object" && !Array.isArray(value);
 function decodeJson(value, path, max) {
@@ -50,6 +50,16 @@ export function browserTarget(value, path = "target") {
     }
   }
   if (!record(value)) throw stepInvalid(path, 'Missing/invalid target. Call remote_browser_read without target to inspect the page, then supply {kind:"css",value:"#id"}, {kind:"xpath",value:"//..."}, or a CSS/XPath selector string from that page; never infer a click target from requestId');
+  if(value.kind==='ref'||value.kind==='point'){
+    fields(value,value.kind==='ref'?['kind','value','snapshotId']:['kind','x','y','snapshotId'],path);
+    if(!text(value.snapshotId,160)||!value.snapshotId.trim())throw stepInvalid(`${path}.snapshotId`,'Use the observation ID returned by remote_browser_read with snapshot:true');
+    if(value.kind==='ref'){
+      if(!text(value.value,160)||!/^\w+$/.test(value.value))throw stepInvalid(`${path}.value`,'Use an exact ref from the observed snapshot');
+      return {kind:'ref',value:value.value,snapshotId:value.snapshotId};
+    }
+    if(!Number.isFinite(value.x)||!Number.isFinite(value.y)||value.x<0||value.y<0)throw stepInvalid(path,'Use nonnegative finite CSS-pixel coordinates');
+    return {kind:'point',x:value.x,y:value.y,snapshotId:value.snapshotId};
+  }
   fields(value, ["kind", "value", "name", "frame"], path);
   if (!kinds.has(value.kind)) throw stepInvalid(`${path}.kind`, "Use css/xpath/role/label/text/placeholder");
   if (!text(value.value) || !value.value.trim()) throw stepInvalid(`${path}.value`, "Provide nonblank locator text up to 4000 characters");
@@ -97,6 +107,11 @@ export function browserSteps(steps) {
     if (step.expectPopup === true && step.action === "click") result.expectPopup = true;
     if (step.state != null && !["visible", "hidden"].includes(step.state)) throw stepInvalid(`${path}.state`, "Use visible/hidden or omit/null");
     if (step.state === "hidden" && step.action === "wait") result.state = "hidden";
+    if(['ref','point'].includes(result.target?.kind)){
+      const supported=result.target.kind==='ref'?['click','hover','fill']:['click','hover'];
+      if(!supported.includes(result.action)||result.secretRef||result.expect||result.expectPopup)throw stepInvalid(path,'Observed targets support ref click/hover/fill or point click/hover; read again to verify. Use ordinary locators for other actions');
+    }
+    if(['ref','point'].includes(result.expect?.target?.kind))throw stepInvalid(path,'Use an ordinary locator in expect');
     return result;
   });
 }
@@ -149,6 +164,7 @@ async function verify(page, check, timeout, job) {
 }
 export async function executeBrowserStep(workspace, record, job, step, begin = () => {}) {
   job.effectStarted = false;
+  if(['ref','point'].includes(step.target?.kind))return workspace.executeObservedStep(record,job,step,begin);
   const page = record.pages.get(job.pageId);
   const timeout = step.timeoutMs ?? 10000;
   const checking = ["wait", "assert"].includes(step.action);
@@ -197,6 +213,7 @@ export async function executeBrowserStep(workspace, record, job, step, begin = (
       else {
         job.effectStarted = true;
         if (step.action === "fill") await locator.fill(input, { timeout });
+        if (step.action === "hover") await locator.hover({ timeout });
         if (step.action === "press") await locator.press(input, { timeout });
         if (step.action === "select") await locator.selectOption(input, { timeout });
         if (step.action === "check") await locator.check({ timeout });

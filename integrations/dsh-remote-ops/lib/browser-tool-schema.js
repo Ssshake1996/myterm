@@ -9,7 +9,10 @@ const targetObject = object({
   name: optionalString("Exact accessible name for role; null means unspecified; empty string is an exact empty name"),
   frame: optionalString("CSS iframe selector; omit, null or blank to use the main page"),
 }, ["kind", "value"]);
-const target = { oneOf: [targetObject, { type: "string", description: 'Compatibility: nonblank CSS/XPath selector up to 4000 characters (css=#id, xpath=//button, #id, //button), or JSON-encoded locator object up to 32768 characters. Prefer {kind,value,name?,frame?}.' }] };
+const target = { oneOf: [targetObject,
+  object({kind:choice(['ref'],'Observed element'),value:string('Exact ref from the current snapshot'),snapshotId:string('snapshotId returned by read with snapshot:true')},['kind','value','snapshotId']),
+  object({kind:choice(['point'],'Observed screenshot point'),x:{type:'number',description:'Nonnegative viewport CSS-pixel X'},y:{type:'number',description:'Nonnegative viewport CSS-pixel Y'},snapshotId:string('snapshotId returned by read with image:true; viewport CSS pixels')},['kind','x','y','snapshotId']),
+  { type: "string", description: 'Compatibility: nonblank CSS/XPath selector up to 4000 characters (css=#id, xpath=//button, #id, //button), or JSON-encoded locator object up to 32768 characters. Prefer {kind,value,name?,frame?}.' }] };
 const state = nullable(choice(["visible", "hidden"], "Default visible; hidden is supported for wait/expect"));
 const stepFields = {
   target: nullable(target), url: optionalString("HTTP(S) URL for goto"),
@@ -28,7 +31,7 @@ const steps = { type: "array", description: "Prefer an array of 1–40 action ob
   step(["fill"], ["target", "value"], { target, value: string("Text to fill, including a user-supplied password. An empty string clears the field") }),
   step(["fill"], ["target", "secretRef"], { target, value: { type: "null" }, secretRef: string("Only the saved site's passwordRef") }),
   step(["press", "select"], ["target", "value"], { target, value: string("Key to press or option value to select") }),
-  step(["click", "check", "uncheck", "scroll", "wait", "read", "assert"], ["target"], { target }),
+  step(["click", "hover", "check", "uncheck", "scroll", "wait", "read", "assert"], ["target"], { target }),
 ] } };
 const browser = { browserId: optionalString("Browser ID from open/list; omit or null for this conversation's selected browser") };
 const pageId = optionalString("Exact plugin-managed tab ID from open/list. Omitting it uses the selected tab.");
@@ -59,7 +62,10 @@ export const BROWSER_TOOL_SCHEMAS = {
     variables: nullable({ type: "object", properties: {}, additionalProperties: true, description: "Literal text substituted once for {{parameter}}, including a user-supplied password for a fill step" }),
     steps: { oneOf: [steps, steps.items, object({ steps }, ["steps"]), { type: "string", description: "Compatibility: JSON-encoded action array, single action object or {steps:[...]}, up to 1 MiB. Parsed and fully validated before dispatch; prefer a real array." }, { type: "null" }] },
   }, ["requestId"]),
-  remote_browser_read: object({ ...browser, pageId, target: nullable(target) }),
+  remote_browser_read: object({ ...browser, pageId, target: nullable(target),
+    snapshot:nullable({type:'boolean',description:'Read a structured Playwright MCP snapshot with refs. Prefer this to guessing selectors when discovering page navigation.'}),
+    image:nullable({type:'boolean',description:'Return an actual viewport screenshot to the configured image-capable model; also enables snapshot. Use when the page structure does not reveal the right entry.'}),
+  }),
   remote_browser_control: object({
     ...browser, action: choice(["focus", "select-page", "close", "dialog-accept", "dialog-dismiss"], "Browser operation; use native DSH cancellation for task control"),
     pageId: optionalString("Existing page ID, required for select-page"),
