@@ -41,6 +41,7 @@ export const terminalTabsScenario={id:'terminal-tabs',title:'CMD 与 SSH 统一�
       await p.getByLabel('显示名称',{exact:true}).fill(name);await p.getByLabel('主机地址',{exact:true}).fill(info.device.host);
       await p.getByLabel('用户名',{exact:true}).fill(info.device.username);await p.getByLabel('端口',{exact:true}).fill(String(info.device.port));
       await p.getByLabel('SSH 密码',{exact:true}).fill('e2e-device-pass');await p.getByRole('button',{name:'保存',exact:true}).click();
+      await until(async()=>(await state()).environments.some(environment=>environment.name===name));
       await p.getByRole('button',{name:'关闭环境抽屉',exact:true}).click();opened.push(await tool('remote_terminal_open',{environment:name}));await tab(name).waitFor();
     }
     await tab('开发环境').click();await tool('remote_terminal_send',{session:opened[0].sessionId,text:'show version',quietMs:100});

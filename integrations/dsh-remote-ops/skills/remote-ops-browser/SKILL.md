@@ -31,6 +31,8 @@ New embedded browsers show native scrollbars. A retained pre-upgrade process may
 
 For an `outside of the viewport` failure, inspect a fresh observation and the actual scroll container. Locator/ref clicks normally scroll their target into view. Use the page’s own horizontal/vertical scrolling or enlarge the Sidebar if needed. Do not change viewport/zoom preferences, force a click, rewrite website CSS or blindly repeat a potentially effective action. For a visible size-sync error, expand its details and inspect the request URL, HTTP status and error code before retrying.
 
+When a native JavaScript dialog is reported, use `remote_browser_control` with `dialog-accept` or `dialog-dismiss` before continuing. These controls remain available while the human input that opened the dialog is pending. Do not repeat the triggering click.
+
 ## Find the correct entry before acting
 
 Load this skill for unfamiliar pages. Read the current page with `remote_browser_read({browserId,pageId,snapshot:true})`: this returns actual menu hierarchy, accessible names, refs and a `snapshotId`. Expand or hover a relevant menu, then observe again. Never invent an XPath or menu based on a guessed layout.

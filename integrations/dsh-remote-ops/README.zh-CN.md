@@ -2,7 +2,7 @@
 
 面向 DeepSeek Harness 的终端、网页、Windows 桌面与 RESTful API 运维插件。用户与 Agent 共享可见终端、软件窗口、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
 
-## 网页滚动条与侧栏视口（v0.19.1）
+## 网页滚动条与侧栏视口（v0.19.2）
 
 嵌入网页的横竖滚动条使用高对比滑块与轨道，按网页声明的明暗主题自动配色。按住滑块可拖动，移出面板后松开也能结束；切换工作区、页面变化或连接异常时释放拖动状态。保持原生滚动条尺寸、网页布局和 CSS 像素坐标，不增加显示设置。
 
@@ -139,14 +139,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.19.1.tgz
-  SHA256SUMS-dsh-remote-ops-v0.19.1.txt
+  dsh-remote-ops-v0.19.2.tgz
+  SHA256SUMS-dsh-remote-ops-v0.19.2.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.19.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.19.2.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -269,7 +269,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.19.1.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.19.2.tgz
 dsh web
 ```
 

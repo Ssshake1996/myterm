@@ -5,6 +5,7 @@ import { writeFile } from 'node:fs/promises';
 const titles = { overview: '设备概览', ports: '端口状态', legacy: '固定宽度设备', compact: '定宽设备控制台', framed: '设备内嵌表单', wide: '宽屏设备', startup: '首次加载宽度', 'desktop-edge':'固定桌面验收', 'desktop-long':'长页面验收', 'desktop-nested':'内部滚动验收', 'desktop-clip':'裁剪布局验收' };
 
 titles.scrollbars='滚动条验收';
+titles.dialog='原生弹窗验收';
 export function serveLayoutFixture(path, response, origin) {
   const name = path.split('/').at(-1);
   if (path === '/panel/form') {
@@ -14,6 +15,9 @@ export function serveLayoutFixture(path, response, origin) {
   }
   if (!path.startsWith('/panel/') || !Object.hasOwn(titles, name)) return false;
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
+  if(name==='dialog'){
+    response.end(`<!doctype html><meta charset="utf-8"><title>${titles.dialog}</title><button id="modal" onclick="document.querySelector('output').textContent=confirm('Confirm operation')?'confirmed':'cancelled'">打开确认框</button><output>ready</output>`);return true;
+  }
   if(name==='scrollbars'){
     response.setHeader('Content-Security-Policy',"style-src 'nonce-fixture'");
     response.end(`<!doctype html><title>${titles.scrollbars}</title><style nonce="fixture">html,body{margin:0}body{font:16px system-ui;color:#182230;background:#f8fafc}main{width:1600px;height:1800px;background:linear-gradient(#f1f5f9,#cbd5e1)}output{position:fixed;top:20px;left:30px;max-width:850px;padding:10px;background:white;color:#182230}button{position:fixed;left:30px;top:100px;padding:10px}input{position:fixed;left:160px;top:100px}html[data-dark=true]{color-scheme:dark}html[data-dark=true] main{background:#0f172a}</style><main><output id="status"></output><button id="theme">切换配色</button><input id="draft" aria-label="滚动草稿"></main><script>let clicks=0;const report=()=>document.querySelector('output').textContent='scroll='+scrollX+','+scrollY+'; clicks='+clicks+'; draft='+draft.value+'; colors='+getComputedStyle(document.documentElement,'::-webkit-scrollbar-thumb').backgroundColor+' '+getComputedStyle(document.documentElement,'::-webkit-scrollbar-track').backgroundColor;theme.onclick=()=>{document.documentElement.dataset.dark=document.documentElement.dataset.dark!=='true';clicks++;report()};addEventListener('scroll',report);addEventListener('load',report);</script>`);return true;
@@ -144,6 +148,25 @@ export async function checkBrowserLayout({page,owner,api,snapshot,until,step,url
     await api('browser',{...base,action:'navigate',navigation:'reload'});await geometry();
     await until(async()=>/clicks=0/.test(await read())&&/rgb\(71, 85, 105\)/.test(await read()));
     evidence.panelLayout.scrollbars={twoAxisDrag:true,outsideCapture:true,noExtraClick:true,workspaceCancellation:true,csp:true,lightAndDark:true,refresh:true};
+  });
+  await step('人工点击产生的原生弹窗可接受、取消，有弹窗时也能关闭网页',async()=>{
+    await open('dialog');await geometry();
+    const r=await active(),base={sessionId:owner,browserId:r.id};
+    const notice=page.locator('.dsh-remote-ops__webNotice').filter({hasText:'网页弹窗：Confirm operation'});
+    for(const [control,result] of [['dialog-accept','confirmed'],['dialog-dismiss','cancelled']]){
+      await image.click({position:{x:45,y:18}});
+      await until(async()=>(await active()).dialog);
+      await notice.waitFor({state:'visible'});
+      await api('browser',{...base,action:'control',control});
+      await until(async()=>(await api('browser',{...base,action:'observe'})).result.text.includes(result));
+      await notice.waitFor({state:'hidden'});
+      await geometry();
+    }
+    await image.click({position:{x:45,y:18}});await until(async()=>(await active()).dialog);
+    await api('browser',{...base,action:'control',control:'close-page',value:r.activePageId});
+    await until(async()=>!(await active())?.pages.some(p=>p.id===r.activePageId));
+    await list.waitFor({state:'hidden'});
+    evidence.panelLayout.dialogs={accept:true,dismiss:true,closeWithPendingInput:true};
   });
   await step('宽高独立变化，页面保持原字号、登录上下文与草稿',async()=>{
     await open('overview');await run([{action:'fill',target:'#draft',value:'跨尺寸草稿'}]);

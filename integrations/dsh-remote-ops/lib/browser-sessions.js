@@ -287,7 +287,10 @@ export class BrowserSessions {
   }
   async control(owner, id, action, value, source='human') {
     const record = this.session(owner, id), job = record.job;
-    await record.inputQueue; await releaseBrowserPointer(record);
+    // Dialog handling and closing can unblock the input currently waiting in Chromium.
+    if (!['dialog-accept','dialog-dismiss','close','close-page'].includes(action)) {
+      await record.inputQueue; await releaseBrowserPointer(record);
+    }
     const handle=await this.recordings.begin(record,source,action,{...(value?{selectedPageId:value}:{})});
     try {
     if (action === "close") { await this.recordings.end(record,handle,'dispatched');await this.closeRecord(record); return this.publicSession(record); }
@@ -296,7 +299,11 @@ export class BrowserSessions {
     else if (action === "close-page") {
       const page=record.pages.get(value??record.activePageId);
       if(!page)throw browserError("BROWSER_PAGE_INVALID","The page is no longer open");
+      const dialogPage=record.dialog?.page?.();
       await page.close();
+      if(dialogPage===page)record.dialog=undefined;
+      if(record.pointerDrag?.page===page)await releaseBrowserPointer(record);
+      if(!record.pages.size)await this.closeRecord(record);
     }
     else if (action === "select-page") {
       if (!record.pages.has(value)) throw browserError("BROWSER_PAGE_INVALID", "The page is no longer open");
@@ -345,6 +352,8 @@ export class BrowserSessions {
     record.screenshot = { at: new Date().toISOString(), pageId: record.activePageId, buffer }; return record.screenshot;
   }
   async closeRecord(record) {
+    // Closing a context dismisses even a chain of modal dialogs and releases pending inputs.
+    if(record.dialog){record.dialog=undefined;await record.context.close().catch(()=>{});}
     await record.inputQueue; await releaseBrowserPointer(record);
     if (record.job && !finished(record.job)) { record.job.stop = true; record.job.wake?.(); }
     if(record.recording?.metadata.status==='recording')await this.recordings.stop(record.owner,record.recording.metadata.id,'browser-closed');

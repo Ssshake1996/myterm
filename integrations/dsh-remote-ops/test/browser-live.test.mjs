@@ -63,6 +63,22 @@ test('pointer failures, cancellation and switching pages leave no held mouse but
   assert.equal(r.pointerDrag,undefined);assert.equal(inputs.findLast(e=>e[0]==='up')[0],'up');
 });
 
+test('dialog acceptance does not wait on the input that opened the dialog',async t=>{
+  const {w}=await fixture(t),opened=await w.openUrl('a','https://dialog.test/'),r=w.session('a',opened.id);
+  let unblock;r.inputQueue=new Promise(resolve=>{unblock=resolve;});
+  r.dialog={accept:async()=>unblock()};
+  await Promise.race([w.control('a',r.id,'dialog-accept'),new Promise((_,reject)=>{const timer=setTimeout(()=>{unblock();reject(Error('dialog control deadlocked'));},500);timer.unref();})]);
+  assert.equal(r.dialog,undefined);
+});
+
+test('closing a browser with a modal dialog releases its blocked input first',async t=>{
+  const {w}=await fixture(t),opened=await w.openUrl('a','https://dialog.test/'),r=w.session('a',opened.id);
+  let unblock;r.inputQueue=new Promise(resolve=>{unblock=resolve;});
+  r.dialog={};const close=r.context.close;r.context.close=async()=>{unblock();await close();};
+  await Promise.race([w.control('a',r.id,'close'),new Promise((_,reject)=>{const timer=setTimeout(()=>{unblock();reject(Error('browser close deadlocked'));},500);timer.unref();})]);
+  assert.equal(r.closed,true);
+});
+
 async function fixture(t) {
   const root=await mkdtemp(join(tmpdir(),'remote-ops-live-')), launches=[], inputs=[];
   const w=new BrowserWorkspace({root,launchContext:async (profile,options)=>{

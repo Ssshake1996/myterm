@@ -19,6 +19,8 @@ The embedded CSS viewport follows the available Sidebar width and height, like r
 
 New embedded browsers show native Chromium scrollbars. Hot updates keep an already-running browser and its launch arguments: if an older browser still hides its scrollbars, save unfinished work, close that browser and reopen the URL. Wheel scrolling remains available in the retained session.
 
+Native JavaScript dialogs can be accepted or dismissed with `remote_browser_control` even while their triggering click is pending. Closing the page or browser also releases blocked input; do not repeat the triggering action.
+
 ## Workspace controls
 
 Workspace tabs and **设置** share the top row. The **环境** button beside the web address controls opens the terminal/API environment drawer; **返回** or Esc returns to the same page. Saved website login configurations remain under **收藏**.

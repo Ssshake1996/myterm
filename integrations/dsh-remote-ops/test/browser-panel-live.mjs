@@ -95,6 +95,14 @@ try{
   assert.equal((await run({action:'click',target:{kind:'css',value:'#apply',frame:'iframe'}})).status,'completed');
   assert.equal(await page.locator('output').innerText(),'设置已应用');
   pass('cross-origin iframe clicks use browser scrolling without expanding or rewriting the webpage');
+  await go('dialog');frame=await w.frame('test',r.id,{});
+  for(const action of ['dialog-accept','dialog-dismiss']){
+    const pending=w.input('test',r.id,{kind:'click',x:45,y:18,pageId:r.activePageId,revision:frame.revision});
+    await until(()=>r.dialog);
+    await w.control('test',r.id,action);await pending;
+    assert.equal(await page.locator('output').innerText(),action==='dialog-accept'?'confirmed':'cancelled');
+  }
+  pass('human input opening a native confirm dialog can be accepted and dismissed without a queue deadlock');
   await go('wide');await page.locator('#draft').fill('hot draft');await page.context().addCookies([{name:'session',value:'test-session',url}]);
   w.preferences={...w.preferences,viewport:'desktop',zoom:'auto',desktopHeight:1600};delete w.autoWidths;
   await page.evaluate(()=>document.adoptedStyleSheets=[]);
@@ -107,6 +115,11 @@ try{
   assert.deepEqual(page.viewportSize(),{width:700,height:480});
   assert.equal(await colors(),evidence.scrollbarColors.light);
   pass('hot adoption retains page, cookies and draft without requiring removed automatic-layout fields');
+  await go('dialog');frame=await w.frame('test',r.id,{});
+  const blocked=w.input('test',r.id,{kind:'click',x:45,y:18,pageId:r.activePageId,revision:frame.revision}).catch(()=>{});
+  await until(()=>r.dialog);await w.control('test',r.id,'close');await blocked;
+  assert.equal(r.closed,true);
+  pass('closing a browser with a native modal releases its pending human input');
   evidence.status='passed';
 }catch(error){evidence.status='failed';evidence.error=error.stack;process.exitCode=1;console.error(error);}
 finally{
