@@ -508,7 +508,7 @@ window.__ModuleLoader__.load({
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const updateRecovery = createUpdateRecovery((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.19.0", update: { currentVersion: "0.19.0", latestVersion: "0.19.0", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.19.1", update: { currentVersion: "0.19.1", latestVersion: "0.19.1", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -1530,10 +1530,18 @@ window.__ModuleLoader__.load({
         x:Math.max(0,Math.min(frame.width-1,(event.clientX-rect.left)*frame.width/rect.width)),
         y:Math.max(0,Math.min(frame.height-1,(event.clientY-rect.top)*frame.height/rect.height))}};
     };
+    const browserPointerPoint = (image, frame, event) => {
+      if (!image || !frame) return null;
+      const rect=image.getBoundingClientRect();
+      if (!rect.width || !rect.height) return null;
+      return {x:Math.max(0,Math.min(frame.width-1,(event.clientX-rect.left)*frame.width/rect.width)),
+        y:Math.max(0,Math.min(frame.height-1,(event.clientY-rect.top)*frame.height/rect.height))};
+    };
     function BrowserLiveView({ sessionId, browser, inputBarrier, visible = true }) {
       const [frame,setFrame]=useState(null),[message,setMessage]=useState('正在连接网页画面…');
       const [focus,setFocus]=useState(null),[viewportError,setViewportError]=useState(null),[viewportRetry,setViewportRetry]=useState(0);
       const image=useRef(null),capture=useRef(null),surface=useRef(null),current=useRef(null),queue=useRef(Promise.resolve()),alive=useRef(true),composing=useRef(false);
+      const drag=useRef(null),suppressClick=useRef(false),pointerMoves=useRef(new Map());
       current.current={frame};
       useEffect(()=>{
         const value=frame?.focus;
@@ -1608,18 +1616,66 @@ window.__ModuleLoader__.load({
         document.addEventListener('visibilitychange',onVisible);void poll();
         return()=>{stopped=true;alive.current=false;clearTimeout(timer);controller.abort();document.removeEventListener('visibilitychange',onVisible);};
       },[sessionId,browser.id,browser.activePageId,browser.display,visible]);
-      const send=input=>{
-        const saved=current.current;
+      const send=(input,originalFrame)=>{
+        const saved={frame:originalFrame??current.current.frame};
         if(!saved.frame){setMessage('等待网页画面后即可操作。');return;}
+        const release=input.kind==='pointer'&&['up','cancel'].includes(input.phase);
+        // Keep one pending move per gesture; slow connections must not build a drag backlog.
+        if(input.kind==='pointer'&&input.phase==='move'){
+          const pending=pointerMoves.current.get(input.gestureId);
+          if(pending){Object.assign(pending,input);return queue.current;}
+          pointerMoves.current.set(input.gestureId,input);
+        }
         queue.current=queue.current.then(async()=>{
-          if(!alive.current)return;
-          if(current.current.frame?.pageId!==saved.frame.pageId||current.current.frame?.revision!==saved.frame.revision)return;
-          try{await request('/api/dsh-remote-ops/browser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'input',sessionId,browserId:browser.id,input:{...input,pageId:saved.frame.pageId,revision:saved.frame.revision}})});}
-          catch(error){if(alive.current)setMessage(error.message.split('\n')[0]);}
+          if(pointerMoves.current.get(input.gestureId)===input)pointerMoves.current.delete(input.gestureId);
+          if(!release&&(!alive.current||current.current.frame?.pageId!==saved.frame.pageId||current.current.frame?.revision!==saved.frame.revision))return;
+          const post=value=>request('/api/dsh-remote-ops/browser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'input',sessionId,browserId:browser.id,input:{...value,pageId:saved.frame.pageId,revision:saved.frame.revision}})});
+          try{return await post(input);}
+          catch(error){
+            if(input.kind==='pointer')await post({kind:'pointer',phase:'cancel',gestureId:input.gestureId}).catch(()=>{});
+            if(alive.current&&!release)setMessage(error.message.split('\n')[0]);
+          }
         });
+        return queue.current;
+      };
+      const finishDrag=(event,cancel=false)=>{
+        const gesture=drag.current;
+        if(!gesture||event&&event.pointerId!==gesture.pointerId)return;
+        drag.current=null;
+        if(gesture.node.hasPointerCapture?.(gesture.pointerId))gesture.node.releasePointerCapture(gesture.pointerId);
+        if(gesture.started){
+          const point=event?browserPointerPoint(gesture.node,gesture.frame,event):gesture.last;
+          send({kind:'pointer',phase:cancel?'cancel':'up',gestureId:gesture.id,...(point??gesture.last)},gesture.frame);
+        }
+      };
+      const finishHandler=useRef(finishDrag);finishHandler.current=finishDrag;
+      useEffect(()=>{
+        const cancel=()=>finishHandler.current(null,true),hidden=()=>{if(document.hidden)cancel();};
+        window.addEventListener('blur',cancel);document.addEventListener('visibilitychange',hidden);
+        return()=>{cancel();window.removeEventListener('blur',cancel);document.removeEventListener('visibilitychange',hidden);};
+      },[sessionId,browser.id,browser.activePageId,frame?.revision,visible]);
+      const pointerDown=event=>{
+        if(event.button!==0||!current.current.frame)return;
+        finishDrag(null,true);suppressClick.current=false;
+        const saved=current.current.frame,point=browserPointerPoint(image.current,saved,event);
+        if(!point)return;
+        image.current.setPointerCapture(event.pointerId);
+        drag.current={id:crypto.randomUUID(),pointerId:event.pointerId,node:image.current,frame:saved,start:point,last:point,started:false};
+      };
+      const pointerMove=event=>{
+        const gesture=drag.current;
+        if(!gesture||gesture.pointerId!==event.pointerId)return;
+        const point=browserPointerPoint(gesture.node,gesture.frame,event);if(!point)return;
+        gesture.last=point;
+        if(!gesture.started){
+          if(Math.hypot(point.x-gesture.start.x,point.y-gesture.start.y)<3)return;
+          gesture.started=true;suppressClick.current=true;
+          send({kind:'pointer',phase:'down',gestureId:gesture.id,...gesture.start},gesture.frame);
+        }
+        send({kind:'pointer',phase:'move',gestureId:gesture.id,...point},gesture.frame);
       };
       const inputHandler=useRef(send);inputHandler.current=send;
-      if(inputBarrier)inputBarrier.current=()=>queue.current;
+      if(inputBarrier)inputBarrier.current=()=>{finishHandler.current(null,true);return queue.current;};
       useEffect(()=>{
         const node=surface.current;if(!node)return;
         const wheel=event=>{
@@ -1644,7 +1700,8 @@ window.__ModuleLoader__.load({
           h('details',null,h('summary',null,'网页尺寸同步失败',viewportError.requestFailure?.status?' · HTTP '+viewportError.requestFailure.status:''),h('pre',null,viewportError.message)),
           h('button',{type:'button',onClick:()=>setViewportRetry(value=>value+1)},'重试尺寸同步')):null,
         frame&&message?h('div',{className:'dsh-remote-ops__viewNotice',role:'status'},message):null,
-        h('div',{ref:surface,className:'dsh-remote-ops__liveSurface'},frame?h('img',{ref:image,alt:'网页实时画面','data-revision':frame.revision,'data-sequence':frame.sequence,draggable:false,src:'data:image/jpeg;base64,'+frame.data,style:{width:frame.width,height:frame.height,maxWidth:'none'},onContextMenu:event=>event.preventDefault(),onClick:event=>{
+        h('div',{ref:surface,className:'dsh-remote-ops__liveSurface'},frame?h('img',{ref:image,alt:'网页实时画面','data-revision':frame.revision,'data-sequence':frame.sequence,draggable:false,src:'data:image/jpeg;base64,'+frame.data,style:{width:frame.width,height:frame.height,maxWidth:'none',touchAction:'none'},onPointerDown:pointerDown,onPointerMove:pointerMove,onPointerUp:event=>finishDrag(event),onPointerCancel:event=>finishDrag(event,true),onLostPointerCapture:event=>finishDrag(event,true),onContextMenu:event=>event.preventDefault(),onClick:event=>{
+          if(suppressClick.current){suppressClick.current=false;return;}
           const rect=image.current.getBoundingClientRect();capture.current?.focus({preventScroll:true});send({kind:'click',x:(event.clientX-rect.left)*frame.width/rect.width,y:(event.clientY-rect.top)*frame.height/rect.height,button:event.button===2?'right':event.button===1?'middle':'left',count:Math.min(2,event.detail||1)});
         }}):h('div',{className:'dsh-remote-ops__empty',role:'status'},message||'等待新网页画面…'),
         focus?h('div',{className:'dsh-remote-ops__browserFocus','aria-hidden':true,'data-focus-sequence':focus.sequence,style:{left:focus.rect.x,top:focus.rect.y,width:Math.max(12,focus.rect.width),height:Math.max(12,focus.rect.height)}}):null,

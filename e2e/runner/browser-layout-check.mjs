@@ -4,6 +4,7 @@ import { writeFile } from 'node:fs/promises';
 
 const titles = { overview: '设备概览', ports: '端口状态', legacy: '固定宽度设备', compact: '定宽设备控制台', framed: '设备内嵌表单', wide: '宽屏设备', startup: '首次加载宽度', 'desktop-edge':'固定桌面验收', 'desktop-long':'长页面验收', 'desktop-nested':'内部滚动验收', 'desktop-clip':'裁剪布局验收' };
 
+titles.scrollbars='滚动条验收';
 export function serveLayoutFixture(path, response, origin) {
   const name = path.split('/').at(-1);
   if (path === '/panel/form') {
@@ -13,6 +14,10 @@ export function serveLayoutFixture(path, response, origin) {
   }
   if (!path.startsWith('/panel/') || !Object.hasOwn(titles, name)) return false;
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
+  if(name==='scrollbars'){
+    response.setHeader('Content-Security-Policy',"style-src 'nonce-fixture'");
+    response.end(`<!doctype html><title>${titles.scrollbars}</title><style nonce="fixture">html,body{margin:0}body{font:16px system-ui;color:#182230;background:#f8fafc}main{width:1600px;height:1800px;background:linear-gradient(#f1f5f9,#cbd5e1)}output{position:fixed;top:20px;left:30px;max-width:850px;padding:10px;background:white;color:#182230}button{position:fixed;left:30px;top:100px;padding:10px}input{position:fixed;left:160px;top:100px}html[data-dark=true]{color-scheme:dark}html[data-dark=true] main{background:#0f172a}</style><main><output id="status"></output><button id="theme">切换配色</button><input id="draft" aria-label="滚动草稿"></main><script>let clicks=0;const report=()=>document.querySelector('output').textContent='scroll='+scrollX+','+scrollY+'; clicks='+clicks+'; draft='+draft.value+'; colors='+getComputedStyle(document.documentElement,'::-webkit-scrollbar-thumb').backgroundColor+' '+getComputedStyle(document.documentElement,'::-webkit-scrollbar-track').backgroundColor;theme.onclick=()=>{document.documentElement.dataset.dark=document.documentElement.dataset.dark!=='true';clicks++;report()};addEventListener('scroll',report);addEventListener('load',report);</script>`);return true;
+  }
   if(name.startsWith('desktop-')){
     const nested=name==='desktop-nested',clipped=name==='desktop-clip',height=name==='desktop-edge'?768:1400;
     response.end(`<!doctype html><meta charset="utf-8"><title>${titles[name]}</title><style>html,body{margin:0;${clipped?'height:100%;overflow:clip;':''}}main{position:relative;width:1024px;height:${height}px}#pane{position:absolute;left:100px;top:80px;width:700px;height:400px;overflow:auto;background:#eef3f8}#content{height:1400px;position:relative}button{position:absolute;right:20px;bottom:20px;width:100px;height:40px}output{position:fixed;top:5px;left:5px}input{position:absolute;top:40px;left:20px}</style>
@@ -107,6 +112,38 @@ export async function checkBrowserLayout({page,owner,api,snapshot,until,step,url
     const log=(await api('browser',{sessionId:owner,action:'recording',recording:{action:'read',recordingId:recording.id,limit:200}})).result;
     assert.ok(log.events.some(e=>e.action==='click'&&e.target?.css==='#tr'&&Math.abs(e.pointer.x-x)<3));
     evidence.panelLayout.wide={...(await geometry()),scrollX:frame.scrollX,click:{x,y}};
+  });
+  await step('横纵滑块可拖到边缘，高对比配色经过严格 CSP、刷新与深浅切换',async()=>{
+    await open('scrollbars');await panelSize(1027,768);
+    const r=await active(),base={sessionId:owner,browserId:r.id};
+    const read=async()=>(await api('browser',{...base,action:'observe'})).result.text;
+    await until(async()=>/rgb\(71, 85, 105\) rgb\(226, 232, 240\)/.test(await read()));
+    await page.screenshot({path:join(out,'scrollbars-light.png')});
+    const rect=await image.boundingBox();
+    const drag=async(from,to)=>{
+      await page.mouse.move(rect.x+from.x,rect.y+from.y);await page.mouse.down();
+      try{await page.mouse.move(rect.x+to.x,rect.y+to.y,{steps:25});}finally{await page.mouse.up();}
+    };
+    await drag({x:100,y:760},{x:1100,y:760});
+    await until(async()=>/scroll=58[0-9],0/.test(await read()));
+    await drag({x:1019,y:70},{x:1019,y:900});
+    await until(async()=>/scroll=58[0-9],104[0-9]/.test(await read()));
+    const result=await read();assert.match(result,/clicks=0/);
+    await page.screenshot({path:join(out,'scrollbars-dragged.png')});
+    // A real click following a drag still fires once and changes the native color scheme.
+    await image.click({position:{x:70,y:120}});
+    await until(async()=>/clicks=1/.test(await read())&&/rgb\(203, 213, 225\) rgb\(30, 41, 59\)/.test(await read()));
+    await page.screenshot({path:join(out,'scrollbars-dark.png')});
+    // Cancel while the button is held by leaving the workspace, then return and click.
+    await page.mouse.move(rect.x+300,rect.y+760);await page.mouse.down();
+    await page.mouse.move(rect.x+200,rect.y+760,{steps:6});
+    await page.getByRole('tab',{name:'终端',exact:true}).focus();await page.keyboard.press('Enter');await page.mouse.up();
+    await page.getByRole('tab',{name:'网页',exact:true}).click();await geometry();
+    await image.click({position:{x:70,y:120}});
+    await until(async()=>/clicks=2/.test(await read()));
+    await api('browser',{...base,action:'navigate',navigation:'reload'});await geometry();
+    await until(async()=>/clicks=0/.test(await read())&&/rgb\(71, 85, 105\)/.test(await read()));
+    evidence.panelLayout.scrollbars={twoAxisDrag:true,outsideCapture:true,noExtraClick:true,workspaceCancellation:true,csp:true,lightAndDark:true,refresh:true};
   });
   await step('宽高独立变化，页面保持原字号、登录上下文与草稿',async()=>{
     await open('overview');await run([{action:'fill',target:'#draft',value:'跨尺寸草稿'}]);

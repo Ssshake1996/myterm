@@ -8,6 +8,7 @@ import { BrowserRecordings } from './browser-recordings.js';
 import { windowsDefaultBrowser } from './browser-default.js';
 import { browserInstallerCli, browserRuntimeMetadata, browserRuntimeDirectory, inspectBrowserRuntime, writeBrowserRuntimeManifest } from './browser-runtime.js';
 import { prepareEmbeddedBrowser } from './embedded-browser.js';
+import { installBrowserScrollbars } from './browser-scrollbars.js';
 
 const identifier = value => typeof value === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
 const validViewport = size => size && [size.width,size.height].every(n => Number.isSafeInteger(n) && n > 0 && n <= 8192) && size.width * size.height <= 16777216;
@@ -22,6 +23,7 @@ export function adoptBrowserWorkspace(workspace) {
       record.viewportHint = undefined;
       record.pendingViewport = undefined;
       if (record.view) Object.setPrototypeOf(record.view, BrowserView.prototype);
+      if (!record.closed && record.display === 'embedded') await installBrowserScrollbars(record.context);
     }
     delete workspace.siteWidths; delete workspace.autoWidths;
   });
@@ -107,8 +109,8 @@ export class BrowserWorkspace extends BrowserSessions {
   }
   input(owner,id,input) {
     const r=this.session(owner,id),pending=(r.inputQueue??Promise.resolve()).then(async()=>{
-      const handle=await this.recordings.begin(r,'human',input.kind,{pageId:input.pageId,revision:input.revision,...(input.kind==='click'?{x:input.x,y:input.y}:{}),...(input.kind==='key'?{key:input.key}:{}),...(input.kind==='text'?{input:'See the associated DOM interaction; values are captured at the target element.'}:{})});
-      try {const result=await browserInput(this,r,input);await this.recordings.end(r,handle,'dispatched',{accepted:true});return result;}
+      const handle=await this.recordings.begin(r,'human',input.kind,{pageId:input.pageId,revision:input.revision,...(['click','pointer'].includes(input.kind)?{x:input.x,y:input.y}:{}),...(input.kind==='pointer'?{phase:input.phase,gestureId:input.gestureId}:{}),...(input.kind==='key'?{key:input.key}:{}),...(input.kind==='text'?{input:'See the associated DOM interaction; values are captured at the target element.'}:{})});
+      try {const result=await browserInput(this,r,input);await this.recordings.end(r,handle,result.cancelled?'cancelled':'dispatched',{accepted:result.accepted});return result;}
       catch(error){await this.recordings.end(r,handle,'unknown',{code:error.code??'BROWSER_INPUT_FAILED'});throw error;}
     });
     r.inputQueue=pending.catch(()=>{});return pending;
@@ -287,10 +289,15 @@ export class BrowserWorkspace extends BrowserSessions {
   }
   async launch(site, owner, display = 'window', preparedOptions) {
     const profile = this.profile(owner, site.id), options = preparedOptions ?? await this.launchOptions(site, display);
-    if (this.launchContext) return this.launchContext(profile, options);
+    if (this.launchContext) {
+      const context = await this.launchContext(profile, options);
+      if (display === 'embedded') await installBrowserScrollbars(context);
+      return context;
+    }
     const { chromium } = await this.library();
     try {
       const context = await chromium.launchPersistentContext(profile, options); context.setDefaultTimeout(10000);
+      if (display === 'embedded') await installBrowserScrollbars(context);
       try { const saved = JSON.parse(await readFile(join(profile, "remote-ops-session.json"), "utf8")); if (Array.isArray(saved.cookies)) await context.addCookies(saved.cookies); } catch { /* An expired/unusable session is recovered by signing in again in the visible browser. */ }
       return context;
     }

@@ -115,8 +115,10 @@ try {
     await page.getByText('RECORDING_NATIVE_DONE',{exact:true}).last().waitFor();
     await page.getByRole('button',{name:'Remote Ops',exact:true}).click();
     await page.getByRole('tab',{name:'网页',exact:true}).click(); await until(()=>owner);
-    const old = (await api('browser',{sessionId:owner,action:'open-url',url:`http://127.0.0.1:${server.address().port}/page`,display:'embedded',browser:'chrome'})).result;
+    const old = (await api('browser',{sessionId:owner,action:'open-url',url:`http://127.0.0.1:${server.address().port}/panel/scrollbars`,display:'embedded'})).result;
     await page.getByAltText('网页实时画面',{exact:true}).waitFor();
+    await api('browser',{sessionId:owner,browserId:old.id,action:'run',steps:[{action:'fill',target:'#draft',value:'保留升级草稿'}]});
+    await until(async()=>(await api('browser?sessionId='+owner)).sessions.find(s=>s.id===old.id)?.job?.status==='completed');
     evidence.bootstrapVersion = evidence.installedVersion;
     await writeFile(join(out,'upgrade-install.log'),await run(['plugin','--profile','web','add',pkg]));
     evidence.installedVersion = JSON.parse(await readFile(join(profile,'node_modules/@dsh/remote-ops/package.json'),'utf8')).version;
@@ -125,6 +127,11 @@ try {
     await until(async()=>{try{return (await api('state?sessionId='+owner)).pluginVersion===evidence.installedVersion;}catch{return false;}});
     const current = (await api('browser?sessionId='+owner)).sessions.find(item=>!item.closed);
     assert.equal(current.id,old.id); assert.equal(current.pages[0].id,old.pages[0].id); assert.equal(host.exitCode,null);
+    await api('browser',{sessionId:owner,browserId:old.id,action:'run',steps:[{action:'click',target:'#theme'}]});
+    await until(async()=>(await api('browser?sessionId='+owner)).sessions.find(s=>s.id===old.id)?.job?.status==='completed');
+    const observed=(await api('browser',{sessionId:owner,browserId:old.id,action:'observe'})).result.text;
+    assert.match(observed,/保留升级草稿/);assert.match(observed,/rgb\(203, 213, 225\) rgb\(30, 41, 59\)/);
+    evidence.retainedScrollbarColors=true;
   });
   const agent = async stage => { await until(() => editor.isEditable()); await editor.fill('RECORDING_NATIVE_' + stage); await editor.press('Enter'); return until(() => proofs.get(stage)); };
   await step('原生 Agent 能发现并读取随包 Skill，浏览器来源为 bundled', async () => {

@@ -21,6 +21,8 @@ The CSS viewport follows the Sidebar. Resizing and the viewer-only operation mar
 
 Viewer-only panning adds no webpage event. Pointer-targeted wheel input can produce genuine hover/scroll events in the webpage; retain those events. After changing saved desktop dimensions, recorded coordinates belong to that browser CSS viewport, not the GUI panel.
 
+Manual scrollbar dragging produces `action: "pointer"` records with `details.phase` (`down`, `move`, `up` or `cancel`), a gesture ID and CSS-pixel coordinates when available. Pointer moves can be coalesced. These are input dispatch records, not extra button clicks or verified business results; correlate them with observations before generating automation.
+
 ## Interpret schema version 1
 
 Export envelope: `format: "myterm.web-recording"`, `schemaVersion: 1`, `exportedAt`, `recording`, `incompleteTail`, `events`. Metadata includes ID, browser ID, initial page URLs, timestamps, capture status/count, coverage notes and, on stop, unfinished actions. Capture status is not a test verdict. `interrupted`, `limited`, `error`, incomplete tails, gap events and unfinished actions require an explicit completeness note.

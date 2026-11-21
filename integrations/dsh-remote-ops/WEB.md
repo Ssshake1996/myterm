@@ -9,6 +9,10 @@ Use `remote_browser_read` with `snapshot:true` for menu hierarchy and refs; requ
 
 ## Panel-sized browser
 
+Embedded horizontal and vertical scrollbars use contrasting thumbs and tracks according to the webpage’s declared color scheme. Hold and drag a thumb, including releasing outside the panel. Workspace changes, page changes and connection failures release the drag. Native scrollbar dimensions, webpage layout and CSS-pixel coordinates are preserved, with no additional display settings.
+
+嵌入网页的横竖滚动条使用高对比滑块与轨道，按网页声明的明暗主题自动配色。按住滑块可拖动，移出面板后松开也能结束；切换工作区、页面变化或连接异常时释放拖动状态。保持原生滚动条尺寸、网页布局和 CSS 像素坐标，不增加显示设置。
+
 The embedded CSS viewport follows the available Sidebar width and height, like resizing a Chrome window. Pages reflow at their normal font size; wide and long content scrolls inside the webpage. Resizing does not reload the document or clear login state and drafts. Website layout rules remain in effect. Users and Agents share the page; recordings retain browser CSS pixels. After a panel resize, obtain a fresh observation before using refs or coordinates. An in-flight action finishes before the newest size is applied.
 
 插件内网页的 CSS 视口始终跟随右侧栏可用宽高，行为与调整 Chrome 窗口一致：页面按原字号重新排版，超宽内容横向滚动，长页面纵向滚动。拖动侧栏不会刷新网页，登录状态和未提交表单保持；网页自身的布局规则继续生效。用户与 Agent 操作同一页面，录制仍使用浏览器 CSS 像素。侧栏尺寸变化后，Agent 重新观察再使用元素引用或坐标；正在执行的单次动作完成后应用最新尺寸。

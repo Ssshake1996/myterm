@@ -21,6 +21,48 @@ test('wheel targets the current image position and rejects invalid positions bef
   await browserInput(w,r,base);assert.deepEqual(inputs,[['wheel',0,200]]);
 });
 
+test('pointer drag dispatches down, moves and release without an extra click',async t=>{
+  const {w,inputs}=await fixture(t),opened=await w.openUrl('a','https://drag.test/'),r=w.session('a',opened.id);
+  const frame=await w.frame('a',r.id,{}),base={kind:'pointer',gestureId:'drag-one',pageId:r.activePageId,revision:frame.revision};
+  for(const [phase,x,y] of [['down',100,700],['move',800,700],['up',900,700]])await w.input('a',r.id,{...base,phase,x,y});
+  assert.deepEqual(inputs,[['move',100,700],['down',{button:'left'}],['move',800,700],['move',900,700],['up',{button:'left'}]]);
+  assert.equal(r.pointerDrag,undefined);
+  inputs.length=0;
+  assert.equal((await w.input('a',r.id,{...base,phase:'move',x:200,y:700})).cancelled,true);
+  assert.deepEqual(inputs,[]);
+});
+
+test('stale or invalid pointer input releases its gesture and never affects a newer gesture',async t=>{
+  const {w,inputs}=await fixture(t),opened=await w.openUrl('a','https://drag.test/'),r=w.session('a',opened.id);
+  const frame=await w.frame('a',r.id,{}),base={kind:'pointer',gestureId:'drag-old',pageId:r.activePageId,revision:frame.revision,x:100,y:100};
+  await w.input('a',r.id,{...base,phase:'down'});
+  await assert.rejects(w.input('a',r.id,{...base,phase:'move',x:Infinity}),/BROWSER_INPUT_INVALID/);
+  assert.equal(inputs.at(-1)[0],'up');assert.equal(r.pointerDrag,undefined);
+  await w.input('a',r.id,{...base,phase:'down',gestureId:'drag-new'});
+  const count=inputs.length;
+  await w.input('a',r.id,{...base,phase:'cancel'});assert.equal(inputs.length,count);
+  r.revision++;
+  assert.equal((await w.input('a',r.id,{...base,gestureId:'drag-new',phase:'move'})).cancelled,true);
+  assert.equal(inputs.at(-1)[0],'up');assert.equal(r.pointerDrag,undefined);
+  assert.throws(()=>w.input('b',r.id,{...base,phase:'cancel'}),/BROWSER_SESSION_NOT_FOUND/);
+});
+
+test('pointer failures, cancellation and switching pages leave no held mouse button',async t=>{
+  const {w,inputs}=await fixture(t),opened=await w.openUrl('a','https://drag.test/'),r=w.session('a',opened.id);
+  const frame=await w.frame('a',r.id,{}),base={kind:'pointer',gestureId:'drag-one',pageId:r.activePageId,revision:frame.revision,x:100,y:100};
+  const page=r.pages.get(r.activePageId),move=page.mouse.move;
+  await w.input('a',r.id,{...base,phase:'down'});
+  page.mouse.move=async()=>{throw Error('disconnected mouse');};
+  await assert.rejects(w.input('a',r.id,{...base,phase:'move'}),/disconnected/);
+  assert.equal(inputs.at(-1)[0],'up');assert.equal(r.pointerDrag,undefined);page.mouse.move=move;
+  await w.input('a',r.id,{...base,phase:'down'});
+  await w.input('a',r.id,{...base,phase:'cancel',revision:-1});
+  assert.equal(r.pointerDrag,undefined);
+  await w.input('a',r.id,{...base,phase:'down'});
+  await w.navigate('a',r.id,'new-page');
+  assert.equal(r.pointerDrag,undefined);assert.equal(inputs.findLast(e=>e[0]==='up')[0],'up');
+});
+
 async function fixture(t) {
   const root=await mkdtemp(join(tmpdir(),'remote-ops-live-')), launches=[], inputs=[];
   const w=new BrowserWorkspace({root,launchContext:async (profile,options)=>{
@@ -33,7 +75,7 @@ async function fixture(t) {
         viewportSize:()=>viewport,setViewportSize:async size=>{viewport=size;inputs.push(['viewport',size]);},
         locator:()=>({}),getByText:()=>({}),screenshot:async()=>Buffer.from('png'),
         evaluate:async()=>({text:'fixture',elements:[]}),
-        mouse:{click:async(...v)=>inputs.push(['click',...v]),move:async(...v)=>inputs.push(['move',...v]),wheel:async(...v)=>inputs.push(['wheel',...v])},
+        mouse:{click:async(...v)=>inputs.push(['click',...v]),move:async(...v)=>inputs.push(['move',...v]),wheel:async(...v)=>inputs.push(['wheel',...v]),down:async(...v)=>inputs.push(['down',...v]),up:async(...v)=>inputs.push(['up',...v])},
         keyboard:{insertText:async v=>inputs.push(['text',v]),press:async v=>inputs.push(['key',v])},
       });pages.push(page);context.emit('page',page);return page;
     };

@@ -3,6 +3,7 @@ import { browserError, browserSteps, browserUrl, displayUrl, expandBrowserSteps,
 import { recordingUrl } from './browser-recordings.js';
 import { observeBrowser, executeObservedStep, closeBrowserMcp } from './browser-mcp.js';
 import {installBrowserFocus} from './browser-focus.js';
+import {releaseBrowserPointer} from './browser-view.js';
 
 const finished = job => !job || ["completed", "failed", "unknown", "stopped"].includes(job.status);
 export class BrowserSessions {
@@ -148,6 +149,7 @@ export class BrowserSessions {
   snapshot(owner) { return { sites: this.sites, flows: this.flows, preferences:this.preferences, activeBrowserId:this.active?.get(owner)??null, sessions: [...this.sessions.values()].filter(record => record.owner === owner).map(record => this.publicSession(record)) }; }
   async navigate(owner,id,action,value,source='human') {
     const r=this.session(owner,id);
+    await r.inputQueue; await releaseBrowserPointer(r);
     if(r.closed||r.switching)throw browserError('BROWSER_CLOSED','This browser was closed or is changing display');
     const page=r.pages.get(r.activePageId);
     const handle=await this.recordings.begin(r,source,action,{...(value?{url:recordingUrl(value)}:{})});
@@ -237,6 +239,7 @@ export class BrowserSessions {
         }
         job.status = "running"; job.inFlight = true;
         await record.inputQueue;
+        await releaseBrowserPointer(record);
         const started = Date.now();
         let handle;
         try {
@@ -284,6 +287,7 @@ export class BrowserSessions {
   }
   async control(owner, id, action, value, source='human') {
     const record = this.session(owner, id), job = record.job;
+    await record.inputQueue; await releaseBrowserPointer(record);
     const handle=await this.recordings.begin(record,source,action,{...(value?{selectedPageId:value}:{})});
     try {
     if (action === "close") { await this.recordings.end(record,handle,'dispatched');await this.closeRecord(record); return this.publicSession(record); }
@@ -341,6 +345,7 @@ export class BrowserSessions {
     record.screenshot = { at: new Date().toISOString(), pageId: record.activePageId, buffer }; return record.screenshot;
   }
   async closeRecord(record) {
+    await record.inputQueue; await releaseBrowserPointer(record);
     if (record.job && !finished(record.job)) { record.job.stop = true; record.job.wake?.(); }
     if(record.recording?.metadata.status==='recording')await this.recordings.stop(record.owner,record.recording.metadata.id,'browser-closed');
     if (!record.closed) await this.saveStorage(record).catch(() => { record.notice = "Unable to save the login session"; });

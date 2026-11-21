@@ -16,6 +16,8 @@ Windows 主机设置 `DSH_CLI` 为宿主的 `lib/bin.js`，执行 `node e2e/runn
 
 ## 嵌入网页的视口与滚动
 
+v0.19.1 验收增加原生横竖滑块拖动、移出画面后松开、切换工作区释放、拖动后点击仅执行一次，以及浅色/深色、严格 CSP、跨域 iframe、刷新与热加载后的滚动条配色。配色只改变滑块和轨道，检查原生宽度与 CSS 视口不变。
+
 `npm run test:browser:panel --prefix integrations/dsh-remote-ops` 用真实 Chromium 验证侧栏宽高等于 CSS 视口、1027×768 下滚到 1280 宽页面右侧并点击、内部滚动与跨域 iframe、录制坐标、尺寸变化后的旧观察拒绝与重新观察，以及旧热加载对象的迁移。
 
 设置 `DSH_CLI` 为宿主的 `lib/bin.js`，执行 `node e2e/runner/browser-recording-native.mjs <tgz>`，用 `RECORDING_NATIVE_OUTPUT` 指定新证据目录。测试在独立 DSH_HOME 安装候选包，验证鼠标仍按住分栏时的尺寸同步、草稿保留、设置简化、横纵滚动、标签恢复。注入一次 HTTP 400，确认错误详情显示请求地址与代码、画面轮询不会清除该错误或触发重复尺寸请求，手动重试可恢复。

@@ -55,6 +55,7 @@ export class BrowserView {
     for(const wake of this.waiters)wake();
   }
   async stop() {
+    await releaseBrowserPointer(this.record);
     const cdp=this.cdp;this.cdp=null;this.latest=null;clearTimeout(this.expiry);
     for(const timer of this.acks)clearTimeout(timer);this.acks.clear();
     for(const wake of [...this.waiters])wake();
@@ -63,7 +64,54 @@ export class BrowserView {
   invalidate(){this.latest=null;for(const wake of [...this.waiters])wake();}
 }
 
+export async function releaseBrowserPointer(record, gestureId) {
+  const pointer = record.pointerDrag;
+  if (!pointer || gestureId && pointer.id !== gestureId) return;
+  record.pointerDrag = undefined;
+  clearTimeout(pointer.timer);
+  await pointer.page.mouse.up({button:'left'}).catch(() => {});
+}
+
+async function pointerInput(record, input) {
+  const {phase,gestureId} = input;
+  if (!['down','move','up','cancel'].includes(phase) || typeof gestureId !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(gestureId))
+    throw browserError('BROWSER_INPUT_INVALID','Invalid pointer gesture');
+  // Releasing a gesture must also work after resize, navigation or loss of the viewer.
+  if (phase === 'cancel') { await releaseBrowserPointer(record,gestureId); return {accepted:true}; }
+  if (record.closed || record.switching || input.pageId !== record.activePageId || input.revision !== (record.revision ?? 0)) {
+    await releaseBrowserPointer(record,gestureId);
+    return {accepted:false,cancelled:true};
+  }
+  const f = record.view?.latest;
+  if (!f || !Number.isFinite(input.x) || !Number.isFinite(input.y) || input.x < 0 || input.y < 0 || input.x >= f.width || input.y >= f.height) {
+    await releaseBrowserPointer(record,gestureId);
+    throw browserError('BROWSER_INPUT_INVALID','Invalid pointer coordinates');
+  }
+  if (phase !== 'down' && record.pointerDrag?.id !== gestureId) return {accepted:false,cancelled:true};
+  const page = record.pages.get(record.activePageId);
+  try {
+    if (phase === 'down') {
+      await releaseBrowserPointer(record);
+      record.pointerDrag = {id:gestureId,page};
+      await page.mouse.move(input.x,input.y);
+      await page.mouse.down({button:'left'});
+    } else if (phase === 'move') await page.mouse.move(input.x,input.y);
+    else { await page.mouse.move(input.x,input.y); await releaseBrowserPointer(record,gestureId); }
+    const pointer = record.pointerDrag;
+    if (pointer?.id === gestureId) {
+      clearTimeout(pointer.timer);
+      pointer.timer = setTimeout(() => {
+        const pending = (record.inputQueue ?? Promise.resolve()).then(() => releaseBrowserPointer(record,gestureId));
+        record.inputQueue = pending.catch(() => {});
+      },15000);
+      pointer.timer.unref?.();
+    }
+    return {accepted:true,pageId:record.activePageId};
+  } catch (error) { await releaseBrowserPointer(record,gestureId); throw error; }
+}
+
 export async function browserInput(workspace,record,input) {
+  if(input.kind==='pointer') return pointerInput(record,input);
   if(record.closed||record.switching)throw browserError('BROWSER_CLOSED','The browser is closed or changing display');
   if(input.pageId!==record.activePageId||input.revision!==(record.revision??0))throw browserError('BROWSER_FRAME_STALE','The page changed. Wait for a fresh frame before interacting');
   const page=record.pages.get(record.activePageId),finite=value=>Number.isFinite(value);
