@@ -7,6 +7,37 @@ import {EventEmitter} from 'node:events';
 import {BrowserWorkspace} from '../lib/browser-workspace.js';
 import {registerBrowserTools} from '../lib/browser-tools.js';
 import {registerBrowserRoutes} from '../lib/browser-routes.js';
+import {browserInput} from '../lib/browser-view.js';
+
+test('desktop dimensions persist, apply before navigation and update without a panel resize',async t=>{
+  const {w,root}=await fixture(t);
+  await w.savePreferences({viewport:'desktop',zoom:'actual',desktopWidth:1600,desktopHeight:1200});
+  const opened=await w.openUrl('a','https://desktop.test/'),r=w.session('a',opened.id),page=r.pages.get(r.activePageId);
+  assert.deepEqual(page.firstViewport,{width:1600,height:1200});
+  await w.resizeViewport('a',r.id,{mode:'desktop',zoom:'actual'});
+  await w.savePreferences({desktopWidth:1440,desktopHeight:1080});
+  await w.resizeViewport('a',r.id,{mode:'desktop',zoom:'actual'});
+  assert.deepEqual(page.viewportSize(),{width:1440,height:1080});
+  await w.prepareNavigationViewport(r,page,'https://desktop.test/next');
+  assert.deepEqual(page.viewportSize(),{width:1440,height:1080});
+  const restored=new BrowserWorkspace({root});await restored.ready;t.after(()=>restored.dispose());
+  assert.equal(restored.preferences.zoom,'actual');assert.equal(restored.preferences.viewport,'desktop');
+  assert.deepEqual(restored.initialViewport('https://desktop.test/'),{width:1440,height:1080});
+  for(const value of [null,'1200',0,-1,1.5,8193])await assert.rejects(w.savePreferences({desktopHeight:value}),/BROWSER_VIEWPORT_INVALID/);
+  await assert.rejects(w.savePreferences({desktopWidth:8192,desktopHeight:8192}),/BROWSER_VIEWPORT_INVALID/);
+});
+
+test('wheel targets the current image position and rejects invalid positions before any input',async t=>{
+  const {w,inputs}=await fixture(t),opened=await w.openUrl('a','https://desktop.test/'),r=w.session('a',opened.id);
+  r.view={latest:{width:1024,height:768},stop:async()=>{}};
+  const base={pageId:r.activePageId,revision:r.revision,kind:'wheel',x:0,y:200};
+  await browserInput(w,r,{...base,position:{x:700,y:650}});
+  assert.deepEqual(inputs.slice(-2),[['move',700,650],['wheel',0,200]]);
+  inputs.length=0;
+  for(const position of [{x:1024,y:30},{x:30,y:768},{x:-1,y:0},{x:NaN,y:0},null])await assert.rejects(browserInput(w,r,{...base,position}),/BROWSER_INPUT_INVALID/);
+  assert.equal(inputs.length,0);
+  await browserInput(w,r,base);assert.deepEqual(inputs,[['wheel',0,200]]);
+});
 
 async function fixture(t) {
   const root=await mkdtemp(join(tmpdir(),'remote-ops-live-')), launches=[], inputs=[];
@@ -20,7 +51,7 @@ async function fixture(t) {
         viewportSize:()=>viewport,setViewportSize:async size=>{viewport=size;inputs.push(['viewport',size]);},
         locator:()=>({}),getByText:()=>({}),screenshot:async()=>Buffer.from('png'),
         evaluate:async()=>({text:'fixture',elements:[]}),
-        mouse:{click:async(...v)=>inputs.push(['click',...v]),wheel:async(...v)=>inputs.push(['wheel',...v])},
+        mouse:{click:async(...v)=>inputs.push(['click',...v]),move:async(...v)=>inputs.push(['move',...v]),wheel:async(...v)=>inputs.push(['wheel',...v])},
         keyboard:{insertText:async v=>inputs.push(['text',v]),press:async v=>inputs.push(['key',v])},
       });pages.push(page);context.emit('page',page);return page;
     };

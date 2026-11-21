@@ -73,6 +73,11 @@ export async function browserInput(workspace,record,input) {
     await page.mouse.click(input.x,input.y,{button:input.button??'left',clickCount:input.count??1});
   }else if(input.kind==='wheel') {
     if(!finite(input.x)||!finite(input.y)||Math.abs(input.x)>3000||Math.abs(input.y)>3000)throw browserError('BROWSER_INPUT_INVALID','Invalid scroll distance');
+    if(input.position!==undefined){
+      const p=input.position,f=record.view?.latest;
+      if(!p||!f||!finite(p.x)||!finite(p.y)||p.x<0||p.y<0||p.x>=f.width||p.y>=f.height)throw browserError('BROWSER_INPUT_INVALID','Invalid scroll position');
+      await page.mouse.move(p.x,p.y);
+    }
     await page.mouse.wheel(input.x,input.y);
   }else if(input.kind==='text') {
     if(typeof input.text!=='string'||input.text.length>16000)throw browserError('BROWSER_INPUT_INVALID','Text is too long');

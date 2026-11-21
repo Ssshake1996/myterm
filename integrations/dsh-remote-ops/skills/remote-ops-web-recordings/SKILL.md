@@ -19,6 +19,8 @@ Stop with `action: "stop", recordingId`. This ends capture, not the browser job 
 
 Embedded automatic fit, viewer panning and the operation marker are display-only: they add no page clicks, scrolls or recording events. Interpret recorded coordinates in the browser CSS-pixel viewport, never in the scaled GUI panel. Long pages and internal frames retain their normal scrolling.
 
+Viewer-only panning adds no webpage event. Pointer-targeted wheel input can produce genuine hover/scroll events in the webpage; retain those events. After changing saved desktop dimensions, recorded coordinates belong to that browser CSS viewport, not the GUI panel.
+
 ## Interpret schema version 1
 
 Export envelope: `format: "myterm.web-recording"`, `schemaVersion: 1`, `exportedAt`, `recording`, `incompleteTail`, `events`. Metadata includes ID, browser ID, initial page URLs, timestamps, capture status/count, coverage notes and, on stop, unfinished actions. Capture status is not a test verdict. `interrupted`, `limited`, `error`, incomplete tails, gap events and unfinished actions require an explicit completeness note.

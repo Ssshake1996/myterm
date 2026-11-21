@@ -25,6 +25,8 @@ Omit `browser` on open to follow the user's settings. Independent windows defaul
 
 Call `remote_browser_list` to discover browsers, saved sites and flows. Open an HTTP(S) `url` with `remote_browser_open`; saving a site or flow first is optional. Omit `browserId` to use this conversation's selected browser, or use an ID actually returned by the plugin. Read the current page with `remote_browser_read` before dependent actions, including after human input. Its optional `target` tests a locator. Prefer role with accessible name, label, text or placeholder; CSS and XPath are supported. A locator must match exactly one element.
 
+Original-size viewing supports both outer scrollbars in panel and desktop modes. Wheel input pans a clipped viewer first, then targets the webpage under the pointer. For an `outside of the viewport` failure, re-observe and inspect the actual locator and scroll container: ordinary locator/ref clicks normally scroll into view. If the website clips its fixed layout, use **设置 → 网页 → 原始大小 → 桌面视口 → 桌面视口宽度／高度 → 保存桌面视口** (for example 1280×1600) or automatic fit. Saved dimensions are plugin-wide. Do not force a click, rewrite website CSS or blindly repeat a possibly effective action. Changing dimensions preserves the document without reloading, but the website may reflow; obtain fresh observations afterward. Prefer observed locators over off-screen guessed coordinates.
+
 ## Find the correct entry before acting
 
 Load this skill for unfamiliar pages. Read the current page with `remote_browser_read({browserId,pageId,snapshot:true})`: this returns actual menu hierarchy, accessible names, refs and a `snapshotId`. Expand or hover a relevant menu, then observe again. Never invent an XPath or menu based on a guessed layout.

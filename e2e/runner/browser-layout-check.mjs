@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
 
-const titles = { overview: '设备概览', ports: '端口状态', legacy: '固定宽度设备', compact: '定宽设备控制台', framed: '设备内嵌表单', wide: '宽屏设备', startup: '首次加载宽度' };
+const titles = { overview: '设备概览', ports: '端口状态', legacy: '固定宽度设备', compact: '定宽设备控制台', framed: '设备内嵌表单', wide: '宽屏设备', startup: '首次加载宽度', 'desktop-edge':'固定桌面验收', 'desktop-long':'长页面验收', 'desktop-nested':'内部滚动验收', 'desktop-clip':'裁剪布局验收' };
 
 export function serveLayoutFixture(path, response, origin) {
   const name = path.split('/').at(-1);
@@ -13,6 +13,11 @@ export function serveLayoutFixture(path, response, origin) {
   }
   if (!path.startsWith('/panel/') || !Object.hasOwn(titles, name)) return false;
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
+  if(name.startsWith('desktop-')){
+    const nested=name==='desktop-nested',clipped=name==='desktop-clip',height=name==='desktop-edge'?768:1400;
+    response.end(`<!doctype html><meta charset="utf-8"><title>${titles[name]}</title><style>html,body{margin:0;${clipped?'height:100%;overflow:clip;':''}}main{position:relative;width:1024px;height:${height}px}#pane{position:absolute;left:100px;top:80px;width:700px;height:400px;overflow:auto;background:#eef3f8}#content{height:1400px;position:relative}button{position:absolute;right:20px;bottom:20px;width:100px;height:40px}output{position:fixed;top:5px;left:5px}input{position:absolute;top:40px;left:20px}</style>
+    <main style="${nested?'height:600px':''}"><output id="result">ready</output><output id="scroll-result" style="left:200px"></output><input id="draft" aria-label="草稿">${nested?'<section id="pane"><div id="content">':''}<button id="edge">保存布局</button>${nested?'</div></section>':''}</main><script>let clicks=0;edge.onclick=()=>result.textContent='saved-'+ ++clicks;${nested?"pane.onscroll=()=>document.getElementById('scroll-result').textContent='scroll='+pane.scrollTop;":''}</script>`);return true;
+  }
   if (name === 'startup') {
     response.end('<!doctype html><title>首次加载宽度</title><output></output><script>document.querySelector("output").textContent="startup-width="+innerWidth;if(innerWidth>=1280)document.body.insertAdjacentHTML("beforeend","<button>设备配置</button>");</script>');
     return true;
@@ -321,6 +326,42 @@ export async function checkBrowserLayout({ page, owner, api, snapshot, until, st
     await page.getByRole('tab',{name:'网页',exact:true}).waitFor();
     await webSettings();assert.equal(await page.getByLabel('网页画面缩放',{exact:true}).inputValue(),'auto');
     await page.getByRole('button',{name:'返回工作区',exact:true}).click();
+  });
+  await step('桌面原始大小：小面板双向滚动画面并点击右下角',async()=>{
+    await webSettings();await page.getByLabel('网页画面缩放',{exact:true}).selectOption('actual');
+    await until(async()=>(await snapshot()).preferences.zoom==='actual');
+    await page.getByLabel('网页视口',{exact:true}).selectOption('desktop');
+    await page.getByLabel('桌面视口宽度',{exact:true}).fill('1024');await page.getByLabel('桌面视口高度',{exact:true}).fill('768');
+    await page.getByRole('button',{name:'保存桌面视口',exact:true}).click();
+    await until(async()=>{const p=(await snapshot()).preferences;return p.desktopWidth===1024&&p.desktopHeight===768;});
+    await page.getByRole('button',{name:'返回工作区',exact:true}).click();await open('desktop-edge');
+    const surface=image.locator('..');
+    await until(async()=>{const b=await surface.boundingBox(),win=page.viewportSize();if(Math.round(b.width)===640&&Math.round(b.height)===480)return true;await page.setViewportSize({width:win.width+640-Math.round(b.width),height:win.height+480-Math.round(b.height)});return false;});
+    await until(async()=>Number(await image.getAttribute('data-revision'))===(await active()).revision);
+    const before=await surface.evaluate(n=>({x:getComputedStyle(n).overflowX,y:getComputedStyle(n).overflowY,w:n.clientWidth,h:n.clientHeight,sw:n.scrollWidth,sh:n.scrollHeight}));
+    assert.equal(before.x,'auto');assert.equal(before.y,'auto');assert.ok(before.sw>before.w&&before.sh>before.h);
+    const box=await surface.boundingBox();await page.mouse.move(box.x+200,box.y+180);await page.mouse.wheel(0,150);
+    await until(()=>surface.evaluate(n=>n.scrollTop>=149));
+    await surface.evaluate(n=>{n.scrollTop=n.scrollHeight;n.scrollLeft=n.scrollWidth;});
+    const img=await image.boundingBox();await page.mouse.click(img.x+954,img.y+728);
+    await until(async()=>(await api('browser',{sessionId:owner,action:'observe'})).result.text.includes('saved-1'));
+    evidence.panelLayout.desktopActual={...before,viewport:(await active()).viewport,wheelPan:true,corner:'saved-1'};
+  });
+  await step('保存桌面宽高后，裁剪布局按钮可操作且刷新保留设置',async()=>{
+    await open('desktop-clip');
+    await api('browser',{sessionId:owner,action:'run',steps:[{action:'fill',target:'#draft',value:'保留桌面草稿'}]});
+    await until(async()=>(await active()).job?.status==='completed');
+    await webSettings();await page.getByLabel('桌面视口宽度',{exact:true}).fill('1280');await page.getByLabel('桌面视口高度',{exact:true}).fill('1600');
+    await page.getByRole('button',{name:'保存桌面视口',exact:true}).click();
+    await until(async()=>(await snapshot()).preferences.desktopHeight===1600);
+    await page.getByRole('button',{name:'返回工作区',exact:true}).click();
+    await until(async()=>{const v=(await active()).viewport;return v.width===1280&&v.height===1600;});
+    await api('browser',{sessionId:owner,action:'run',steps:[{action:'click',target:'#edge'}]});await until(async()=>(await active()).job?.status==='completed');
+    assert.match((await api('browser',{sessionId:owner,action:'observe'})).result.text,/saved-1/);
+    await until(()=>page.evaluate(()=>{const mark=document.querySelector('.dsh-remote-ops__browserFocus'),surface=document.querySelector('.dsh-remote-ops__liveSurface');if(!mark||!surface)return false;const m=mark.getBoundingClientRect(),s=surface.getBoundingClientRect();return m.width>=99&&m.left>=s.left&&m.top>=s.top&&m.right<=s.left+surface.clientWidth+1&&m.bottom<=s.top+surface.clientHeight+1;}));
+    await page.reload();await page.getByRole('tab',{name:'网页',exact:true}).waitFor();await webSettings();
+    assert.equal(await page.getByLabel('网页画面缩放',{exact:true}).inputValue(),'actual');assert.equal(await page.getByLabel('网页视口',{exact:true}).inputValue(),'desktop');
+    assert.equal(await page.getByLabel('桌面视口高度',{exact:true}).inputValue(),'1600');await page.getByRole('button',{name:'返回工作区',exact:true}).click();
   });
   await writeFile(join(out,'panel-layout.json'), JSON.stringify(evidence.panelLayout, null, 2));
 }

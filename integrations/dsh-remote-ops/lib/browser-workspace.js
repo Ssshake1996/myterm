@@ -215,7 +215,9 @@ export class BrowserWorkspace extends BrowserSessions {
     const value={...this.preferences,...input};
     if(!['embedded','window'].includes(value.display)||!['chromium','msedge','chrome'].includes(value.browser)||!['system','chromium','msedge','chrome'].includes(value.windowBrowser)||!['panel','desktop'].includes(value.viewport??'panel'))throw browserError('BROWSER_DISPLAY_INVALID','Choose an embedded/window display, a supported browser and a panel/desktop viewport');
     if (!['auto', 'actual', 'fit'].includes(value.zoom)) throw browserError('BROWSER_VIEWPORT_INVALID', 'Choose automatic fit, actual size or fit');
-    return {display:value.display,browser:value.browser,windowBrowser:value.windowBrowser,viewport:value.viewport??'panel',zoom:value.zoom,layoutVersion:1};
+    const desktopWidth=value.desktopWidth===undefined?1024:value.desktopWidth,desktopHeight=value.desktopHeight===undefined?768:value.desktopHeight;
+    if (![desktopWidth,desktopHeight].every(n=>Number.isSafeInteger(n)&&n>=1&&n<=8192)||desktopWidth*desktopHeight>16777216)throw browserError('BROWSER_VIEWPORT_INVALID','Desktop width and height must be integers from 1 to 8192 CSS pixels, with at most 16777216 pixels total');
+    return {display:value.display,browser:value.browser,windowBrowser:value.windowBrowser,viewport:value.viewport??'panel',zoom:value.zoom,desktopWidth,desktopHeight,layoutVersion:1};
   }
   saveSiteWidth(url, minimum) {
     return this.mutate(async () => {
@@ -235,15 +237,17 @@ export class BrowserWorkspace extends BrowserSessions {
       return { origin, minimum };
     });
   }
+  desktopViewport() {return {width:this.preferences.desktopWidth??1024,height:this.preferences.desktopHeight??768};}
   initialViewport(url) {
     const automatic = this.preferences.zoom === 'auto', origin = siteOrigin(url);
-    return {width: Math.max(automatic ? 1280 : 1024, this.siteWidths[origin] ?? 0, automatic ? this.autoWidths[origin] ?? 0 : 0), height:768};
+    const desktop=!automatic&&this.preferences.viewport==='desktop'?this.desktopViewport():{width:1024,height:768};
+    return scrollViewport(Math.max(automatic ? 1280 : desktop.width, this.siteWidths[origin] ?? 0, automatic ? this.autoWidths[origin] ?? 0 : 0),desktop.height);
   }
   async prepareNavigationViewport(record, page, url) {
     if (record.display !== 'embedded' || !page.setViewportSize) return;
     const minimum = this.siteWidths[siteOrigin(url)] ?? 0, hint = record.viewportHint;
     const automatic = this.preferences.zoom === 'auto';
-    const base = automatic ? this.initialViewport(url) : hint?.mode === 'panel' && hint.width ? { width: hint.width, height: hint.height } : { width: 1024, height: 768 };
+    const base = automatic ? this.initialViewport(url) : this.preferences.viewport==='desktop'?this.desktopViewport():hint?.mode === 'panel' && hint.width ? { width: hint.width, height: hint.height } : { width: 1024, height: 768 };
     const width = Math.max(base.width, minimum);
     const size = this.preferences.zoom === 'fit' && hint?.width ? viewportSize(width, width * hint.height / hint.width) : scrollViewport(width, base.height);
     const active = page === record.pages.get(record.activePageId), previous = page.viewportSize?.();
@@ -315,9 +319,10 @@ export class BrowserWorkspace extends BrowserSessions {
       }
       const previous = r.viewportHint, navigation = r.navigationRevision;
       const minimum = this.siteWidths[siteOrigin(page.url())] ?? 0;
-      const layoutWidth = Math.max(mode === 'desktop' ? 1024 : width, minimum);
-      const base = automatic ? this.initialViewport(page.url()) : fit ? viewportSize(layoutWidth, layoutWidth * height / width) : scrollViewport(layoutWidth, mode === 'desktop' ? 768 : height);
-      const same = previous?.pageId === pageId && previous.navigation === navigation && previous.mode === mode && previous.zoom === zoom && previous.minimum === minimum && previous.width === width && previous.height === height;
+      const desktop=this.desktopViewport();
+      const layoutWidth = Math.max(mode === 'desktop' ? desktop.width : width, minimum);
+      const base = automatic ? this.initialViewport(page.url()) : fit ? viewportSize(layoutWidth, layoutWidth * height / width) : scrollViewport(layoutWidth, mode === 'desktop' ? desktop.height : height);
+      const same = previous?.pageId === pageId && previous.navigation === navigation && previous.mode === mode && previous.zoom === zoom && previous.minimum === minimum && previous.width === width && previous.height === height && previous.desktopWidth===desktop.width && previous.desktopHeight===desktop.height;
       if (same && !checkContent) return this.publicSession(r);
       const current = () => r.activePageId === pageId && r.navigationRevision === navigation && !r.closed && !r.switching;
       const applySize = async size => {
@@ -366,7 +371,7 @@ export class BrowserWorkspace extends BrowserSessions {
         throw error;
       }
       if (!current()) return { ...this.publicSession(r), viewportSkipped: true };
-      r.viewportHint = { mode, zoom, minimum, width, height, pageId, navigation };
+      r.viewportHint = { mode, zoom, minimum, width, height, pageId, navigation,desktopWidth:desktop.width,desktopHeight:desktop.height };
       r.nextLayoutCheck = Date.now() + 1000;
       return this.publicSession(r);
     });

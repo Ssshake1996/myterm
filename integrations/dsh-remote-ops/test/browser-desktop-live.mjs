@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {mkdtemp,rm,mkdir,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,resolve,dirname} from 'node:path';
+import {chromium} from 'playwright-core';
+import {BrowserWorkspace} from '../lib/browser-workspace.js';
+import {serveLayoutFixture} from '../../../e2e/runner/browser-layout-check.mjs';
+const root=await mkdtemp(join(tmpdir(),'remote-ops-desktop-live-')),evidence={checks:[]};
+const server=createServer((req,res)=>{if(!serveLayoutFixture(req.url,res,''))res.writeHead(404).end();});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));
+const url='http://127.0.0.1:'+server.address().port;
+const launchContext=(profile,options)=>chromium.launchPersistentContext(profile,{...options,headless:true,...(process.env.BROWSER_EXECUTABLE?{executablePath:process.env.BROWSER_EXECUTABLE}:{channel:'chrome'})});
+const w=new BrowserWorkspace({root,launchContext});let seq=0;
+const pass=name=>{evidence.checks.push(name);console.log('PASS '+name);};
+const until=async fn=>{for(let n=0;n<100;n++){if(await fn())return;await new Promise(r=>setTimeout(r,50));}throw Error('Desktop verification timed out');};
+try{
+  await w.ready;await w.savePreferences({viewport:'desktop',zoom:'actual'});
+  const opened=await w.openUrl('test',url+'/panel/desktop-long'),r=w.session('test',opened.id),page=r.pages.get(r.activePageId);
+  const run=async step=>{const job=await w.run('test',r.id,[step],{requestId:'desktop-'+ ++seq});await job.done;return job;};
+  const go=path=>run({action:'goto',url:url+'/panel/'+path});
+  const job=await run({action:'click',target:'#edge'});
+  assert.equal(job.status,'completed',job.error?.message);assert.ok(await page.evaluate(()=>scrollY)>0);assert.equal(await page.locator('#result').innerText(),'saved-1');
+  pass('ordinary long-page clicks scroll into view in a 1024x768 desktop viewport');
+  await go('desktop-nested');await page.mouse.move(0,0);const frame=await w.frame('test',r.id,{});
+  await w.input('test',r.id,{kind:'wheel',x:0,y:450,position:{x:350,y:250},pageId:r.activePageId,revision:frame.revision});
+  await until(()=>page.locator('#pane').evaluate(n=>n.scrollTop>400));assert.equal(await page.evaluate(()=>scrollY),0);
+  pass('wheel reaches the nested scroll container under the displayed pointer');
+  const observation=await w.observeSnapshot('test',r.id),ref=observation.snapshot.match(/button "保存布局" \[ref=([^\]]+)\]/)?.[1];assert.ok(ref,observation.snapshot);
+  const observed=await run({action:'click',target:{kind:'ref',value:ref,snapshotId:observation.snapshotId}});
+  assert.equal(observed.status,'completed',observed.error?.message);assert.equal(await page.locator('#result').innerText(),'saved-1');
+  pass('MCP ref click scrolls the nested target into view without force');
+  await go('desktop-clip');await page.locator('#draft').fill('keep draft');
+  const blocked=await run({action:'click',target:'#edge',timeoutMs:300});assert.notEqual(blocked.status,'completed');assert.equal(await page.locator('#result').innerText(),'ready');
+  const recording=await w.recording('test',{action:'start',browserId:r.id});
+  await w.savePreferences({desktopWidth:1280,desktopHeight:1600});await w.resizeViewport('test',r.id,{mode:'desktop',zoom:'actual'});
+  assert.deepEqual(page.viewportSize(),{width:1280,height:1600});assert.equal(await page.locator('#draft').inputValue(),'keep draft');
+  assert.equal(await page.evaluate(()=>getComputedStyle(document.documentElement).overflow),'clip');assert.equal(await page.locator('#result').innerText(),'ready');
+  pass('explicit desktop height reveals clipped layout without reload, CSS rewrites or a retry');
+  assert.equal((await run({action:'click',target:'#edge'})).status,'completed');assert.equal(await page.locator('#result').innerText(),'saved-1');
+  await w.recording('test',{action:'stop',recordingId:recording.id});
+  const log=await w.recording('test',{action:'read',recordingId:recording.id,limit:100});
+  const clicks=log.events.filter(e=>e.kind==='interaction'&&e.action==='click'&&e.target?.css==='#edge');assert.equal(clicks.length,1);assert.ok(clicks[0].pointer.y>768);
+  pass('one real click beyond the old 768px line retains CSS-pixel recording coordinates');
+  const restore=new BrowserWorkspace({root});await restore.ready;assert.deepEqual(restore.initialViewport(url),{width:1280,height:1600});await restore.dispose();
+  pass('saved desktop dimensions and original-size choice survive reopening');evidence.status='passed';
+}catch(error){evidence.status='failed';evidence.error=error.stack;throw error;}
+finally{await w.dispose();await new Promise(r=>server.close(r));assert.equal(dirname(resolve(root)),resolve(tmpdir()));await rm(root,{recursive:true,force:true});if(process.env.DESKTOP_VIEW_EVIDENCE){const out=resolve(process.env.DESKTOP_VIEW_EVIDENCE);await mkdir(out,{recursive:true});await writeFile(join(out,'evidence.json'),JSON.stringify(evidence,null,2));}}

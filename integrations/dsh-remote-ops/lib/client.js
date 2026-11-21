@@ -283,8 +283,8 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__webState{min-height:34px;font-size:12px}.dsh-remote-ops__webState>button{margin-left:auto;border-color:transparent;background:transparent;font-size:12px;min-height:28px;padding:3px 5px}
       .dsh-remote-ops__liveTools{order:2;border-top:1px solid var(--ro-border);min-height:28px;padding:2px 10px;gap:6px}
       .dsh-remote-ops__webPage,.dsh-remote-ops__live{min-height:0}.dsh-remote-ops__liveSurface[data-fit=true]{overflow:hidden}
-      .dsh-remote-ops__liveSurface[data-panel-scroll=true]{overflow-x:auto;overflow-y:hidden;min-width:0;overscroll-behavior-x:contain}
-      .dsh-remote-ops__liveSurface[data-panel-scroll=true]::-webkit-scrollbar{height:14px}
+      .dsh-remote-ops__liveSurface[data-panel-scroll=true]{overflow:auto;min-width:0;overscroll-behavior:contain}
+      .dsh-remote-ops__liveSurface[data-panel-scroll=true]::-webkit-scrollbar{height:14px;width:14px}
       .dsh-remote-ops__liveSurface[data-panel-scroll=true]::-webkit-scrollbar-track{background:var(--ro-surface,#f2f4f7)}
       .dsh-remote-ops__liveSurface[data-panel-scroll=true]::-webkit-scrollbar-thumb{background:var(--ro-muted,#687480);border:3px solid var(--ro-surface,#f2f4f7);border-radius:8px}
       .dsh-remote-ops__liveSurface[data-fit=true]>img{position:absolute;max-width:none;max-height:none}
@@ -509,7 +509,7 @@ window.__ModuleLoader__.load({
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const updateRecovery = createUpdateRecovery((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.18.0", update: { currentVersion: "0.18.0", latestVersion: "0.18.0", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.18.1", update: { currentVersion: "0.18.1", latestVersion: "0.18.1", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -1526,7 +1526,32 @@ window.__ModuleLoader__.load({
       const scale=fit&&width>0&&height>0?Math.min(width/w,height/h):1;
       return {width:w*scale,height:h*scale,left:fit?Math.max(0,(width-w*scale)/2):0,top:fit?Math.max(0,(height-h*scale)/2):0,scale};
     };
-    function BrowserLiveView({ sessionId, browser, inputBarrier, visible = true, zoom = "auto", viewportMode = "panel" }) {
+    const browserRevealFocus = (node, rect) => {
+      const reveal=(offset,start,size,visible,extent)=>{
+        const margin=24;
+        const next=size+2*margin>visible?start+(size-visible)/2:start<offset+margin?start-margin:start+size>offset+visible-margin?start+size+margin-visible:offset;
+        return Math.max(0,Math.min(extent-visible,next));
+      };
+      node.scrollLeft=reveal(node.scrollLeft,rect.x,rect.width,node.clientWidth,node.scrollWidth);
+      node.scrollTop=reveal(node.scrollTop,rect.y,rect.height,node.clientHeight,node.scrollHeight);
+    };
+    const browserWheelInput = (node, image, frame, event, fit) => {
+      if(!image||!frame)return null;
+      const rawX=event.deltaX||(event.shiftKey?event.deltaY:0),rawY=event.shiftKey&&!event.deltaX?0:event.deltaY;
+      let x=rawX*(event.deltaMode===1?16:event.deltaMode===2?node.clientWidth:1),y=rawY*(event.deltaMode===1?16:event.deltaMode===2?node.clientHeight:1);
+      if(!fit){
+        const left=node.scrollLeft,top=node.scrollTop;
+        node.scrollLeft=Math.max(0,Math.min(node.scrollWidth-node.clientWidth,left+x));
+        node.scrollTop=Math.max(0,Math.min(node.scrollHeight-node.clientHeight,top+y));
+        x-=node.scrollLeft-left;y-=node.scrollTop-top;
+      }
+      if(!x&&!y)return null;
+      const rect=image.getBoundingClientRect();if(!rect.width||!rect.height)return null;
+      return {kind:'wheel',x:Math.max(-3000,Math.min(3000,x)),y:Math.max(-3000,Math.min(3000,y)),position:{
+        x:Math.max(0,Math.min(frame.width-1,(event.clientX-rect.left)*frame.width/rect.width)),
+        y:Math.max(0,Math.min(frame.height-1,(event.clientY-rect.top)*frame.height/rect.height))}};
+    };
+    function BrowserLiveView({ sessionId, browser, inputBarrier, visible = true, zoom = "auto", viewportMode = "panel", desktopWidth = 1024, desktopHeight = 768 }) {
       const [frame,setFrame]=useState(null),[message,setMessage]=useState('正在连接网页画面…');
       const [surfaceSize,setSurfaceSize]=useState({width:0,height:0}),[focus,setFocus]=useState(null);
       const image=useRef(null),capture=useRef(null),surface=useRef(null),current=useRef(null),queue=useRef(Promise.resolve()),alive=useRef(true),composing=useRef(false);
@@ -1538,16 +1563,10 @@ window.__ModuleLoader__.load({
         setFocus(value??null);
         if(!value)return;
         const node=surface.current,rect=value.rect;
-        if(node&&!fit){
-          const x=rect.x+rect.width/2,y=rect.y+rect.height/2,margin=24;
-          if(x<node.scrollLeft+margin)node.scrollLeft=Math.max(0,x-margin);
-          else if(x>node.scrollLeft+node.clientWidth-margin)node.scrollLeft=x-node.clientWidth+margin;
-          if(y<node.scrollTop+margin)node.scrollTop=Math.max(0,y-margin);
-          else if(y>node.scrollTop+node.clientHeight-margin)node.scrollTop=y-node.clientHeight+margin;
-        }
+        if(node&&!fit)browserRevealFocus(node,rect);
         const timer=setTimeout(()=>setFocus(null),1800);return()=>clearTimeout(timer);
       },[frame?.focus?.sequence,frame?.pageId,frame?.revision]);
-      useEffect(()=>{if(surface.current)surface.current.scrollLeft=0;},[browser.activePageId,fit]);
+      useEffect(()=>{if(surface.current){surface.current.scrollLeft=0;surface.current.scrollTop=0;}},[browser.activePageId,fit]);
       useEffect(()=>{
         const node = surface.current;
         if (!visible || !node) return;
@@ -1583,7 +1602,7 @@ window.__ModuleLoader__.load({
         const observer = new ResizeObserver(measureSurface);
         observer.observe(node); measureSurface();
         return () => { stopped = true; clearTimeout(timer); observer.disconnect(); };
-      },[sessionId,viewportMode,zoom,browser.id,browser.activePageId,browser.display,visible]);
+      },[sessionId,viewportMode,zoom,desktopWidth,desktopHeight,browser.id,browser.activePageId,browser.display,visible]);
 
       useEffect(()=>{
         if(!visible)return;
@@ -1629,13 +1648,8 @@ window.__ModuleLoader__.load({
         const node=surface.current;if(!node)return;
         const wheel=event=>{
           event.preventDefault();
-          const dx=event.deltaX || (event.shiftKey ? event.deltaY : 0);
-          const dy=event.shiftKey && !event.deltaX ? 0 : event.deltaY;
-          if(dx && !fit && node.scrollWidth>node.clientWidth){
-            node.scrollLeft+=dx*(event.deltaMode===1?16:event.deltaMode===2?node.clientWidth:1);
-            if(!dy)return;
-            inputHandler.current({kind:'wheel',x:0,y:Math.max(-3000,Math.min(3000,dy))});
-          }else inputHandler.current({kind:'wheel',x:Math.max(-3000,Math.min(3000,dx)),y:Math.max(-3000,Math.min(3000,dy))});
+          const input=browserWheelInput(node,image.current,current.current.frame,event,fit);
+          if(input)inputHandler.current(input);
         };
         node.addEventListener('wheel',wheel,{passive:false});return()=>node.removeEventListener('wheel',wheel);
       },[fit,visible]);
@@ -1651,7 +1665,7 @@ window.__ModuleLoader__.load({
       const flush=event=>{if(composing.current)return;const value=event.currentTarget.value;event.currentTarget.value='';if(value)send({kind:'text',text:value});};
       return h('div',{className:'dsh-remote-ops__live'},
         frame&&message?h('div',{className:'dsh-remote-ops__liveTools',role:'status'},message):null,
-        h('div',{ref:surface,className:'dsh-remote-ops__liveSurface','data-fit':fit,'data-panel-scroll':viewportMode==='panel'&&!fit},frame?h('img',{ref:image,alt:'网页实时画面','data-revision':frame.revision,draggable:false,src:'data:image/jpeg;base64,'+frame.data,style:{width:picture.width,height:picture.height,...(fit?{left:picture.left,top:picture.top}:{}),maxWidth:'none'},onContextMenu:event=>event.preventDefault(),onClick:event=>{
+        h('div',{ref:surface,className:'dsh-remote-ops__liveSurface','data-fit':fit,'data-panel-scroll':!fit},frame?h('img',{ref:image,alt:'网页实时画面','data-revision':frame.revision,draggable:false,src:'data:image/jpeg;base64,'+frame.data,style:{width:picture.width,height:picture.height,...(fit?{left:picture.left,top:picture.top}:{}),maxWidth:'none'},onContextMenu:event=>event.preventDefault(),onClick:event=>{
           const rect=image.current.getBoundingClientRect();capture.current?.focus({preventScroll:true});send({kind:'click',x:(event.clientX-rect.left)*frame.width/rect.width,y:(event.clientY-rect.top)*frame.height/rect.height,button:event.button===2?'right':event.button===1?'middle':'left',count:Math.min(2,event.detail||1)});
         }}):h('div',{className:'dsh-remote-ops__empty',role:'status'},message||'等待新网页画面…'),
         focus?h('div',{className:'dsh-remote-ops__browserFocus','aria-hidden':true,'data-focus-sequence':focus.sequence,style:{left:picture.left+(focus.rect.x+focus.rect.width/2)*picture.scale-Math.max(12,focus.rect.width*picture.scale)/2,top:picture.top+(focus.rect.y+focus.rect.height/2)*picture.scale-Math.max(12,focus.rect.height*picture.scale)/2,width:Math.max(12,focus.rect.width*picture.scale),height:Math.max(12,focus.rect.height*picture.scale)}}):null,
@@ -1745,6 +1759,15 @@ window.__ModuleLoader__.load({
         h('button', { type: 'button', className: 'dsh-remote-ops__webTabNew', 'aria-label': '新建网页', title: '新建网页', disabled: busy, onClick: () => action({ action: 'navigate', navigation: 'new-page' }) }, h(IconPlusOutline16)));
     }
 
+    function DesktopViewportSettings({ preferences, busy, action }) {
+      const [draft,setDraft]=useState(null),[saved,setSaved]=useState(false);
+      const value=draft??{width:preferences.desktopWidth??1024,height:preferences.desktopHeight??768};
+      const width=Number(value.width),height=Number(value.height),valid=[width,height].every(n=>Number.isSafeInteger(n)&&n>=1&&n<=8192)&&width*height<=16777216;
+      return h(React.Fragment,null,
+        ...[['width','桌面视口宽度'],['height','桌面视口高度']].map(([key,label])=>h('label',{key},label+'（CSS 像素）',h('input',{type:'number',min:1,max:8192,step:1,'aria-label':label,value:value[key],onChange:e=>{setDraft({...value,[key]:e.target.value});setSaved(false);}}))),
+        h('button',{type:'button',disabled:busy||!valid,onClick:async()=>{if(await action({action:'preferences.save',preferences:{desktopWidth:width,desktopHeight:height}})){setDraft(null);setSaved(true);}}},'保存桌面视口'),
+        h('small',{role:'status'},saved?'已保存 · '+width+' × '+height:'宽、高独立保存，原始大小可双向滚动画面。用于固定布局页面；修改不会刷新网页，有效观察或动作期间延后生效。'));
+    }
     function SiteWidthSettings({ defaultUrl, widths, busy, action }) {
       const [address,setAddress]=useState(null),[draft,setDraft]=useState(null),[saved,setSaved]=useState(false);
       const url=address??defaultUrl;
@@ -1814,7 +1837,7 @@ window.__ModuleLoader__.load({
         h('form',{className:'dsh-remote-ops__webAddress',onSubmit:go},environmentControl,nav('网页后退','←','back'),nav('网页前进','→','forward'),nav('刷新网页','↻','reload'),h('input',{'aria-label':'网页地址',placeholder:'输入网址，按 Enter 打开',value:address,onChange:event=>{addressDirty.current=true;setAddress(event.target.value);},required:true,disabled:navigating}),h('button',{type:'submit','aria-label':'打开网页',className:'dsh-remote-ops__primary',disabled:!sessionId||navigating||!address.trim()},busy?'打开中…':'打开')),
         error?h('div',{className:'dsh-remote-ops__webError',role:'alert'},error.split('\n').slice(1).join(' · ')||error,!synced?h('button',{onClick:()=>{setError('');void load().catch(failure=>{if(alive.current)setError(failure.message);});}},'重试读取网页状态'):null):null,
         session?.dialog?h('div',{className:'dsh-remote-ops__webNotice'},`网页弹窗：${session.dialog.message}。请在主对话告诉 Agent 如何处理。`):null,
-        h('div',{className:'dsh-remote-ops__webPage',role:session?'tabpanel':undefined,id:session?'web-panel-'+session.id:undefined,'aria-labelledby':session?'web-tab-'+session.activePageId:undefined},session?.display==='embedded'?h(BrowserLiveView,{key:session.id,sessionId,browser:session,inputBarrier,visible:visible&&!settings&&utility!=='library'&&utility!=='recording',zoom,viewportMode}):session?h('div',{className:'dsh-remote-ops__webWindow'},h('p',null,'网页正在独立浏览器窗口中显示。'),h('button',{disabled:navigating,onClick:()=>action({action:'control',control:'focus'})},'显示浏览器')):h('div',{className:'dsh-remote-ops__webWelcome'},h(BrowserIcon,{size:26}),h('strong',null,!synced?'正在读取网页状态…':data.preferences.display==='embedded' && data.preferences.browser==='chromium' && data.runtime.modes?.embedded?.status==='preparing'?'正在准备插件内浏览器…':'打开网页，直接开始'),h('p',null,'无需先保存网站或编排流程。'))),
+        h('div',{className:'dsh-remote-ops__webPage',role:session?'tabpanel':undefined,id:session?'web-panel-'+session.id:undefined,'aria-labelledby':session?'web-tab-'+session.activePageId:undefined},session?.display==='embedded'?h(BrowserLiveView,{key:session.id,sessionId,browser:session,inputBarrier,visible:visible&&!settings&&utility!=='library'&&utility!=='recording',zoom,viewportMode,desktopWidth:data.preferences.desktopWidth,desktopHeight:data.preferences.desktopHeight}):session?h('div',{className:'dsh-remote-ops__webWindow'},h('p',null,'网页正在独立浏览器窗口中显示。'),h('button',{disabled:navigating,onClick:()=>action({action:'control',control:'focus'})},'显示浏览器')):h('div',{className:'dsh-remote-ops__webWelcome'},h(BrowserIcon,{size:26}),h('strong',null,!synced?'正在读取网页状态…':data.preferences.display==='embedded' && data.preferences.browser==='chromium' && data.runtime.modes?.embedded?.status==='preparing'?'正在准备插件内浏览器…':'打开网页，直接开始'),h('p',null,'无需先保存网站或编排流程。'))),
 
           h('div',{className:'dsh-remote-ops__webState',role:'status'},
             h('span',null,session?(job?browserStatus[job.status]:'网页已打开'):'输入网址开始浏览'),job?h('span',{className:'dsh-remote-ops__muted'},`${job.index}/${job.count} 步`):null,
@@ -1831,6 +1854,7 @@ window.__ModuleLoader__.load({
           zoom!=='auto'?h('label',null,'网页视口',h('select',{'aria-label':'网页视口',value:viewportMode,disabled:navigating,onChange:event=>action({action:'preferences.save',preferences:{viewport:event.target.value}})},h('option',{value:'panel'},'跟随面板'),h('option',{value:'desktop'},'桌面视口'))):null,
           h('label',null,'网页画面缩放',h('select',{'aria-label':'网页画面缩放',value:zoom,disabled:navigating,onChange:event=>action({action:'preferences.save',preferences:{zoom:event.target.value}})},h('option',{value:'auto'},'自动适配（默认）'),h('option',{value:'actual'},'原始大小'),h('option',{value:'fit'},'跟随面板适应'))),
           h('small',null,'自动适配完整显示当前网页视口，拖动分栏即时等比缩放；长页面继续滚动浏览。原始大小保留网页字号，超宽时可横向滚动。'),
+          settings&&zoom==='actual'&&viewportMode==='desktop'?h(DesktopViewportSettings,{preferences:data.preferences,busy:navigating,action}):null,
           settings?h(SiteWidthSettings,{defaultUrl:page?.url?.startsWith('http')?page.url:address,widths:data.siteWidths,busy:navigating,action}):null,
           settings&&error?h('p',{role:'alert'},error):null),
         h('section',{className:'dsh-remote-ops__webUtility',hidden:settings||utility!=='library','aria-label':'收藏网站与流程'},h('div',{className:'dsh-remote-ops__drawerHead'},h('strong',null,'收藏网站与流程'),h('button',{type:'button','aria-label':'返回网页',onClick:closeUtility},'返回')),library?h(BrowserLibraryPanel,{sessionId}):null),

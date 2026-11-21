@@ -7,6 +7,16 @@ Remote Ops provides a browser in the native DSH right Sidebar. Type a URL to beg
 
 Use `remote_browser_read` with `snapshot:true` for menu hierarchy and refs; request `image:true` immediately when structure does not identify the correct entry. The configured DSH image-capable model receives the actual screenshot through native attachments. Use fresh `ref` or `point` targets with `snapshotId` for a single action, then observe and verify. Official Playwright MCP shares the existing context through an in-memory connection. See [Browser MCP usage and network boundaries](BROWSER-MCP.md).
 
+## Original-size scrolling and desktop dimensions (v0.18.1)
+
+Both panel and desktop original-size views support horizontal and vertical panning. Wheel input first pans the oversized image, then scrolls the webpage under the pointer, including nested containers. In **设置 → 网页**, select **原始大小 → 桌面视口**, enter **桌面视口宽度／高度**, and save (for example, `1280 × 1600`). This does not reload the page. Existing original-size choices persist; automatic fit remains the default. Ordinary long-page targets scroll into view normally. Fixed content clipped by the website itself needs a larger viewport or a website layout change, not a forced click.
+
+## 原始大小滚动与桌面视口（v0.18.1）
+
+原始大小下，跟随面板和桌面视口均可双向滚动画面。滚轮先移动超出面板的画面，抵达边缘后继续滚动鼠标所在的网页区域，包括内部滚动容器。选择 **设置 → 网页 → 原始大小 → 桌面视口** 后，可分别填写**桌面视口宽度／高度**并保存，例如 `1280 × 1600`，无需刷新网页。已有原始大小偏好会保留；默认仍是自动适配。普通长页面可自动滚动到定位目标；页面自身用 `overflow:clip` 裁掉的固定布局，需要更大视口或网站自身的布局调整，不能靠强制点击解决。
+
+Desktop dimensions are plugin-wide preferences, not per-conversation settings. Width and height each accept 1–8192 CSS pixels with a total limit of 16,777,216 pixels; explicit site minimum widths still apply. Resizing is deferred during valid observations or running actions. After a real viewport change, obtain a new screenshot/ref before the next dependent action.
+
 ## Workspace controls
 
 Workspace tabs and **设置** share the top row. The **环境** button beside the web address controls opens the terminal/API environment drawer; **返回** or Esc returns to the same page. Saved website login configurations remain under **收藏**.

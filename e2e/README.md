@@ -16,6 +16,8 @@ Windows 主机设置 `DSH_CLI` 为宿主的 `lib/bin.js`，执行 `node e2e/runn
 
 ## 嵌入网页的视口与滚动条
 
+`npm run test:browser:desktop --prefix integrations/dsh-remote-ops` 验证普通长页面、MCP 内部滚动点击、鼠标定位滚轮、网站自身裁剪与显式高度调整、草稿及 CSS 保留、录制坐标与配置重载。真实 DSH 安装验收另覆盖原始大小桌面视口的双向滚动、640×480 面板右下按钮，以及设置保存和刷新恢复。
+
 设置 `DSH_CLI` 为宿主的 `lib/bin.js`，执行 `node e2e/runner/browser-recording-native.mjs <tgz>`。脚本将候选包安装进独立的 DSH 配置，使用本地 HTTP 测试页。可用 `RECORDING_NATIVE_OUTPUT` 指定证据目录。
 
 - 默认自动适配：首次加载即至少 1280 CSS 像素。测试 1027×768、390×640、640×480 和 1440×900 面板，完整画面等比显示，逻辑视口保持稳定，四角按钮可达，位置标示可见。重载宿主后显示设置保留。
