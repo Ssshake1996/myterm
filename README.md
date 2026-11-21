@@ -31,7 +31,9 @@
 
 ---
 
-## 网页滚动条与侧栏视口（v0.19.2）
+## 网页光标与点击显示（v0.19.3）
+
+嵌入网页不再叠加蓝白色点击方块。鼠标移到输入框、文本域或可编辑区域时显示文字输入光标，链接和带标准 cursor 样式的元素显示对应光标，支持内嵌 iframe。光标检测只读取页面样式，连续移动会合并查询；网页自身的焦点、插入光标及点击、输入、滚动、录制行为保持原样。
 
 嵌入网页的横竖滚动条使用高对比滑块与轨道，按网页声明的明暗主题自动配色。按住滑块可拖动，移出面板后松开也能结束；切换工作区、页面变化或连接异常时释放拖动状态。保持原生滚动条尺寸、网页布局和 CSS 像素坐标，不增加显示设置。
 
@@ -274,7 +276,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 从 [最新稳定版](https://github.com/Ssshake1996/myterm/releases/latest) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.19.2.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.19.3.tgz
 dsh web
 ```
 
@@ -292,7 +294,7 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ## 内网 HTTP/HTTPS 手动更新
 
-v0.19.2 增强嵌入网页滚动条对比度并补齐滑块拖动，保留跟随侧栏的视口行为。[版本说明](docs/releases/dsh-remote-ops-v0.19.2.md)
+v0.19.3 移除蓝白色点击方块，同步输入框、链接与 iframe 的鼠标光标，保留滚动条拖动和侧栏视口。[版本说明](docs/releases/dsh-remote-ops-v0.19.3.md)
 
 Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后显示等待原因，任务结束后自动热加载；“新版已生效”与运行版本共同确认结果。
 
@@ -301,14 +303,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.19.2.tgz
-  SHA256SUMS-dsh-remote-ops-v0.19.2.txt
+  dsh-remote-ops-v0.19.3.tgz
+  SHA256SUMS-dsh-remote-ops-v0.19.3.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.19.2.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.19.3.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -351,14 +353,14 @@ SSH/Telnet 密码可通过 Agent 环境工具或 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.19.2
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.19.3
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.19.2            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.19.2 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.19.3            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.19.3 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后下载正式包，核对其实际 SHA256、校验文件及 GitHub 提供的摘要。

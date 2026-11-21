@@ -6,8 +6,13 @@ const titles = { overview: '设备概览', ports: '端口状态', legacy: '固�
 
 titles.scrollbars='滚动条验收';
 titles.dialog='原生弹窗验收';
+titles.cursors='网页光标验收';
 export function serveLayoutFixture(path, response, origin) {
   const name = path.split('/').at(-1);
+  if(path==='/panel/cursor-frame'){
+    response.setHeader('Content-Type','text/html; charset=utf-8');
+    response.end('<!doctype html><style>body{margin:0}input{position:absolute;left:12px;top:12px;width:200px;height:32px}a{position:absolute;left:12px;top:65px}</style><input aria-label="内嵌输入"><a href="#">内嵌链接</a>');return true;
+  }
   if (path === '/panel/form') {
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.end('<!doctype html><style>*{box-sizing:border-box}body{margin:0}main{width:1060px;height:100vh;position:relative}button{position:absolute;right:5px;bottom:5px;width:80px;height:40px}</style><main><button id="apply">应用设置</button></main><script>apply.onclick=()=>parent.postMessage("applied","*")</script>');
@@ -15,6 +20,9 @@ export function serveLayoutFixture(path, response, origin) {
   }
   if (!path.startsWith('/panel/') || !Object.hasOwn(titles, name)) return false;
   response.setHeader('Content-Type', 'text/html; charset=utf-8');
+  if(name==='cursors'){
+    response.end(`<!doctype html><meta charset="utf-8"><title>${titles.cursors}</title><style>body{margin:0;font:16px system-ui}#entry,textarea,#editable,button,#grab,#shadow,a,output{position:absolute;left:24px;width:220px;height:32px;box-sizing:border-box}#entry{top:24px}a{top:80px}textarea{top:124px}#editable{top:180px;border:1px solid #aaa}button{top:230px}#grab{top:280px;cursor:grab}#shadow{top:330px}output{top:390px;width:800px}iframe{position:absolute;left:300px;top:24px;width:320px;height:220px;border:4px solid #777}</style><input id="entry" aria-label="输入内容"><a href="#">查看链接</a><textarea aria-label="多行内容"></textarea><div id="editable" contenteditable>编辑内容</div><button>普通按钮</button><div id="grab">拖动区域</div><div id="shadow"></div><iframe src="${origin.replace('127.0.0.1','localhost')}/panel/cursor-frame"></iframe><output id="echo">ready</output><script>window.cursorMoves=0;document.addEventListener('pointermove',()=>cursorMoves++);entry.oninput=()=>echo.textContent=entry.value;shadow.attachShadow({mode:'open'}).innerHTML='<input style="width:200px;height:30px" aria-label="组件输入">';</script>`);return true;
+  }
   if(name==='dialog'){
     response.end(`<!doctype html><meta charset="utf-8"><title>${titles.dialog}</title><button id="modal" onclick="document.querySelector('output').textContent=confirm('Confirm operation')?'confirmed':'cancelled'">打开确认框</button><output>ready</output>`);return true;
   }
@@ -148,6 +156,38 @@ export async function checkBrowserLayout({page,owner,api,snapshot,until,step,url
     await api('browser',{...base,action:'navigate',navigation:'reload'});await geometry();
     await until(async()=>/clicks=0/.test(await read())&&/rgb\(71, 85, 105\)/.test(await read()));
     evidence.panelLayout.scrollbars={twoAxisDrag:true,outsideCapture:true,noExtraClick:true,workspaceCancellation:true,csp:true,lightAndDark:true,refresh:true};
+  });
+  await step('输入框与链接同步光标，点击不叠加方块，中文输入保持正常',async()=>{
+    await open('cursors');await geometry();
+    const cases=[['input',45,40,'text'],['link',45,92,'pointer'],['textarea',45,145,'text'],['editable',45,195,'text'],['button',45,245,'default'],['grab',45,295,'grab'],['shadow',45,345,'text'],['iframe',340,52,'text'],['iframe-link',340,100,'pointer']];
+    for(const [name,x,y,cursor] of cases){
+      await image.hover({position:{x,y}});
+      await until(async()=>(await image.evaluate(n=>getComputedStyle(n).cursor))===cursor);
+    }
+    const pattern='**/api/dsh-remote-ops/browser';let count=0,release,started,finished;
+    const held=new Promise(r=>{release=r;}),seen=new Promise(r=>{started=r;}),done=new Promise(r=>{finished=r;});
+    const delay=async route=>{
+      const body=route.request().method()==='POST'?route.request().postDataJSON():null;
+      if(body?.action!=='cursor'){await route.continue();return;}
+      count++;
+      if(count!==1){await route.continue();return;}
+      try{const response=await route.fetch();started();await held;await route.fulfill({response});}finally{finished();}
+    };
+    await page.route(pattern,delay);
+    try{
+      await image.hover({position:{x:45,y:40}});await seen;
+      await image.hover({position:{x:45,y:92}});await image.hover({position:{x:45,y:295}});
+      await new Promise(r=>setTimeout(r,150));assert.equal(count,1);
+      release();await done;
+      await until(async()=>(await image.evaluate(n=>getComputedStyle(n).cursor))==='grab');
+      assert.equal(count,2);
+    }finally{release();await page.unroute(pattern,delay);}
+    await image.click({position:{x:45,y:40}});await page.keyboard.insertText('中文光标验收');
+    await until(async()=>(await api('browser',{sessionId:owner,action:'observe'})).result.text.includes('中文光标验收'));
+    assert.equal(await page.locator('.dsh-remote-ops__browserFocus').count(),0);
+    await page.getByRole('textbox',{name:'网页地址'}).hover();
+    await until(async()=>(await image.evaluate(n=>getComputedStyle(n).cursor))==='default');
+    evidence.panelLayout.cursors={cases:cases.map(([name,,,cursor])=>({name,cursor})),coalescedQueries:count,noClickOverlay:true,typing:true,leaveResets:true};
   });
   await step('人工点击产生的原生弹窗可接受、取消，有弹窗时也能关闭网页',async()=>{
     await open('dialog');await geometry();

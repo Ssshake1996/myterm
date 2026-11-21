@@ -43,8 +43,11 @@ export const liveBrowserScenario={id:'web-live',title:'网址直开、实时画�
     await tool('remote_browser_run',{requestId:'live-human-during-agent',steps:[{action:'wait',target:{kind:'css',value:'#echo'},expect:{target:{kind:'css',value:'#echo'},text:'中文'}}]});
     const image=p.getByAltText('网页实时画面',{exact:true});
     await until(async()=>Number(await image.getAttribute('data-revision'))===(await snapshot()).sessions.find(v=>v.id===browser.id).revision);
-    const current=(await snapshot()).sessions.find(v=>v.id===browser.id),bounds=await image.boundingBox();await image.click({position:{x:50*bounds.width/current.viewport.width,y:60*bounds.height/current.viewport.height}});await p.keyboard.insertText('中文');
+    const current=(await snapshot()).sessions.find(v=>v.id===browser.id),bounds=await image.boundingBox(),position={x:50*bounds.width/current.viewport.width,y:60*bounds.height/current.viewport.height};
+    await image.hover({position});await until(async()=>(await image.evaluate(n=>getComputedStyle(n).cursor))==='text');
+    await image.click({position});await p.keyboard.insertText('中文');
     await until(async()=>(await tool('remote_browser_read',{})).page.text.includes('中文'));
+    assert.equal(await p.locator('.dsh-remote-ops__browserFocus').count(),0);
     await until(async()=>((await snapshot()).sessions.find(v=>v.id===browser.id)?.job?.status==='completed'));
     await p.keyboard.press('Control+Escape');assert.equal(await p.getByRole('textbox',{name:'网页地址',exact:true}).evaluate(n=>document.activeElement===n),true);
   });

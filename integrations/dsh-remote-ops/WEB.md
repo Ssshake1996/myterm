@@ -9,6 +9,10 @@ Use `remote_browser_read` with `snapshot:true` for menu hierarchy and refs; requ
 
 ## Panel-sized browser
 
+Embedded pages no longer add a blue-and-white click marker. Hovering text inputs, textareas and editable areas shows a text cursor; links and elements with standard CSS cursor styles show the matching cursor, including inside iframes. Cursor detection only reads page styles and coalesces consecutive queries. Native page focus, text carets, clicks, typing, scrolling and recordings remain unchanged.
+
+嵌入网页不再叠加蓝白色点击方块。鼠标移到输入框、文本域或可编辑区域时显示文字输入光标，链接和带标准 cursor 样式的元素显示对应光标，支持内嵌 iframe。光标检测只读取页面样式，连续移动会合并查询；网页自身的焦点、插入光标及点击、输入、滚动、录制行为保持原样。
+
 Embedded horizontal and vertical scrollbars use contrasting thumbs and tracks according to the webpage’s declared color scheme. Hold and drag a thumb, including releasing outside the panel. Workspace changes, page changes and connection failures release the drag. Native scrollbar dimensions, webpage layout and CSS-pixel coordinates are preserved, with no additional display settings.
 
 嵌入网页的横竖滚动条使用高对比滑块与轨道，按网页声明的明暗主题自动配色。按住滑块可拖动，移出面板后松开也能结束；切换工作区、页面变化或连接异常时释放拖动状态。保持原生滚动条尺寸、网页布局和 CSS 像素坐标，不增加显示设置。

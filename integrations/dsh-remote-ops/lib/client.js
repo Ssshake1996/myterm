@@ -287,7 +287,6 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__viewportError,.dsh-remote-ops__viewNotice{position:absolute;z-index:4;bottom:8px;left:8px;right:8px;max-height:45%;overflow:auto;padding:8px 10px;background:var(--ro-surface,#fff);border:1px solid var(--ro-border);border-radius:6px;font-size:12px;box-shadow:0 2px 8px #0002}
       .dsh-remote-ops__viewportError summary{cursor:pointer;color:var(--dsw-alias-state-error-primary,#b42318)}.dsh-remote-ops__viewportError pre{white-space:pre-wrap;overflow-wrap:anywhere}.dsh-remote-ops__viewportError button{margin-top:6px}
 
-      .dsh-remote-ops__browserFocus{position:absolute;pointer-events:none;border:2px solid #2c6ee8;border-radius:5px;box-shadow:0 0 0 2px #fff,0 0 0 3px #16365966;z-index:1;box-sizing:border-box}
       .dsh-remote-ops__liveOptions{position:relative;margin-left:auto}.dsh-remote-ops__liveOptions>summary{padding:3px;cursor:pointer}
       .dsh-remote-ops__liveOptions>div{position:absolute;bottom:100%;right:0;z-index:15;width:180px;background:var(--ro-bg);border:1px solid var(--ro-border);border-radius:7px;padding:12px;display:grid;gap:8px;box-shadow:0 5px 18px #0002}
       .dsh-remote-ops__webUtility{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
@@ -508,7 +507,7 @@ window.__ModuleLoader__.load({
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const updateRecovery = createUpdateRecovery((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.19.2", update: { currentVersion: "0.19.2", latestVersion: "0.19.2", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.19.3", update: { currentVersion: "0.19.3", latestVersion: "0.19.3", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -1539,16 +1538,41 @@ window.__ModuleLoader__.load({
     };
     function BrowserLiveView({ sessionId, browser, inputBarrier, visible = true }) {
       const [frame,setFrame]=useState(null),[message,setMessage]=useState('正在连接网页画面…');
-      const [focus,setFocus]=useState(null),[viewportError,setViewportError]=useState(null),[viewportRetry,setViewportRetry]=useState(0);
+      const [cursor,setCursor]=useState('default'),[viewportError,setViewportError]=useState(null),[viewportRetry,setViewportRetry]=useState(0);
       const image=useRef(null),capture=useRef(null),surface=useRef(null),current=useRef(null),queue=useRef(Promise.resolve()),alive=useRef(true),composing=useRef(false);
       const drag=useRef(null),suppressClick=useRef(false),pointerMoves=useRef(new Map());
       current.current={frame};
       useEffect(()=>{
-        const value=frame?.focus;
-        setFocus(value??null);
-        if(!value)return;
-        const timer=setTimeout(()=>setFocus(null),1800);return()=>clearTimeout(timer);
-      },[frame?.focus?.sequence,frame?.pageId,frame?.revision]);
+        const node=image.current;
+        setCursor('default');
+        if(!visible||!node||!frame)return;
+        let stopped=false,pending=false,latest,sequence=0,timer,controller;
+        const schedule=()=>{if(!stopped&&!pending&&!timer&&latest)timer=setTimeout(()=>{timer=null;void probe();},50);};
+        const probe=async()=>{
+          const wanted=latest;latest=null;
+          if(!wanted||stopped)return;
+          pending=true;controller=new AbortController();
+          try {
+            const response=await request('/api/dsh-remote-ops/browser',{method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,
+              body:JSON.stringify({action:'cursor',sessionId,browserId:browser.id,cursor:wanted.input})});
+            if(!stopped&&wanted.sequence===sequence)setCursor(response.result?.cursor??'default');
+          }catch(error){if(!stopped&&wanted.sequence===sequence&&error.name!=='AbortError')setCursor('default');}
+          finally{pending=false;schedule();}
+        };
+        const clear=()=>{sequence++;latest=null;clearTimeout(timer);timer=null;controller?.abort();};
+        const leave=()=>{clear();setCursor('default');};
+        const move=event=>{
+          if(event.buttons)return;
+          const saved=current.current.frame,rect=node.getBoundingClientRect();
+          if(!saved||event.clientX<rect.left||event.clientX>=rect.right||event.clientY<rect.top||event.clientY>=rect.bottom){leave();return;}
+          const point=browserPointerPoint(node,saved,event);
+          if(!point)return;
+          latest={sequence:++sequence,input:{...point,pageId:saved.pageId,revision:saved.revision}};schedule();
+        };
+        node.addEventListener('pointermove',move);node.addEventListener('pointerenter',move);node.addEventListener('pointerup',move);
+        node.addEventListener('pointerleave',leave);node.addEventListener('pointerdown',clear);
+        return()=>{stopped=true;clear();node.removeEventListener('pointermove',move);node.removeEventListener('pointerenter',move);node.removeEventListener('pointerup',move);node.removeEventListener('pointerleave',leave);node.removeEventListener('pointerdown',clear);};
+      },[sessionId,browser.id,frame?.pageId,frame?.revision,visible]);
       useEffect(()=>{
         const node = surface.current;
         if (!visible || !node) return;
@@ -1700,11 +1724,10 @@ window.__ModuleLoader__.load({
           h('details',null,h('summary',null,'网页尺寸同步失败',viewportError.requestFailure?.status?' · HTTP '+viewportError.requestFailure.status:''),h('pre',null,viewportError.message)),
           h('button',{type:'button',onClick:()=>setViewportRetry(value=>value+1)},'重试尺寸同步')):null,
         frame&&message?h('div',{className:'dsh-remote-ops__viewNotice',role:'status'},message):null,
-        h('div',{ref:surface,className:'dsh-remote-ops__liveSurface'},frame?h('img',{ref:image,alt:'网页实时画面','data-revision':frame.revision,'data-sequence':frame.sequence,draggable:false,src:'data:image/jpeg;base64,'+frame.data,style:{width:frame.width,height:frame.height,maxWidth:'none',touchAction:'none'},onPointerDown:pointerDown,onPointerMove:pointerMove,onPointerUp:event=>finishDrag(event),onPointerCancel:event=>finishDrag(event,true),onLostPointerCapture:event=>finishDrag(event,true),onContextMenu:event=>event.preventDefault(),onClick:event=>{
+        h('div',{ref:surface,className:'dsh-remote-ops__liveSurface'},frame?h('img',{ref:image,alt:'网页实时画面','data-revision':frame.revision,'data-sequence':frame.sequence,draggable:false,src:'data:image/jpeg;base64,'+frame.data,style:{width:frame.width,height:frame.height,maxWidth:'none',touchAction:'none',cursor},onPointerDown:pointerDown,onPointerMove:pointerMove,onPointerUp:event=>finishDrag(event),onPointerCancel:event=>finishDrag(event,true),onLostPointerCapture:event=>finishDrag(event,true),onContextMenu:event=>event.preventDefault(),onClick:event=>{
           if(suppressClick.current){suppressClick.current=false;return;}
           const rect=image.current.getBoundingClientRect();capture.current?.focus({preventScroll:true});send({kind:'click',x:(event.clientX-rect.left)*frame.width/rect.width,y:(event.clientY-rect.top)*frame.height/rect.height,button:event.button===2?'right':event.button===1?'middle':'left',count:Math.min(2,event.detail||1)});
         }}):h('div',{className:'dsh-remote-ops__empty',role:'status'},message||'等待新网页画面…'),
-        focus?h('div',{className:'dsh-remote-ops__browserFocus','aria-hidden':true,'data-focus-sequence':focus.sequence,style:{left:focus.rect.x,top:focus.rect.y,width:Math.max(12,focus.rect.width),height:Math.max(12,focus.rect.height)}}):null,
         h('textarea',{ref:capture,className:'dsh-remote-ops__webCapture','aria-label':'网页键盘输入',autoComplete:'off',spellCheck:false,onKeyDown:key,onChange:flush,onCompositionStart:()=>{composing.current=true;},onCompositionEnd:event=>{composing.current=false;flush(event);},onPaste:event=>{event.preventDefault();const text=event.clipboardData.getData('text');if(text)send({kind:'text',text});}})));
     }
     const browserRuntimeSummary = (runtime, windowBrowser) => {

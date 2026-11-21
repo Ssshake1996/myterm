@@ -9,6 +9,7 @@ import { windowsDefaultBrowser } from './browser-default.js';
 import { browserInstallerCli, browserRuntimeMetadata, browserRuntimeDirectory, inspectBrowserRuntime, writeBrowserRuntimeManifest } from './browser-runtime.js';
 import { prepareEmbeddedBrowser } from './embedded-browser.js';
 import { installBrowserScrollbars } from './browser-scrollbars.js';
+import { browserCursor } from './browser-cursor.js';
 
 const identifier = value => typeof value === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
 const validViewport = size => size && [size.width,size.height].every(n => Number.isSafeInteger(n) && n > 0 && n <= 8192) && size.width * size.height <= 16777216;
@@ -107,6 +108,7 @@ export class BrowserWorkspace extends BrowserSessions {
     if(args.action==='export'){const {content,...result}=await this.recordings.export(owner,id);return result;}
     throw browserError('BROWSER_RECORDING_ACTION_INVALID','Use start, stop, read or export');
   }
+  cursor(owner,id,input) {return browserCursor(this.session(owner,id),input);}
   input(owner,id,input) {
     const r=this.session(owner,id),pending=(r.inputQueue??Promise.resolve()).then(async()=>{
       const handle=await this.recordings.begin(r,'human',input.kind,{pageId:input.pageId,revision:input.revision,...(['click','pointer'].includes(input.kind)?{x:input.x,y:input.y}:{}),...(input.kind==='pointer'?{phase:input.phase,gestureId:input.gestureId}:{}),...(input.kind==='key'?{key:input.key}:{}),...(input.kind==='text'?{input:'See the associated DOM interaction; values are captured at the target element.'}:{})});

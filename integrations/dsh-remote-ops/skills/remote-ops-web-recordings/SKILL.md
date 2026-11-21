@@ -21,6 +21,8 @@ The CSS viewport follows the Sidebar. Resizing and the viewer-only operation mar
 
 Viewer-only panning adds no webpage event. Pointer-targeted wheel input can produce genuine hover/scroll events in the webpage; retain those events. After changing saved desktop dimensions, recorded coordinates belong to that browser CSS viewport, not the GUI panel.
 
+Viewer cursor checks only read page styles. They do not move the remote pointer or add interaction records; removing the viewer click marker does not remove webpage focus or change recorded actions.
+
 Manual scrollbar dragging produces `action: "pointer"` records with `details.phase` (`down`, `move`, `up` or `cancel`), a gesture ID and CSS-pixel coordinates when available. Pointer moves can be coalesced. These are input dispatch records, not extra button clicks or verified business results; correlate them with observations before generating automation.
 
 ## Interpret schema version 1

@@ -95,6 +95,14 @@ try{
   assert.equal((await run({action:'click',target:{kind:'css',value:'#apply',frame:'iframe'}})).status,'completed');
   assert.equal(await page.locator('output').innerText(),'设置已应用');
   pass('cross-origin iframe clicks use browser scrolling without expanding or rewriting the webpage');
+  await go('cursors');await page.frameLocator('iframe').getByLabel('内嵌输入').waitFor();
+  for(const [x,y,cursor] of [[45,40,'text'],[45,92,'pointer'],[45,145,'text'],[45,195,'text'],[45,245,'default'],[45,295,'grab'],[45,345,'text'],[340,52,'text'],[340,100,'pointer']]){
+    const result=await w.cursor('test',r.id,{pageId:r.activePageId,revision:r.revision,x,y});
+    assert.equal(result.cursor,cursor,JSON.stringify({x,y,result}));assert.equal(result.accepted,true);
+  }
+  assert.equal(await page.evaluate(()=>cursorMoves),0);
+  assert.equal(await page.evaluate(()=>document.activeElement.tagName),'BODY');
+  pass('read-only cursor queries resolve inputs, text, links, shadow DOM and cross-origin frames without pointer events');
   await go('dialog');frame=await w.frame('test',r.id,{});
   for(const action of ['dialog-accept','dialog-dismiss']){
     const pending=w.input('test',r.id,{kind:'click',x:45,y:18,pageId:r.activePageId,revision:frame.revision});
