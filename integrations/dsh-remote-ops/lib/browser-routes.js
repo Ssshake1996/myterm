@@ -3,7 +3,7 @@ import { ownerId } from "./common.js";
 import { browserError, browserRunSource, browserTarget } from "./browser-steps.js";
 
 const headers = { "Cache-Control": "no-store" };
-const configuration = new Set(["site.save", "site.delete", "flow.save", "flow.delete", "runtime.install", "runtime.repair", "preferences.save", "site-width.save"]);
+const configuration = new Set(["site.save", "site.delete", "flow.save", "flow.delete", "runtime.install", "runtime.repair", "preferences.save"]);
 export function registerBrowserRoutes(ctx, state) {
   const workspace = state.browser;
   const register = definition => ctx.effect(() => registerRuntimeFetch(ctx, state, { requestBody: "buffered", ...definition }), "dsh-remote-ops browser route");
@@ -21,7 +21,6 @@ export function registerBrowserRoutes(ctx, state) {
       switch (body.action) {
         case 'recording': result=await workspace.recording(owner,body.recording??{});break;
         case 'preferences.save': result=await workspace.savePreferences(body.preferences);break;
-        case 'site-width.save': result=await workspace.saveSiteWidth(body.url, body.minimum);break;
         case 'open-url': result=await workspace.openUrl(owner,body.url,{display:body.display,browser:body.browser,source:'human'});break;
         case 'navigate': result=await workspace.navigate(owner,body.browserId,body.navigation??'goto',body.url);break;
         case 'input': result=await workspace.input(owner,body.browserId,body.input);break;

@@ -9,24 +9,6 @@ import {registerBrowserTools} from '../lib/browser-tools.js';
 import {registerBrowserRoutes} from '../lib/browser-routes.js';
 import {browserInput} from '../lib/browser-view.js';
 
-test('desktop dimensions persist, apply before navigation and update without a panel resize',async t=>{
-  const {w,root}=await fixture(t);
-  await w.savePreferences({viewport:'desktop',zoom:'actual',desktopWidth:1600,desktopHeight:1200});
-  const opened=await w.openUrl('a','https://desktop.test/'),r=w.session('a',opened.id),page=r.pages.get(r.activePageId);
-  assert.deepEqual(page.firstViewport,{width:1600,height:1200});
-  await w.resizeViewport('a',r.id,{mode:'desktop',zoom:'actual'});
-  await w.savePreferences({desktopWidth:1440,desktopHeight:1080});
-  await w.resizeViewport('a',r.id,{mode:'desktop',zoom:'actual'});
-  assert.deepEqual(page.viewportSize(),{width:1440,height:1080});
-  await w.prepareNavigationViewport(r,page,'https://desktop.test/next');
-  assert.deepEqual(page.viewportSize(),{width:1440,height:1080});
-  const restored=new BrowserWorkspace({root});await restored.ready;t.after(()=>restored.dispose());
-  assert.equal(restored.preferences.zoom,'actual');assert.equal(restored.preferences.viewport,'desktop');
-  assert.deepEqual(restored.initialViewport('https://desktop.test/'),{width:1440,height:1080});
-  for(const value of [null,'1200',0,-1,1.5,8193])await assert.rejects(w.savePreferences({desktopHeight:value}),/BROWSER_VIEWPORT_INVALID/);
-  await assert.rejects(w.savePreferences({desktopWidth:8192,desktopHeight:8192}),/BROWSER_VIEWPORT_INVALID/);
-});
-
 test('wheel targets the current image position and rejects invalid positions before any input',async t=>{
   const {w,inputs}=await fixture(t),opened=await w.openUrl('a','https://desktop.test/'),r=w.session('a',opened.id);
   r.view={latest:{width:1024,height:768},stop:async()=>{}};
@@ -61,8 +43,6 @@ async function fixture(t) {
     };
     launches.push({profile,options,context});await context.newPage();return context;
   }});await w.ready;
-  // These cases exercise the retained original-size mode; automatic defaults have separate coverage.
-  await w.savePreferences({zoom:'actual'});
   // Unit fixtures must not depend on CI's current user's Windows associations.
   w.systemBrowser=async()=>({browser:'chrome',executablePath:'C:\\Fixture\\chrome.exe'});
   t.after(async()=>{await w.dispose();await rm(root,{recursive:true,force:true});});
@@ -108,58 +88,7 @@ test('panel viewport resizes are owner scoped, invalidate old coordinates and de
   await w.resizeViewport('a',one.id,{mode:'panel',width:390,height:480});assert.equal(inputs.length,1);
   await assert.rejects(w.resizeViewport('b',one.id,{mode:'panel',width:390,height:480}),/BROWSER_SESSION_NOT_FOUND/);
   await assert.rejects(w.resizeViewport('a',one.id,{mode:'panel',width:Infinity,height:480}),/BROWSER_VIEWPORT_INVALID/);
-  await w.resizeViewport('a',one.id,{mode:'desktop'});assert.deepEqual(inputs.at(-1),['viewport',{width:1024,height:768}]);
-});
-
-test('late CSS overflow widens only the original-size viewport; proportional fit requires a choice', async t => {
-  const { w } = await fixture(t);
-  const { id } = await w.openUrl('viewer', 'https://device.test/');
-  const session = w.session('viewer', id), page = session.pages.get(session.activePageId);
-  const hint = { mode: 'panel', width: 384, height: 576, pageId: session.activePageId };
-  let overflowWidth = 0;
-  page.evaluate = async () => ({ required: overflowWidth, overflow: Math.max(0, overflowWidth - session.viewport.width), frameWidth: session.viewport.width });
-  await w.resizeViewport('viewer', id, hint);
-  assert.deepEqual(session.viewport, { mode: 'panel', width: 384, height: 576 });
-  overflowWidth = 1024;
-  session.nextLayoutCheck = 0;
-  await w.frame('viewer', id, {});
-  await session.inputQueue;
-  assert.deepEqual(session.viewport, { mode: 'panel', width: 1024, height: 576 });
-  await w.resizeViewport('viewer', id, {...hint,height:420});
-  assert.deepEqual(session.viewport, { mode: 'panel', width: 1024, height: 420 });
-  await w.resizeViewport('viewer', id, {...hint,zoom:'fit'});
-  assert.deepEqual(session.viewport, { mode: 'panel', width: 1024, height: 1536 });
-  overflowWidth = 0;
-  await w.resizeViewport('viewer', id, session.viewportHint, true);
-  assert.deepEqual(session.viewport, { mode: 'panel', width: 384, height: 576 });
-  await page.goto('https://device.test/responsive');
-  await w.resizeViewport('viewer', id, hint);
-  assert.deepEqual(session.viewport, { mode: 'panel', width: 384, height: 576 });
-  await w.resizeViewport('viewer', id, { mode: 'desktop', zoom:'fit', width: 512, height: 600 });
-  assert.deepEqual(session.viewport, { mode: 'desktop', width: 1024, height: 1200 });
-  await w.resizeViewport('viewer', id, { mode: 'desktop' });
-  assert.deepEqual(session.viewport, { mode: 'desktop', width: 1024, height: 768 });
-});
-test('site minimum survives restart, applies before navigation, and stays isolated by origin and tab',async t=>{
-  const {w,root,launches}=await fixture(t);
-  await w.saveSiteWidth('https://example.test:8443/login?q=ignored',1280);
-  const restored=new BrowserWorkspace({root});await restored.ready;t.after(()=>restored.dispose());
-  assert.deepEqual(restored.snapshot('viewer').siteWidths,{'https://example.test:8443':1280});
-  for(const minimum of [0,8193,123.5,'1280',undefined])await assert.rejects(w.saveSiteWidth('https://example.test',minimum),/BROWSER_VIEWPORT_INVALID/);
-  const {id}=await w.openUrl('viewer','https://example.test:8443/home'),r=w.session('viewer',id),first=r.pages.get(r.activePageId);
-  assert.deepEqual(launches[0].options.viewport,{width:1280,height:768});
-  assert.deepEqual(first.firstViewport,{width:1280,height:768});
-  const hint={mode:'panel',width:1027,height:720};await w.resizeViewport('viewer',id,hint);
-  await w.navigate('viewer',id,'new-page');
-  await w.navigate('viewer',id,'goto','http://example.test:8443/start');
-  assert.deepEqual(r.pages.get(r.activePageId).firstViewport,{width:1027,height:720});
-  await w.resizeViewport('viewer',id,{...hint,width:900});
-  assert.deepEqual(first.viewportSize(),{width:1280,height:720});
-  await w.navigate('viewer',id,'goto','https://example.test:8443/another-path');
-  assert.equal(r.pages.get(r.activePageId).firstViewport.width,1280);
-  await w.saveSiteWidth('https://example.test:8443',null);
-  await w.resizeViewport('viewer',id,hint);
-  assert.equal(r.viewport.width,1027);assert.deepEqual(w.snapshot('viewer').siteWidths,{});
+  await assert.rejects(w.resizeViewport('a',one.id,{mode:'desktop'}),/BROWSER_VIEWPORT_INVALID/);
 });
 
 test('new tabs inherit the selected viewport and resizing never reloads a page or clears its form',async t=>{

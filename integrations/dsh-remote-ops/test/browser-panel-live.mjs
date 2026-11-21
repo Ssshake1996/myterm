@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {mkdtemp,rm,mkdir,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,resolve,dirname} from 'node:path';
+import {chromium} from 'playwright-core';
+import {BrowserWorkspace,adoptBrowserWorkspace} from '../lib/browser-workspace.js';
+import {serveLayoutFixture} from '../../../e2e/runner/browser-layout-check.mjs';
+const root=await mkdtemp(join(tmpdir(),'remote-ops-panel-live-')),evidence={checks:[]};
+const server=createServer((req,res)=>{if(!serveLayoutFixture(req.url,res,'http://127.0.0.1:'+server.address().port))res.writeHead(404).end();});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));
+const url='http://127.0.0.1:'+server.address().port;
+const launchContext=(profile,options)=>chromium.launchPersistentContext(profile,{...options,headless:true,...(process.env.BROWSER_EXECUTABLE?{executablePath:process.env.BROWSER_EXECUTABLE}:{channel:'chrome'})});
+const w=new BrowserWorkspace({root,launchContext});let seq=0;
+const pass=name=>{evidence.checks.push(name);console.log('PASS '+name);};
+const until=async fn=>{for(let n=0;n<100;n++){if(await fn())return;await new Promise(r=>setTimeout(r,50));}throw Error('Panel verification timed out');};
+try{
+  const opened=await w.openUrl('test',url+'/panel/wide'),r=w.session('test',opened.id),page=r.pages.get(r.activePageId);
+  const run=async step=>{const job=await w.run('test',r.id,[step],{requestId:'panel-'+ ++seq});await job.done;return job;};
+  const go=path=>run({action:'goto',url:url+'/panel/'+path});
+  await page.locator('#draft').fill('keep draft');
+  for(const [width,height] of [[1027,768],[390,640],[1440,420]]){
+    await w.resizeViewport('test',r.id,{width,height});
+    assert.deepEqual(await page.evaluate(()=>[innerWidth,innerHeight]),[width,height]);
+    assert.equal(await page.locator('#draft').inputValue(),'keep draft');
+  }
+  pass('CSS width and height follow the panel independently without resetting the document');
+  await w.resizeViewport('test',r.id,{width:1027,height:768});
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth));
+  const scrollbars=await page.evaluate(()=>({horizontal:innerHeight-document.documentElement.clientHeight,vertical:innerWidth-document.documentElement.clientWidth}));
+  assert.ok(scrollbars.horizontal>0,'the embedded browser must render its native horizontal scrollbar');
+  evidence.nativeScrollbars=scrollbars;
+  let frame=await w.frame('test',r.id,{});
+  await w.input('test',r.id,{kind:'wheel',x:1500,y:0,position:{x:500,y:350},pageId:r.activePageId,revision:frame.revision});
+  await until(()=>page.evaluate(()=>scrollX>200));
+  const box=await page.locator('#tr').boundingBox();
+  frame=await w.frame('test',r.id,{});
+  const recording=await w.recording('test',{action:'start',browserId:r.id});
+  await w.input('test',r.id,{kind:'click',x:box.x+box.width/2,y:box.y+box.height/2,pageId:r.activePageId,revision:frame.revision});
+  assert.equal(await page.locator('#last').innerText(),'hit-tr');
+  await w.recording('test',{action:'stop',recordingId:recording.id});
+  const log=await w.recording('test',{action:'read',recordingId:recording.id,limit:100});
+  const click=log.events.find(e=>e.kind==='interaction'&&e.action==='click'&&e.target?.css==='#tr');
+  assert.ok(click);assert.ok(Math.abs(click.pointer.x-box.x-box.width/2)<2);
+  pass('1027x768 viewer scrolls the 1280px webpage to the right and records the actual click coordinates');
+  await go('desktop-nested');await page.mouse.move(0,0);frame=await w.frame('test',r.id,{});
+  await w.input('test',r.id,{kind:'wheel',x:0,y:450,position:{x:350,y:250},pageId:r.activePageId,revision:frame.revision});
+  await until(()=>page.locator('#pane').evaluate(n=>n.scrollTop>400));assert.equal(await page.evaluate(()=>scrollY),0);
+  const observation=await w.observeSnapshot('test',r.id),ref=observation.snapshot.match(/button "保存布局" \[ref=([^\]]+)\]/)?.[1];assert.ok(ref);
+  const clicked=await run({action:'click',target:{kind:'ref',value:ref,snapshotId:observation.snapshotId}});
+  assert.equal(clicked.status,'completed',clicked.error?.message);
+  assert.equal(await page.locator('#result').innerText(),'saved-1');
+  pass('wheel and Agent ref clicks reach the nested container using native scrolling');
+  await go('wide');const before=await w.observeSnapshot('test',r.id);
+  const oldRef=before.snapshot.match(/button "左上" \[ref=([^\]]+)\]/)?.[1];assert.ok(oldRef);
+  await w.resizeViewport('test',r.id,{width:640,height:500});
+  const rejected=await run({action:'click',target:{kind:'ref',value:oldRef,snapshotId:before.snapshotId}});
+  assert.notEqual(rejected.status,'completed');assert.match(rejected.error?.message??'',/OBSERVATION/);
+  const after=await w.observeSnapshot('test',r.id),freshRef=after.snapshot.match(/button "右下" \[ref=([^\]]+)\]/)?.[1];assert.ok(freshRef);
+  assert.equal((await run({action:'click',target:{kind:'ref',value:freshRef,snapshotId:after.snapshotId}})).status,'completed');
+  assert.equal(await page.locator('#last').innerText(),'hit-br');
+  pass('resize invalidates old observations; a fresh observation scrolls and clicks successfully');
+  await go('framed');
+  assert.equal((await run({action:'click',target:{kind:'css',value:'#apply',frame:'iframe'}})).status,'completed');
+  assert.equal(await page.locator('output').innerText(),'设置已应用');
+  pass('cross-origin iframe clicks use browser scrolling without expanding or rewriting the webpage');
+  await go('wide');await page.locator('#draft').fill('hot draft');await page.context().addCookies([{name:'session',value:'test-session',url}]);
+  w.preferences={...w.preferences,viewport:'desktop',zoom:'auto',desktopHeight:1600};delete w.autoWidths;
+  adoptBrowserWorkspace(w);await w.ready;
+  await w.resizeViewport('test',r.id,{width:700,height:480});
+  assert.equal(r.pages.get(r.activePageId),page);
+  assert.equal(await page.locator('#draft').inputValue(),'hot draft');
+  assert.equal((await page.context().cookies()).find(c=>c.name==='session')?.value,'test-session');
+  assert.deepEqual(page.viewportSize(),{width:700,height:480});
+  pass('hot adoption retains page, cookies and draft without requiring removed automatic-layout fields');
+  evidence.status='passed';
+}catch(error){evidence.status='failed';evidence.error=error.stack;process.exitCode=1;console.error(error);}
+finally{
+  await w.dispose();server.closeAllConnections();await new Promise(r=>server.close(r));
+  assert.equal(dirname(resolve(root)),resolve(tmpdir()));await rm(root,{recursive:true,force:true,maxRetries:6,retryDelay:150});
+  if(process.env.PANEL_EVIDENCE){const out=resolve(process.env.PANEL_EVIDENCE);await mkdir(out,{recursive:true});await writeFile(join(out,'evidence.json'),JSON.stringify(evidence,null,2));}
+}

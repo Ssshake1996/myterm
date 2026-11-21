@@ -35,7 +35,7 @@ const decode = value => {
 };
 const server = createServer(async (req, res) => {
   try {
-    if (req.url === "/page") { res.setHeader("Content-Type", "text/html"); res.end('<h1>Hot reload browser</h1><label>Draft<input id="draft"></label>'); return; }
+    if (req.url === "/page") { res.setHeader("Content-Type", "text/html"); res.end('<h1>Hot reload browser</h1><label>Draft<input id="draft" oninput="document.querySelector(\'output\').textContent=this.value"></label><output></output>'); return; }
     if (req.url === "/api/login") { res.setHeader("Content-Type", "application/json"); res.end('{"token":"local-fixture-token"}'); return; }
     if (req.url === "/api/slow") { slowResponse = res; releaseSlow = () => { res.setHeader("Content-Type", "application/json"); res.end('{"ok":true,"marker":"completed-once"}'); }; return; }
     if (req.url === "/feed/latest.json") { res.end(JSON.stringify({ schemaVersion: 1, package: "@dsh/remote-ops", version: feed.version, asset: `dsh-remote-ops-v${feed.version}.tgz`, checksum: `SHA256SUMS-dsh-remote-ops-v${feed.version}.txt` })); return; }
@@ -96,6 +96,10 @@ try {
   const boundState = () => until(async () => { const value = await state(); if (!value.bound) evidence.temporaryUnboundReads = (evidence.temporaryUnboundReads ?? 0) + 1; return value.bound && value; });
   if (bootstrapPackage) await step("old plugin migrates through DSH plugin installation before using the fixed updater", async () => {
     const originalOwner = owner;
+    await api("browser", { action: "preferences.save", preferences: { viewport: "desktop", zoom: "auto", desktopWidth: 1280, desktopHeight: 1600 } });
+    const retainedBrowser = (await api("browser", { action: "open-url", sessionId: owner, url: origin + "/page", display: "embedded", browser: "chrome" })).result;
+    await api("browser", { action: "run", sessionId: owner, browserId: retainedBrowser.id, steps: [{ action: "fill", target: "#draft", value: "MIGRATED_BROWSER_DRAFT" }] });
+    await until(async () => (await api("browser?sessionId=" + owner)).sessions.find(s => s.id === retainedBrowser.id)?.job?.status === "completed");
     await api("update", { action: "settings", settings: { source: "custom", url: origin + "/feed/" } });
     await editor.fill("首次迁移保留的对话草稿");
     await writeFile(join(out, "bootstrap-install.log"), await run(process.execPath, [cli, "plugin", "--profile", "web", "add", pkg]));
@@ -114,6 +118,18 @@ try {
     assert.equal(host.exitCode, null); assert.equal(owner, originalOwner);
     assert.match(await editor.innerText(), /首次迁移保留的对话草稿/);
     assert.equal((await update()).settings.source, "custom");
+    await page.getByRole("tablist", { name: "Remote Ops 工作区" }).getByRole("tab", { name: "网页", exact: true }).click();
+    const image = page.getByAltText("网页实时画面", { exact: true }); await image.waitFor();
+    const migrated = await until(async () => {
+      const value = await api("browser?sessionId=" + owner), retained = value.sessions.find(s => s.id === retainedBrowser.id);
+      const size = await image.evaluate(n => ({ width: n.parentElement.clientWidth, height: n.parentElement.clientHeight }));
+      return retained?.viewport?.width === size.width && retained.viewport.height === size.height && { value, retained, size };
+    });
+    assert.equal(migrated.value.preferences.zoom, undefined);
+    assert.equal(migrated.retained.activePageId, retainedBrowser.activePageId);
+    assert.match((await api("browser", { action: "observe", sessionId: owner, browserId: retainedBrowser.id })).result.text, /MIGRATED_BROWSER_DRAFT/);
+    assert.equal(await page.locator(".dsh-remote-ops__viewportError").count(), 0);
+    evidence.browserMigration = { browserId: retainedBrowser.id, pageId: retainedBrowser.activePageId, viewport: migrated.size, draftPreserved: true };
   });
   await step("installed package exposes hot reload in real DSH", async () => { assert.equal((await update()).hotReload.supported, true); });
   await step("real Agent opens SSH and saved configurations are established", async () => {
@@ -142,10 +158,19 @@ try {
     before = await state(); await editor.fill("对话草稿在热加载后保留");
     if (!await page.getByRole("tab", { name: "更新", exact: true }).isVisible()) await page.locator(".dsh-remote-ops__headAction").filter({hasText:"设置"}).click();
     await page.getByRole("tab", { name: "更新", exact: true }).click();
+    // Earlier API setup must not overwrite an already-mounted settings draft.
+    // Explicitly select the test feed as a user would before submitting an update.
+    await page.getByLabel("更新来源", { exact: true }).selectOption("custom");
+    await page.getByLabel("内网更新地址", { exact: true }).fill(origin + "/feed/");
+    const saveSource = page.getByRole("button", { name: "保存更新来源", exact: true });
+    if (await saveSource.isEnabled()) await saveSource.click();
+    await until(async () => await page.getByRole("button", { name: "检查并更新", exact: true }).isEnabled());
     const clientLoadsBefore = moduleRequests.length;
-    const submitted = page.waitForResponse(response => { try { return response.url().endsWith('/api/dsh-remote-ops/update') && response.request().postDataJSON()?.action === 'install'; } catch { return false; } });
-    await page.getByRole("button", { name: "检查并更新", exact: true }).click();
-    const accepted = await submitted; assert.equal(accepted.status(), 202); assert.equal((await accepted.json()).accepted, true);
+    const [accepted] = await Promise.all([
+      page.waitForResponse(response => { try { return response.url().endsWith('/api/dsh-remote-ops/update') && response.request().postDataJSON()?.action === 'install'; } catch { return false; } }),
+      page.getByRole("button", { name: "检查并更新", exact: true }).click(),
+    ]);
+    assert.equal(accepted.status(), 202); assert.equal((await accepted.json()).accepted, true);
     const value = await until(async () => { const status = await update(); return status.hotReload.pending && status; });
     assert.equal(value.restartRequired, false);
     await new Promise(r => setTimeout(r, 1800)); assert.equal((await state()).runtimeId, before.runtimeId); assert.ok((await update()).hotReload.blockers.includes("API 请求执行中")); assert.equal(moduleRequests.length, clientLoadsBefore, "frontend must wait for running work too");

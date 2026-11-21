@@ -65,10 +65,6 @@ export async function observeBrowser(workspace,record,pageId,image=false) {
     if(record.closed||record.switching||record.job?.inFlight)throw browserError('BROWSER_BUSY','Wait for the current browser action');
     record.observation=undefined;
     await workspace.flushViewport?.(record);
-    if(record.activePageId===pageId && workspace.preferences?.zoom==='auto') {
-      const hint=record.viewportHint??{mode:'panel',zoom:'auto',width:1280,height:768,pageId};
-      await workspace.resizeViewport(record.owner,record.id,hint,!!record.viewportHint);
-    }
     record.observing=true;
     try {
     await record.inputQueue;

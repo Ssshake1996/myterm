@@ -14,18 +14,13 @@ Windows 主机设置 `DSH_CLI` 为宿主的 `lib/bin.js`，执行 `node e2e/runn
 
 在 Windows 上将 `DSH_CLI` 指向宿主的 `lib/bin.js`，再运行 `node e2e/runner/environment-password-native.mjs <tgz>`。可用 `PASSWORD_OUTPUT` 指定一个新的验收目录。脚本在独立 DSH 配置中安装该包，通过 Chrome 操作环境表单和 DSH 工具。两个仅接受公钥的本地 SSH 服务分别验证未加密、已加密 Ed25519 私钥的签名。验收还会重启宿主，检查留空、错误口令、清除和补录。结果和签名次数写入 `evidence.json`，表单截图为 `ssh-key-form.png`。测试结束后移除生成的私钥。
 
-## 嵌入网页的视口与滚动条
+## 嵌入网页的视口与滚动
 
-`npm run test:browser:desktop --prefix integrations/dsh-remote-ops` 验证普通长页面、MCP 内部滚动点击、鼠标定位滚轮、网站自身裁剪与显式高度调整、草稿及 CSS 保留、录制坐标与配置重载。真实 DSH 安装验收另覆盖原始大小桌面视口的双向滚动、640×480 面板右下按钮，以及设置保存和刷新恢复。
+`npm run test:browser:panel --prefix integrations/dsh-remote-ops` 用真实 Chromium 验证侧栏宽高等于 CSS 视口、1027×768 下滚到 1280 宽页面右侧并点击、内部滚动与跨域 iframe、录制坐标、尺寸变化后的旧观察拒绝与重新观察，以及旧热加载对象的迁移。
 
-设置 `DSH_CLI` 为宿主的 `lib/bin.js`，执行 `node e2e/runner/browser-recording-native.mjs <tgz>`。脚本将候选包安装进独立的 DSH 配置，使用本地 HTTP 测试页。可用 `RECORDING_NATIVE_OUTPUT` 指定证据目录。
+设置 `DSH_CLI` 为宿主的 `lib/bin.js`，执行 `node e2e/runner/browser-recording-native.mjs <tgz>`，用 `RECORDING_NATIVE_OUTPUT` 指定新证据目录。测试在独立 DSH_HOME 安装候选包，验证鼠标仍按住分栏时的尺寸同步、草稿保留、设置简化、横纵滚动、标签恢复。注入一次 HTTP 400，确认错误详情显示请求地址与代码、画面轮询不会清除该错误或触发重复尺寸请求，手动重试可恢复。
 
-- 默认自动适配：首次加载即至少 1280 CSS 像素。测试 1027×768、390×640、640×480 和 1440×900 面板，完整画面等比显示，逻辑视口保持稳定，四角按钮可达，位置标示可见。重载宿主后显示设置保留。
-- 手动选择原始大小，用真实宿主窗口调出 1027×768 的网页可视区，打开最低宽度 1280 的测试页。画面以 1280 CSS 像素显示，底部滚动条占用的空间从可用高度扣除。拖到最右端时偏移为 253 像素。点击右上按钮，网页结果及录制中的元素和坐标均需匹配；Agent 点击时外层画面应自动跟随。
-- 在设置中为网址保存最低宽度，打开仅在初次加载时判定宽度的页面，检查初始宽度和控件可用性。清空并保存后，再次打开要恢复面板宽度。
-- 手动选择跟随面板适应后，测试持续拖动分栏、定宽页面、跨域内嵌表单、四角命中和切换标签。记录宿主版本、安装包 SHA256、画面尺寸及点击结果到 `evidence.json` 和 `panel-layout.json`。
-
-`npm run test:browser:adaptive --prefix integrations/dsh-remote-ops` 使用真实浏览器检查首次视口、稳定宽度学习、跨进程恢复、待处理视口与 MCP 坐标、跨域 iframe 操作位置，以及不增加录制步骤。`browser-mcp-native.mjs <tgz>` 在真实 DSH Agent 取得图片后拖动宿主侧栏，再用同一观察执行坐标点击。
+`browser-mcp-native.mjs <tgz>` 验证真实 DSH Agent 加载随包 skill、获取页面与图片；侧栏变动后拒绝旧观察，重新观察后执行一次正确的坐标点击。记录宿主版本、候选包 SHA256、尺寸和结果，不代表已验收用户的内网业务网站。
 
 ## 真实 DSH 热加载验收
 

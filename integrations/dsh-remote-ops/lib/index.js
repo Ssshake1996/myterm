@@ -9,7 +9,7 @@ import { registerWorkspaceRoutes } from "./workspace-routes.js";
 import { registerTools } from "./tools.js";
 import { registerRoutes } from "./routes.js";
 import { join } from "node:path";
-import { BrowserWorkspace } from "./browser-workspace.js";
+import { BrowserWorkspace, adoptBrowserWorkspace } from "./browser-workspace.js";
 import { adoptBrowserRecordings } from './browser-recordings.js';
 import { registerBrowserRoutes } from "./browser-routes.js";
 import { registerBrowserTools } from "./browser-tools.js";
@@ -64,9 +64,7 @@ export function mountRemoteOps(ctx) {
   if (handoff) {
     Object.setPrototypeOf(state, RemoteOpsState.prototype);
     state.ctx = ctx; state.disposed = false; state.runtimeId = randomUUID();
-    Object.setPrototypeOf(state.browser, BrowserWorkspace.prototype);
-    state.browser.siteWidths ??= {};
-    state.browser.preferences.zoom ??= 'actual';
+    adoptBrowserWorkspace(state.browser);
     Object.setPrototypeOf(state.api, ApiWorkspace.prototype);
     if (state.desktop) { Object.setPrototypeOf(state.desktop, DesktopWorkspace.prototype); state.desktop.state = state; state.desktop.connector = connectDesktop; }
     Object.setPrototypeOf(state.transfers, TransferManager.prototype);

@@ -17,7 +17,7 @@ Stop with `action: "stop", recordingId`. This ends capture, not the browser job 
 
 `action: "export", recordingId` writes a JSON snapshot on the DSH host and returns its path/name. The Web panel's recording list downloads the same format. A host file path is not necessarily accessible from your environment: use paginated reads when needed. IDs are conversation-scoped; never guess another conversation's ID.
 
-Embedded automatic fit, viewer panning and the operation marker are display-only: they add no page clicks, scrolls or recording events. Interpret recorded coordinates in the browser CSS-pixel viewport, never in the scaled GUI panel. Long pages and internal frames retain their normal scrolling.
+The CSS viewport follows the Sidebar. Resizing and the viewer-only operation marker add no page clicks or recording events. Coordinates belong to the browser viewport at the event time; re-observe before replay after scrolling or resizing, and prefer current locators to old coordinates.
 
 Viewer-only panning adds no webpage event. Pointer-targeted wheel input can produce genuine hover/scroll events in the webpage; retain those events. After changing saved desktop dimensions, recorded coordinates belong to that browser CSS viewport, not the GUI panel.
 

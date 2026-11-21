@@ -35,7 +35,7 @@ const server=createServer(async(req,res)=>{
     const menu=snapshot?.snapshot.split('\n').find(line=>line.includes('"System settings"'))?.match(/\[ref=(\w+)\]/)?.[1];
     const plans={READY:[['skill',{name:'remote-ops-browser'}],['remote_browser_open',{url:`http://127.0.0.1:${server.address().port}/page`,display:'embedded'}]],
       SNAPSHOT:[['remote_browser_read',{...ids,snapshot:true}]],MENU:[['remote_browser_run',{...ids,requestId:'native-mcp-menu',steps:[{action:'click',target:{kind:'ref',value:menu,snapshotId:snapshot?.snapshotId}}]}]],
-      IMAGE:[['remote_browser_read',{...ids,image:true}]],POINT:[['remote_browser_run',{...ids,requestId:'native-mcp-point',steps:[{action:'click',target:{kind:'point',x:350,y:225,snapshotId:snapshot?.snapshotId}}]}]],READ:[['remote_browser_read',ids]]};
+      IMAGE:[['remote_browser_read',{...ids,image:true}]],POINT:[['remote_browser_run',{...ids,requestId:'native-mcp-point-'+snapshot?.snapshotId,steps:[{action:'click',target:{kind:'point',x:350,y:225,snapshotId:snapshot?.snapshotId}}]}]],READ:[['remote_browser_read',ids]]};
     const plan=plans[stage]??[];res.writeHead(200,{'Content-Type':'text/event-stream'});
     const emit=(delta,finish_reason=null)=>res.write('data: '+JSON.stringify({id:'mcp-native',object:'chat.completion.chunk',created:1,model:'native-test',choices:[{index:0,delta,finish_reason}]})+'\n\n');
     if(at>=0&&body.tools?.length&&results.length<plan.length&&!results.some(v=>typeof v==='string'&&v.startsWith('Error:'))){const [name,args]=plan[results.length];emit({role:'assistant',tool_calls:[{index:0,id:'mcp-'+Date.now(),type:'function',function:{name,arguments:JSON.stringify(args)}}]});emit({},'tool_calls');}
@@ -100,9 +100,14 @@ try{
   await page.mouse.move(divider.x+divider.width/2,divider.y+divider.height/2);await page.mouse.down();
   await page.mouse.move(divider.x+divider.width/2+110,divider.y+divider.height/2,{steps:12});await page.mouse.up();
   await until(async()=>Math.abs((await liveImage.boundingBox()).width-oldImage.width)>30);
+  result=(await agent('POINT'))[0];
+  assert.ok(result?.id,JSON.stringify(result));
+  const rejected=await until(async()=>{const v=(await agent('READ'))[0];return v?.browser?.job?.status==='failed'&&v;});
+  assert.match(JSON.stringify(rejected),/BROWSER_OBSERVATION_STALE/);pass('sidebar resize rejects the old observation before dispatch');
+  snapshot=(await agent('IMAGE'))[0]?.page;proofs.delete('POINT');
   result=(await agent('POINT'))[0];assert.ok(result?.id,JSON.stringify(result));
   await until(async()=>{const v=(await agent('READ'))[0];return v?.browser?.job?.status==='completed'&&v?.page?.text?.includes('Visual entry opened');});pass('native Agent coordinate action changes the actual plugin page');
-  pass('resizing the real DSH sidebar after observation preserves the native Agent screenshot coordinates');
+  pass('fresh observation after a sidebar resize supplies valid native Agent coordinates');
   await page.screenshot({path:join(out,'native-mcp.png'),animations:'disabled'});
   assert.deepEqual(evidence.errors,[]);evidence.status='passed';
 }catch(error){evidence.status='failed';evidence.error=error.stack;evidence.proofs=Object.fromEntries(proofs);process.exitCode=1;console.error(error);if(page){evidence.dom=await page.locator('body').ariaSnapshot().catch(()=>null);evidence.navigatorOnline=await page.evaluate(()=>navigator.onLine).catch(()=>null);}await page?.screenshot({path:join(out,'failure.png')}).catch(()=>{});}

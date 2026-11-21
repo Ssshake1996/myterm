@@ -10,175 +10,23 @@ import { browserInstallerCli, browserRuntimeMetadata, browserRuntimeDirectory, i
 import { prepareEmbeddedBrowser } from './embedded-browser.js';
 
 const identifier = value => typeof value === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(value);
-function viewportSize(width, height) {
-  // Preserve the panel's aspect ratio even when an unusually large page needs a bounded render surface.
-  const scale = Math.min(1, 8192 / Math.max(width, height), Math.sqrt(16777216 / (width * height)));
-  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
-}
-function scrollViewport(width, height) {
-  const w = Math.min(width, 8192);
-  return { width: w, height: Math.min(height, 8192, Math.floor(16777216 / w)) };
-}
-function siteOrigin(url) {
-  try { const target = new URL(url); return ['http:', 'https:'].includes(target.protocol) ? target.origin : ''; }
-  catch { return ''; }
-}
-// This function runs inside each visible document, including cross-origin frames.
-function documentLayoutWidth({ measureIntrinsic, findPageShell }) {
-  const root = document.documentElement;
-  if (!root || !innerWidth) return { required: 0, overflow: 0, frameWidth: 0 };
-  const result = { required: 0, overflow: 0, frameWidth: innerWidth };
-  const overflow = Math.max(0, root.scrollWidth - root.clientWidth, (document.body?.scrollWidth ?? 0) - root.clientWidth);
-  if (overflow > 1) return { required: innerWidth + overflow, overflow, frameWidth: innerWidth };
-  if (findPageShell && !document.body?.isContentEditable) {
-    // Follow the page's outer layout wrappers only. A fixed button, logo or sidebar
-    // inside an otherwise fluid layout must not determine the whole page's zoom.
-    let shell = document.body, gutters = 0, verticalGutters = 0;
-    while (shell) {
-      const rect = shell.getBoundingClientRect(), style = getComputedStyle(shell);
-      const props = shell.computedStyleMap?.();
-      const cssWidth = props?.get('width');
-      const fixed = cssWidth?.unit === 'px' ||
-        (shell.tagName === 'CANVAS' && shell.hasAttribute('width'));
-      const margin = side => {
-        const value = props?.get('margin-' + side);
-        return value?.unit === 'px' ? value.value : 0;
-      };
-      gutters += margin('left') + margin('right');
-      verticalGutters += margin('top') + margin('bottom');
-      const pageContainer = shell === document.body || shell.matches('main, [role="main"], form, table, iframe, canvas, svg') ||
-        (shell.matches('div, section, article') && rect.height >= Math.min(innerHeight / 2, 240));
-      if (fixed && pageContainer && rect.width > 0 && rect.height > 0) {
-        // Margins used for centering are auto. Keep deliberate gutters and any
-        // width reserved for the document scrollbar in the layout viewport.
-        result.shellWidth = Math.ceil(rect.width + gutters + Math.max(0, innerWidth - root.clientWidth));
-        result.declaredWidth = cssWidth?.unit === 'px' ? cssWidth.value : shell.width;
-        const fixedHeight = props?.get('height')?.unit === 'px' || (shell.tagName === 'CANVAS' && shell.hasAttribute('height'));
-        if (fixedHeight && shell.scrollHeight <= shell.clientHeight + 1) {
-          result.shellHeight = Math.ceil(rect.height + verticalGutters);
-        }
-        break;
-      }
-      gutters += ['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth'].reduce((sum, key) => sum + (parseFloat(style[key]) || 0), 0);
-      verticalGutters += ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth'].reduce((sum, key) => sum + (parseFloat(style[key]) || 0), 0);
-      const children = Array.from(shell.children).filter(child => {
-        const box = child.getBoundingClientRect();
-        return box.width > 0 && box.height > 0 && getComputedStyle(child).visibility === 'visible';
-      });
-      if (children.length !== 1) break;
-      shell = children[0];
-    }
-  }
-  if (!measureIntrinsic) return result;
-  // Once an expanded document fits, scrollWidth also includes unused viewport space.
-  // Track its explicit intrinsic widths to release the zoom when a device changes views.
-  let required = 0;
-  const pending = [root];
-  for (let i = 0; i < pending.length; i++) {
-    const node = pending[i], rect = node.getBoundingClientRect();
-    if (!rect.width || !rect.height) continue;
-    const width = node.computedStyleMap?.().get('width'), minimum = node.computedStyleMap?.().get('min-width');
-    if (width?.unit === 'px' || minimum?.unit === 'px') {
-      const fixed = width?.unit === 'px' ? rect.width : minimum.value;
-      required = Math.max(required, Math.min(rect.width, fixed));
-    }
-    for (let child = node.firstElementChild; child && pending.length < 256; child = child.nextElementSibling) pending.push(child);
-  }
-  return { ...result, required };
-}
+const validViewport = size => size && [size.width,size.height].every(n => Number.isSafeInteger(n) && n > 0 && n <= 8192) && size.width * size.height <= 16777216;
 
-async function measuredPageWidth(page, baseWidth, currentWidth, previousFrames = [], fitShell = false) {
-  const root = page.mainFrame();
-  const documents = await Promise.all(page.frames().map(async frame => {
-    let fullPageFrame = false;
-    if (frame !== root) {
-      let element;
-      try {
-        element = await frame.frameElement();
-        const bounds = await element.evaluate(node => {
-          const rect = node.getBoundingClientRect();
-          if (rect.width < 32 || rect.height < 16 || getComputedStyle(node).visibility !== 'visible') return null;
-          return { fullPage: Math.abs(rect.width - document.documentElement.clientWidth) <= 2 &&
-            Math.abs(rect.height - innerHeight) <= 2 && Math.abs(rect.left) <= 2 && Math.abs(rect.top) <= 2 };
-        });
-        if (!bounds) return null;
-        fullPageFrame = bounds.fullPage && frame.parentFrame() === root;
-      } catch { return null; }
-      finally { if (element) await element.dispose().catch(() => {}); }
+// Adopt live browser handles without reviving removed layout modes or cached widths.
+export function adoptBrowserWorkspace(workspace) {
+  Object.setPrototypeOf(workspace, BrowserWorkspace.prototype);
+  const ready = workspace.ready;
+  workspace.ready = Promise.resolve(ready).then(async () => {
+    await workspace.migratePreferences(workspace.preferences);
+    for (const record of workspace.sessions.values()) {
+      record.viewportHint = undefined;
+      record.pendingViewport = undefined;
+      if (record.view) Object.setPrototypeOf(record.view, BrowserView.prototype);
     }
-    try { return { frame, fullPageFrame, ...await frame.evaluate(documentLayoutWidth, {
-      measureIntrinsic: currentWidth > baseWidth, findPageShell: fitShell && (frame === root || fullPageFrame)
-    }) }; }
-    catch { return null; } // A child frame can navigate while the panel is being sized.
-  }));
-  const shell = documents.find(doc => doc?.frame === root && doc.shellWidth) ??
-    documents.find(doc => doc?.fullPageFrame && doc.shellWidth);
-  let width = shell?.shellWidth || baseWidth;
-  for (const doc of documents) {
-    if (!doc) continue;
-    if (doc.frame === root) width = Math.max(width, doc.required || 0);
-    else if (doc.required > 0 && doc.frameWidth > 0) {
-      // A fixed-size iframe is a scroll area within the device UI. Expanding
-      // the outer viewport again cannot reveal more of that frame.
-      const before = previousFrames.find(item => item.frame === doc.frame);
-      if (doc.overflow > 1 && before && currentWidth > before.viewportWidth && doc.frameWidth <= before.frameWidth + 1) {
-        doc.fixedWidth = doc.frameWidth;
-      } else if (before?.fixedWidth === doc.frameWidth) {
-        doc.fixedWidth = doc.frameWidth;
-      }
-      if (!doc.fixedWidth) width = Math.max(width, currentWidth - doc.frameWidth + doc.required);
-    }
-    doc.viewportWidth = currentWidth;
-  }
-  return { width, shellWidth: shell?.shellWidth, shellHeight: shell?.shellHeight, declaredWidth: shell?.declaredWidth,
-    frames: documents.filter(doc => doc && doc.frame !== root) };
-}
-
-async function fitPageViewport(record, page, base, panelRatio, fitShell, samePanel, applySize) {
-  if (!samePanel) record.fitFrameSizes = undefined;
-  const measure = async () => {
-    const layout = await measuredPageWidth(page, base.width, record.viewport.width, record.fitFrameSizes, fitShell);
-    record.fitFrameSizes = layout.frames;
-    return layout;
-  };
-  let layout = await measure();
-  const last = samePanel && record.fitShell;
-  if (last && last.width === layout.width && last.shellWidth === layout.shellWidth && last.shellHeight === layout.shellHeight) return;
-  record.fitShell = undefined;
-  let byWidth = viewportSize(layout.width, layout.width / panelRatio);
-  // CSS viewport units and media queries may also resolve to pixels. Only
-  // magnify a page if its outer content keeps the same width when resized.
-  let original = layout;
-  if (await applySize(byWidth)) {
-    // Even when the first measurement only reports horizontal overflow, the
-    // expanded viewport can reveal a fixed console that also needs height fit.
-    if (!fitShell || !original.shellWidth && byWidth.width <= base.width) return;
-    layout = await measure();
-  }
-  if (!original.shellWidth && !layout.shellWidth) return;
-  // Percentage padding can exceed a fixed border-box width on a very wide
-  // panel. Once that padding fits, confirm the same declared width once more.
-  if (byWidth.width < base.width && layout.declaredWidth === original.declaredWidth &&
-      layout.shellWidth > 0 && layout.width < byWidth.width - 1) {
-    original = layout;
-    byWidth = viewportSize(layout.width, layout.width / panelRatio);
-    await applySize(byWidth);
-    layout = await measure();
-  }
-  if (byWidth.width < base.width && (!layout.shellWidth || Math.abs(layout.shellWidth - original.shellWidth) > 1 || layout.width > byWidth.width + 1)) {
-    await applySize(base);
-    layout = await measure();
-  } else if (layout.shellHeight > byWidth.height + 1) {
-    // A complete fixed-size console must also fit the available height. An
-    // ordinary scrolling document or a viewport-relative height keeps width fit.
-    const byHeight = viewportSize(layout.shellHeight * panelRatio, layout.shellHeight);
-    if (await applySize(byHeight)) {
-      const checked = await measure();
-      if (checked.shellHeight === layout.shellHeight && checked.shellWidth === layout.shellWidth) layout = checked;
-      else await applySize(byWidth);
-    }
-  }
-  record.fitShell = { width: layout.width, shellWidth: layout.shellWidth, shellHeight: layout.shellHeight };
+    delete workspace.siteWidths; delete workspace.autoWidths;
+  });
+  void workspace.ready.catch(() => {});
+  return workspace;
 }
 export { browserInstallerCli } from './browser-runtime.js';
 export class BrowserWorkspace extends BrowserSessions {
@@ -191,7 +39,7 @@ export class BrowserWorkspace extends BrowserSessions {
     this.sites = []; this.flows = []; this.sessions = new Map(); this.openings = new Map(); this.receipts = new Map();
     this.writes = Promise.resolve(); this.mutations = Promise.resolve(); this.disposed = false;
     this.ready = this.load(); void this.ready.catch(() => {});
-    this.active = new Map(); this.ownerSignals = new Map(); this.siteWidths = {}; this.autoWidths = {}; this.preferences = { display: 'embedded', browser: 'chromium', windowBrowser: process.platform === 'win32' ? 'system' : 'chromium', viewport: 'panel', zoom: 'auto', layoutVersion: 1 };
+    this.active = new Map(); this.ownerSignals = new Map(); this.preferences = { display: 'embedded', browser: 'chromium', windowBrowser: process.platform === 'win32' ? 'system' : 'chromium' };
     this.systemBrowser = windowsDefaultBrowser;
   }
   async load() {
@@ -201,61 +49,31 @@ export class BrowserWorkspace extends BrowserSessions {
       catch (error) { if (error.code === "ENOENT") return []; throw browserError("BROWSER_STORE_INVALID", `Cannot read ${name}; restore or repair the file before saving`); }
     };
     this.sites = await read("sites.json"); this.flows = await read("flows.json");
-    try { this.siteWidths = JSON.parse(await readFile(join(this.root, 'site-widths.json'), 'utf8')); }
-    catch (error) { if (error.code !== 'ENOENT') throw error; }
-    try { this.autoWidths = JSON.parse(await readFile(join(this.root, 'auto-widths.json'), 'utf8')); }
-    catch (error) { if (error.code !== 'ENOENT') throw error; }
-    try {
-      const saved=JSON.parse(await readFile(join(this.root,'preferences.json'),'utf8'));
-      this.preferences=this.validatePreferences({...saved, ...(saved.layoutVersion === 1 ? {} : {zoom:'auto'})});
-      if (saved.layoutVersion !== 1) await this.persist('preferences.json', this.preferences);
-    } catch(error) { if(error.code!=='ENOENT')throw error; }
+    try { await this.migratePreferences(JSON.parse(await readFile(join(this.root,'preferences.json'),'utf8'))); }
+    catch(error) { if(error.code!=='ENOENT')throw error; }
   }
   validatePreferences(input) {
     const value={...this.preferences,...input};
-    if(!['embedded','window'].includes(value.display)||!['chromium','msedge','chrome'].includes(value.browser)||!['system','chromium','msedge','chrome'].includes(value.windowBrowser)||!['panel','desktop'].includes(value.viewport??'panel'))throw browserError('BROWSER_DISPLAY_INVALID','Choose an embedded/window display, a supported browser and a panel/desktop viewport');
-    if (!['auto', 'actual', 'fit'].includes(value.zoom)) throw browserError('BROWSER_VIEWPORT_INVALID', 'Choose automatic fit, actual size or fit');
-    const desktopWidth=value.desktopWidth===undefined?1024:value.desktopWidth,desktopHeight=value.desktopHeight===undefined?768:value.desktopHeight;
-    if (![desktopWidth,desktopHeight].every(n=>Number.isSafeInteger(n)&&n>=1&&n<=8192)||desktopWidth*desktopHeight>16777216)throw browserError('BROWSER_VIEWPORT_INVALID','Desktop width and height must be integers from 1 to 8192 CSS pixels, with at most 16777216 pixels total');
-    return {display:value.display,browser:value.browser,windowBrowser:value.windowBrowser,viewport:value.viewport??'panel',zoom:value.zoom,desktopWidth,desktopHeight,layoutVersion:1};
+    if(!['embedded','window'].includes(value.display)||!['chromium','msedge','chrome'].includes(value.browser)||!['system','chromium','msedge','chrome'].includes(value.windowBrowser))throw browserError('BROWSER_DISPLAY_INVALID','Choose an embedded/window display and a supported browser');
+    return {display:value.display,browser:value.browser,windowBrowser:value.windowBrowser};
   }
-  saveSiteWidth(url, minimum) {
-    return this.mutate(async () => {
-      await this.ready;
-      const origin = new URL(browserUrl(url)).origin;
-      if (minimum !== null && (!Number.isSafeInteger(minimum) || minimum < 1 || minimum > 8192)) {
-        throw browserError('BROWSER_VIEWPORT_INVALID', 'Enter a minimum width of 1–8192 CSS pixels, or clear the field');
-      }
-      const next = { ...this.siteWidths };
-      if (minimum === null) delete next[origin]; else next[origin] = minimum;
-      await this.persist('site-widths.json', next);
-      this.siteWidths = next;
-      if (minimum === null && this.autoWidths[origin]) {
-        const learned = {...this.autoWidths}; delete learned[origin];
-        await this.persist('auto-widths.json', learned); this.autoWidths = learned;
-      }
-      return { origin, minimum };
-    });
+  async migratePreferences(saved) {
+    const next=this.validatePreferences(saved);
+    if(JSON.stringify(saved)!==JSON.stringify(next))await this.persist('preferences.json',next);
+    this.preferences=next;
   }
-  desktopViewport() {return {width:this.preferences.desktopWidth??1024,height:this.preferences.desktopHeight??768};}
-  initialViewport(url) {
-    const automatic = this.preferences.zoom === 'auto', origin = siteOrigin(url);
-    const desktop=!automatic&&this.preferences.viewport==='desktop'?this.desktopViewport():{width:1024,height:768};
-    return scrollViewport(Math.max(automatic ? 1280 : desktop.width, this.siteWidths[origin] ?? 0, automatic ? this.autoWidths[origin] ?? 0 : 0),desktop.height);
-  }
-  async prepareNavigationViewport(record, page, url) {
+  // Only used before a visible panel has reported its dimensions.
+  initialViewport() {return {width:1024,height:768};}
+  async prepareNavigationViewport(record, page) {
     if (record.display !== 'embedded' || !page.setViewportSize) return;
-    const minimum = this.siteWidths[siteOrigin(url)] ?? 0, hint = record.viewportHint;
-    const automatic = this.preferences.zoom === 'auto';
-    const base = automatic ? this.initialViewport(url) : this.preferences.viewport==='desktop'?this.desktopViewport():hint?.mode === 'panel' && hint.width ? { width: hint.width, height: hint.height } : { width: 1024, height: 768 };
-    const width = Math.max(base.width, minimum);
-    const size = this.preferences.zoom === 'fit' && hint?.width ? viewportSize(width, width * hint.height / hint.width) : scrollViewport(width, base.height);
-    const active = page === record.pages.get(record.activePageId), previous = page.viewportSize?.();
-    if (!previous || previous.width !== size.width || previous.height !== size.height) {
-      if (active) { record.revision++; await record.view?.stop(); }
+    const hint=record.viewportHint, previous=page.viewportSize?.();
+    const source=validViewport(hint)?hint:validViewport(record.viewport)?record.viewport:this.initialViewport();
+    const size={width:source.width,height:source.height},active=page===record.pages.get(record.activePageId);
+    if(previous?.width!==size.width||previous?.height!==size.height){
+      if(active){record.revision++;record.observation=undefined;record.viewFocus=undefined;await record.view?.stop();}
       await page.setViewportSize(size);
     }
-    if (active) record.viewport = { mode: this.preferences.viewport, ...size };
+    if(active)record.viewport={mode:'panel',...size};
   }
   savePreferences(input) { return this.mutate(async()=>{await this.ready;const value=this.validatePreferences(input);await this.persist('preferences.json',value);this.preferences=value;return value;}); }
   async openUrl(owner,value,options={}) {
@@ -270,16 +88,11 @@ export class BrowserWorkspace extends BrowserSessions {
     return opened;
   }
   async frame(owner, id, options) {
+    await this.ready;
     const record = this.session(owner, id);
     await this.flushViewport(record);
     record.view ??= new BrowserView(record);
     const frame = await record.view.frame(options);
-    const hint = record.viewportHint;
-    // A device UI can acquire a minimum width after its scripts or its next document load.
-    if (hint?.width && record.activePageId === hint.pageId && Date.now() >= record.nextLayoutCheck) {
-      record.nextLayoutCheck = Date.now() + 1000;
-      void this.resizeViewport(owner, id, hint, true).catch(() => {});
-    }
     return frame;
   }
   async recording(owner,args) {
@@ -300,91 +113,37 @@ export class BrowserWorkspace extends BrowserSessions {
     });
     r.inputQueue=pending.catch(()=>{});return pending;
   }
-  async resizeViewport(owner, id, input, checkContent = false) {
-    const r = this.session(owner, id), mode = input?.mode ?? r.viewport?.mode ?? 'panel';
-    const width = input?.width, height = input?.height;
-    const zoom = input?.zoom ?? this.preferences.zoom, fit = zoom === 'fit', automatic = zoom === 'auto';
-    const measured = mode === 'panel' || fit || automatic || width != null || height != null;
-    if (!['panel', 'desktop'].includes(mode) || !['auto','fit','actual'].includes(zoom) || measured && ![width, height].every(n => Number.isSafeInteger(n) && n > 0)) {
-      throw browserError('BROWSER_VIEWPORT_INVALID', 'Use a panel size in positive whole CSS pixels, or a desktop viewport');
-    }
-    const pending = (r.inputQueue ?? Promise.resolve()).then(async () => {
-      const pageId = r.activePageId, page = r.pages.get(pageId);
-      if (!page || r.closed || r.switching || r.display !== 'embedded' || input?.pageId && input.pageId !== pageId || checkContent && r.viewportHint !== input) {
-        return { ...this.publicSession(r), viewportSkipped: true };
+  async resizeViewport(owner, id, input) {
+    await this.ready;
+    const r=this.session(owner,id);
+    if(!validViewport(input))throw browserError('BROWSER_VIEWPORT_INVALID','Provide the visible panel width and height in whole CSS pixels (1–8192; at most 16777216 pixels total)');
+    const pending=(r.inputQueue??Promise.resolve()).then(async()=>{
+      const pageId=r.activePageId,page=r.pages.get(pageId);
+      if(!page||r.closed||r.switching||r.display!=='embedded'||input.pageId&&input.pageId!==pageId)return {...this.publicSession(r),viewportSkipped:true};
+      if(this.viewportProtected(r)){
+        r.pendingViewport={input};
+        return {...this.publicSession(r),viewportDeferred:true};
       }
-      if (this.viewportProtected(r)) {
-        if (!checkContent || !r.pendingViewport) r.pendingViewport = {input, checkContent};
-        return {...this.publicSession(r), viewportDeferred:true};
+      const size={width:input.width,height:input.height},previous=page.viewportSize?.()??r.viewport;
+      if(previous?.width!==size.width||previous?.height!==size.height){
+        r.revision=(r.revision??0)+1;r.observation=undefined;r.viewFocus=undefined;
+        await r.view?.stop();
+        try {await page.setViewportSize(size);}
+        catch(error){if(r.closed||r.switching)return {...this.publicSession(r),viewportSkipped:true};throw error;}
       }
-      const previous = r.viewportHint, navigation = r.navigationRevision;
-      const minimum = this.siteWidths[siteOrigin(page.url())] ?? 0;
-      const desktop=this.desktopViewport();
-      const layoutWidth = Math.max(mode === 'desktop' ? desktop.width : width, minimum);
-      const base = automatic ? this.initialViewport(page.url()) : fit ? viewportSize(layoutWidth, layoutWidth * height / width) : scrollViewport(layoutWidth, mode === 'desktop' ? desktop.height : height);
-      const same = previous?.pageId === pageId && previous.navigation === navigation && previous.mode === mode && previous.zoom === zoom && previous.minimum === minimum && previous.width === width && previous.height === height && previous.desktopWidth===desktop.width && previous.desktopHeight===desktop.height;
-      if (same && !checkContent) return this.publicSession(r);
-      const current = () => r.activePageId === pageId && r.navigationRevision === navigation && !r.closed && !r.switching;
-      const applySize = async size => {
-        if (!current()) return false;
-        const actual = page.viewportSize?.() ?? r.viewport;
-        const changed = actual?.width !== size.width || actual?.height !== size.height;
-        if (changed) {
-          r.revision = (r.revision ?? 0) + 1;
-          await r.view?.stop();
-          await page.setViewportSize(size);
-        }
-        r.viewport = { mode, ...size };
-        return changed;
-      };
-      try {
-        if (!same && !automatic) await applySize(base);
-        if (automatic && current()) {
-          if (!same) r.fitFrameSizes = undefined;
-          let layout;
-          for (let pass = 0; pass < 3 && current(); pass++) {
-            layout = await measuredPageWidth(page, base.width, r.viewport.width, r.fitFrameSizes, true);
-            r.fitFrameSizes = layout.frames;
-            const changed = await applySize(viewportSize(Math.max(base.width, layout.width), Math.max(base.height, layout.shellHeight ?? 0)));
-            if (!changed) break;
-          }
-          const origin = siteOrigin(page.url()), learned = Math.ceil(layout?.width ?? 0);
-          if (learned > Math.max(1280, this.siteWidths[origin] ?? 0, this.autoWidths[origin] ?? 0) && learned <= 8192) {
-            const candidate = r.widthCandidate;
-            if (candidate?.origin === origin && candidate.width === learned) {
-              await this.mutate(async () => {
-                const next = {...this.autoWidths, [origin]:Math.max(learned, this.autoWidths[origin] ?? 0)};
-                await this.persist('auto-widths.json', next); this.autoWidths = next;
-              });
-            } else r.widthCandidate = {origin, width:learned};
-          } else r.widthCandidate = undefined;
-        } else if (fit && current()) {
-          await fitPageViewport(r, page, base, width / height, mode === 'panel', same, size => applySize(size.width < minimum ? viewportSize(minimum, minimum * height / width) : size));
-        } else if (mode === 'panel' && current()) {
-          if (!same) r.fitFrameSizes = undefined;
-          const layout = await measuredPageWidth(page, base.width, r.viewport.width, r.fitFrameSizes);
-          r.fitFrameSizes = layout.frames;
-          await applySize(scrollViewport(Math.ceil(Math.max(base.width, layout.width)), base.height));
-        }
-      } catch (error) {
-        if (r.closed || r.switching) return { ...this.publicSession(r), viewportSkipped: true };
-        throw error;
-      }
-      if (!current()) return { ...this.publicSession(r), viewportSkipped: true };
-      r.viewportHint = { mode, zoom, minimum, width, height, pageId, navigation,desktopWidth:desktop.width,desktopHeight:desktop.height };
-      r.nextLayoutCheck = Date.now() + 1000;
+      r.viewport={mode:'panel',...size};
+      r.viewportHint={...size,pageId};
+      // A newer direct resize supersedes any deferred size from an earlier action.
+      r.pendingViewport=undefined;
       return this.publicSession(r);
     });
-    r.inputQueue = pending.catch(() => {});
-    return pending;
+    r.inputQueue=pending.catch(()=>{});return pending;
   }
-  viewportProtected(record) {
-    return record.observing || record.job?.inFlight || record.observation && Date.now() - record.observation.at < 60000;
-  }
+  viewportProtected(record) {return record.observing||record.job?.inFlight;}
   async flushViewport(record) {
-    if (!record.pendingViewport || this.viewportProtected(record) || record.closed || record.switching) return;
-    const pending = record.pendingViewport; record.pendingViewport = undefined;
-    await this.resizeViewport(record.owner, record.id, pending.input, pending.checkContent);
+    if(!record.pendingViewport||this.viewportProtected(record)||record.closed||record.switching)return;
+    const pending=record.pendingViewport;record.pendingViewport=undefined;
+    await this.resizeViewport(record.owner,record.id,pending.input);
   }
   bindOwnerSignal(owner,signal) {
     const previous=this.ownerSignals.get(owner);if(previous?.signal===signal)return;
@@ -514,7 +273,7 @@ export class BrowserWorkspace extends BrowserSessions {
     const selected = !site.browser || site.browser === 'default' ? (display === 'window' ? this.preferences.windowBrowser : this.preferences.browser) : site.browser;
     if (!['system', 'chromium', 'chrome', 'msedge'].includes(selected)) throw browserError('BROWSER_DISPLAY_INVALID', 'Choose a supported browser');
     const resolved = selected === 'system' ? await this.systemBrowser(new URL(site.url).protocol) : { browser: selected };
-    const options = { headless: display === 'embedded', slowMo: site.slowMo, viewport: display === 'embedded' ? this.initialViewport(site.url) : null, ...(resolved.executablePath ? { executablePath: resolved.executablePath } : resolved.browser !== 'chromium' ? { channel: resolved.browser } : {}) };
+    const options = { headless: display === 'embedded', slowMo: site.slowMo, viewport: display === 'embedded' ? this.initialViewport(site.url) : null, ...(display === 'embedded' ? {ignoreDefaultArgs:['--hide-scrollbars']} : {}), ...(resolved.executablePath ? { executablePath: resolved.executablePath } : resolved.browser !== 'chromium' ? { channel: resolved.browser } : {}) };
     if (resolved.browser === 'chromium' && !this.launchContext) {
       const { chromium } = await this.library();
       const embedded = display === 'embedded' ? await this.prepareEmbedded(true) : this.embeddedPreparation?.result;

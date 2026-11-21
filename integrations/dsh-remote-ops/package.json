@@ -1,13 +1,13 @@
 {
   "name": "@dsh/remote-ops",
-  "version": "0.18.1",
+  "version": "0.19.0",
   "private": false,
   "type": "module",
   "description": "DeepSeek Harness plugin for SSH, Telnet and Serial terminals, Windows desktop, SFTP, visible web operations and RESTful API environments",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
-    "./client": "./lib/client-v0.18.1.js",
+    "./client": "./lib/client-v0.19.0.js",
     "./locale/en.json": "./locale/en.json",
     "./locale/zh.json": "./locale/zh.json",
     "./cordis.patch.yml": "./cordis.patch.yml",
@@ -69,8 +69,7 @@
     "test:windows:ssh": "node test/windows-ssh-live.mjs",
     "bundle:browser": "node scripts/bundle-browser-runtime.mjs",
     "test:browser:mcp": "node test/browser-mcp-live.mjs",
-    "test:browser:adaptive": "node test/browser-adaptive-live.mjs",
-    "test:browser:desktop": "node test/browser-desktop-live.mjs"
+    "test:browser:panel": "node test/browser-panel-live.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.25.2",

@@ -57,8 +57,8 @@ export const visualRefreshScenario = { id: 'visual-refresh', title: '视觉工�
     assert.ok((await p.locator('.dsh-remote-ops__liveSurface').boundingBox()).height>=360);
     await until(async()=>{
       const state=await snapshot(),session=state.sessions.find(s=>!s.closed),surface=await p.locator('.dsh-remote-ops__liveSurface').boundingBox(),image=await p.getByAltText('网页实时画面',{exact:true}).boundingBox();
-      return state.preferences.zoom==='auto'&&session.viewport.width>=1280&&image.width<=surface.width+1&&image.height<=surface.height+1&&
-        Math.abs(image.width/image.height-session.viewport.width/session.viewport.height)<.001&&Number(await p.getByAltText('网页实时画面',{exact:true}).getAttribute('data-revision'))===session.revision;
+      return state.preferences.zoom===undefined&&Math.abs(session.viewport.width-surface.width)<1&&Math.abs(session.viewport.height-surface.height)<1&&
+        image.width===session.viewport.width&&image.height===session.viewport.height&&Number(await p.getByAltText('网页实时画面',{exact:true}).getAttribute('data-revision'))===session.revision;
     });
     await t.shot('390px 网页');
   });

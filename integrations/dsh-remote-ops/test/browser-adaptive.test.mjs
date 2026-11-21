@@ -1,78 +1,94 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, rm, writeFile, readFile} from 'node:fs/promises';
+import {mkdtemp,rm,writeFile,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {EventEmitter} from 'node:events';
-import {BrowserWorkspace} from '../lib/browser-workspace.js';
+import {BrowserWorkspace,adoptBrowserWorkspace} from '../lib/browser-workspace.js';
 
-async function fixture(t, saved) {
-  const root = await mkdtemp(join(tmpdir(), 'remote-ops-adaptive-'));
-  if (saved) await writeFile(join(root, 'preferences.json'), JSON.stringify(saved));
-  const changes = [], navigations = [];
-  const workspace = new BrowserWorkspace({root, launchContext: async (_, options) => {
-    const context = new EventEmitter(), pages = [];
-    context.pages = () => pages; context.close = async () => context.emit('close');
-    context.newPage = async () => {
-      const page = new EventEmitter(); let url = 'about:blank', size = options.viewport;
-      Object.assign(page, {url: () => url, mainFrame: () => page, frames: () => [page], isClosed: () => false,
-        title: async () => 'Adaptive fixture', bringToFront: async () => {}, viewportSize: () => size,
-        setViewportSize: async value => { size = value; changes.push(value); },
-        goto: async value => { url = value; navigations.push({...size}); page.emit('framenavigated', page); },
-        reload: async () => { navigations.push({...size}); page.emit('framenavigated', page); },
-        evaluate: async () => ({required: 0, frameWidth: size.width}), screenshot: async () => Buffer.from('png'),
-      }); pages.push(page); context.emit('page', page); return page;
+async function fixture(t,saved) {
+  const root=await mkdtemp(join(tmpdir(),'remote-ops-panel-'));
+  if(saved)await writeFile(join(root,'preferences.json'),JSON.stringify(saved));
+  await writeFile(join(root,'auto-widths.json'),'obsolete');
+  const changes=[],navigations=[];
+  const w=new BrowserWorkspace({root,launchContext:async(_,options)=>{
+    const context=new EventEmitter(),pages=[];
+    context.pages=()=>pages;context.close=async()=>context.emit('close');
+    context.newPage=async()=>{
+      const page=new EventEmitter();let url='about:blank',size=options.viewport;
+      Object.assign(page,{url:()=>url,mainFrame:()=>page,frames:()=>[page],isClosed:()=>false,
+        title:async()=>'Panel fixture',bringToFront:async()=>{},viewportSize:()=>size,
+        setViewportSize:async value=>{size=value;changes.push(value);},
+        goto:async value=>{url=value;navigations.push({...size});page.emit('framenavigated',page);},
+        reload:async()=>{navigations.push({...size});page.emit('framenavigated',page);},
+        evaluate:async()=>{throw Error('Layout must not be measured or rewritten');},screenshot:async()=>Buffer.from('png'),
+      });pages.push(page);context.emit('page',page);return page;
     };
-    await context.newPage(); return context;
+    await context.newPage();return context;
   }});
-  await workspace.ready;
-  t.after(async () => { await workspace.dispose(); await rm(root, {recursive: true, force: true}); });
-  return {workspace, root, changes, navigations};
+  await w.ready;
+  t.after(async()=>{await w.dispose();await rm(root,{recursive:true,force:true});});
+  const opened=await w.openUrl('a','https://device.test/');
+  const r=w.session('a',opened.id),page=r.pages.get(r.activePageId);
+  return {w,root,changes,navigations,r,page};
 }
 
-test('automatic fit starts before navigation and remains independent of viewer size', async t => {
-  const {workspace: w, navigations, changes} = await fixture(t);
-  assert.equal(w.preferences.zoom, 'auto');
-  const opened = await w.openUrl('a', 'https://device.test/');
-  assert.equal(navigations[0].width, 1280);
-  await w.resizeViewport('a', opened.id, {mode:'panel', zoom:'auto', width:1027, height:768});
-  const size = {...w.session('a', opened.id).viewport}; changes.length = 0;
-  await w.resizeViewport('a', opened.id, {mode:'panel', zoom:'auto', width:390, height:480});
-  assert.deepEqual(w.session('a', opened.id).viewport, size);
-  assert.equal(changes.length, 0, 'viewer-only resize must not invalidate CSS coordinates');
+test('panel dimensions become the CSS viewport without measuring content or reloading',async t=>{
+  const {w,r,page,navigations}=await fixture(t);page.draft='unchanged';
+  for(const [width,height] of [[1027,768],[390,640],[1440,420],[1280,900]]){
+    await w.resizeViewport('a',r.id,{width,height,pageId:r.activePageId});
+    assert.deepEqual(page.viewportSize(),{width,height});
+  }
+  assert.equal(page.draft,'unchanged');assert.equal(navigations.length,1);
 });
 
-test('legacy display settings migrate once, then explicit original-size choice survives restart', async t => {
-  const {workspace: w, root} = await fixture(t, {display:'embedded',browser:'chromium',windowBrowser:'system',viewport:'panel',zoom:'actual'});
-  assert.equal(w.preferences.zoom, 'auto');
-  await w.savePreferences({zoom:'actual'});
-  const restored = new BrowserWorkspace({root}); await restored.ready; t.after(() => restored.dispose());
-  assert.equal(restored.preferences.zoom, 'actual');
-  assert.equal(JSON.parse(await readFile(join(root,'preferences.json'),'utf8')).layoutVersion, 1);
+test('cold migration strips old modes but preserves engine choices and ignores obsolete caches',async t=>{
+  const saved={display:'embedded',browser:'chrome',windowBrowser:'system',viewport:'desktop',zoom:'auto',desktopWidth:null,desktopHeight:1600,layoutVersion:1};
+  const {w,root}=await fixture(t,saved);
+  const expected={display:'embedded',browser:'chrome',windowBrowser:'system'};
+  assert.deepEqual(w.preferences,expected);
+  assert.deepEqual(JSON.parse(await readFile(join(root,'preferences.json'),'utf8')),expected);
+  assert.equal(w.snapshot('a').siteWidths,undefined);
+  await w.savePreferences({zoom:'actual',desktopHeight:'legacy',viewport:'desktop'});
+  assert.deepEqual(w.preferences,expected);
 });
 
-test('automatic detection learns stable width, restores it before reload and never learns long-page height', async t => {
-  const {workspace: w, root, navigations} = await fixture(t);
-  const opened = await w.openUrl('a', 'https://device.test/'), r = w.session('a', opened.id), page = r.pages.get(r.activePageId);
-  page.evaluate = async () => ({required:1920,frameWidth:r.viewport.width,overflow:Math.max(0,1920-r.viewport.width)});
-  const hint = {mode:'panel',zoom:'auto',width:1027,height:768,pageId:r.activePageId};
-  await w.resizeViewport('a',r.id,hint); await w.resizeViewport('a',r.id,r.viewportHint,true);
-  assert.equal(r.viewport.width,1920); assert.equal(r.viewport.height,768);
-  const restored = new BrowserWorkspace({root}); await restored.ready; t.after(() => restored.dispose());
-  assert.equal(restored.initialViewport('https://device.test/next').width,1920);
-  await w.navigate('a',r.id,'reload'); assert.equal(navigations.at(-1).width,1920);
-  assert.equal(restored.initialViewport('https://other.test/').width,1280);
+test('hot adoption preserves live handles and drops obsolete deferred desktop dimensions',async t=>{
+  const {w,r,page,root}=await fixture(t),recorder=w.recordings;
+  w.preferences={...w.preferences,zoom:'auto',viewport:'desktop',desktopWidth:1280,desktopHeight:1600};
+  delete w.autoWidths;
+  r.viewportHint={mode:'desktop',zoom:'actual'};r.pendingViewport={input:{mode:'desktop'}};
+  assert.equal(adoptBrowserWorkspace(w),w);await w.ready;
+  assert.equal(r.pages.get(r.activePageId),page);assert.equal(w.recordings,recorder);assert.equal(r.pendingViewport,undefined);
+  await w.resizeViewport('a',r.id,{width:1027,height:768});await w.flushViewport(r);
+  assert.deepEqual(page.viewportSize(),{width:1027,height:768});
+  assert.equal(JSON.parse(await readFile(join(root,'preferences.json'),'utf8')).zoom,undefined);
 });
 
-test('viewport updates defer while an observation or action owns CSS coordinates', async t => {
-  const {workspace:w,changes} = await fixture(t);
-  const opened = await w.openUrl('a','https://device.test/'), r = w.session('a',opened.id);
-  r.observation = {at:Date.now(),pageId:r.activePageId};
-  let result = await w.resizeViewport('a',r.id,{mode:'panel',zoom:'actual',width:400,height:500});
-  assert.equal(result.viewportDeferred,true); assert.equal(changes.length,0);
-  r.observation = undefined; r.job = {inFlight:true,steps:[],results:[]};
-  result = await w.resizeViewport('a',r.id,{mode:'panel',zoom:'actual',width:500,height:600});
-  assert.equal(result.viewportDeferred,true); assert.equal(changes.length,0);
-  r.job = undefined; await w.flushViewport(r);
-  assert.deepEqual(changes.at(-1),{width:500,height:600});
+test('a saved observation does not freeze resizing and its coordinates become stale',async t=>{
+  const {w,r,page}=await fixture(t);
+  r.observation={at:Date.now(),pageId:r.activePageId};const revision=r.revision;
+  await w.resizeViewport('a',r.id,{width:600,height:450});
+  assert.deepEqual(page.viewportSize(),{width:600,height:450});
+  assert.equal(r.observation,undefined);assert.ok(r.revision>revision);
+});
+
+test('only in-flight work defers resize, and the newest size supersedes an old pending size',async t=>{
+  const {w,r,page,changes}=await fixture(t);r.job={inFlight:true,steps:[],results:[]};
+  for(const width of [400,500,600])assert.equal((await w.resizeViewport('a',r.id,{width,height:450})).viewportDeferred,true);
+  assert.equal(changes.length,0);r.job=undefined;await w.flushViewport(r);
+  assert.deepEqual(page.viewportSize(),{width:600,height:450});assert.equal(changes.length,1);
+  r.observing=true;await w.resizeViewport('a',r.id,{width:700,height:500});
+  r.observing=false;await w.resizeViewport('a',r.id,{width:800,height:600});await w.flushViewport(r);
+  assert.deepEqual(page.viewportSize(),{width:800,height:600});
+});
+
+test('legacy mode arguments cannot override measured dimensions; navigation inherits the panel',async t=>{
+  const {w,r,page,navigations}=await fixture(t);
+  await w.resizeViewport('a',r.id,{mode:'desktop',zoom:'fit',width:640,height:480});
+  await w.navigate('a',r.id,'goto','https://device.test/next');
+  assert.deepEqual(navigations.at(-1),{width:640,height:480});
+  assert.deepEqual(page.viewportSize(),{width:640,height:480});
+  for(const size of [{},{width:0,height:768},{width:123.5,height:768},{width:8192,height:8192},{width:'640',height:480}])
+    await assert.rejects(w.resizeViewport('a',r.id,size),/BROWSER_VIEWPORT_INVALID/);
 });

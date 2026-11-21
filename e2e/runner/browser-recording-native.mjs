@@ -142,7 +142,7 @@ try {
     await page.getByAltText('网页实时画面', { exact: true }).waitFor();
     assert.equal((await snapshot()).runtime.modes.embedded.ready, true);
     await page.getByRole('button', { name: '开始网页录制', exact: true }).click();
-    recordingId = (await snapshot()).sessions.find(item => !item.closed).recording.id; assert.ok(recordingId);
+    recordingId = await until(async () => (await snapshot()).sessions.find(item => !item.closed)?.recording?.id); assert.ok(recordingId);
     if (bootstrap) { await page.getByRole('button',{name:'刷新网页',exact:true}).click(); await until(async()=>!await page.getByRole('button',{name:'刷新网页',exact:true}).isDisabled()); }
   });
   await step('原生 Agent 操作和人工网页输入均被记录', async () => {

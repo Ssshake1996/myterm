@@ -25,10 +25,8 @@ jobs:
       - run: npm ci --prefix e2e
       - run: npm test --prefix e2e
       - run: node --test e2e/test/recording-live.mjs
-      - name: Automatic viewport, MCP coordinates and visible focus
-        run: BROWSER_EXECUTABLE="$(command -v google-chrome)" ADAPTIVE_EVIDENCE=output/e2e/adaptive node integrations/dsh-remote-ops/test/browser-adaptive-live.mjs
-      - name: Desktop viewport, clipped layouts and nested scrolling
-        run: BROWSER_EXECUTABLE="$(command -v google-chrome)" DESKTOP_VIEW_EVIDENCE=output/e2e/desktop-view node integrations/dsh-remote-ops/test/browser-desktop-live.mjs
+      - name: Panel viewport, native scrolling and observation invalidation
+        run: BROWSER_EXECUTABLE="$(command -v google-chrome)" PANEL_EVIDENCE=output/e2e/panel node integrations/dsh-remote-ops/test/browser-panel-live.mjs
       - run: xvfb-run -a npm run e2e --prefix e2e
       - if: always()
         uses: actions/upload-artifact@v4

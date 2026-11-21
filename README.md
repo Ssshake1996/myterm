@@ -31,13 +31,9 @@
 
 ---
 
-## 原始大小滚动与桌面视口（v0.18.1）
+## 网页跟随侧栏（v0.19.0）
 
-原始大小下，跟随面板和桌面视口均可双向滚动画面。滚轮先移动超出面板的画面，抵达边缘后继续滚动鼠标所在的网页区域，包括内部滚动容器。选择 **设置 → 网页 → 原始大小 → 桌面视口** 后，可分别填写**桌面视口宽度／高度**并保存，例如 `1280 × 1600`，无需刷新网页。已有原始大小偏好会保留；默认仍是自动适配。普通长页面可自动滚动到定位目标；页面自身用 `overflow:clip` 裁掉的固定布局，需要更大视口或网站自身的布局调整，不能靠强制点击解决。
-
-## 嵌入网页自动适配与操作跟随（v0.18.0）
-
-插件内网页默认使用 **自动适配**：首次导航前至少采用 1280 CSS 像素宽度，检测可见宽布局并记忆同一网站的稳定最低宽度，将当前网页视口等比完整放入面板。拖动分栏即时缩放，长页面继续滚动。操作位置会短暂标示；在原始大小下，面板自动跟随可见操作目标。**设置 → 网页 → 网页画面缩放** 可切换 **原始大小**（保留字号与底部横向滚动）或 **跟随面板适应**。首次升级自动切换为自动适配，此后手动选择会持久保存。若网站仅在启动时检查更高宽度且不暴露宽布局，可保存**适用网站**和**网站最低宽度**后再打开；插件不会自动刷新未保存表单。相同协议、主机和端口共用宽度记忆，清空并保存可重置手动与学习宽度。 自动化与录制继续使用浏览器 CSS 像素，显示缩放和位置标示不写入网页或录制；有效观察与动作期间延后视口变化，避免拖动侧栏使坐标失效。
+插件内网页的 CSS 视口始终跟随右侧栏可用宽高，行为与调整 Chrome 窗口一致：页面按原字号重新排版，超宽内容横向滚动，长页面纵向滚动。拖动侧栏不会刷新网页，登录状态和未提交表单保持；网页自身的布局规则继续生效。用户与 Agent 操作同一页面，录制仍使用浏览器 CSS 像素。侧栏尺寸变化后，Agent 重新观察再使用元素引用或坐标；正在执行的单次动作完成后应用最新尺寸。
 
 ## 网页入口发现与视觉操作（v0.17.0）
 
@@ -233,7 +229,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 - 顶部“终端 / 网页 / 桌面 / 文件 / API”标签支持方向键、Home/End；环境管理独立展开在插件内，“设置 → 通用”收纳诊断和刷新，更新位于“设置 → 更新”。左侧入口仍打开 DSH 原生右栏，不替换主对话。
 - 当前模块、选中终端和环境筛选按 DSH 对话恢复，关闭再打开面板及网页刷新均可恢复。文件路径、排序、滚动及书签沿用原有存储；文件筛选、路径草稿和仍存在的选中项在同一网页内跨模块/面板切换保留，整页刷新后重新读取目录，不恢复旧选择。
 - “设置 → 终端”统一管理字号、换行、高亮及当前 SSH 连接尺寸。终端标签旁可直接搜索和导出当前日志，“更多”提供独立命令和全部日志打包；路径与技术状态位于底部状态栏。普通日志使用快速解析，光标控制、Unicode 和全屏程序使用 VT 屏幕模型。
-- 插件内网页默认使用 **自动适配**：首次导航前至少采用 1280 CSS 像素宽度，检测可见宽布局并记忆同一网站的稳定最低宽度，将当前网页视口等比完整放入面板。拖动分栏即时缩放，长页面继续滚动。操作位置会短暂标示；在原始大小下，面板自动跟随可见操作目标。**设置 → 网页 → 网页画面缩放** 可切换 **原始大小**（保留字号与底部横向滚动）或 **跟随面板适应**。首次升级自动切换为自动适配，此后手动选择会持久保存。若网站仅在启动时检查更高宽度且不暴露宽布局，可保存**适用网站**和**网站最低宽度**后再打开；插件不会自动刷新未保存表单。相同协议、主机和端口共用宽度记忆，清空并保存可重置手动与学习宽度。桌面原始大小视口默认 1024×768，宽高可独立保存。切换插件内和独立窗口会重新加载网页，请先保存表单。
+- 插件内网页的 CSS 视口始终跟随右侧栏可用宽高，行为与调整 Chrome 窗口一致：页面按原字号重新排版，超宽内容横向滚动，长页面纵向滚动。拖动侧栏不会刷新网页，登录状态和未提交表单保持；网页自身的布局规则继续生效。用户与 Agent 操作同一页面，录制仍使用浏览器 CSS 像素。侧栏尺寸变化后，Agent 重新观察再使用元素引用或坐标；正在执行的单次动作完成后应用最新尺寸。 切换插件内和独立窗口会重新加载网页，请先保存表单。
 - 文件工作区增加目录筛选、全选、Shift 连续选择及 Enter 打开文件夹；窄面板用“来源 A / 目标 B”切换，复制按钮标明目标，已结束的传输记录折叠。上传/下载中的“本机”指当前浏览器设备，DSH 主机仍作为单独位置。
 - 独立命令在后端运行，关闭结果视图、切换模块或刷新 DSH 网页不会取消；重新打开可读取当前目标的最近任务与结果。结果只保留于本次 DSH 进程内，最多 32 项、完成后最多 10 分钟；草稿正文仅在当前网页内保留。DSH 重启后不恢复、不自动重跑；超时或远端退出未知均不表示进程已结束。
 - 分组输入、删除/覆盖确认使用插件内弹层；Tab 保持在弹层控件中，Esc 关闭并返回入口。弹层限于插件区域，主对话继续可用。环境校验和目录重试就近显示；诊断默认显示事件摘要，原始 JSON 可展开。
@@ -276,7 +272,7 @@ Agent 可通过 `remote_environment_create/update/test` 管理和诊断环境；
 从 [最新稳定版](https://github.com/Ssshake1996/myterm/releases/latest) 下载插件包，然后执行：
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.18.1.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.19.0.tgz
 dsh web
 ```
 
@@ -294,7 +290,7 @@ npm --prefix integrations/dsh-remote-ops run check
 
 ## 内网 HTTP/HTTPS 手动更新
 
-v0.18.1 完善原始大小双向滚动、滚轮目标定位与可保存的桌面视口宽高。[版本说明](docs/releases/dsh-remote-ops-v0.18.1.md)
+v0.19.0 将嵌入网页统一为跟随侧栏宽高，简化设置并修复旧状态引发的尺寸同步错误。[版本说明](docs/releases/dsh-remote-ops-v0.19.0.md)
 
 Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检查版本** 或 **检查并更新**。默认来源为 GitHub Release，也可配置内网 HTTP/HTTPS 地址。检查由点击按钮触发，找到更高的稳定版本后可安装。窗口分别显示运行版本与已安装版本；安装完成后显示等待原因，任务结束后自动热加载；“新版已生效”与运行版本共同确认结果。
 
@@ -303,14 +299,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.18.1.tgz
-  SHA256SUMS-dsh-remote-ops-v0.18.1.txt
+  dsh-remote-ops-v0.19.0.tgz
+  SHA256SUMS-dsh-remote-ops-v0.19.0.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.18.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.19.0.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -353,14 +349,14 @@ SSH/Telnet 密码可通过 Agent 环境工具或 Sidebar 表单保存到 Harness
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.18.1
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.19.0
 ```
 
 发布只有一份实现：`scripts/release-dsh-remote-ops.mjs`（Node，Windows/Linux/macOS 通用）。`scripts/release-dsh-remote-ops.ps1` 只是委托它的薄封装，`-SkipPublish` 对应 `--no-push`。
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.18.1            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
-node scripts/release-dsh-remote-ops.mjs 0.18.1 --dry-run  # 只校验、跑门禁并打包，不动 git
+node scripts/release-dsh-remote-ops.mjs 0.19.0            # 校验、门禁、打包、提交、打 Tag、推送，并等待 Release 发布后核对包摘要
+node scripts/release-dsh-remote-ops.mjs 0.19.0 --dry-run  # 只校验、跑门禁并打包，不动 git
 ```
 
 选项：`--no-push`（只在本地提交和打 Tag）、`--no-wait`（推送后不等待 Release）、`--remote <name>`、`--branch <name>`、`--wait-minutes <n>`。GitHub Release 由推送 Tag 触发的 `.github/workflows/release.yml` 创建：它校验 Tag、`package.json` 版本和发布说明一致，执行完整门禁，打包并创建（或更新）Release，上传安装包与 SHA256 文件。脚本随后下载正式包，核对其实际 SHA256、校验文件及 GitHub 提供的摘要。

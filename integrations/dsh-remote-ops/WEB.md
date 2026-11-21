@@ -7,21 +7,19 @@ Remote Ops provides a browser in the native DSH right Sidebar. Type a URL to beg
 
 Use `remote_browser_read` with `snapshot:true` for menu hierarchy and refs; request `image:true` immediately when structure does not identify the correct entry. The configured DSH image-capable model receives the actual screenshot through native attachments. Use fresh `ref` or `point` targets with `snapshotId` for a single action, then observe and verify. Official Playwright MCP shares the existing context through an in-memory connection. See [Browser MCP usage and network boundaries](BROWSER-MCP.md).
 
-## Original-size scrolling and desktop dimensions (v0.18.1)
+## Panel-sized browser
 
-Both panel and desktop original-size views support horizontal and vertical panning. Wheel input first pans the oversized image, then scrolls the webpage under the pointer, including nested containers. In **设置 → 网页**, select **原始大小 → 桌面视口**, enter **桌面视口宽度／高度**, and save (for example, `1280 × 1600`). This does not reload the page. Existing original-size choices persist; automatic fit remains the default. Ordinary long-page targets scroll into view normally. Fixed content clipped by the website itself needs a larger viewport or a website layout change, not a forced click.
+The embedded CSS viewport follows the available Sidebar width and height, like resizing a Chrome window. Pages reflow at their normal font size; wide and long content scrolls inside the webpage. Resizing does not reload the document or clear login state and drafts. Website layout rules remain in effect. Users and Agents share the page; recordings retain browser CSS pixels. After a panel resize, obtain a fresh observation before using refs or coordinates. An in-flight action finishes before the newest size is applied.
 
-## 原始大小滚动与桌面视口（v0.18.1）
+插件内网页的 CSS 视口始终跟随右侧栏可用宽高，行为与调整 Chrome 窗口一致：页面按原字号重新排版，超宽内容横向滚动，长页面纵向滚动。拖动侧栏不会刷新网页，登录状态和未提交表单保持；网页自身的布局规则继续生效。用户与 Agent 操作同一页面，录制仍使用浏览器 CSS 像素。侧栏尺寸变化后，Agent 重新观察再使用元素引用或坐标；正在执行的单次动作完成后应用最新尺寸。
 
-原始大小下，跟随面板和桌面视口均可双向滚动画面。滚轮先移动超出面板的画面，抵达边缘后继续滚动鼠标所在的网页区域，包括内部滚动容器。选择 **设置 → 网页 → 原始大小 → 桌面视口** 后，可分别填写**桌面视口宽度／高度**并保存，例如 `1280 × 1600`，无需刷新网页。已有原始大小偏好会保留；默认仍是自动适配。普通长页面可自动滚动到定位目标；页面自身用 `overflow:clip` 裁掉的固定布局，需要更大视口或网站自身的布局调整，不能靠强制点击解决。
-
-Desktop dimensions are plugin-wide preferences, not per-conversation settings. Width and height each accept 1–8192 CSS pixels with a total limit of 16,777,216 pixels; explicit site minimum widths still apply. Resizing is deferred during valid observations or running actions. After a real viewport change, obtain a new screenshot/ref before the next dependent action.
+New embedded browsers show native Chromium scrollbars. Hot updates keep an already-running browser and its launch arguments: if an older browser still hides its scrollbars, save unfinished work, close that browser and reopen the URL. Wheel scrolling remains available in the retained session.
 
 ## Workspace controls
 
 Workspace tabs and **设置** share the top row. The **环境** button beside the web address controls opens the terminal/API environment drawer; **返回** or Esc returns to the same page. Saved website login configurations remain under **收藏**.
 
-Use **设置 → 网页** for engines, browser runtime status, viewport and zoom; **返回工作区** returns to the same page and address draft. **网页 → 收藏** manages sites and flows. **操作记录** expands step results below the live page. These views do not pause or cancel browser work. Switching display mode first asks for confirmation; **取消** leaves it untouched, while **切换显示** reloads it and can discard unsent form data. Density and version are in **设置 → 通用**.
+Use **设置 → 网页** for engines and browser runtime status; **返回工作区** returns to the same page and address draft. **网页 → 收藏** manages sites and flows. **操作记录** expands step results below the live page. These views do not pause or cancel browser work. Switching display mode first asks for confirmation; **取消** leaves it untouched, while **切换显示** reloads it and can discard unsent form data. Density and version are in **设置 → 通用**.
 
 ## Browser settings and installation
 
@@ -39,7 +37,7 @@ Browser binaries increase the archive size. Upgrade from a package with the old 
 1. Select or create a DSH conversation and open **Remote Ops → 网页**.
 2. In **设置 → 网页**, the internal browser reports **随包就绪** with a complete matching package. You can also select installed Edge / Chrome. Engine changes apply to newly opened browsers.
 3. Choose **插件内** or **独立窗口** under **显示**, enter an HTTP(S) URL and press Enter. A schemeless address gets `https://`. Independent windows require DSH and the user on the same interactive desktop. Embedded mode streams the dedicated browser into the DSH webpage.
-4. Ask the Agent in the main conversation to operate the current page. The Agent can omit `browserId` to use this conversation's selected browser. You can also click, scroll, type, paste text and sign in directly, including while the conversation runs. Use **Ctrl+Esc** to return focus to the address field. Embedded pages default to **Automatic fit**: navigation starts at a minimum 1280 CSS-pixel width; visible wide layouts are detected and their stable minimum is remembered per origin. The complete current browser viewport fits the panel proportionally as the divider moves; long pages continue to scroll. A brief marker identifies the operation target, and original-size viewing pans to it. **设置 → 网页 → 网页画面缩放** also offers **原始大小** (original size with horizontal scrolling) and **跟随面板适应** (dynamic panel fit). The first upgrade selects automatic fit once; subsequent user choices persist. For a site that only checks a higher breakpoint at startup without exposing a wide layout, save its URL and minimum width before opening it. The plugin does not reload unsaved forms. Width memory follows the HTTP(S) origin; clearing the width and saving resets both explicit and learned widths. Independent windows use their own viewport.
+4. Ask the Agent in the main conversation to operate the current page. The Agent can omit `browserId` to use this conversation's selected browser. You can also click, scroll, type, paste text and sign in directly, including while the conversation runs. Use **Ctrl+Esc** to return focus to the address field. The embedded CSS viewport follows the available Sidebar width and height, like resizing a Chrome window. Pages reflow at their normal font size; wide and long content scrolls inside the webpage. Resizing does not reload the document or clear login state and drafts. Website layout rules remain in effect. Users and Agents share the page; recordings retain browser CSS pixels. After a panel resize, obtain a fresh observation before using refs or coordinates. An in-flight action finishes before the newest size is applied. Independent windows use their own viewport.
 5. Use native DSH conversation cancellation to stop the Agent. Cancellation prevents subsequent browser steps after the current action settles. A dispatched click or request may already have taken effect; website server jobs do not roll back. A pending terminal send attempts Ctrl+C on cancellation; already returned commands and remote background processes may continue. Inspect actual results before claiming completion or process exit.
 
 Human actions can change the page while the Agent works. The Agent must read the current page again before dependent actions. Input captured before a navigation, page switch or viewport resize is rejected, rather than replayed on a different page. UI keyboard requests are sent in order; multiple input sources can still change the same field or terminal command line.
@@ -153,6 +151,6 @@ The embedded view supports mouse clicks, wheel scrolling, keyboard input, Chines
 
 切换终端/SFTP、收起右栏及刷新 DSH 不取消后台网页任务。切换显示方式会重新载入网页并保留 Cookie，未提交内容不会恢复。取消对话会停止后续步骤，不能撤销已发出的业务请求或保证远程进程退出；`unknown` 需检查实际网页，不会自动重试。登录凭据和专用浏览器 profile 只保存在 DSH 本机。
 
-插件内网页默认使用 **自动适配**：首次导航前至少采用 1280 CSS 像素宽度，检测可见宽布局并记忆同一网站的稳定最低宽度，将当前网页视口等比完整放入面板。拖动分栏即时缩放，长页面继续滚动。操作位置会短暂标示；在原始大小下，面板自动跟随可见操作目标。**设置 → 网页 → 网页画面缩放** 可切换 **原始大小**（保留字号与底部横向滚动）或 **跟随面板适应**。首次升级自动切换为自动适配，此后手动选择会持久保存。若网站仅在启动时检查更高宽度且不暴露宽布局，可保存**适用网站**和**网站最低宽度**后再打开；插件不会自动刷新未保存表单。相同协议、主机和端口共用宽度记忆，清空并保存可重置手动与学习宽度。 标签栏末尾的 ＋ 新建网页，每个标签上的 × 关闭对应页面。拖动分栏可保留当前表单，切换“插件内 / 独立窗口”会重新加载网页。
+插件内网页随侧栏宽高排版，超宽、超长内容在网页中滚动，字号不变。标签栏的 ＋ 新建网页、× 关闭页面。拖动分栏保留当前表单；切换插件内／独立窗口会重新加载网页。
 
 要让 Agent 把操作写成自动化用例，在 A 设备开始录制，完成后停止并导出 JSON。记录包含设备地址、同源页面路径、iframe、目标元素的候选定位和匹配情况，以及网页状态区域显示的反馈。把导出文件、B 设备地址和目标框架交给 Agent，即可按相同界面编写跨设备用例。

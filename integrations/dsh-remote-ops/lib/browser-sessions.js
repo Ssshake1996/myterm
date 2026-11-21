@@ -91,7 +91,7 @@ export class BrowserSessions {
       const display=options.background ? 'embedded' : options.display??'window';
       const context = await this.launch(site, owner,display);
       if (this.disposed) { await context.close(); throw browserError("BROWSER_DISPOSED", "The plugin is unloading"); }
-      const record = { id: randomUUID(), owner, site, context, display, viewport:{mode:this.preferences.viewport,...this.initialViewport(site.url)}, revision:0, pages: new Map(), secrets: new Set(), closed: false, createdAt: new Date().toISOString(), history: [] };
+      const record = { id: randomUUID(), owner, site, context, display, viewport:{mode:'panel',...this.initialViewport(site.url)}, revision:0, pages: new Map(), secrets: new Set(), closed: false, createdAt: new Date().toISOString(), history: [] };
       const selected = this.sessions.get(this.active?.get(owner));
       this.sessions.set(record.id, record);
       if (!options.background || !selected || selected.closed) this.active?.set(owner,record.id);
@@ -145,7 +145,7 @@ export class BrowserSessions {
   publicJob(record, job) {
     return { id: job.id, pageId: job.pageId, status: job.status, index: job.index, count: job.steps.length, results: job.results, error: job.error ?? null, startedAt: job.startedAt, finishedAt: job.finishedAt ?? null, inFlight: job.inFlight };
   }
-  snapshot(owner) { return { sites: this.sites, flows: this.flows, siteWidths:this.siteWidths, preferences:this.preferences, activeBrowserId:this.active?.get(owner)??null, sessions: [...this.sessions.values()].filter(record => record.owner === owner).map(record => this.publicSession(record)) }; }
+  snapshot(owner) { return { sites: this.sites, flows: this.flows, preferences:this.preferences, activeBrowserId:this.active?.get(owner)??null, sessions: [...this.sessions.values()].filter(record => record.owner === owner).map(record => this.publicSession(record)) }; }
   async navigate(owner,id,action,value,source='human') {
     const r=this.session(owner,id);
     if(r.closed||r.switching)throw browserError('BROWSER_CLOSED','This browser was closed or is changing display');
@@ -179,7 +179,7 @@ export class BrowserSessions {
       r.display = display;
       r.viewportHint = undefined;
       r.observation = undefined; r.pendingViewport = undefined; r.viewFocus = undefined;
-      if (display === 'embedded') r.viewport = { mode: this.preferences.viewport, ...this.initialViewport(r.site.url) };
+      if (display === 'embedded') r.viewport = { mode: 'panel', ...this.initialViewport(r.site.url) };
       await installBrowserFocus(r);
       if(r.recording?.metadata.status==='recording')await this.recordings.install(r);
       const initial=context.pages();

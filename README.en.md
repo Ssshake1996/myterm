@@ -18,13 +18,9 @@
 
 These screenshots show v0.9.2 installed in real DSH 0.2.0-rc.2; the installed package matches the official Release SHA256. A deterministic test provider drives real tools against isolated local SSH, web and API services.
 
-## Original-size scrolling and desktop dimensions (v0.18.1)
+## Browser viewport follows the Sidebar (v0.19.0)
 
-Both panel and desktop original-size views support horizontal and vertical panning. Wheel input first pans the oversized image, then scrolls the webpage under the pointer, including nested containers. In **设置 → 网页**, select **原始大小 → 桌面视口**, enter **桌面视口宽度／高度**, and save (for example, `1280 × 1600`). This does not reload the page. Existing original-size choices persist; automatic fit remains the default. Ordinary long-page targets scroll into view normally. Fixed content clipped by the website itself needs a larger viewport or a website layout change, not a forced click.
-
-## Embedded automatic fit and operation focus (v0.18.0)
-
-Embedded pages default to **Automatic fit**: navigation starts at a minimum 1280 CSS-pixel width; visible wide layouts are detected and their stable minimum is remembered per origin. The complete current browser viewport fits the panel proportionally as the divider moves; long pages continue to scroll. A brief marker identifies the operation target, and original-size viewing pans to it. **设置 → 网页 → 网页画面缩放** also offers **原始大小** (original size with horizontal scrolling) and **跟随面板适应** (dynamic panel fit). The first upgrade selects automatic fit once; subsequent user choices persist. For a site that only checks a higher breakpoint at startup without exposing a wide layout, save its URL and minimum width before opening it. The plugin does not reload unsaved forms. Width memory follows the HTTP(S) origin; clearing the width and saving resets both explicit and learned widths. Automation and recordings retain browser CSS pixels. Display scaling and viewer markers add no page interaction or recording events; viewport changes wait for active observations and actions.
+The embedded CSS viewport follows the available Sidebar width and height, like resizing a Chrome window. Pages reflow at their normal font size; wide and long content scrolls inside the webpage. Resizing does not reload the document or clear login state and drafts. Website layout rules remain in effect. Users and Agents share the page; recordings retain browser CSS pixels. After a panel resize, obtain a fresh observation before using refs or coordinates. An in-flight action finishes before the newest size is applied.
 
 ## Browser discovery and visual actions (v0.17.0)
 
@@ -152,14 +148,14 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 ## Manual intranet HTTP/HTTPS updates
 
-v0.18.1 improves original-size panning, pointer-targeted wheel input and saved desktop dimensions. [Release notes](docs/releases/dsh-remote-ops-v0.18.1.md)
+v0.19.0 follows the Sidebar viewport and simplifies browser settings, with live-state migration and persistent resize diagnostics. [Release notes](docs/releases/dsh-remote-ops-v0.19.0.md)
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.18.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.18.1.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.19.0.tgz` and `SHA256SUMS-dsh-remote-ops-v0.19.0.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.18.1.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.19.0.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -218,7 +214,7 @@ The context menu also provides **全选输出**. Clipboard data is plain text, w
 
 - Terminal, web, files, environments, saved commands and diagnostics share consistent typography, spacing, controls and host-aware light/dark surfaces. Workspace tabs stay at the top; version, diagnostics and comfortable/compact density live under **设置 → 通用**. Updates live under **设置 → 更新**. Density persists in this browser.
 - Local CMD and SSH share one tab row with search and export fixed on the right. When tabs overflow, left and right buttons scroll to earlier or later tabs without closing connections; each button is disabled at its boundary. Arrow keys and Home/End select and reveal a terminal. Background output and status refreshes preserve manual scrolling.
-- The web workspace prioritizes the address and live page. **设置 → 网页** contains engines, Chromium installation, viewport and zoom. **收藏** manages sites and flows; **操作记录** expands below the live page. Returning to the workspace retains the URL draft and current page.
+- The web workspace prioritizes the address and live page. **设置 → 网页** contains engines and Chromium runtime status. **收藏** manages sites and flows; **操作记录** expands below the live page. Returning to the workspace retains the URL draft and current page.
 - Switching an open page between embedded and independent display requires confirmation. Cancel dispatches nothing; confirming reloads the page and may lose unsent form content. Switching cannot be submitted repeatedly while pending.
 - File batch actions appear after selection. Upload controls match other buttons, and browser uploads show byte progress. Module switches retain selection, drafts and background jobs; completed transfers still use coalesced directory refreshes.
 
@@ -239,7 +235,7 @@ Browsers run on the DSH host. Enter an address in Web or call `remote_browser_op
 - **终端 / 网页 / 桌面 / 文件 / API** workspace tabs support arrows and Home/End. Environment management opens inside the panel; **设置 → 通用** contains diagnostics and refresh, while **设置 → 更新** handles updates. The native DSH right Sidebar and the main conversation are preserved.
 - The module, selected terminal and environment filter recover per conversation after closing/reopening or refreshing. File path/sort/scroll/bookmarks keep their existing persistence. File filters, path drafts and reconciled selections survive module/panel switches within one webpage; a full reload fetches fresh entries and does not restore old selections.
 - **设置 → 终端** contains font size, wrapping, highlighting and the active SSH connection size. Search and current transcript export are directly beside the session tabs; **更多** contains independent commands and all-log ZIP export. The path and technical status sit in the bottom status bar. ASCII/SGR logs use a fast parser; cursor control, Unicode and full-screen programs retain the VT model.
-- Embedded pages default to **Automatic fit**: navigation starts at a minimum 1280 CSS-pixel width; visible wide layouts are detected and their stable minimum is remembered per origin. The complete current browser viewport fits the panel proportionally as the divider moves; long pages continue to scroll. A brief marker identifies the operation target, and original-size viewing pans to it. **设置 → 网页 → 网页画面缩放** also offers **原始大小** (original size with horizontal scrolling) and **跟随面板适应** (dynamic panel fit). The first upgrade selects automatic fit once; subsequent user choices persist. For a site that only checks a higher breakpoint at startup without exposing a wide layout, save its URL and minimum width before opening it. The plugin does not reload unsaved forms. Width memory follows the HTTP(S) origin; clearing the width and saving resets both explicit and learned widths. Desktop original size starts at 1024×768 with independently configurable dimensions. Save unsent forms before switching between the embedded view and an independent window.
+- The embedded CSS viewport follows the available Sidebar width and height, like resizing a Chrome window. Pages reflow at their normal font size; wide and long content scrolls inside the webpage. Resizing does not reload the document or clear login state and drafts. Website layout rules remain in effect. Users and Agents share the page; recordings retain browser CSS pixels. After a panel resize, obtain a fresh observation before using refs or coordinates. An in-flight action finishes before the newest size is applied. Save forms before switching display between embedded and independent windows.
 - Files add filtering, select-all, Shift range selection and Enter for directories. Narrow panels switch between source A and target B, copy labels identify the destination, and finished transfer history is collapsed. Browser upload/download refers to the browser device, distinct from the DSH host.
 - UI independent commands run in the backend and survive closing the result view, switching modules and refreshing DSH Web. Reopening reads the current target's latest job/result. Completed results are memory-only, capped at 32 records and ten minutes; command drafts survive only within the current webpage. DSH restart does not restore/replay commands. A timeout/unknown remote exit never proves process termination.
 - Panel-local dialogs replace browser prompts/confirmations, contain Tab and close with Escape/restore focus. The main conversation remains usable. Environment validation and directory retry appear beside the operation; diagnostics show readable event summaries with expandable JSON.
@@ -278,7 +274,7 @@ XPath/CSS/role/label/text/placeholder, iframes, popups, optional saved login/flo
 Download the package from the [latest stable release](https://github.com/Ssshake1996/myterm/releases/latest), then run:
 
 ```powershell
-dsh plugin --profile web add .\dsh-remote-ops-v0.18.1.tgz
+dsh plugin --profile web add .\dsh-remote-ops-v0.19.0.tgz
 dsh web
 ```
 
@@ -325,15 +321,15 @@ the reference in the environment file.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
-  -File scripts/release-dsh-remote-ops.ps1 -Version 0.18.1
+  -File scripts/release-dsh-remote-ops.ps1 -Version 0.19.0
 ```
 
 The cross-platform implementation is `scripts/release-dsh-remote-ops.mjs`;
 the PowerShell command delegates to it.
 
 ```sh
-node scripts/release-dsh-remote-ops.mjs 0.18.1
-node scripts/release-dsh-remote-ops.mjs 0.18.1 --dry-run
+node scripts/release-dsh-remote-ops.mjs 0.19.0
+node scripts/release-dsh-remote-ops.mjs 0.19.0 --dry-run
 ```
 
 Before changing git, the script verifies the package, lockfile, runtime and
