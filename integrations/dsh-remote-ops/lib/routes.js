@@ -115,10 +115,10 @@ export function registerRoutes(ctx, state) {
           if (!body || typeof body !== "object" || Array.isArray(body)) return Response.json({ error: "UPDATE_ACTION_INVALID", code: "UPDATE_ACTION_INVALID" }, { status: 400, headers: { "Cache-Control": "no-store" } });
           if (body.action === "settings") value = await state.saveUpdateSettings(body.settings);
           else if (body.action === "check") { await state.checkForUpdate(true); value = await state.updateStatus(); }
-          else if (body.action === "install") {
+          else if (["install", "resume", "restart-download"].includes(body.action)) {
             // Installation can replace this route. Acknowledge once, then let
             // GET reconcile the result across runtime and client replacement.
-            void state.upgrade().catch(() => {});
+            void state.upgrade({ resume: body.action !== 'install', restartDownload: body.action === 'restart-download' }).catch(() => {});
             return Response.json({ ...await state.updateStatus(), accepted: true }, { status: 202, headers: { "Cache-Control": "no-store" } });
           }
           else return Response.json({ error: "UPDATE_ACTION_INVALID", code: "UPDATE_ACTION_INVALID" }, { status: 400, headers: { "Cache-Control": "no-store" } });

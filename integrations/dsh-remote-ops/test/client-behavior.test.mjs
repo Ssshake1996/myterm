@@ -34,6 +34,18 @@ const browserRuntimeSummary = loadClientFunction('browserRuntimeSummary', '\n   
 const terminalTabStatus = loadClientFunction("terminalTabStatus", "\n    const retryDelay");
 const terminalCloseSelection = loadClientFunction("terminalCloseSelection", "\n    const retryDelay", "terminalTabStatus");
 const terminalCloseResult = loadClientFunction("terminalCloseResult", "\n    const retryDelay");
+const updateDownloadModel = loadClientFunction('updateDownloadModel', '\n    function UpdateDownloadProgress');
+
+test('download progress distinguishes unknown size, retained bytes, retries and installation', () => {
+  const base = { version: '0.20.0', status: 'downloading', downloadedBytes: 64e6, totalBytes: 100e6, bytesPerSecond: 2e6, etaSeconds: 18 };
+  const view = updateDownloadModel(base); assert.equal(view.percent, 64); assert.match(view.metrics, /64.0 MB \/ 100.0 MB · 2.0 MB\/s/); assert.match(view.metrics, /18 秒/);
+  const unknown = updateDownloadModel({ ...base, totalBytes: null }); assert.equal(unknown.percent, null); assert.match(unknown.metrics, /已下载/);
+  const retry = updateDownloadModel({ ...base, status: 'retrying', retryAt: new Date(5000).toISOString(), retryCount: 1, maxRetries: 3 }, 2000);
+  assert.equal(retry.detail, '3 秒后重试 · 第 1/3 次'); assert.doesNotMatch(retry.metrics, /MB\/s/);
+  assert.match(updateDownloadModel({ ...base, status: 'paused', resumable: true }).detail, /已保留/);
+  assert.match(updateDownloadModel({ ...base, status: 'paused', resumable: false }).detail, /从头下载/);
+  const verified = updateDownloadModel({ ...base, status: 'verified', downloadedBytes: 100e6 }); assert.equal(verified.percent, 100); assert.match(verified.detail, /完成热加载才表示新版生效/);
+});
 
 test("tab status uses the newer observation for this stream and does not mistake a connection for completion", () => {
   const item = { kind: "ssh", status: { kind: "running" }, operation: { kind: "idle", revision: 3 }, outputCursor: { streamId: "current" } };

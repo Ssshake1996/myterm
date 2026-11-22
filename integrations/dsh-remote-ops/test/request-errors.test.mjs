@@ -19,6 +19,13 @@ function requestWith(fetch,globals={}){
   return context.call;
 }
 
+test('resume and fresh-download submissions use installation diagnostics and recovery', async()=>{
+  for (const action of ['resume','restart-download']) {
+    const request=requestWith(async()=>{throw new TypeError('offline');});
+    await assert.rejects(request('/api/dsh-remote-ops/update',{method:'POST',body:JSON.stringify({action})}),error=>{assert.equal(error.requestFailure.stage,'update-install');return true;});
+  }
+});
+
 test('only an acknowledged update gets a bounded recovery window for host route gaps',()=>{
   let time=100;const recovery=createUpdateRecovery(undefined,()=>time,30);
   const failure={requestFailure:{stage:'terminal-output',status:404}};

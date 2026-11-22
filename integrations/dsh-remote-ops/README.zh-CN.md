@@ -2,6 +2,14 @@
 
 面向 DeepSeek Harness 的终端、网页、Windows 桌面与 RESTful API 运维插件。用户与 Agent 共享可见终端、软件窗口、网页和请求记录，环境与凭据由插件及 DSH 服务统一管理。
 
+## GitHub 下载进度与断点续传（v0.20.0）
+
+在 **设置 → 更新** 选择 GitHub Release，点击 **检查并更新**，即可看到已下载大小、百分比、速度和预计剩余时间。未知文件大小时显示已下载字节；切换工作区再返回仍可查看进度。
+
+下载边接收边保存；连接中断后最多自动重试 3 次，失败则保留进度，点击 **继续下载** 接着下载原先选定的版本。重启 DSH 后也可手动继续；需要舍弃已有内容时，展开 **下载选项 → 重新下载**。连接等待 30 秒超时，下载连续 60 秒无新数据才判为停滞，持续传输不会因总耗时超过 10 分钟中断。GitHub 限流时遵守服务端等待时间。
+
+续传响应不匹配或服务端不接受续传时会明确提示并安全重下。完整 SHA256、插件名称和版本校验通过后才交给 DSH 安装；下载 100% 后仍需等待安装和热加载，**当前运行**与**已安装**版本一致才表示新版生效。此能力从 v0.20.0 开始生效：仍在旧版本运行中的下载不会自动获得续传功能。
+
 ## 网页光标与点击显示（v0.19.3）
 
 嵌入网页不再叠加蓝白色点击方块。鼠标移到输入框、文本域或可编辑区域时显示文字输入光标，链接和带标准 cursor 样式的元素显示对应光标，支持内嵌 iframe。光标检测只读取页面样式，连续移动会合并查询；网页自身的焦点、插入光标及点击、输入、滚动、录制行为保持原样。
@@ -141,14 +149,14 @@ Remote Ops → **设置 → 更新**，选择并保存来源，点击 **仅检�
 ```text
 remote-ops/
   latest.json
-  dsh-remote-ops-v0.19.3.tgz
-  SHA256SUMS-dsh-remote-ops-v0.19.3.txt
+  dsh-remote-ops-v0.20.0.tgz
+  SHA256SUMS-dsh-remote-ops-v0.20.0.txt
 ```
 
 上传方先放入官方 tgz 和 SHA256，再运行随包脚本生成清单：
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.19.3.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.20.0.tgz
 ```
 
 已安装的包中脚本位于 `<plugin-root>/scripts/create-update-manifest.mjs`。可加第二个参数指定上级目录的 `latest.json`，从而把各版本保存在子目录；输出目录需已存在。脚本校验 SHA256、包名、版本和 bundle 后原子写入清单，拒绝覆盖更高版本。**先上传 tgz 和 SHA256，最后发布 latest.json**；将该目录发布到 HTTP/HTTPS 服务。GitHub Release 提供 tgz 和 SHA256 校验文件。
@@ -271,7 +279,7 @@ node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/ds
 使用 DSH 官方插件管理器安装 release 压缩包。包内的 `dsh.bundle.patch` 声明会自动把插件加入 profile，不需要手工复制 patch。
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.19.3.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.20.0.tgz
 dsh web
 ```
 

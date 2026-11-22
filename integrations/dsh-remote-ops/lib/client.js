@@ -210,6 +210,7 @@ window.__ModuleLoader__.load({
       .dsh-remote-ops__modal :is(pre,p){margin:0;overflow-wrap:anywhere}.dsh-remote-ops__modal pre{white-space:pre-wrap;max-height:280px;overflow:auto;font:12px/1.6 ui-monospace,Consolas,monospace}
       .dsh-remote-ops__modal .dsh-remote-ops__toolbar{padding:0}.dsh-remote-ops__modal .dsh-remote-ops__toolbar label{display:flex;align-items:center;gap:7px}.dsh-remote-ops__modal .dsh-remote-ops__toolbar input{width:80px}
       .dsh-remote-ops__updateVersions{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px;border:1px solid var(--dsw-alias-border-l3,#d8dce5);border-radius:8px}.dsh-remote-ops__updateVersions>span{display:flex;flex-direction:column;gap:4px;color:var(--dsw-alias-label-secondary,#657083)}.dsh-remote-ops__updateVersions strong{font:600 18px/1.4 ui-monospace,Consolas,monospace;color:var(--dsw-alias-label-primary,#182230)}
+      .dsh-remote-ops__updateDownload{display:grid;gap:8px;margin:16px 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.dsh-remote-ops__updateDownloadHeading{display:flex;justify-content:space-between;align-items:baseline;gap:12px}.dsh-remote-ops__updateDownload p{margin:0}.dsh-remote-ops__updateDownload progress{width:100%;height:8px;border:0;border-radius:4px;overflow:hidden;accent-color:var(--dsw-alias-brand-primary,#3276dd)}.dsh-remote-ops__updateDownload progress::-webkit-progress-bar{background:var(--dsw-alias-border-l3,#d8dce5);border-radius:4px}.dsh-remote-ops__updateDownload progress::-webkit-progress-value{background:var(--dsw-alias-brand-primary,#3276dd);border-radius:4px}.dsh-remote-ops__updateDownload progress::-moz-progress-bar{background:var(--dsw-alias-brand-primary,#3276dd);border-radius:4px}
       .dsh-remote-ops__resultTabs{display:flex;gap:5px;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}.dsh-remote-ops__resultTabs>button{background:transparent;border-color:transparent}.dsh-remote-ops__resultTabs>button[aria-selected=true]{color:var(--ro-accent)}
       .dsh-remote-ops__diagnostics{flex:1;min-height:0;display:flex;flex-direction:column}.dsh-remote-ops__diagnosticEvents{flex:1;min-height:0;overflow:auto;padding:8px 12px}
       .dsh-remote-ops__diagnosticEvents>details{padding:10px 0;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb)}.dsh-remote-ops__diagnosticEvents summary{cursor:pointer;overflow-wrap:anywhere}.dsh-remote-ops__diagnosticEvents time{float:right;font-size:12px;color:var(--dsw-alias-label-secondary,#667085)}
@@ -476,7 +477,7 @@ window.__ModuleLoader__.load({
       let stage = pathname.endsWith("/state") ? "state-refresh" : pathname.endsWith("/terminal") ? "terminal-output" : "request";
       if (pathname.endsWith("/update")) {
         let action; try { action = JSON.parse(init?.body ?? "{}").action; } catch { /* The server validates request bodies. */ }
-        stage = { settings: "update-settings", check: "update-check", install: "update-install" }[action] ?? "update-status";
+        stage = { settings: "update-settings", check: "update-check", install: "update-install", resume: 'update-install', 'restart-download': 'update-install' }[action] ?? "update-status";
       }
       if (stage === "update-install") updateRecovery.begin();
       const timeoutMs = stage === "terminal-output" ? 35000 : ["state-refresh", "update-status", "update-install"].includes(stage) ? 15000 : ["update-check", "update-settings"].includes(stage) ? 45000 : 0;
@@ -507,7 +508,7 @@ window.__ModuleLoader__.load({
     const refreshNotices = createRefreshNoticeGate((() => { try { return sessionStorage; } catch { return undefined; } })());
     const updateRecovery = createUpdateRecovery((() => { try { return sessionStorage; } catch { return undefined; } })());
     const requestErrorDetails = message => h(React.Fragment, null, h("strong", null, message.split("\n")[0]), h("details", null, h("summary", null, "错误详情"), h("div", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, message.split("\n").slice(1).join("\n") || message)));
-    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.19.3", update: { currentVersion: "0.19.3", latestVersion: "0.19.3", updateAvailable: false } };
+    const empty = { groups: [], environments: [], quickGroups: [], quickCommands: [], sessions: [], events: [], bound: false, pluginName: "dsh-remote-ops", pluginVersion: "0.20.0", update: { currentVersion: "0.20.0", latestVersion: "0.20.0", updateAvailable: false } };
     const terminalScreenModel = (value, rows = 40, columns = 160, options = {}) => {
       const source = String(value ?? "");
       let rendition = {};
@@ -1307,6 +1308,29 @@ window.__ModuleLoader__.load({
       return h("div", { className: "dsh-remote-ops__modalBackdrop" }, h("section", { className: "dsh-remote-ops__modal", role: "dialog", "aria-modal": false, "aria-label": title, tabIndex: -1, ref: dialog, onKeyDown: key },
         h("div", { className: "dsh-remote-ops__quickModalHead" }, h("strong", null, title), h("button", { type: "button", className: "dsh-remote-ops__drawerClose", "aria-label": closeLabel ?? `关闭${title}`, disabled: closeDisabled, onClick: onClose }, h(IconCloseOutline16, { "aria-hidden": true }))), children));
     }
+    const updateDownloadModel = (download, now = Date.now()) => {
+      const bytes = value => value >= 1e6 ? `${(value / 1e6).toFixed(1)} MB` : value >= 1e3 ? `${(value / 1e3).toFixed(1)} KB` : `${Math.max(0, Math.floor(value || 0))} B`;
+      const total = download.totalBytes > 0 ? download.totalBytes : null, received = Math.max(0, download.downloadedBytes || 0);
+      const percent = total ? Math.min(100, Math.floor(received / total * 100)) : null;
+      const speed = download.status === 'downloading' && download.bytesPerSecond > 0 ? `${bytes(download.bytesPerSecond)}/s` : '';
+      const eta = speed && download.etaSeconds > 0 ? download.etaSeconds >= 60 ? `预计剩余 ${Math.ceil(download.etaSeconds / 60)} 分钟` : `预计剩余 ${download.etaSeconds} 秒` : '';
+      const retryIn = download.retryAt ? Math.max(0, Math.ceil((Date.parse(download.retryAt) - now) / 1000)) : 0;
+      const title = { downloading: '正在下载', retrying: '等待重试', paused: '下载未完成', verifying: '正在校验', verified: '下载已完成', invalid: '文件未通过校验' }[download.status] || '下载安装包';
+      const detail = download.status === 'retrying' ? `${retryIn} 秒后重试 · 第 ${download.retryCount}/${download.maxRetries} 次`
+        : download.status === 'paused' ? received ? download.resumable ? `已保留 ${bytes(received)}，可继续下载` : `已保存 ${bytes(received)}；下载源未提供续传标识，重试将从头下载` : '可重试下载'
+        : download.status === 'verified' ? '校验通过后安装，完成热加载才表示新版生效' : '';
+      return { title: `${title} v${download.version}`, percent, total, received, detail,
+        metrics: [total ? `${bytes(received)} / ${bytes(total)}` : `已下载 ${bytes(received)}`, speed, eta].filter(Boolean).join(' · ') };
+    };
+    function UpdateDownloadProgress({ download }) {
+      const view = updateDownloadModel(download);
+      return h('div', { className: 'dsh-remote-ops__updateDownload', 'aria-label': 'GitHub 安装包下载' },
+        h('div', { className: 'dsh-remote-ops__updateDownloadHeading' }, h('strong', null, view.title), view.percent !== null ? h('span', null, `${view.percent}%`) : null),
+        h('progress', { max: view.total ?? 1, ...(view.total ? { value: Math.min(view.received, view.total) } : {}), 'aria-label': '安装包下载进度', 'aria-valuetext': view.metrics }),
+        h('div', { className: 'dsh-remote-ops__muted' }, view.metrics),
+        view.detail ? h('p', { role: 'status', 'aria-live': 'polite' }, view.detail) : null,
+        download.message && ['retrying', 'downloading'].includes(download.status) ? h('small', { className: 'dsh-remote-ops__muted' }, download.message.replace(/^UPDATE_[A-Z_]+:\s*/, '')) : null);
+    }
     function UpdateDialog({ onClose, onStatus, embedded = false, visible = true }) {
       const [data, setData] = useState(null), [draft, setDraft] = useState({ source: "github", url: "" });
       const [pending, setPending] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
@@ -1363,10 +1387,14 @@ window.__ModuleLoader__.load({
       const dirty = data && ["source", ...(draft.source === "custom" ? ["url"] : [])].some(key => draft[key] !== data.settings[key]);
       const phases = { checking: "正在检查版本…", downloading: "正在下载安装包…", verifying: "正在校验安装包…", "waiting-install": "等待当前任务结束后开始安装…", "preparing-install": "正在保留当前连接和运行状态…", installing: "正在安装，请稍候…", "install-stalled": "安装结果尚未确认，请刷新更新状态", ready: "安装完成", waiting: "等待任务结束后自动应用…", preparing: "正在准备新版运行环境…", reloading: "正在切换运行环境，连接将自动恢复…", applied: "新版已生效，无需重启 DSH", "reload-failed": "热加载未完成", "restart-required": "此版本需要重启 DSH", failed: "更新未完成", idle: "" };
       const updateError = error || pollError || (data?.error ? data.requestFailure ? formatRequestFailure(data.requestFailure) : `插件更新失败\n${safeDiagnosticText(data.error)}` : "");
+      const canContinue = data?.download?.canContinue && !data.needsActivation;
+      const installAction = canContinue ? 'resume' : 'install';
+      const installLabel = data?.needsActivation && !data.restartRequired ? '重试应用已安装版本' : busy && ['downloading', 'download-retrying'].includes(data?.phase) ? '下载中…' : canContinue ? data.download.status === 'verified' ? '继续安装' : data.download.resumable ? '继续下载' : '重试下载' : '检查并更新';
       return h(embedded ? "section" : ModalDialog, embedded ? { className: "dsh-remote-ops__settingsBody", "aria-label": "插件更新" } : { title: "插件更新", onClose },
         h("p", { className: "dsh-remote-ops__muted" }, "手动检查并安装更新。任务结束后自动热加载，保留当前对话、连接和已保存配置。"),
         data ? h(React.Fragment, null,
           h("div", { className: "dsh-remote-ops__updateVersions" }, h("span", null, "当前运行", h("strong", null, `v${data.currentVersion}`)), h("span", null, "已安装", h("strong", null, `v${data.installedVersion}`))),
+          data.download ? h(UpdateDownloadProgress, { download: data.download }) : null,
           data.hotReload?.pending ? h("p", { role: "status" }, data.hotReload.blockers.length ? `等待：${data.hotReload.blockers.join("、")}。完成后自动应用。` : "即将应用新版，请稍候…") : null,
           data.restartRequired ? h("p", { role: "status" }, "新版已安装，请手动重启 DSH 并刷新网页。") : null,
           h("form", { onSubmit: event => { event.preventDefault(); void run("settings"); } },
@@ -1376,11 +1404,13 @@ window.__ModuleLoader__.load({
             h("div", { className: "dsh-remote-ops__webActions" }, h("button", { type: "submit", disabled: busy || (!dirty && !data.error) }, "保存更新来源"))),
           data.checkedAt ? h("p", { className: "dsh-remote-ops__muted" }, `最近检查：${new Date(data.checkedAt).toLocaleString()}`) : null,
           h("div", { className: "dsh-remote-ops__webActions" },
-            h("button", { type: "button", disabled: busy || dirty || data.restartRequired || !data.canInstall, className: "dsh-remote-ops__primaryAction", onClick: () => void run("install") }, data.needsActivation && !data.restartRequired ? "重试应用已安装版本" : "检查并更新"),
+            h("button", { type: "button", disabled: busy || dirty || data.restartRequired || !data.canInstall, className: "dsh-remote-ops__primaryAction", onClick: () => void run(installAction) }, installLabel),
             h("button", { type: "button", disabled: busy || dirty || data.restartRequired, onClick: () => void run("check") }, "仅检查版本")),
+          canContinue && !busy && !dirty && data.download.downloadedBytes > 0 ? h('details', null, h('summary', null, '下载选项'),
+            h('button', { type: 'button', disabled: data.restartRequired || !data.canInstall, onClick: () => void run('restart-download') }, '重新下载')) : null,
           dirty ? h("p", { className: "dsh-remote-ops__muted" }, "请先保存更新来源。") : null,
           !data.canInstall ? h("p", null, "当前 DSH 未提供插件管理服务，可检查版本并通过 dsh plugin 手动安装。") : null,
-          busy || data.phase === "applied" ? h("p", { role: "status", "aria-live": "polite" }, pollError ? "暂时无法确认更新状态，请使用下方按钮重新查询。" : phases[data.phase] || "正在处理…") : null
+          (busy || data.phase === "applied") && !(data.download && ['downloading', 'download-retrying', 'verifying'].includes(data.phase) && !pollError) ? h("p", { role: "status", "aria-live": "polite" }, pollError ? "暂时无法确认更新状态，请使用下方按钮重新查询。" : phases[data.phase] || "正在处理…") : null
         ) : h("p", { role: "status" }, error || pollError ? "无法读取更新配置" : "正在读取更新配置…"),
         h("button", { type: "button", disabled: statusPending, onClick: () => void refreshStatus() }, statusPending ? "正在刷新更新状态…" : "刷新更新状态"),
         notice ? h("p", { role: "status" }, notice) : null,

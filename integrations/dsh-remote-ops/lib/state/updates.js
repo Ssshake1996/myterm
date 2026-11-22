@@ -3,6 +3,7 @@ import { reloadBlockers } from "../hot-reload.js";
 import { sessionError } from "../common.js";
 import { safeDiagnosticText } from "../http-diagnostics.js";
 import { PLUGIN_VERSION } from "../version.js";
+import { readGitHubDownload, githubDownloadProgress } from '../github-download.js';
 import { UPDATE_PACKAGE, UPDATE_CACHE_MS, compareVersions, normalizeUpdateSettings, readUpdateSettings, writeUpdateSettings, fetchLatestRelease, downloadRelease } from "../release.js";
 
 export async function monitorInstall(state, operation, timeoutMs = 10 * 60 * 1000) {
@@ -19,7 +20,7 @@ export async function monitorInstall(state, operation, timeoutMs = 10 * 60 * 100
 export const withUpdates = (Base) => class UpdatesLayer extends Base {
   updateProgress() {
     return { ...this.release, phase: this.updatePhase ?? "idle", operationId: this.updateOperationId ?? null,
-      startedAt: this.updateStartedAt ?? null, busy: Boolean(this.updatePromise || this.releaseCheckPromise || this.updateSettingsWrite || this.reloadGate || ["waiting", "preparing", "reloading"].includes(this.updatePhase)) };
+      startedAt: this.updateStartedAt ?? null, download: this.updateDownloadProgress ?? null, busy: Boolean(this.updatePromise || this.releaseCheckPromise || this.updateSettingsWrite || this.reloadGate || ["waiting", "preparing", "reloading"].includes(this.updatePhase)) };
   }
   async loadUpdateSettings() {
     if (!this.updateSettingsPromise) this.updateSettingsPromise = readUpdateSettings(this.base).then(value => this.updateSettings = value).catch(error => { this.updateSettingsPromise = undefined; throw error; });
@@ -32,11 +33,15 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
     const bundles = await this.updateManager?.listBundles();
     const installedVersion = bundles?.find(bundle => bundle.name === UPDATE_PACKAGE)?.version ?? PLUGIN_VERSION;
     const needsActivation = installedVersion !== PLUGIN_VERSION;
+    // Local cache inspection only; opening settings never contacts GitHub.
+    let download = settings.source === 'github' ? this.updateDownloadProgress : null;
+    if (settings.source === 'github' && !download) download = githubDownloadProgress(await readGitHubDownload(this.base));
+    if (download && compareVersions(download.version, installedVersion) <= 0 && !this.updatePromise) download = null;
     const pending = Boolean(this.hotReload?.supported) && (needsActivation && ["waiting", "preparing", "reloading"].includes(this.updatePhase) || ["waiting-install", "preparing-install"].includes(this.updatePhase));
     return { ...this.updateProgress(), settings, currentVersion: PLUGIN_VERSION, installedVersion, needsActivation,
       restartRequired: needsActivation && (!this.hotReload?.supported || this.updatePhase === "restart-required"),
       hotReload: { supported: Boolean(this.hotReload?.supported), pending, blockers: pending ? reloadBlockers(this) : [] },
-      phase: this.updatePhase ?? "idle", busy: Boolean(this.updatePromise || this.releaseCheckPromise || this.updateSettingsWrite || this.reloadGate || pending), checkedAt: this.releaseCheckedAt ? new Date(this.releaseCheckedAt).toISOString() : null, canInstall: Boolean(this.updateManager), error: settingsError ?? this.updateError ?? null, requestFailure: settingsError ? null : this.updateFailure ?? null };
+      download, phase: this.updatePhase ?? (download?.canContinue ? 'download-paused' : 'idle'), busy: Boolean(this.updatePromise || this.releaseCheckPromise || this.updateSettingsWrite || this.reloadGate || pending), checkedAt: this.releaseCheckedAt ? new Date(this.releaseCheckedAt).toISOString() : null, canInstall: Boolean(this.updateManager), error: settingsError ?? this.updateError ?? null, requestFailure: settingsError ? null : this.updateFailure ?? null };
   }
 
   async saveUpdateSettings(value) {
@@ -49,6 +54,7 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
       this.updateSettings = settings; this.updateSettingsPromise = Promise.resolve(settings);
       this.release = { currentVersion: PLUGIN_VERSION, latestVersion: PLUGIN_VERSION, updateAvailable: false };
       this.releaseCheckedAt = 0; this.updateError = null; this.updateFailure = null; this.updatePhase = "idle";
+      this.updateDownloadProgress = null;
     } finally { this.updateSettingsWrite = false; }
     return this.updateStatus();
   }
@@ -70,21 +76,30 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
     return this.releaseCheckPromise;
   }
 
-  upgrade() {
+  upgrade(options = {}) {
     if (this.updatePromise) return this.updatePromise;
     this.updateOperationId = randomUUID(); this.updateStartedAt = new Date().toISOString();
-    this.updatePromise = this.performUpgrade().then(value => ({ ...value, busy: Boolean(value.hotReload?.pending) })).catch(error => { this.updatePhase = "failed"; this.updateError = error.message; this.updateFailure = error.requestFailure ?? null; throw error; }).finally(() => { this.updatePromise = undefined; });
+    this.updatePromise = this.performUpgrade(options).then(value => ({ ...value, busy: Boolean(value.hotReload?.pending) })).catch(error => { this.updatePhase = "failed"; this.updateError = error.message; this.updateFailure = error.requestFailure ?? null; throw error; }).finally(() => { this.updatePromise = undefined; });
     return this.updatePromise;
   }
 
-  async performUpgrade() {
+  async performUpgrade({ resume = false, restartDownload = false } = {}) {
     if (this.disposed) throw sessionError("UPDATE_CANCELLED", "插件已关闭");
     const before = await this.updateStatus();
     if (before.needsActivation) {
       if (before.hotReload?.supported && !before.restartRequired) this.hotReload.schedule(before.installedVersion);
       return { ...await this.updateStatus(), updated: false };
     }
-    const release = await this.checkForUpdate(true, true);
+    let release;
+    if (resume && (await this.loadUpdateSettings()).source === 'github') {
+      const saved = await readGitHubDownload(this.base);
+      if (!saved || saved.status === 'invalid') throw sessionError('UPDATE_RESUME_UNAVAILABLE', '没有可继续的下载，请重新检查版本');
+      release = { ...saved.release, currentVersion: PLUGIN_VERSION, updateAvailable: compareVersions(saved.release.latestVersion, PLUGIN_VERSION) > 0 };
+      // An explicit check can refresh a replaced asset without changing the pinned version.
+      if (this.releaseCheckedAt && this.release?.source === 'github' && this.release.latestVersion === release.latestVersion) release = this.release;
+      this.release = release; this.updateError = null; this.updateFailure = null; this.updatePhase = 'checking';
+      this.updateDownloadAbort ??= new AbortController();
+    } else release = await this.checkForUpdate(true, true);
     if (!release.updateAvailable) return { ...await this.updateStatus(), updated: false };
     if (!this.updateManager) throw sessionError("UPDATE_MANAGER_UNAVAILABLE", "当前 DSH 未提供插件管理服务，请通过 dsh plugin 安装更新");
     const manager = this.updateManager;
@@ -92,7 +107,8 @@ export const withUpdates = (Base) => class UpdatesLayer extends Base {
     const bundle = (await manager.listBundles()).find(item => item.name === UPDATE_PACKAGE);
     if (!bundle?.installed) throw sessionError("UPDATE_PROFILE_NOT_FOUND", "当前 profile 未安装 Remote Ops，不能自动修改其他 profile");
     if (compareVersions(bundle.version, release.latestVersion) >= 0) return { ...await this.updateStatus(), updated: false };
-    const downloaded = await downloadRelease(release, this.base, { signal: this.updateDownloadAbort.signal, onPhase: phase => this.updatePhase = phase });
+    const downloaded = await downloadRelease(release, this.base, { signal: this.updateDownloadAbort.signal, restartDownload,
+      onPhase: phase => this.updatePhase = phase, onProgress: progress => this.updateDownloadProgress = progress });
     if (this.disposed) throw sessionError("UPDATE_CANCELLED", "插件已关闭，未执行安装");
     await this.hotReload?.prepareInstall?.();
     this.updatePhase = "installing";

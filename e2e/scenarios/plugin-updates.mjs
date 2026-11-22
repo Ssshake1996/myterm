@@ -22,6 +22,25 @@ export const updateScenario={id:'plugin-updates',title:'手动更新源设置、
       await p.emulateMedia({colorScheme:'dark'});await p.setViewportSize({width:390,height:844});assert.ok(await dialog().evaluate(n=>n.scrollWidth-n.clientWidth<=1));await t.shot('update-sources-narrow');
       await p.getByRole('button',{name:'返回工作区',exact:true}).click();await p.getByLabel('终端输入',{exact:true}).waitFor();
     });
+    await t.step('GitHub 下载显示进度、保留失败偏移并以续传动作重试',async()=>{
+      let action;
+      let status={settings:{source:'github',url:''},currentVersion:info.pluginVersion,installedVersion:info.pluginVersion,busy:true,canInstall:true,phase:'downloading',download:{source:'github',version:'99.0.0',status:'downloading',downloadedBytes:64000000,totalBytes:100000000,bytesPerSecond:2000000,etaSeconds:18,canContinue:true,resumable:true}};
+      await p.route('**/api/dsh-remote-ops/update',async route=>{
+        if(route.request().method()==='POST'){action=route.request().postDataJSON().action;status={...status,busy:true,phase:'downloading',download:{...status.download,status:'downloading'}};}
+        await route.fulfill({json:status});
+      });
+      try {
+        await open();await dialog().getByText('64%',{exact:true}).waitFor();assert.equal(await dialog().getByLabel('安装包下载进度').getAttribute('value'),'64000000');
+        assert.match(await dialog().innerText(),/2.0 MB\/s/);assert.ok(await dialog().evaluate(n=>n.scrollWidth-n.clientWidth<=1));await t.shot('github-download-progress-narrow');
+        status={...status,phase:'download-retrying',download:{...status.download,status:'retrying',retryCount:1,maxRetries:3,retryAt:new Date(Date.now()+5000).toISOString()}};
+        await dialog().getByText(/第 1\/3 次/).waitFor();assert.equal(await dialog().getByRole('alert').count(),0);
+        status={...status,busy:false,phase:'failed',error:'网络中断，进度已保留',download:{...status.download,status:'paused'}};
+        await dialog().getByRole('button',{name:'继续下载',exact:true}).waitFor();await p.getByRole('button',{name:'返回工作区',exact:true}).click();await open();
+        await dialog().getByRole('button',{name:'继续下载',exact:true}).click();assert.equal(action,'resume');
+        status={...status,busy:false,phase:'idle',download:{...status.download,totalBytes:null,bytesPerSecond:0,status:'paused'}};
+        await dialog().getByRole('button',{name:'刷新更新状态',exact:true}).click();await dialog().locator('progress:not([value])').waitFor();
+      } finally { await p.unroute('**/api/dsh-remote-ops/update');await p.getByRole('button',{name:'返回工作区',exact:true}).click();await p.reload();await p.locator('html[data-e2e-ready=true]').waitFor();await p.getByRole('button',{name:'Remote Ops',exact:true}).click(); }
+    });
     await t.step('安装期间关闭与重新加载前端后恢复进度，只派发一次安装',async()=>{
       await p.setViewportSize({width:1280,height:800});
       let installs=0,finish;

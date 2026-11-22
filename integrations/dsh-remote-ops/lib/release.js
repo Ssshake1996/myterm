@@ -3,13 +3,15 @@ import { mkdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { createGunzip } from "node:zlib";
 import { Readable } from 'node:stream';
+import { createReadStream } from 'node:fs';
+import { downloadGitHubRelease, MAX_UPDATE_BYTES } from './github-download.js';
+export { MAX_UPDATE_BYTES } from './github-download.js';
 import { PLUGIN_NAME, PLUGIN_VERSION, RELEASE_REPOSITORY } from "./version.js";
 import { sessionError } from "./common.js";
 import { requestFailure } from "./http-diagnostics.js";
 
 export const UPDATE_CACHE_MS = 10 * 60 * 1000;
 export const UPDATE_PACKAGE = "@dsh/remote-ops";
-export const MAX_UPDATE_BYTES = 512 * 1024 * 1024;
 const RELEASE_API = `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/latest`;
 const defaults = { source: "github", url: "" };
 const fail = (code, message) => sessionError(code, message);
@@ -99,7 +101,7 @@ export async function fetchUpdateBytes(address, { limit = 256 * 1024, timeoutMs 
     }
     throw fail("UPDATE_DOWNLOAD_FAILED", "更新地址重定向次数过多");
   } catch (error) {
-    const failure = timeout.aborted ? fail("UPDATE_CHECK_TIMEOUT", "访问更新源超时，请检查内网地址和网络连接")
+    const failure = timeout.aborted ? fail("UPDATE_CHECK_TIMEOUT", "访问更新源超时，请检查更新地址和 DSH 的网络连接")
       : signal?.aborted ? fail("UPDATE_CANCELLED", "插件已关闭，更新下载已取消")
       : error.code?.startsWith("UPDATE_") ? error : fail("UPDATE_DOWNLOAD_FAILED", "无法访问更新源，请检查网络、地址及 DSH 主机的证书配置");
     failure.requestFailure = requestFailure({ url: url.href, status, stage, responseSummary, cause: failure.message });
@@ -119,7 +121,7 @@ export async function fetchLatestRelease(settings = defaults, options = {}) {
   const config = normalizeUpdateSettings(settings), custom = config.source !== "github";
   const origin = config.source === "custom" ? new URL(config.url).origin : undefined;
   const address = custom ? config.url : RELEASE_API;
-  const bytes = await fetchUpdateBytes(address, { ...options, origin, stage: "update-manifest" });
+  const bytes = await fetchUpdateBytes(address, { ...(custom ? {} : { timeoutMs: 30000 }), ...options, origin, stage: "update-manifest" });
   try {
   let payload;
   try { payload = JSON.parse(bytes.toString("utf8")); } catch { throw fail("UPDATE_METADATA_INVALID", "更新入口必须返回 JSON 版本清单"); }
@@ -127,18 +129,21 @@ export async function fetchLatestRelease(settings = defaults, options = {}) {
   const version = custom ? payload.version : String(payload.tag_name ?? "").replace(/^dsh-remote-ops-v/, "");
   parseReleaseVersion(version);
   const assetName = `dsh-remote-ops-v${version}.tgz`, checksumName = `SHA256SUMS-dsh-remote-ops-v${version}.txt`;
-  let asset, checksum;
+  let asset, checksum, github = {};
   if (custom) {
     if (payload.schemaVersion !== 1 || payload.package !== UPDATE_PACKAGE) throw fail("UPDATE_METADATA_INVALID", "版本清单必须使用 schemaVersion 1 和 @dsh/remote-ops 包名");
     asset = assetUrl(payload.asset, config.url);
     checksum = assetUrl(payload.checksum, config.url);
   } else {
     if (payload.draft || payload.prerelease) throw fail("UPDATE_METADATA_INVALID", "只安装正式稳定版本");
-    const find = name => Array.isArray(payload.assets) && payload.assets.find(item => item?.name === name)?.browser_download_url;
+    const find = name => Array.isArray(payload.assets) && payload.assets.find(item => item?.name === name);
     if (!find(assetName) || !find(checksumName)) throw fail("UPDATE_ASSET_MISSING", "Release 缺少 tgz 或 SHA256 校验文件");
-    asset = httpUrl(find(assetName)).href; checksum = httpUrl(find(checksumName)).href;
+    const item = find(assetName);
+    asset = httpUrl(item.browser_download_url).href; checksum = httpUrl(find(checksumName).browser_download_url).href;
+    if (item.size !== undefined && (!Number.isSafeInteger(item.size) || item.size <= 0 || item.size > MAX_UPDATE_BYTES)) throw fail('UPDATE_TOO_LARGE', 'GitHub 安装包大小无效或超过限制');
+    github = { assetId: item.id, assetSize: item.size, assetUpdatedAt: item.updated_at, assetDigest: item.digest };
   }
-  return { currentVersion: PLUGIN_VERSION, latestVersion: version, updateAvailable: compareVersions(version, PLUGIN_VERSION) > 0, assetUrl: asset, checksumUrl: checksum, assetName, source: config.source, origin };
+  return { currentVersion: PLUGIN_VERSION, latestVersion: version, updateAvailable: compareVersions(version, PLUGIN_VERSION) > 0, assetUrl: asset, checksumUrl: checksum, assetName, source: config.source, origin, ...github };
   } catch (error) {
     error.requestFailure = requestFailure({ url: address, status: 200, stage: "update-manifest", responseSummary: bytes.toString("utf8"), cause: error.message });
     throw error;
@@ -153,12 +158,23 @@ export function expectedChecksum(text, assetName) {
 
 // Read metadata only; never extract an unverified archive or execute package code.
 export async function inspectUpdatePackage(bytes, version) {
+  return inspectUpdateStream(Readable.from([bytes]), version, bytes.length);
+}
+
+export async function inspectUpdateFile(path, version) {
+  const stream = createReadStream(path);
+  try { return await inspectUpdateStream(stream, version); } finally { stream.destroy(); }
+}
+
+async function inspectUpdateStream(stream, version, size = 0) {
   // Scan browser binaries without retaining an entire expanded tar in memory.
-  if (bytes.length > MAX_UPDATE_BYTES) throw fail('UPDATE_TOO_LARGE', '更新文件超过大小限制');
+  if (size > MAX_UPDATE_BYTES) throw fail('UPDATE_TOO_LARGE', '更新文件超过大小限制');
   let manifest, manifestSeen = false, header = Buffer.alloc(0), remaining = 0, padding = 0, capture = false, ended = false, total = 0;
   let parts = [];
   try {
-    for await (const chunk of Readable.from([bytes]).pipe(createGunzip())) {
+    const gunzip = createGunzip();
+    stream.on('error', error => gunzip.destroy(error));
+    for await (const chunk of stream.pipe(gunzip)) {
       total += chunk.length;
       if (total > 1024 * 1024 * 1024) throw fail('UPDATE_PACKAGE_INVALID', '安装包解压大小超限');
       for (let offset = 0; offset < chunk.length && !ended;) {
@@ -194,7 +210,11 @@ export async function inspectUpdatePackage(bytes, version) {
 export async function downloadRelease(release, root, options = {}) {
   const { onPhase = () => {}, ...network } = options;
   const read = (location, extra) => fetchUpdateBytes(location, { ...network, origin: release.origin, ...extra });
-  const checksum = expectedChecksum((await read(release.checksumUrl, { limit: 64 * 1024, stage: "update-checksum" })).toString(), release.assetName);
+  const checksum = expectedChecksum((await read(release.checksumUrl, { ...(release.source === 'github' ? { timeoutMs: 30000 } : {}), limit: 64 * 1024, stage: "update-checksum" })).toString(), release.assetName);
+  if (release.source === 'github') {
+    if (release.assetDigest && release.assetDigest !== `sha256:${checksum}`) throw fail('UPDATE_ASSET_CHANGED', 'GitHub 安装包与 SHA256 文件不一致，请重新检查版本');
+    return downloadGitHubRelease(release, root, { ...options, checksum, verifyPackage: path => inspectUpdateFile(path, release.latestVersion) });
+  }
   onPhase("downloading");
   const bytes = await read(release.assetUrl, { limit: MAX_UPDATE_BYTES, timeoutMs: 600000, stage: "update-package" });
   onPhase("verifying");
