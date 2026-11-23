@@ -4,6 +4,7 @@ import { recordingUrl } from './browser-recordings.js';
 import { observeBrowser, executeObservedStep, closeBrowserMcp } from './browser-mcp.js';
 import {installBrowserFocus} from './browser-focus.js';
 import {releaseBrowserPointer} from './browser-view.js';
+import {clearTargetHighlight, showTargetHighlight} from './browser-highlight.js';
 
 const finished = job => !job || ["completed", "failed", "unknown", "stopped"].includes(job.status);
 export class BrowserSessions {
@@ -39,6 +40,7 @@ export class BrowserSessions {
     const title=()=>{const url=page.url();if(typeof page.title==='function')void page.title().then(value=>{if(record.context===context&&record.pages.get(id)===page&&page.url()===url){record.pageTitles??=new Map();record.pageTitles.set(id,value);}}).catch(()=>{});};
     page.on('domcontentloaded',title);title();
     page.on('framenavigated',frame=>{
+      if (context === record.context && frame === page.mainFrame() && record.targetHighlight?.page === page) void clearTargetHighlight(record);
       if (context !== record.context || id !== record.activePageId || frame !== page.mainFrame()) return;
       record.revision = (record.revision ?? 0) + 1;
       record.navigationRevision = (record.navigationRevision ?? 0) + 1;
@@ -49,6 +51,7 @@ export class BrowserSessions {
     page.on("dialog", dialog => { if(context===record.context)record.dialog = dialog; });
     page.on("close", () => {
       if (record.switching || record.context !== context) return;
+      if (record.targetHighlight?.page === page) void clearTargetHighlight(record);
       const order = [...record.pages.keys()], index = order.indexOf(id);
       record.pages.delete(id);
       if (record.activePageId === id) record.activePageId = order[index + 1] ?? order[index - 1];
@@ -149,6 +152,7 @@ export class BrowserSessions {
   snapshot(owner) { return { sites: this.sites, flows: this.flows, preferences:this.preferences, activeBrowserId:this.active?.get(owner)??null, sessions: [...this.sessions.values()].filter(record => record.owner === owner).map(record => this.publicSession(record)) }; }
   async navigate(owner,id,action,value,source='human') {
     const r=this.session(owner,id);
+    await clearTargetHighlight(r);
     await r.inputQueue; await releaseBrowserPointer(r);
     if(r.closed||r.switching)throw browserError('BROWSER_CLOSED','This browser was closed or is changing display');
     const page=r.pages.get(r.activePageId);
@@ -176,7 +180,7 @@ export class BrowserSessions {
     catch(error) { r.switching=false;throw error; }
     const urls=[...r.pages].map(([id,page])=>[id,page.url()]),selected=r.activePageId;
     try {
-      await r.inputQueue;await this.saveStorage(r);await r.view?.stop();await closeBrowserMcp(r);await r.context.close();
+      await clearTargetHighlight(r);await r.inputQueue;await this.saveStorage(r);await r.view?.stop();await closeBrowserMcp(r);await r.context.close();
       const context=await this.launch(r.site,owner,display,launchOptions);r.context=context;r.pages=new Map();r.closed=false;
       r.display = display;
       r.viewportHint = undefined;
@@ -268,6 +272,7 @@ export class BrowserSessions {
       job.status = job.effectStarted ? "unknown" : job.stop ? "stopped" : "failed";
       if(job.status!=="stopped")job.error = { code: error.code ?? "BROWSER_OPERATION_FAILED", message: this.redact(record, error.message).slice(0, 1800), ...(job.effectStarted ? { note: "An effect may already have happened. Inspect the page; this step will not be retried automatically" } : {}) };
     } finally {
+      await clearTargetHighlight(record);
       job.finishedAt = new Date().toISOString();
       record.history.push(this.publicJob(record, job)); record.history = record.history.slice(-15);
       if (!record.closed) await this.saveStorage(record).catch(() => { record.notice = "Unable to save the login session; you may need to log in again after closing the browser"; });
@@ -335,15 +340,19 @@ export class BrowserSessions {
     const clean = value => typeof value === "string" ? this.redact(record, value) : Array.isArray(value) ? value.map(clean) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clean(item)])) : value;
     return { pageId, url: displayUrl(page.url()), title: this.redact(record, await page.title()), ...clean(content) };
   }
-  async testTarget(owner, id, target, pageId) {
+  async testTarget(owner, id, target, pageId, signal) {
     const record = this.session(owner, id);
     pageId ??= record.activePageId;
     const page = record.pages.get(pageId);
     if (record.closed || !page) throw browserError("BROWSER_PAGE_INVALID", "The requested page is no longer open");
     if (record.job?.inFlight) throw browserError("BROWSER_BUSY", "Wait for the current action");
     const locator = locateBrowser(page, target), count = await locator.count();
-    if (count === 1) await locator.highlight();
+    if (count === 1) await showTargetHighlight(record, page, locator, signal);
+    else await clearTargetHighlight(record);
     return { count, unique: count === 1, pageId };
+  }
+  async clearOwnerHighlights(owner) {
+    await Promise.all([...this.sessions.values()].filter(record => record.owner === owner).map(record => clearTargetHighlight(record)));
   }
   async capture(record) {
     const page = record.pages.get(record.activePageId);
@@ -352,6 +361,7 @@ export class BrowserSessions {
     record.screenshot = { at: new Date().toISOString(), pageId: record.activePageId, buffer }; return record.screenshot;
   }
   async closeRecord(record) {
+    await clearTargetHighlight(record);
     // Closing a context dismisses even a chain of modal dialogs and releases pending inputs.
     if(record.dialog){record.dialog=undefined;await record.context.close().catch(()=>{});}
     await record.inputQueue; await releaseBrowserPointer(record);

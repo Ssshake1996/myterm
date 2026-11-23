@@ -7,6 +7,8 @@ description: Browse and operate visible webpages through the Remote Ops plugin i
 
 Use the installed `remote_browser_*` tools. The user and Agent share the same live page in the plugin or an independent window, including during a conversation. Native DSH conversation cancellation stops future steps; an action already dispatched may have taken effect. Keep the browser open after the task unless closing it is part of the user's request.
 
+Locator checks (`remote_browser_read` with `target`) show a brief outline, not browser ownership. It disappears within 1.5 seconds and is cleared automatically when the native conversation finishes, stops or fails. Humans can click, type and scroll throughout. Do not repeat locator checks to keep an outline visible, add takeover controls, close the browser or reload the page just to clear a preview. Use returned `count` / `unique` and fresh observations to verify targets; the outline is only visual feedback.
+
 ## Visible workspace
 
 Enter a URL in **网页** to browse. **设置 → 网页** contains engines and runtime status. **网页 → 收藏** opens saved sites and flows; **操作记录** expands step results below the page. Jobs continue through module/settings changes. A hidden webpage stops frame polling while its browser job continues. Changing display mode asks for confirmation because it reloads the page; unsent forms can be lost. Cancel leaves the current page intact. Version and comfortable/compact density are under **设置 → 通用**.

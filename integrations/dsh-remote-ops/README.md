@@ -2,6 +2,10 @@
 
 DeepSeek Harness plugin for SSH, Windows desktop, web and RESTful API operations. Users and Agents share visible terminals, application windows, webpages and request records.
 
+## Browser locator preview cleanup (v0.20.1)
+
+Locator checks show a brief outline instead of a blue page tint. Previews expire after 1.5 seconds and clear when the conversation finishes, stops or fails. Human and Agent input stays shared; clearing a preview does not close the page, sign out or reset forms.
+
 ## GitHub download progress and resume (v0.20.0)
 
 Choose GitHub Release in **设置 → 更新**, then **检查并更新**. The view shows downloaded bytes, percentage, speed and estimated time remaining; unknown lengths show bytes without a fabricated percentage. Downloads continue when switching workspaces.
@@ -144,10 +148,10 @@ For a 404, first identify whether the failed URL is `/api/dsh-remote-ops/state` 
 
 Open Remote Ops → **设置 → 更新**, save a source, then choose **仅检查版本** (check only) or **检查并更新** (check and install). Choose the default GitHub Release source or an intranet HTTP/HTTPS URL. Clicking a button starts the check; a newer stable version can then be installed. Running and installed versions are shown separately. Compatible updates automatically activate when ongoing work finishes; the view reports the waiting reason and the resulting running version.
 
-Keep `latest.json`, `dsh-remote-ops-v0.20.0.tgz` and `SHA256SUMS-dsh-remote-ops-v0.20.0.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
+Keep `latest.json`, `dsh-remote-ops-v0.20.1.tgz` and `SHA256SUMS-dsh-remote-ops-v0.20.1.txt` in the feed directory. Generate the manifest from the unchanged official release pair:
 
 ```sh
-node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.20.0.tgz
+node integrations/dsh-remote-ops/scripts/create-update-manifest.mjs ./release/dsh-remote-ops-v0.20.1.tgz
 ```
 
 The installed package also includes `scripts/create-update-manifest.mjs`. An optional second argument chooses an existing parent directory's `latest.json`, allowing version subdirectories. The script verifies checksum and package identity, refuses a lower version, and writes the manifest atomically. Upload the tgz/checksum first and publish the manifest last. Serve the directory over HTTP/HTTPS. GitHub Release provides the tgz and SHA256 checksum file.
@@ -275,7 +279,7 @@ Install the release tarball with the official DSH plugin manager. The
 the patch into the profile by hand.
 
 ```sh
-dsh plugin --profile web add ./dsh-remote-ops-v0.20.0.tgz
+dsh plugin --profile web add ./dsh-remote-ops-v0.20.1.tgz
 dsh web
 ```
 

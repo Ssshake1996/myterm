@@ -1,5 +1,9 @@
 # Shared web workspace
 
+## 定位检查提示
+
+Agent 或用户检查定位时只显示短暂边框，最多 1.5 秒，不遮盖网页内容。当前对话正常结束、停止或异常时，插件自动清除定位提示；页面、登录状态和未提交表单保留。边框不是占用状态，期间可以直接点击、输入和滚动，无需接管或刷新网页。
+
 Remote Ops provides a browser in the native DSH right Sidebar. Type a URL to begin; saved sites and flows are optional. DSH manages the Agent and conversation. The user and Agent can operate the same browser session.
 
 

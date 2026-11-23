@@ -54,7 +54,7 @@ async function fixture(t) {
     fill: async text => { writes.push(text); },
     click: async () => { writes.push(value); if (block) await block; },
     press: async key => writes.push(key),
-    highlight: async () => {},
+    highlight: async () => {}, hideHighlight: async () => {},
     waitFor: async () => {},
     innerText: async () => "result test-secret",
   }); };
@@ -76,6 +76,30 @@ async function fixture(t) {
 }
 const until = async predicate => { for (let n = 0; n < 100; n++) { if (predicate()) return; await new Promise(r => setTimeout(r, 5)); } throw new Error("test condition timed out"); };
 const click = value => ({ action: "click", target: { kind: "css", value } });
+
+test('ending one conversation clears its locator preview and preserves other pages', async t => {
+  const {workspace:w,site,page}=await fixture(t);
+  const a=await w.open('a',site.id),b=await w.open('b',site.id);
+  await w.testTarget('a',a.id,{kind:'css',value:'body'});await w.testTarget('b',b.id,{kind:'css',value:'button'});
+  await w.clearOwnerHighlights('a');
+  assert.equal(w.session('a',a.id).targetHighlight,undefined);
+  assert.ok(w.session('b',b.id).targetHighlight);assert.equal(page.isClosed(),false);
+});
+test('native cancellation clears a preview even when no browser job was started', async t => {
+  const {workspace:w,site}=await fixture(t),s=await w.open('owner',site.id),r=w.session('owner',s.id);
+  const controller=new AbortController();w.bindOwnerSignal('owner',controller.signal);
+  await w.testTarget('owner',s.id,{kind:'css',value:'body'});controller.abort();await r.highlightQueue;
+  assert.equal(r.targetHighlight,undefined);assert.equal(r.closed,false);
+});
+test('completed and failed browser flows clear their previews without closing the page', async t => {
+  const {workspace:w,site}=await fixture(t),s=await w.open('owner',site.id),r=w.session('owner',s.id);
+  for(const target of ['go','missing']){
+    await w.testTarget('owner',s.id,{kind:'css',value:'body'});
+    const job=await w.run('owner',s.id,[click(target)],{requestId:target});await job.done;
+    assert.equal(job.status,target==='go'?'completed':'failed');
+    assert.equal(r.targetHighlight,undefined);assert.equal(r.closed,false);
+  }
+});
 
 test("browser optional null fields and blank frame markers normalize without losing empty fills", async t => {
   const { workspace: w, site, writes } = await fixture(t), session = await w.open("owner", site.id);

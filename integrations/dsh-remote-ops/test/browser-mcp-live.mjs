@@ -22,6 +22,18 @@ const act=async(id,snapshot,target,action='click',value)=>{const job=await w.run
 const ref=(s,name)=>{const line=s.snapshot.split('\n').find(line=>line.includes('"'+name+'"'));assert.ok(line,'Missing '+name+' in '+s.snapshot);return line.match(/\[ref=(\w+)\]/)[1];};
 try{
   await w.ready;const session=await w.openUrl('tester',url),r=w.session('tester',session.id),page=r.pages.get(r.activePageId);
+  const plain=await page.screenshot({animations:'disabled'});
+  await w.testTarget('tester',r.id,{kind:'css',value:'body'});
+  assert.ok(r.targetHighlight);
+  await new Promise(resolve=>setTimeout(resolve,1700));await r.highlightQueue;
+  assert.equal(r.targetHighlight,undefined);
+  assert.deepEqual(await page.screenshot({animations:'disabled'}),plain);
+  check('whole-page locator preview expires and restores exact original pixels');
+  await w.testTarget('tester',r.id,{kind:'css',value:'body'});
+  await w.clearOwnerHighlights('tester');
+  assert.equal(r.targetHighlight,undefined);
+  assert.deepEqual(await page.screenshot({animations:'disabled'}),plain);
+  check('conversation end clears the preview without navigation or page changes');
   let s=await w.observeSnapshot('tester',r.id);
   assert.equal(s.engine,'playwright-mcp');assert.match(s.snapshot,/System settings/);assert.doesNotMatch(s.snapshot,/not-for-model/);check('MCP reads menu hierarchy without returning a password');
   let job=await act(r.id,s,{kind:'ref',value:ref(s,'System settings')});assert.equal(job.status,'completed',job.error?.message);

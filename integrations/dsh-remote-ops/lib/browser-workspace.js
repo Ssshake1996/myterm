@@ -152,7 +152,7 @@ export class BrowserWorkspace extends BrowserSessions {
   bindOwnerSignal(owner,signal) {
     const previous=this.ownerSignals.get(owner);if(previous?.signal===signal)return;
     previous?.signal.removeEventListener('abort',previous.abort);
-    const abort=()=>{for(const r of this.sessions.values())if(r.owner===owner&&r.job&&!['completed','failed','unknown','stopped'].includes(r.job.status)){r.job.stop=true;r.job.status=r.job.inFlight?'stopping':'stopped';r.job.wake?.();}};
+    const abort=()=>{void this.clearOwnerHighlights(owner);for(const r of this.sessions.values())if(r.owner===owner&&r.job&&!['completed','failed','unknown','stopped'].includes(r.job.status)){r.job.stop=true;r.job.status=r.job.inFlight?'stopping':'stopped';r.job.wake?.();}};
     this.ownerSignals.set(owner,{signal,abort});signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort();
   }
   persist(name, value) {
